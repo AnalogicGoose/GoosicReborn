@@ -1,0 +1,249 @@
+import SwiftCrossUI
+
+/// Says plainly that the catalog is anonymous, so nobody reads a guest home shelf as "your" mix.
+struct GuestCatalogNotice: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("GUEST")
+                .font(.caption)
+            Text("Live YouTube Music catalog, browsed without an account")
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
+        .padding(8)
+        .background(Color.blue.opacity(0.12))
+        .cornerRadius(6)
+    }
+}
+
+struct GoosicSidebar: View {
+    let model: GoosicAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("GOOSIC")
+                .font(.title2)
+                .padding(.bottom, 8)
+            Text("Your music, in motion")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .padding(.bottom, 8)
+            ForEach(GoosicRoute.allCases, id: \.self) { route in
+                Button(action: { model.navigate(to: route) }) {
+                    HStack(spacing: 8) {
+                        Text(route.symbol)
+                            .frame(width: 20)
+                        Text(route.title)
+                        Spacer()
+                    }
+                    .padding(7)
+                    .background(model.route == route && model.detail == nil ? Color.blue.opacity(0.18) : Color.clear)
+                    .cornerRadius(5)
+                }
+            }
+            Spacer()
+            Divider()
+            HStack(spacing: 7) {
+                Text(model.serviceConnected ? "●" : "○")
+                    .foregroundColor(model.serviceConnected ? .green : .gray)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.serviceConnected ? "Rust service connected" : "Service offline")
+                        .font(.caption)
+                    Text("Guest profile")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                }
+            }
+            Button("Connect to Rust service") { model.connect() }
+                .font(.caption)
+                .padding(.top, 3)
+                .disabled(model.serviceConnected)
+            Text(model.status)
+                .font(.caption2)
+                .foregroundColor(.gray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 3)
+        }
+        .padding(16)
+        .frame(minWidth: 220)
+    }
+}
+
+struct ShelfView: View {
+    let shelf: GoosicShelf
+    let model: GoosicAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(shelf.title)
+                .font(.headline)
+            if let tracks = shelf.trackList {
+                ForEach(tracks) { track in
+                    TrackRow(track: track, context: tracks, model: model)
+                }
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(shelf.cards) { card in
+                            CatalogCardView(card: card, model: model)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct CatalogCardView: View {
+    let card: GoosicCard
+    let model: GoosicAppModel
+
+    private var glyph: String {
+        switch card.action {
+        case .play: return "▶"
+        case .show, .none: return "♪"
+        }
+    }
+
+    var body: some View {
+        Button(action: {
+            switch card.action {
+            case .show(let entity):
+                model.show(entity)
+            case .play(let track):
+                model.play(track)
+            case .none:
+                break
+            }
+        }) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(glyph)
+                    .font(.title)
+                    .frame(width: 148, height: 82, alignment: .center)
+                    .background(Color.blue.opacity(0.16))
+                    .cornerRadius(7)
+                Text(card.title)
+                    .font(.subheadline)
+                Text(card.subtitle)
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+            }
+            .frame(width: 148, alignment: .leading)
+        }
+        .disabled(card.action == nil)
+    }
+}
+
+struct TrackRow: View {
+    let track: GoosicTrack
+    /// The list this row belongs to, so playing it queues its neighbours too.
+    let context: [GoosicTrack]
+    let model: GoosicAppModel
+
+    init(track: GoosicTrack, context: [GoosicTrack] = [], model: GoosicAppModel) {
+        self.track = track
+        self.context = context
+        self.model = model
+    }
+
+    private var isCurrent: Bool { model.currentTrack?.id == track.id }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(isCurrent ? "▶" : "♪")
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(track.title)
+                    if track.explicit {
+                        Text("E")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                }
+                Text(track.secondaryText)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            Spacer()
+            Text(track.duration)
+                .font(.caption)
+                .foregroundColor(.gray)
+            Button("Play") { model.play(track, in: context) }
+                .font(.caption)
+                .disabled(model.playbackTransition != .idle)
+        }
+        .padding(.vertical, 5)
+    }
+}
+
+struct NowPlayingBar: View {
+    let model: GoosicAppModel
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Divider()
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.currentTrack?.title ?? "Nothing playing")
+                        .font(.subheadline)
+                    Text(model.nowPlayingSubtitle)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                Spacer()
+                Button("Previous") { model.previous() }
+                    .disabled(model.playbackTransition != .idle || model.queue.tracks.isEmpty)
+                Button(model.isPaused ? "Play" : "Pause") { model.togglePause() }
+                    .disabled(model.playbackTransition != .idle)
+                Button("Next") { model.next() }
+                    .disabled(model.playbackTransition != .idle || model.queue.tracks.isEmpty)
+                Button(model.queueVisible ? "Hide queue" : "Show queue") { model.toggleQueue() }
+                Button("Release") { model.releasePlayback() }
+                    .disabled(model.playbackTransition != .idle)
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 9)
+            Text(model.status)
+                .font(.caption2)
+                .foregroundColor(.gray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 5)
+        }
+    }
+}
+
+struct QueuePanel: View {
+    let model: GoosicAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Queue")
+                    .font(.headline)
+                Spacer()
+                Text("\(model.queue.tracks.count) track(s)")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            if model.queue.tracks.isEmpty {
+                Text("Empty. Play something from the catalog to build a queue.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            ForEach(model.queue.tracks) { track in
+                HStack {
+                    Text(track.title)
+                    Text("· \(track.artist)")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Spacer()
+                    if track.id == model.currentTrack?.id { Text("Current").font(.caption) }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.gray.opacity(0.10))
+    }
+}

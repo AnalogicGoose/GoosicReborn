@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/goosic-protocol",
+    "crates/goosic-core",
+    "crates/goosic-catalog",
+    "crates/goosic-service",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+rust-version = "1.78"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+ureq = { version = "3", default-features = false, features = ["rustls", "json", "gzip"] }

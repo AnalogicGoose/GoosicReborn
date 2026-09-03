@@ -1,2 +1,55 @@
 # GoosicReborn
-New goosic version
+
+GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCrossUI shell. Rust owns the versioned playback authority and the read-only catalog; the shell talks to it over newline-delimited JSON on a private stdio channel. No legacy GPL source is copied here.
+
+## What works today
+
+- **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust, as an anonymous guest. Albums, playlists, and artists open to their real track lists.
+- **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single WKWebView host. Advertisements are reported as informational markers and are never bypassed.
+- **Enforced ownership.** `goosic-core` allows one playback owner at a time, scopes transitions to a generation, and requires strictly increasing sample sequences.
+
+## Crates and apps
+
+- `goosic-protocol` — the Codable/serde-compatible 0.2.0 request, response, catalog, and event envelopes.
+- `goosic-core` — the playback authority: one owner, lease generations, increasing sample sequences, account-change resets, harmless advertisement markers.
+- `goosic-catalog` — read-only YouTube Music access, split into a pure parser and a guest-only HTTP client. It answers what exists, never who may play.
+- `goosic-service` — one request per stdin line, one response per stdout line, with no diagnostics on stdout.
+- `apps/goosic-swift` — the macOS shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host.
+
+## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and wire contracts, and [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md) for the migration, storage, and licensing boundaries.
+
+## Prerequisites
+
+Rust 1.78+ and Cargo; Swift 5.10+ and macOS 14.0+ for the Swift shell. Swift package resolution needs network access the first time because SwiftCrossUI is pinned to the official `0.9.0` tag. The SwiftCrossUI package exposes optional non-macOS backend dependencies; the Make targets select `AppKitBackend` explicitly for this macOS shell.
+
+## Build, run, and test
+
+```sh
+make test          # Rust workspace tests plus the Swift test target, all offline
+make test-rust-live # opt-in: hits music.youtube.com to check the catalog parser against reality
+make run-swift     # builds the service and launches the shell against it
+```
+
+The service accepts compact JSON lines such as `{"protocolVersion":"0.2.0","requestId":"1","command":"catalog.search","payload":{"query":"daft punk","filter":"songs"}}`. Its stdout is protocol-only; diagnostics, if any, go to stderr.
+
+The shell connects to the service on launch, so Home loads without any manual step. The sidebar button remains the way back if a transport failure drops the child process.
+
+## Current limitations
+
+- **No account.** The catalog is browsed as a guest, so Library has nothing personal to show and there is no sign-in. Account profiles and persistence are phase 4.
+- **No downloads.** The `localDownloadedFile` owner exists in the authority and is enforced against, but nothing implements it yet. That is phase 3.
+- **macOS only.** Windows and Linux playback hosts remain explicit stubs so no renderer can bypass Rust's authority.
+- **No persistence.** Settings, theme, layout, and track-source preferences are not migrated or stored yet.
+- Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
+
+`goosic-service` is a private, one-process-per-app, single-client child reached through inherited stdin/stdout. It is not a daemon or socket service; stdio must never be shared or multiplexed. Generation is freshness authorization within that boundary. Future multiplexing requires an unforgeable per-client capability and active-owner authorization before account resets.
+
+## Migration phases
+
+1. **Done** — protocol/core/service authority and the native shell.
+2. **Done (macOS)** — the official WebView host and its origin-checked bridge; Windows and Linux remain stubs.
+3. **Done** — the live catalog, search, and real playback from the catalog.
+4. **Next** — explicit local-download playback and storage migration.
+5. **Then** — account profiles, media controls, persistence, and production packaging.

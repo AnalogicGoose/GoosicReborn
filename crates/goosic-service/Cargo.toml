@@ -1,0 +1,17 @@
+[package]
+name = "goosic-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+goosic-catalog = { path = "../goosic-catalog" }
+goosic-core = { path = "../goosic-core" }
+goosic-protocol = { path = "../goosic-protocol" }
+serde.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "goosic-service"
+path = "src/main.rs"
