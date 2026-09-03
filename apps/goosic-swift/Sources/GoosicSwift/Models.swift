@@ -153,21 +153,40 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     @SwiftCrossUI.Published var currentTrack: GoosicTrack?
     @SwiftCrossUI.Published var isPaused = true
     @SwiftCrossUI.Published var queueVisible = false
+    /// Confirmed by the player, never assumed from a request.
+    @SwiftCrossUI.Published private(set) var currentTime: Double = 0
+    @SwiftCrossUI.Published private(set) var duration: Double = 0
+    @SwiftCrossUI.Published private(set) var volume: Double = 1
+    @SwiftCrossUI.Published private(set) var isMuted = false
+    @SwiftCrossUI.Published var autoplay = true
     @SwiftCrossUI.Published private(set) var playbackTransition: PlaybackTransition = .idle
     @SwiftCrossUI.Published private(set) var playbackTransitionToken: UInt64 = 0
     @SwiftCrossUI.Published var playbackLabVideoID = ""
     @SwiftCrossUI.Published private(set) var hostStatus = "No official video loaded."
+    @SwiftCrossUI.Published private(set) var hostDiagnostics = "No page loaded."
     /// Every catalog page this session has requested, keyed so a late response cannot land on
     /// the wrong screen.
     @SwiftCrossUI.Published private(set) var pages: [CatalogKey: CatalogLoadState] = [:]
 
     private var client: GoosicServiceClient?
+    /// A seek the user asked for but the player has not confirmed yet. Without this the slider
+    /// snaps back to the live position between a drag and the next bridge event.
+    private var pendingSeek: (position: Double, requestedAt: Date)?
+    /// The video whose end has already advanced the queue, so the player's repeated `ended`
+    /// polls cannot skip several tracks at once.
+    private var endedVideoID: String?
     let officialPlaybackHost: OfficialPlaybackHost
 
     init() {
         officialPlaybackHost = OfficialPlaybackHost()
         officialPlaybackHost.onEvent = { [weak self] event in
             self?.receive(event)
+        }
+        officialPlaybackHost.onDiagnostics = { [weak self] report in
+            self?.hostDiagnostics = report
+        }
+        officialPlaybackHost.onPageAdvanced = { [weak self] finishedVideoID in
+            self?.officialPlayerMovedOn(from: finishedVideoID)
         }
         officialPlaybackHost.onStatus = { [weak self] message in
             self?.hostStatus = message
@@ -354,7 +373,56 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         return text.isEmpty ? track.duration : text
     }
 
+    /// Where the scrubber should sit: the pending seek while it is still settling, otherwise
+    /// the position the player last confirmed.
+    var displayedPosition: Double {
+        if let pending = pendingSeek, Date().timeIntervalSince(pending.requestedAt) < Self.seekSettleWindow {
+            return pending.position
+        }
+        return currentTime
+    }
+
+    /// The scrubber's upper bound. Zero-length media would make an empty range, so it is only
+    /// ever seekable once the player has reported a real duration.
+    var isSeekable: Bool { duration > 0 && playbackState.owner == .officialWebView }
+
+    var elapsedText: String { Self.timeText(displayedPosition) }
+    var durationText: String { duration > 0 ? Self.timeText(duration) : "--:--" }
+
+    private static let seekSettleWindow: TimeInterval = 1.0
+
+    static func timeText(_ seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
+        let total = Int(seconds.rounded(.down))
+        let hours = total / 3_600
+        let minutes = (total % 3_600) / 60
+        let secs = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+        }
+        return String(format: "%d:%02d", minutes, secs)
+    }
+
     // MARK: - Playback
+
+    func seek(to position: Double) {
+        guard isSeekable else { return }
+        let clamped = min(max(position, 0), duration)
+        pendingSeek = (clamped, Date())
+        officialPlaybackHost.seek(to: clamped)
+    }
+
+    func setVolume(_ newVolume: Double) {
+        let clamped = min(max(newVolume, 0), 1)
+        volume = clamped
+        isMuted = false
+        officialPlaybackHost.setVolume(clamped)
+    }
+
+    func toggleMuted() {
+        isMuted.toggle()
+        officialPlaybackHost.setMuted(isMuted)
+    }
 
     func play(_ track: GoosicTrack, in tracks: [GoosicTrack] = []) {
         guard playbackTransition == .idle else {
@@ -378,7 +446,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
         if playbackState.owner == .officialWebView {
             currentTrack = track
-            isPaused = true
+            beginTrack()
             officialPlaybackHost.load(videoID: track.videoID, generation: playbackState.generation)
             return
         }
@@ -395,7 +463,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 return
             }
             self.currentTrack = track
-            self.isPaused = true
+            self.beginTrack()
             self.finishPlaybackTransition(operationToken)
             self.officialPlaybackHost.load(videoID: track.videoID, generation: self.playbackState.generation)
         } failure: { [weak self] _ in
@@ -467,7 +535,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 guard self.isCurrentPlaybackTransition(operationToken, kind: .releasing) else { return }
                 self.apply(response)
                 self.currentTrack = nil
-                self.isPaused = true
+                self.beginTrack()
                 self.hostStatus = "No official video loaded."
                 self.finishPlaybackTransition(operationToken)
                 self.status = "Playback released by Rust authority."
@@ -604,6 +672,16 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         playbackTransition = .idle
     }
 
+    /// Clears everything the previous track confirmed, so no stale position or end marker is
+    /// carried into the next one.
+    private func beginTrack() {
+        isPaused = true
+        currentTime = 0
+        duration = 0
+        pendingSeek = nil
+        endedVideoID = nil
+    }
+
     private func select(_ track: GoosicTrack) {
         if let index = queue.tracks.firstIndex(of: track) {
             queue.currentIndex = index
@@ -629,6 +707,19 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         isPaused = event.state != "playing"
+        currentTime = event.currentTime
+        duration = event.duration
+        volume = event.volume
+        isMuted = event.isMuted
+        if let pending = pendingSeek,
+           abs(event.currentTime - pending.position) < 1.5
+            || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
+            pendingSeek = nil
+        }
+        if event.state == "ended", !event.isAdvertisement, endedVideoID != event.videoID {
+            endedVideoID = event.videoID
+            advanceAfterEnd()
+        }
         if event.isAdvertisement {
             status = "Official host confirmed advertisement playback (informational marker; ads are not bypassed)."
         } else if event.state == "playing" {
@@ -651,6 +742,33 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             // must not overwrite the human-facing host status on every observer tick.
             self?.applyState(response)
         }
+    }
+
+    /// The official app followed its own queue. Treat the requested track as finished and let
+    /// Goosic's queue decide, so the app never plays something the user did not choose.
+    private func officialPlayerMovedOn(from finishedVideoID: String) {
+        guard playbackState.owner == .officialWebView else { return }
+        guard endedVideoID != finishedVideoID else { return }
+        endedVideoID = finishedVideoID
+        isPaused = true
+        advanceAfterEnd()
+    }
+
+    /// Moves to the next queued track when one finishes.
+    ///
+    /// Unlike `next()` this does not wrap: reaching the end of the queue stops, so a
+    /// single-track queue cannot loop forever on its own `ended` event.
+    private func advanceAfterEnd() {
+        guard autoplay else {
+            status = "Track finished. Autoplay is off."
+            return
+        }
+        let nextIndex = queue.currentIndex + 1
+        guard queue.tracks.indices.contains(nextIndex) else {
+            status = "Queue finished."
+            return
+        }
+        play(queue.tracks[nextIndex])
     }
 
     private func applyState(_ response: GoosicResponse) {

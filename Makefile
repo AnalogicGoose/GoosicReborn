@@ -10,14 +10,17 @@ test-rust:
 test-rust-live:
 	cargo test --workspace -- --ignored --nocapture --test-threads=1
 
-build-swift:
-	SCUI_DEFAULT_BACKEND=AppKitBackend swift build --package-path apps/goosic-swift
+# The repository lives under a file-provider-synced directory, which stamps
+# `com.apple.FinderInfo` onto build products and makes codesign refuse to sign the test bundle.
+# Building outside that directory avoids the problem entirely.
+SWIFT_SCRATCH := $(HOME)/Library/Caches/goosic-swift-build
+SWIFT_FLAGS := --package-path apps/goosic-swift --scratch-path $(SWIFT_SCRATCH)
 
-# Downloaded files pick up `com.apple.provenance`, and codesign refuses to sign a test bundle
-# built from sources carrying extended attributes.
+build-swift:
+	SCUI_DEFAULT_BACKEND=AppKitBackend swift build $(SWIFT_FLAGS)
+
 test-swift:
-	xattr -cr apps/goosic-swift/Sources apps/goosic-swift/Tests apps/goosic-swift/Package.swift
-	SCUI_DEFAULT_BACKEND=AppKitBackend swift test --package-path apps/goosic-swift
+	SCUI_DEFAULT_BACKEND=AppKitBackend swift test $(SWIFT_FLAGS)
 
 test: test-rust test-swift
 
@@ -26,4 +29,4 @@ run-service:
 	"$(GOOSIC_SERVICE_PATH)"
 
 run-swift: build-service
-	GOOSIC_SERVICE_PATH="$(CURDIR)/target/debug/goosic-service" SCUI_DEFAULT_BACKEND=AppKitBackend swift run --package-path apps/goosic-swift goosic-swift
+	GOOSIC_SERVICE_PATH="$(CURDIR)/target/debug/goosic-service" SCUI_DEFAULT_BACKEND=AppKitBackend swift run $(SWIFT_FLAGS) goosic-swift

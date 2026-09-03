@@ -203,13 +203,62 @@ struct NowPlayingBar: View {
                     .disabled(model.playbackTransition != .idle)
             }
             .padding(.horizontal, 14)
-            .padding(.bottom, 9)
+            PlaybackTransportBar(model: model)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 9)
             Text(model.status)
                 .font(.caption2)
                 .foregroundColor(.gray)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)
                 .padding(.bottom, 5)
+        }
+    }
+}
+
+/// Position, seek, and volume — all of it reflecting what the official player confirmed rather
+/// than what was requested.
+struct PlaybackTransportBar: View {
+    let model: GoosicAppModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(model.elapsedText)
+                .font(.caption2)
+                .foregroundColor(.gray)
+                .frame(minWidth: 42)
+            if model.isSeekable {
+                Slider(
+                    value: Binding(
+                        get: { model.displayedPosition },
+                        set: { model.seek(to: $0) }
+                    ),
+                    in: 0...model.duration
+                )
+            } else {
+                // A zero-length range is not a valid slider, and nothing is seekable before the
+                // player reports a duration.
+                Text("—")
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity)
+            }
+            Text(model.durationText)
+                .font(.caption2)
+                .foregroundColor(.gray)
+                .frame(minWidth: 42)
+            Button(model.isMuted ? "Unmute" : "Mute") { model.toggleMuted() }
+                .font(.caption2)
+            Slider(
+                value: Binding(
+                    get: { model.isMuted ? 0 : model.volume },
+                    set: { model.setVolume($0) }
+                ),
+                in: 0...1
+            )
+            .frame(width: 90)
+            Button(model.autoplay ? "Autoplay on" : "Autoplay off") { model.autoplay.toggle() }
+                .font(.caption2)
         }
     }
 }

@@ -263,6 +263,12 @@ struct SettingsScreen: View {
                 Text(model.hostStatus)
                     .font(.caption)
                     .foregroundColor(.gray)
+                Text("Page probe")
+                    .font(.headline)
+                    .padding(.top, 8)
+                Text(model.hostDiagnostics)
+                    .font(.caption2)
+                    .foregroundColor(.gray)
                 Text("The status above reports confirmed host events only; a load or play request is not treated as audible playback until WebKit sends a validated event.")
                     .font(.caption2)
                     .foregroundColor(.gray)
@@ -303,7 +309,7 @@ struct EntityDetailScreen: View {
                 if let page = state.page {
                     ScreenHeader(
                         title: page.title,
-                        subtitle: page.subtitle.isEmpty ? entity.kindLabel : "\(entity.kindLabel) · \(page.subtitle)"
+                        subtitle: detailSubtitle(kindLabel: entity.kindLabel, pageSubtitle: page.subtitle)
                     )
                     if !page.tracks.isEmpty {
                         Button("Play all") {

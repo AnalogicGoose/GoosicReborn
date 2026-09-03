@@ -179,6 +179,17 @@ extension CatalogLoadState {
     }
 }
 
+/// The subtitle for an album, artist, or playlist page.
+///
+/// Upstream headers often already lead with the kind ("Playlist • 2026"), so prefixing blindly
+/// produces "Playlist · Playlist • 2026".
+func detailSubtitle(kindLabel: String, pageSubtitle: String) -> String {
+    let trimmed = pageSubtitle.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { return kindLabel }
+    guard !trimmed.lowercased().hasPrefix(kindLabel.lowercased()) else { return trimmed }
+    return "\(kindLabel) · \(trimmed)"
+}
+
 /// Turns a service error code into something worth showing a person.
 func catalogFailureText(code: String, message: String, subject: String) -> (title: String, detail: String) {
     switch code {

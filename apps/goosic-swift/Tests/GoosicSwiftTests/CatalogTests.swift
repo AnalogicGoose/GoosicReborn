@@ -241,3 +241,45 @@ final class ProtocolDecodingTests: XCTestCase {
         XCTAssertEqual(item.kind, .unknown)
     }
 }
+
+@MainActor
+final class TransportFormattingTests: XCTestCase {
+    func testTimeTextCoversMinutesAndHours() {
+        XCTAssertEqual(GoosicAppModel.timeText(0), "0:00")
+        XCTAssertEqual(GoosicAppModel.timeText(9), "0:09")
+        XCTAssertEqual(GoosicAppModel.timeText(222), "3:42")
+        XCTAssertEqual(GoosicAppModel.timeText(3_723), "1:02:03")
+    }
+
+    func testTimeTextRefusesToRenderNonsense() {
+        XCTAssertEqual(GoosicAppModel.timeText(-1), "0:00")
+        XCTAssertEqual(GoosicAppModel.timeText(.nan), "0:00")
+        XCTAssertEqual(GoosicAppModel.timeText(.infinity), "0:00")
+    }
+
+    func testNothingIsSeekableBeforeTheHostReportsADuration() {
+        let model = GoosicAppModel()
+        XCTAssertFalse(model.isSeekable)
+        XCTAssertEqual(model.durationText, "--:--")
+        XCTAssertEqual(model.displayedPosition, 0)
+    }
+
+    func testNowPlayingSubtitleFallsBackWhenNothingIsPlaying() {
+        XCTAssertEqual(GoosicAppModel().nowPlayingSubtitle, "Choose a track to begin")
+    }
+}
+
+final class DetailSubtitleTests: XCTestCase {
+    func testTheKindIsNotRepeatedWhenUpstreamAlreadyLeadsWithIt() {
+        XCTAssertEqual(detailSubtitle(kindLabel: "Playlist", pageSubtitle: "Playlist • 2026"), "Playlist • 2026")
+        XCTAssertEqual(detailSubtitle(kindLabel: "Album", pageSubtitle: "album • Signal Fires"), "album • Signal Fires")
+    }
+
+    func testTheKindIsAddedWhenUpstreamOmitsIt() {
+        XCTAssertEqual(detailSubtitle(kindLabel: "Album", pageSubtitle: "Signal Fires"), "Album · Signal Fires")
+    }
+
+    func testAnEmptySubtitleFallsBackToTheKind() {
+        XCTAssertEqual(detailSubtitle(kindLabel: "Artist", pageSubtitle: "   "), "Artist")
+    }
+}
