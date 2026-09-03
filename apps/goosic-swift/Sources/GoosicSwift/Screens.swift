@@ -234,6 +234,27 @@ struct SettingsScreen: View {
                 Text("Catalog reads go through Rust to YouTube Music as an anonymous guest. No cookies, account headers, or credentials are sent, and no catalog data reaches the protocol beyond titles and identifiers.")
                     .font(.caption)
                     .foregroundColor(.gray)
+                Text("Preferences")
+                    .font(.headline)
+                    .padding(.top, 8)
+                Text("Volume, mute, autoplay, the queue panel, and the last screen are stored by Rust and restored on launch.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                if model.legacyImported {
+                    Text("Preferences were imported from a previous Goosic install. The old data was read, never changed.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                } else if model.legacyImportAvailable {
+                    Text("A previous Goosic install's preferences were found on this machine. Importing reads them without changing them, and never carries over saved credentials.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Button("Import previous Goosic preferences") { model.importLegacyPreferences() }
+                        .font(.caption)
+                } else {
+                    Text("No previous Goosic install was found to import from.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
                 Text("Playback")
                     .font(.headline)
                     .padding(.top, 8)

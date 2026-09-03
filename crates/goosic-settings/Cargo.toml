@@ -1,18 +1,16 @@
 [package]
-name = "goosic-service"
+name = "goosic-settings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-goosic-catalog = { path = "../goosic-catalog" }
-goosic-core = { path = "../goosic-core" }
 goosic-protocol = { path = "../goosic-protocol" }
-goosic-settings = { path = "../goosic-settings" }
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+rusqlite = { workspace = true }
 
-[[bin]]
-name = "goosic-service"
-path = "src/main.rs"
+[dev-dependencies]
+tempfile = "3"

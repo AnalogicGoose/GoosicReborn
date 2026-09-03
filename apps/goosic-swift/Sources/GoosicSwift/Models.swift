@@ -158,7 +158,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     @SwiftCrossUI.Published private(set) var duration: Double = 0
     @SwiftCrossUI.Published private(set) var volume: Double = 1
     @SwiftCrossUI.Published private(set) var isMuted = false
-    @SwiftCrossUI.Published var autoplay = true
+    @SwiftCrossUI.Published private(set) var autoplay = true
+    @SwiftCrossUI.Published private(set) var legacyImportAvailable = false
+    @SwiftCrossUI.Published private(set) var legacyImported = false
     @SwiftCrossUI.Published private(set) var playbackTransition: PlaybackTransition = .idle
     @SwiftCrossUI.Published private(set) var playbackTransitionToken: UInt64 = 0
     @SwiftCrossUI.Published var playbackLabVideoID = ""
@@ -175,6 +177,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// The video whose end has already advanced the queue, so the player's repeated `ended`
     /// polls cannot skip several tracks at once.
     private var endedVideoID: String?
+    /// The preferred volume has not been pushed to this load's player yet. The page reports its
+    /// own volume, so the preference is applied once per load rather than fought over.
+    private var volumeAppliedForLoad = false
+    /// Coalesces preference writes: a volume drag would otherwise queue a file write and a
+    /// service round trip per step, on a transport that is strictly serial.
+    private var pendingPreferenceSave: GoosicPreferencesPatch?
+    private var preferenceSaveToken: UInt64 = 0
     let officialPlaybackHost: OfficialPlaybackHost
 
     init() {
@@ -202,6 +211,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         self.route = route
         detail = nil
         loadRoute(route)
+        savePreferences(GoosicPreferencesPatch(lastRoute: route.rawValue))
     }
 
     func show(_ entity: GoosicEntityReference) {
@@ -224,11 +234,101 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 self.apply(response)
                 self.serviceConnected = true
                 self.status = response.payload?.message ?? "Rust service connected."
-                self.loadRoute(self.route)
+                self.loadPreferences()
             }
         } catch {
             status = error.localizedDescription
         }
+    }
+
+    // MARK: - Preferences
+
+    /// Reads stored preferences, applies them, and only then loads the first screen — so the
+    /// app opens where it was left rather than snapping there a moment later.
+    private func loadPreferences() {
+        send(command: "settings.get") { [weak self] response in
+            guard let self else { return }
+            if let settings = response.payload?.settings {
+                self.apply(settings, restoringRoute: true)
+            }
+            self.loadRoute(self.route)
+        } failure: { [weak self] _ in
+            guard let self else { return }
+            self.loadRoute(self.route)
+        }
+    }
+
+    private func apply(_ settings: GoosicSettings, restoringRoute: Bool) {
+        volume = min(max(settings.volume, 0), 1)
+        isMuted = settings.muted
+        autoplay = settings.autoplay
+        queueVisible = settings.queueVisible
+        legacyImported = settings.importedFromLegacy
+        legacyImportAvailable = settings.legacyAvailable
+        if restoringRoute, let restored = GoosicRoute(rawValue: settings.lastRoute) {
+            route = restored
+        }
+    }
+
+    func setAutoplay(_ enabled: Bool) {
+        autoplay = enabled
+        savePreferences(GoosicPreferencesPatch(autoplay: enabled))
+    }
+
+    /// Imports preferences from a previous Goosic install.
+    ///
+    /// The legacy store is only read, never changed, and credentials are never carried over.
+    func importLegacyPreferences() {
+        guard legacyImportAvailable else {
+            status = "No previous Goosic preferences were found on this machine."
+            return
+        }
+        status = "Importing preferences from the previous Goosic…"
+        send(command: "settings.importLegacy") { [weak self] response in
+            guard let self else { return }
+            if let settings = response.payload?.settings {
+                self.apply(settings, restoringRoute: false)
+            }
+            self.status = response.payload?.message ?? "Imported preferences from the previous Goosic."
+        } failure: { [weak self] error in
+            guard let self else { return }
+            self.status = "Could not import previous preferences: \(Self.describe(error).message)"
+        }
+    }
+
+    /// Queues a preference change, coalescing rapid ones such as a volume drag.
+    private func savePreferences(_ patch: GoosicPreferencesPatch) {
+        pendingPreferenceSave = Self.merge(pendingPreferenceSave, patch)
+        preferenceSaveToken &+= 1
+        let token = preferenceSaveToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self, self.preferenceSaveToken == token else { return }
+            self.flushPreferences()
+        }
+    }
+
+    private func flushPreferences() {
+        guard let patch = pendingPreferenceSave else { return }
+        pendingPreferenceSave = nil
+        send(command: "settings.set", payload: GoosicRequestPayload(preferences: patch)) { [weak self] response in
+            guard let self, let settings = response.payload?.settings else { return }
+            self.legacyImported = settings.importedFromLegacy
+            self.legacyImportAvailable = settings.legacyAvailable
+        }
+    }
+
+    private static func merge(
+        _ existing: GoosicPreferencesPatch?,
+        _ update: GoosicPreferencesPatch
+    ) -> GoosicPreferencesPatch {
+        guard var merged = existing else { return update }
+        merged.theme = update.theme ?? merged.theme
+        merged.volume = update.volume ?? merged.volume
+        merged.muted = update.muted ?? merged.muted
+        merged.autoplay = update.autoplay ?? merged.autoplay
+        merged.lastRoute = update.lastRoute ?? merged.lastRoute
+        merged.queueVisible = update.queueVisible ?? merged.queueVisible
+        return merged
     }
 
     // MARK: - Catalog
@@ -416,12 +516,16 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         let clamped = min(max(newVolume, 0), 1)
         volume = clamped
         isMuted = false
+        volumeAppliedForLoad = true
         officialPlaybackHost.setVolume(clamped)
+        savePreferences(GoosicPreferencesPatch(volume: clamped, muted: false))
     }
 
     func toggleMuted() {
         isMuted.toggle()
+        volumeAppliedForLoad = true
         officialPlaybackHost.setMuted(isMuted)
+        savePreferences(GoosicPreferencesPatch(muted: isMuted))
     }
 
     func play(_ track: GoosicTrack, in tracks: [GoosicTrack] = []) {
@@ -514,6 +618,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     func toggleQueue() {
         queueVisible.toggle()
+        savePreferences(GoosicPreferencesPatch(queueVisible: queueVisible))
     }
 
     func releasePlayback() {
@@ -680,6 +785,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         duration = 0
         pendingSeek = nil
         endedVideoID = nil
+        volumeAppliedForLoad = false
     }
 
     private func select(_ track: GoosicTrack) {
@@ -709,8 +815,18 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         isPaused = event.state != "playing"
         currentTime = event.currentTime
         duration = event.duration
-        volume = event.volume
-        isMuted = event.isMuted
+        if volumeAppliedForLoad {
+            volume = event.volume
+            isMuted = event.isMuted
+        } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
+            // A fresh page starts at its own volume. Push the stored preference once, then
+            // follow whatever the player reports.
+            volumeAppliedForLoad = true
+            officialPlaybackHost.setVolume(volume)
+            officialPlaybackHost.setMuted(isMuted)
+        } else {
+            volumeAppliedForLoad = true
+        }
         if let pending = pendingSeek,
            abs(event.currentTime - pending.position) < 1.5
             || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {

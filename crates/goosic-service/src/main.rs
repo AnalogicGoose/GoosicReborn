@@ -53,6 +53,9 @@ fn main() {
     let mut authority = PlaybackAuthority::new();
     // One catalog client for the process lifetime so its anonymous visitor identity is reused.
     let catalog = Catalog::new();
+    // Preferences are opened once; a failure is reported per request rather than at startup,
+    // because a missing settings file must not stop playback from working.
+    let mut settings = goosic_service::settings::Settings::new();
 
     let mut input = stdin.lock();
     let mut frame = Vec::with_capacity(MAX_FRAME_BYTES.min(8 * 1024));
@@ -83,7 +86,7 @@ fn main() {
                     line.pop();
                 }
                 match serde_json::from_slice::<RequestEnvelope>(&line) {
-                    Ok(request) => goosic_service::handle_request(&mut authority, &catalog, request),
+                    Ok(request) => goosic_service::handle_request(&mut authority, &catalog, &mut settings, request),
                     Err(error) => ResponseEnvelope::failure(
                         "",
                         ErrorObject {

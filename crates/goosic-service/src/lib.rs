@@ -1,4 +1,5 @@
 pub mod catalog;
+pub mod settings;
 
 use goosic_catalog::Catalog;
 use goosic_core::{CoreError, PlaybackAuthority};
@@ -9,6 +10,7 @@ use goosic_protocol::{
 pub fn handle_request(
     authority: &mut PlaybackAuthority,
     catalog: &Catalog,
+    settings: &mut settings::Settings,
     request: RequestEnvelope,
 ) -> ResponseEnvelope {
     let request_id = request.request_id;
@@ -24,6 +26,11 @@ pub fn handle_request(
     // Catalog reads answer "what exists" and never touch the playback authority, so they are
     // dispatched before it and cannot alter ownership, generation, or sequence.
     if let Some(response) = catalog::handle(catalog, &request.command, &request_id, &payload) {
+        return response;
+    }
+    // Preferences are likewise outside the authority: reading or writing them can never change
+    // who owns playback.
+    if let Some(response) = settings::handle(settings, &request.command, &request_id, &payload) {
         return response;
     }
 
@@ -163,6 +170,16 @@ mod tests {
         Catalog::new()
     }
 
+    /// Settings pointed at a throwaway path, so tests never read or write the real file.
+    fn settings() -> settings::Settings {
+        let path = std::env::temp_dir().join(format!(
+            "goosic-service-test-{}-{:?}/settings.json",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        settings::Settings::at(path, None)
+    }
+
     fn request(id: &str, command: &str, payload: RequestPayload) -> RequestEnvelope {
         RequestEnvelope {
             protocol_version: PROTOCOL_VERSION.into(),
@@ -178,6 +195,7 @@ mod tests {
         let response = handle_request(
             &mut authority,
             &catalog(),
+            &mut settings(),
             request("1", "hello", RequestPayload::default()),
         );
         assert!(response.ok);
@@ -193,6 +211,7 @@ mod tests {
         let claimed = handle_request(
             &mut authority,
             &catalog(),
+            &mut settings(),
             request(
                 "1",
                 "playback.claim",
@@ -207,6 +226,7 @@ mod tests {
         let marked = handle_request(
             &mut authority,
             &catalog(),
+            &mut settings(),
             request(
                 "2",
                 "playback.sample",
@@ -230,6 +250,7 @@ mod tests {
         let response = handle_request(
             &mut authority,
             &catalog(),
+            &mut settings(),
             request(
                 "1",
                 "account.change",

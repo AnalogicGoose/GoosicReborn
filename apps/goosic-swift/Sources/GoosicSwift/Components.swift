@@ -257,7 +257,7 @@ struct PlaybackTransportBar: View {
                 in: 0...1
             )
             .frame(width: 90)
-            Button(model.autoplay ? "Autoplay on" : "Autoplay off") { model.autoplay.toggle() }
+            Button(model.autoplay ? "Autoplay on" : "Autoplay off") { model.setAutoplay(!model.autoplay) }
                 .font(.caption2)
         }
     }

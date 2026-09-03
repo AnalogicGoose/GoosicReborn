@@ -26,7 +26,7 @@ impl Owner {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,9 +52,12 @@ pub struct RequestPayload {
     /// Caller-requested result cap. The service clamps this to its own frame-safe maximum.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    /// Preference changes for `settings.set`. Absent fields are left alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferences: Option<PreferencesPatch>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestEnvelope {
     pub protocol_version: String,
@@ -73,7 +76,7 @@ pub struct PlaybackState {
     pub sample_sequence: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ResponsePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,6 +94,47 @@ pub struct ResponsePayload {
     /// Present only for `catalog.*` responses. Catalog data never carries credentials.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalog: Option<CatalogPage>,
+    /// Present only for `settings.*` responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<SettingsSnapshot>,
+}
+
+/// The preferences the shell reads and writes.
+///
+/// Legacy documents this build has no home for are preserved in the settings file rather than
+/// here, so the wire stays small and typed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsSnapshot {
+    /// `system`, `light`, or `dark`.
+    pub theme: String,
+    pub volume: f64,
+    pub muted: bool,
+    pub autoplay: bool,
+    pub last_route: String,
+    pub queue_visible: bool,
+    /// Whether preferences from a previous Goosic install have been imported.
+    pub imported_from_legacy: bool,
+    /// Whether a legacy store is present to import from. Never a credential store.
+    pub legacy_available: bool,
+}
+
+/// A partial preference update. Absent fields are left as they are.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreferencesPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autoplay: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_route: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_visible: Option<bool>,
 }
 
 /// What a catalog row is, and therefore where the shell may navigate or what it may play.
@@ -175,7 +219,7 @@ pub struct ErrorObject {
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResponseEnvelope {
     pub protocol_version: String,
@@ -240,6 +284,7 @@ mod tests {
                 filter: None,
                 catalog_id: None,
                 limit: None,
+                preferences: None,
             },
         };
         assert_eq!(

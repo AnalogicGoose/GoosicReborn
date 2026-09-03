@@ -283,3 +283,43 @@ final class DetailSubtitleTests: XCTestCase {
         XCTAssertEqual(detailSubtitle(kindLabel: "Artist", pageSubtitle: "   "), "Artist")
     }
 }
+
+final class PreferencesWireTests: XCTestCase {
+    /// A patch must carry only what changed: sending every field would let a stale in-memory
+    /// value overwrite a preference the user changed elsewhere.
+    func testAPatchEncodesOnlyTheFieldsItSets() throws {
+        let payload = GoosicRequestPayload(preferences: GoosicPreferencesPatch(volume: 0.25))
+        let encoded = try JSONEncoder().encode(payload)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        let preferences = try XCTUnwrap(object["preferences"] as? [String: Any])
+        XCTAssertEqual(preferences.keys.sorted(), ["volume"])
+    }
+
+    func testAnEmptyRequestPayloadCarriesNoPreferences() throws {
+        let encoded = try JSONEncoder().encode(GoosicRequestPayload())
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertNil(object["preferences"])
+    }
+
+    func testSettingsDecodeFromTheServiceWireShape() throws {
+        let wire = """
+        {"protocolVersion":"0.2.0","requestId":"swift-1","ok":true,"payload":{"settings":{\
+        "theme":"dark","volume":0.4,"muted":false,"autoplay":true,"lastRoute":"charts",\
+        "queueVisible":false,"importedFromLegacy":true,"legacyAvailable":true}}}
+        """
+        let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
+        let settings = try XCTUnwrap(response.payload?.settings)
+        XCTAssertEqual(settings.theme, "dark")
+        XCTAssertEqual(settings.volume, 0.4)
+        XCTAssertEqual(GoosicRoute(rawValue: settings.lastRoute), .charts)
+        XCTAssertTrue(settings.importedFromLegacy)
+    }
+
+    func testEveryRouteRawValueRoundTripsSoARestoredRouteIsNeverLost() {
+        for route in GoosicRoute.allCases {
+            XCTAssertEqual(GoosicRoute(rawValue: route.rawValue), route)
+        }
+    }
+}

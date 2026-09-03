@@ -18,6 +18,7 @@ struct GoosicRequestPayload: Codable {
     var filter: String?
     var catalogId: String?
     var limit: UInt32?
+    var preferences: GoosicPreferencesPatch?
 
     init(
         owner: GoosicOwner? = nil,
@@ -28,7 +29,8 @@ struct GoosicRequestPayload: Codable {
         query: String? = nil,
         filter: String? = nil,
         catalogId: String? = nil,
-        limit: UInt32? = nil
+        limit: UInt32? = nil,
+        preferences: GoosicPreferencesPatch? = nil
     ) {
         self.owner = owner
         self.generation = generation
@@ -39,6 +41,33 @@ struct GoosicRequestPayload: Codable {
         self.filter = filter
         self.catalogId = catalogId
         self.limit = limit
+        self.preferences = preferences
+    }
+}
+
+/// A partial preference update. Absent fields are left as they are.
+struct GoosicPreferencesPatch: Codable {
+    var theme: String?
+    var volume: Double?
+    var muted: Bool?
+    var autoplay: Bool?
+    var lastRoute: String?
+    var queueVisible: Bool?
+
+    init(
+        theme: String? = nil,
+        volume: Double? = nil,
+        muted: Bool? = nil,
+        autoplay: Bool? = nil,
+        lastRoute: String? = nil,
+        queueVisible: Bool? = nil
+    ) {
+        self.theme = theme
+        self.volume = volume
+        self.muted = muted
+        self.autoplay = autoplay
+        self.lastRoute = lastRoute
+        self.queueVisible = queueVisible
     }
 }
 
@@ -120,6 +149,20 @@ struct GoosicResponsePayload: Codable {
     var sequence: UInt64?
     var markerAccepted: Bool?
     var catalog: GoosicCatalogPage?
+    var settings: GoosicSettings?
+}
+
+struct GoosicSettings: Codable {
+    var theme: String
+    var volume: Double
+    var muted: Bool
+    var autoplay: Bool
+    var lastRoute: String
+    var queueVisible: Bool
+    /// Whether preferences from a previous Goosic install have been imported.
+    var importedFromLegacy: Bool
+    /// Whether a previous Goosic install's preferences are present to import.
+    var legacyAvailable: Bool
 }
 
 struct GoosicResponse: Codable {
