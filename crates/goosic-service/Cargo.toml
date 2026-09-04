@@ -10,6 +10,7 @@ goosic-accounts = { path = "../goosic-accounts" }
 goosic-catalog = { path = "../goosic-catalog" }
 goosic-core = { path = "../goosic-core" }
 goosic-downloads = { path = "../goosic-downloads" }
+goosic-lyrics = { path = "../goosic-lyrics" }
 goosic-protocol = { path = "../goosic-protocol" }
 goosic-settings = { path = "../goosic-settings" }
 serde.workspace = true

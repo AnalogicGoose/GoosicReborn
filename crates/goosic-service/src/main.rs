@@ -57,6 +57,8 @@ fn main() {
     // because a missing settings file must not stop playback from working.
     let mut settings = goosic_service::settings::Settings::new();
     let mut downloads = goosic_service::downloads::Downloads::new();
+    // One lyrics client for the process lifetime, so its one-document cache survives scrubbing.
+    let lyrics = goosic_lyrics::LyricsClient::new();
     let mut accounts = goosic_service::accounts::Accounts::new();
     if let Err(error) = accounts.synchronize_authority(&mut authority) {
         eprintln!("goosic-service: could not restore active account: {error}");
@@ -97,6 +99,7 @@ fn main() {
                         &mut settings,
                         &mut downloads,
                         &mut accounts,
+                        &lyrics,
                         request,
                     ),
                     Err(error) => ResponseEnvelope::failure(

@@ -232,3 +232,81 @@ final class QueueAdvanceTests: XCTestCase {
         XCTAssertEqual(model.indexAfter(0, wrapping: true), 0)
     }
 }
+
+@MainActor
+final class LyricsTests: XCTestCase {
+    func testDisplayDurationsBecomeSeconds() {
+        XCTAssertEqual(GoosicAppModel.durationSeconds("3:42"), 222)
+        XCTAssertEqual(GoosicAppModel.durationSeconds("0:09"), 9)
+        XCTAssertEqual(GoosicAppModel.durationSeconds("1:02:03"), 3_723)
+    }
+
+    func testAMalformedDurationIsRefusedRatherThanGuessed() {
+        // A wrong length would narrow the lyrics lookup to the wrong recording.
+        XCTAssertNil(GoosicAppModel.durationSeconds(""))
+        XCTAssertNil(GoosicAppModel.durationSeconds("222"))
+        XCTAssertNil(GoosicAppModel.durationSeconds("a:b"))
+        XCTAssertNil(GoosicAppModel.durationSeconds("1:2:3:4"))
+    }
+
+    func testLyricsDecodeFromTheServiceWireShape() throws {
+        let wire = """
+        {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,"payload":{"lyrics":{\
+        "source":"LRCLIB","synced":true,"lines":[\
+        {"atMs":19160,"text":"When you were here before"},\
+        {"atMs":24090,"text":"Couldn't look you in the eye"}]}}}
+        """
+        let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
+        let lyrics = try XCTUnwrap(response.payload?.lyrics)
+        XCTAssertTrue(lyrics.synced)
+        XCTAssertEqual(lyrics.source, "LRCLIB")
+        XCTAssertEqual(lyrics.lines.count, 2)
+        XCTAssertEqual(lyrics.lines[0].atMs, 19_160)
+    }
+
+    func testRepeatedLyricLinesStillGetDistinctIdentities() {
+        // A chorus repeats its text; `ForEach` needs the ids to differ anyway.
+        let first = GoosicLyricsLine(atMs: 1_000, text: "Chorus")
+        let second = GoosicLyricsLine(atMs: 60_000, text: "Chorus")
+        XCTAssertNotEqual(first.id, second.id)
+    }
+
+    func testNothingIsHighlightedWithoutLyrics() {
+        XCTAssertNil(GoosicAppModel().activeLyricIndex)
+    }
+
+    private let timed = [
+        GoosicLyricsLine(atMs: 0, text: "Zero"),
+        GoosicLyricsLine(atMs: 10_000, text: "Ten"),
+        GoosicLyricsLine(atMs: 20_000, text: "Twenty"),
+    ]
+
+    func testTheHighlightFollowsThePosition() {
+        func active(_ ms: Int64) -> Int? {
+            GoosicAppModel.activeLyricIndex(lines: timed, synced: true, positionMs: ms)
+        }
+        XCTAssertEqual(active(0), 0)
+        XCTAssertEqual(active(9_999), 0)
+        XCTAssertEqual(active(10_000), 1)
+        XCTAssertEqual(active(25_000), 2)
+    }
+
+    func testNothingIsHighlightedBeforeTheFirstLine() {
+        let late = [GoosicLyricsLine(atMs: 5_000, text: "Starts late")]
+        XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 0))
+        XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 4_999))
+        XCTAssertEqual(
+            GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 5_000),
+            0
+        )
+    }
+
+    func testUnsyncedLyricsNeverHighlight() {
+        let plain = [GoosicLyricsLine(atMs: -1, text: "Just words")]
+        XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: plain, synced: false, positionMs: 9_999))
+    }
+
+    func testAnEmptyDocumentNeverHighlights() {
+        XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: [], synced: true, positionMs: 1_000))
+    }
+}

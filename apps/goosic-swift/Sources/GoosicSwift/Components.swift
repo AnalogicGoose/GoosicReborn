@@ -253,6 +253,8 @@ struct NowPlayingBar: View {
                     if let track = model.currentTrack { model.startRadio(from: track) }
                 }
                 .disabled(model.currentTrack == nil || model.accountOperationInProgress || model.playbackTransition != .idle)
+                Button(model.lyricsVisible ? "Hide lyrics" : "Lyrics") { model.toggleLyrics() }
+                    .disabled(model.accountOperationInProgress)
                 Button(model.queueVisible ? "Hide queue" : "Show queue") { model.toggleQueue() }
                     .disabled(model.accountOperationInProgress)
                 Button("Release") { model.releasePlayback() }
@@ -324,6 +326,43 @@ struct PlaybackTransportBar: View {
                 .font(.caption2)
                 .disabled(model.accountOperationInProgress)
         }
+    }
+}
+
+/// The lyrics for whatever is playing, with the current line marked when they are synced.
+struct LyricsPanel: View {
+    let model: GoosicAppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Lyrics")
+                        .font(.headline)
+                    Spacer()
+                    Text(model.lyricsStatus)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                if let lyrics = model.lyrics {
+                    let active = model.activeLyricIndex
+                    ForEach(Array(lyrics.lines.enumerated()), id: \.element.id) { index, line in
+                        Text(line.text.isEmpty ? "♪" : line.text)
+                            .font(index == active ? .headline : .subheadline)
+                            .foregroundColor(index == active ? .white : .gray)
+                    }
+                    if lyrics.truncated == true {
+                        Text("These lyrics were long, so only the first part is shown.")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                            .padding(.top, 4)
+                    }
+                }
+            }
+            .padding(12)
+        }
+        .frame(height: 220)
+        .background(MaterialSurface(kind: .queue))
     }
 }
 

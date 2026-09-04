@@ -58,6 +58,9 @@ pub struct RequestPayload {
     /// Preference changes for `settings.set`. Absent fields are left alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preferences: Option<PreferencesPatch>,
+    /// What to look up for `lyrics.get`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lyrics: Option<LyricsQuery>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -109,6 +112,9 @@ pub struct ResponsePayload {
     /// The decoded file a downloaded track should be played from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_file: Option<String>,
+    /// Present only for `lyrics.*` responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lyrics: Option<LyricsDocument>,
 }
 
 /// Metadata identifying one local account and its corresponding platform WebKit profile.
@@ -210,6 +216,42 @@ pub struct PreferencesPatch {
     pub shuffle: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repeat_mode: Option<String>,
+}
+
+/// What to look lyrics up by.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsQuery {
+    pub title: String,
+    #[serde(default)]
+    pub artist: String,
+    #[serde(default)]
+    pub album: String,
+    /// Track length in seconds. The lyrics database matches on it, so the right version of a
+    /// song is returned rather than a same-titled cover.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<u32>,
+}
+
+/// One lyric line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsLine {
+    /// Milliseconds into the track, or negative when the lyrics are not synced.
+    pub at_ms: i64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsDocument {
+    /// Where the lyrics came from, for attribution.
+    pub source: String,
+    /// Whether the lines carry timing.
+    pub synced: bool,
+    pub lines: Vec<LyricsLine>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub truncated: bool,
 }
 
 /// What a catalog row is, and therefore where the shell may navigate or what it may play.
@@ -361,6 +403,7 @@ mod tests {
                 catalog_id: None,
                 limit: None,
                 preferences: None,
+                lyrics: None,
             },
         };
         assert_eq!(

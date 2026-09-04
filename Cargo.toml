@@ -6,6 +6,7 @@ members = [
     "crates/goosic-catalog",
     "crates/goosic-settings",
     "crates/goosic-downloads",
+    "crates/goosic-lyrics",
     "crates/goosic-accounts",
     "crates/goosic-service",
 ]

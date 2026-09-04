@@ -20,6 +20,7 @@ struct GoosicRequestPayload: Codable {
     var catalogId: String?
     var limit: UInt32?
     var preferences: GoosicPreferencesPatch?
+    var lyrics: GoosicLyricsQuery?
 
     init(
         owner: GoosicOwner? = nil,
@@ -32,7 +33,8 @@ struct GoosicRequestPayload: Codable {
         filter: String? = nil,
         catalogId: String? = nil,
         limit: UInt32? = nil,
-        preferences: GoosicPreferencesPatch? = nil
+        preferences: GoosicPreferencesPatch? = nil,
+        lyrics: GoosicLyricsQuery? = nil
     ) {
         self.owner = owner
         self.generation = generation
@@ -45,7 +47,34 @@ struct GoosicRequestPayload: Codable {
         self.catalogId = catalogId
         self.limit = limit
         self.preferences = preferences
+        self.lyrics = lyrics
     }
+}
+
+/// What to look lyrics up by.
+struct GoosicLyricsQuery: Codable {
+    var title: String
+    var artist: String
+    var album: String
+    /// Track length in seconds; the lyrics database matches on it, so the right recording is
+    /// returned rather than a same-titled cover.
+    var durationSeconds: UInt32?
+}
+
+struct GoosicLyricsLine: Codable, Hashable, Identifiable {
+    /// Milliseconds into the track, or negative when the lyrics are not synced.
+    var atMs: Int64
+    var text: String
+
+    /// `ForEach` needs a stable identity, and repeated lyric lines share their text.
+    var id: String { "\(atMs)-\(text)" }
+}
+
+struct GoosicLyrics: Codable, Hashable {
+    var source: String
+    var synced: Bool
+    var lines: [GoosicLyricsLine]
+    var truncated: Bool?
 }
 
 /// A partial preference update. Absent fields are left as they are.
@@ -203,6 +232,7 @@ struct GoosicResponsePayload: Codable {
     var downloads: [GoosicDownloadedTrack]?
     /// The decoded cache path returned only after Rust has prepared a local track.
     var localFile: String?
+    var lyrics: GoosicLyrics?
 }
 
 struct GoosicDownloadedTrack: Codable, Identifiable, Hashable {

@@ -25,6 +25,9 @@ struct GoosicShell: View {
                     RouteScreen(route: model.route, model: model)
                 }
                 Spacer()
+                if model.lyricsVisible {
+                    LyricsPanel(model: model)
+                }
                 if model.queueVisible {
                     QueuePanel(model: model)
                 }

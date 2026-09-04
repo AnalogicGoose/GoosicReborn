@@ -277,6 +277,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "goosic-lyrics"
+version = "0.1.0"
+dependencies = [
+ "goosic-protocol",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "ureq",
+]
+
+[[package]]
 name = "goosic-protocol"
 version = "0.1.0"
 dependencies = [
@@ -292,6 +303,7 @@ dependencies = [
  "goosic-catalog",
  "goosic-core",
  "goosic-downloads",
+ "goosic-lyrics",
  "goosic-protocol",
  "goosic-settings",
  "serde",

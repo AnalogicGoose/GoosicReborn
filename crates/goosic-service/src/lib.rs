@@ -1,9 +1,11 @@
 pub mod accounts;
 pub mod catalog;
 pub mod downloads;
+pub mod lyrics;
 pub mod settings;
 
 use goosic_catalog::Catalog;
+use goosic_lyrics::LyricsClient;
 use goosic_core::{CoreError, PlaybackAuthority};
 use goosic_protocol::{
     ErrorObject, Owner, RequestEnvelope, ResponseEnvelope, ResponsePayload, PROTOCOL_VERSION,
@@ -15,6 +17,7 @@ pub fn handle_request(
     settings: &mut settings::Settings,
     downloads: &mut downloads::Downloads,
     accounts: &mut accounts::Accounts,
+    lyrics: &LyricsClient,
     request: RequestEnvelope,
 ) -> ResponseEnvelope {
     let request_id = request.request_id;
@@ -35,6 +38,10 @@ pub fn handle_request(
     // Preferences are likewise outside the authority: reading or writing them can never change
     // who owns playback.
     if let Some(response) = settings::handle(settings, &request.command, &request_id, &payload) {
+        return response;
+    }
+    // Lyrics are another read-only lookup, so they too are answered before the authority.
+    if let Some(response) = lyrics::handle(lyrics, &request.command, &request_id, &payload) {
         return response;
     }
     // Reading the download index and decoding a file likewise decide nothing about ownership;
@@ -230,6 +237,7 @@ mod tests {
             &mut settings(),
             &mut downloads(),
             &mut accounts(),
+            &LyricsClient::new(),
             request("1", "hello", RequestPayload::default()),
         );
         assert!(response.ok);
@@ -248,6 +256,7 @@ mod tests {
             &mut settings(),
             &mut downloads(),
             &mut accounts(),
+            &LyricsClient::new(),
             request(
                 "1",
                 "playback.claim",
@@ -265,6 +274,7 @@ mod tests {
             &mut settings(),
             &mut downloads(),
             &mut accounts(),
+            &LyricsClient::new(),
             request(
                 "2",
                 "playback.sample",
@@ -291,6 +301,7 @@ mod tests {
             &mut settings(),
             &mut downloads(),
             &mut accounts(),
+            &LyricsClient::new(),
             request(
                 "1",
                 "account.change",

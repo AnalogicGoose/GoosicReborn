@@ -228,6 +228,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     @SwiftCrossUI.Published private(set) var autoplay = true
     @SwiftCrossUI.Published private(set) var shuffle = false
     @SwiftCrossUI.Published private(set) var repeatMode: RepeatMode = .off
+    @SwiftCrossUI.Published var lyricsVisible = false
+    @SwiftCrossUI.Published private(set) var lyrics: GoosicLyrics?
+    @SwiftCrossUI.Published private(set) var lyricsStatus = "Nothing playing."
     @SwiftCrossUI.Published private(set) var legacyImportAvailable = false
     @SwiftCrossUI.Published private(set) var legacyImported = false
     @SwiftCrossUI.Published private(set) var playbackTransition: PlaybackTransition = .idle
@@ -274,6 +277,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// The track the current radio was seeded from, so a radio that itself runs out does not
     /// immediately reseed from the same song and loop.
     private var radioSeedVideoID: String?
+    /// The track the loaded lyrics belong to, so a stale answer cannot land on a new song.
+    private var lyricsVideoID: String?
+    private var lyricsRequestInFlight = false
     /// Bumped when artwork arrives. Views read it so a late thumbnail re-renders its card.
     @SwiftCrossUI.Published private(set) var artworkVersion: UInt64 = 0
 
@@ -701,6 +707,110 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         if playbackState.owner == .officialWebView { officialPlaybackHost.quiesce { release() } }
         else { release() }
+    }
+
+    // MARK: - Lyrics
+
+    /// The lyric line to highlight at the current position, or `nil` when nothing should be.
+    var activeLyricIndex: Int? {
+        guard let lyrics else { return nil }
+        return Self.activeLyricIndex(
+            lines: lyrics.lines,
+            synced: lyrics.synced,
+            positionMs: Int64(displayedPosition * 1_000)
+        )
+    }
+
+    /// Which line is current at `positionMs`.
+    ///
+    /// The shell owns this rather than Rust: it is the side that knows the playback position
+    /// moment to moment, and one implementation cannot drift from another.
+    ///
+    /// Unsynced lyrics never highlight, because guessing a position would be worse than showing
+    /// the words plainly, and nothing is highlighted before the first line begins.
+    static func activeLyricIndex(
+        lines: [GoosicLyricsLine],
+        synced: Bool,
+        positionMs: Int64
+    ) -> Int? {
+        guard synced, let first = lines.first, first.atMs <= positionMs else { return nil }
+        var index = 0
+        for (offset, line) in lines.enumerated() where line.atMs <= positionMs {
+            index = offset
+        }
+        return index
+    }
+
+    func toggleLyrics() {
+        lyricsVisible.toggle()
+        if lyricsVisible { loadLyricsIfNeeded() }
+    }
+
+    /// Fetches lyrics for the current track, unless they are already loaded for it.
+    func loadLyricsIfNeeded() {
+        guard lyricsVisible else { return }
+        guard let track = currentTrack else {
+            lyrics = nil
+            lyricsVideoID = nil
+            lyricsStatus = "Nothing playing."
+            return
+        }
+        guard lyricsVideoID != track.videoID, !lyricsRequestInFlight else { return }
+        lyricsRequestInFlight = true
+        lyricsVideoID = track.videoID
+        lyrics = nil
+        lyricsStatus = "Looking up lyrics for \(track.title)…"
+        let requestedFor = track.videoID
+        send(
+            command: "lyrics.get",
+            payload: GoosicRequestPayload(lyrics: GoosicLyricsQuery(
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                durationSeconds: Self.durationSeconds(track.duration)
+            ))
+        ) { [weak self] response in
+            guard let self else { return }
+            self.lyricsRequestInFlight = false
+            // The track may have changed while this was in flight.
+            guard self.currentTrack?.videoID == requestedFor else { return }
+            guard let document = response.payload?.lyrics, !document.lines.isEmpty else {
+                self.lyricsStatus = "No lyrics were found for this track."
+                return
+            }
+            self.lyrics = document
+            self.lyricsStatus = document.synced
+                ? "Synced lyrics from \(document.source)."
+                : "Lyrics from \(document.source); this version is not synced."
+        } failure: { [weak self] error in
+            guard let self else { return }
+            self.lyricsRequestInFlight = false
+            guard self.currentTrack?.videoID == requestedFor else { return }
+            self.lyrics = nil
+            let described = Self.describe(error)
+            self.lyricsStatus = described.code == "lyricsNotFound"
+                ? "No lyrics were found for this track."
+                : "Could not load lyrics: \(described.message)"
+        }
+    }
+
+    /// Parses a display duration such as `3:42` or `1:02:03` into whole seconds.
+    ///
+    /// Returns `nil` for anything else, so a malformed value narrows the lyrics lookup with a
+    /// wrong length rather than being guessed at.
+    static func durationSeconds(_ text: String) -> UInt32? {
+        let parts = text.split(separator: ":")
+        guard (2...3).contains(parts.count) else { return nil }
+        var total: UInt32 = 0
+        for part in parts {
+            guard let value = UInt32(part.trimmingCharacters(in: .whitespaces)) else { return nil }
+            let (scaled, scaleOverflow) = total.multipliedReportingOverflow(by: 60)
+            guard !scaleOverflow else { return nil }
+            let (sum, sumOverflow) = scaled.addingReportingOverflow(value)
+            guard !sumOverflow else { return nil }
+            total = sum
+        }
+        return total
     }
 
     // MARK: - Preferences
@@ -1595,6 +1705,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// Clears everything the previous track confirmed, so no stale position or end marker is
     /// carried into the next one.
     private func beginTrack() {
+        // A new track invalidates the loaded lyrics; the next render asks for the right ones.
+        lyrics = nil
+        lyricsVideoID = nil
         isPaused = true
         currentTime = 0
         duration = 0
@@ -1644,6 +1757,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         hasConfirmedPlaybackSample = true
+        loadLyricsIfNeeded()
         isPaused = event.state != "playing"
         isAdvertisement = event.isAdvertisement
         currentTime = event.currentTime
