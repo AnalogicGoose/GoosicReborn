@@ -5,7 +5,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 ## What works today
 
 - **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust, as an anonymous guest. Albums, playlists, and artists open to their real track lists.
-- **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single WKWebView host. Advertisements are reported as informational markers and are never bypassed.
+- **Real playback (macOS).** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single WKWebView host. Advertisements are reported as informational markers and are never bypassed.
 - **A real transport.** Elapsed and total time, seeking, volume and mute, and autoplay to the next queued track — all reflecting what the player confirms, never what was requested. Goosic's queue overrides the official app's own "up next", so it never plays something you did not choose.
 - **Preferences that persist.** Volume, mute, autoplay, shuffle, repeat, the queue panel, and the screen you were on are stored by Rust and restored on launch. Preferences from a previous Goosic install can be imported; the old data is read, never changed, and credentials are never carried over.
 - **Enforced ownership.** `goosic-core` allows one playback owner at a time, scopes transitions to a generation, and requires strictly increasing sample sequences. Switching to a downloaded file quiesces the official host first; switching away stops the local renderer first.
@@ -27,7 +27,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 - `goosic-lyrics` — LRCLIB lookups and LRC parsing; no account, no key, no credentials.
 - `goosic-downloads` — read-only legacy media indexing plus WebM/Opus-to-WAV decode caching; it contains no downloader or account-cookie path.
 - `goosic-service` — one request per stdin line, one response per stdout line, with no diagnostics on stdout.
-- `apps/goosic-swift` — the macOS shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host.
+- `apps/goosic-swift` — the shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host. It builds on macOS against AppKit and on Linux against GTK 4; the playback hosts are macOS-only, so the Linux build browses but does not sound.
 
 ## Architecture
 
@@ -35,25 +35,45 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and
 
 ## Prerequisites
 
-Rust 1.88+ and Cargo; Swift 5.10+ and macOS 14.0+ for the Swift shell. Swift package resolution needs network access the first time because SwiftCrossUI is pinned to the official `0.9.0` tag. The SwiftCrossUI package exposes optional non-macOS backend dependencies; the Make targets select `AppKitBackend` explicitly for this macOS shell.
+Rust 1.88+ and Cargo everywhere. The Rust workspace is portable and needs nothing else: `rusqlite` is bundled and `ureq` uses rustls, so there is no system SQLite or OpenSSL to install.
+
+The Swift shell needs Swift 5.10+ and, per platform:
+
+| Platform | Also needs |
+| --- | --- |
+| macOS 14.0+ | Xcode's toolchain; nothing further |
+| Linux | GTK 4 development headers (`gtk4-devel` on Fedora, `libgtk-4-dev` on Debian) — `CGtk` resolves them through `pkg-config gtk4` |
+
+Swift package resolution needs network access the first time because SwiftCrossUI is pinned to the official `0.9.0` tag.
+
+The Make targets always set `SCUI_DEFAULT_BACKEND` explicitly — `AppKitBackend` on macOS, `GtkBackend` on Linux. Leaving it unset is not equivalent: SwiftCrossUI's `DefaultBackend` then names every platform's backend target, and SwiftPM pulls `swift-winui`'s C targets into the build graph, which fail on a non-Windows host looking for `wtypesbase.h`.
 
 ## Build, run, and test
 
 ```sh
-make test          # Rust workspace tests plus the Swift test target, all offline
+make test           # Rust workspace tests plus the Swift test target, all offline
 make test-rust-live # opt-in: hits music.youtube.com to check the catalog parser against reality
-make run-swift     # builds the service and launches the shell against it
+make build-swift    # builds the shell for the host platform
+make run-swift      # builds the service and launches the shell against it
 ```
 
-The service accepts compact JSON lines such as `{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","payload":{"query":"daft punk","filter":"songs"}}`. Its stdout is protocol-only; diagnostics, if any, go to stderr.
+`make run-swift` is the whole story on both platforms: it builds `goosic-service`, points `GOOSIC_SERVICE_PATH` at it, and launches the shell, which spawns the service itself. On Linux the result is a GTK 4 window, on Wayland or X11 alike.
 
 The shell connects to the service on launch, so Home loads without any manual step. The sidebar button remains the way back if a transport failure drops the child process.
+
+To drive the authority without a shell at all, feed it compact JSON lines. Its stdout is protocol-only; diagnostics, if any, go to stderr.
+
+```sh
+cargo build -p goosic-service
+echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","payload":{"query":"daft punk","filter":"songs"}}' \
+  | ./target/debug/goosic-service
+```
 
 ## Current limitations
 
 - **No signed-in library.** Sign-in and per-account WebKit profiles work, but catalog reads are still anonymous, so Library has nothing personal to show. Authenticated catalog reads are the next slice.
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
-- **macOS only.** Windows and Linux playback hosts remain explicit stubs so no renderer can bypass Rust's authority.
+- **Audio is macOS only.** The shell itself builds and runs on Linux — navigation, the live catalog, search, and the transport UI all work there — but both playback hosts are macOS-only. On every other platform `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs that report the limitation rather than producing sound, so no renderer can bypass Rust's authority. A Linux host would mean WebKitGTK for the official player and a local renderer for decoded files, both claiming the same Rust leases.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
 - Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
 

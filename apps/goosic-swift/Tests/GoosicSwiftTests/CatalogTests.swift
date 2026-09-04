@@ -242,30 +242,41 @@ final class ProtocolDecodingTests: XCTestCase {
     }
 }
 
-@MainActor
+/// `GoosicAppModel` is `@MainActor`, but the isolation is applied per test rather than to the
+/// class. swift-corelibs-xctest discovers tests by casting the method to `(Self) -> () throws ->
+/// Void`, and a `@MainActor`-isolated method does not carry that type, so an isolated class
+/// aborts the whole run on Linux before any test executes.
 final class TransportFormattingTests: XCTestCase {
-    func testTimeTextCoversMinutesAndHours() {
-        XCTAssertEqual(GoosicAppModel.timeText(0), "0:00")
-        XCTAssertEqual(GoosicAppModel.timeText(9), "0:09")
-        XCTAssertEqual(GoosicAppModel.timeText(222), "3:42")
-        XCTAssertEqual(GoosicAppModel.timeText(3_723), "1:02:03")
+    func testTimeTextCoversMinutesAndHours() async {
+        await MainActor.run {
+            XCTAssertEqual(GoosicAppModel.timeText(0), "0:00")
+            XCTAssertEqual(GoosicAppModel.timeText(9), "0:09")
+            XCTAssertEqual(GoosicAppModel.timeText(222), "3:42")
+            XCTAssertEqual(GoosicAppModel.timeText(3_723), "1:02:03")
+        }
     }
 
-    func testTimeTextRefusesToRenderNonsense() {
-        XCTAssertEqual(GoosicAppModel.timeText(-1), "0:00")
-        XCTAssertEqual(GoosicAppModel.timeText(.nan), "0:00")
-        XCTAssertEqual(GoosicAppModel.timeText(.infinity), "0:00")
+    func testTimeTextRefusesToRenderNonsense() async {
+        await MainActor.run {
+            XCTAssertEqual(GoosicAppModel.timeText(-1), "0:00")
+            XCTAssertEqual(GoosicAppModel.timeText(.nan), "0:00")
+            XCTAssertEqual(GoosicAppModel.timeText(.infinity), "0:00")
+        }
     }
 
-    func testNothingIsSeekableBeforeTheHostReportsADuration() {
-        let model = GoosicAppModel()
-        XCTAssertFalse(model.isSeekable)
-        XCTAssertEqual(model.durationText, "--:--")
-        XCTAssertEqual(model.displayedPosition, 0)
+    func testNothingIsSeekableBeforeTheHostReportsADuration() async {
+        await MainActor.run {
+            let model = GoosicAppModel()
+            XCTAssertFalse(model.isSeekable)
+            XCTAssertEqual(model.durationText, "--:--")
+            XCTAssertEqual(model.displayedPosition, 0)
+        }
     }
 
-    func testNowPlayingSubtitleFallsBackWhenNothingIsPlaying() {
-        XCTAssertEqual(GoosicAppModel().nowPlayingSubtitle, "Choose a track to begin")
+    func testNowPlayingSubtitleFallsBackWhenNothingIsPlaying() async {
+        await MainActor.run {
+            XCTAssertEqual(GoosicAppModel().nowPlayingSubtitle, "Choose a track to begin")
+        }
     }
 }
 

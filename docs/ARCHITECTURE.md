@@ -66,11 +66,20 @@ Screens stay portable SwiftCrossUI; only the material behind them is platform-sp
 | macOS 26+ | `NSGlassEffectView` (Liquid Glass) |
 | macOS 14–25 | `NSVisualEffectView` |
 | Windows | reserved for a WinUI backdrop |
+| Linux | plain background; GTK 4 has no equivalent vibrancy primitive |
 | anything else, or an unknown version | plain background |
 
 Two rules keep this from leaking into behaviour. The material is applied with `.background(…)`, so it is a leaf *behind* the content and never wraps it — controls and their accessibility stay native. And its host view returns `nil` from `hitTest`, so it cannot swallow a click meant for a button above it.
 
 Unsupported versions fall back rather than failing: there is no private feature toggle and no reimplemented blur.
+
+## Shell backends
+
+The shell is one SwiftCrossUI target that compiles for more than one backend. Everything platform-specific lives behind `#if os(macOS)` with a complete `#else` branch, so the non-macOS build is a real build rather than a broken one: `OfficialPlaybackHost`, `LocalPlaybackHost`, `AccountLoginHost`, `MaterialSurface`, and `SystemMediaControls` each ship a stub whose surface matches the macOS type. When a stub drifts from that surface the shell stops compiling off macOS, which is the intended signal — the stubs are part of the contract, not scaffolding.
+
+The backend is chosen at build time through `SCUI_DEFAULT_BACKEND`, and the Make targets always set it: `AppKitBackend` on macOS, `GtkBackend` on Linux. It has to be explicit. SwiftCrossUI's `DefaultBackend` otherwise names every platform's backend target and, although each carries a platform condition, SwiftPM still resolves `swift-winui` into the build graph and tries to compile its C targets, which need Windows headers.
+
+A stub build browses, searches, and renders the transport, but produces no audio. That is deliberate: a renderer that played without claiming a Rust lease would be a hole in the ownership model, so the absence of a host is expressed as a host that refuses rather than as an unguarded fallback.
 
 ## Official playback host (macOS)
 

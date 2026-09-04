@@ -729,6 +729,9 @@ final class OfficialPlaybackHost {
     func seek(to seconds: Double) { onStatus?("Official playback host is only available on macOS.") }
     func setVolume(_ volume: Double) { onStatus?("Official playback host is only available on macOS.") }
     func setMuted(_ muted: Bool) { onStatus?("Official playback host is only available on macOS.") }
+    /// Mirrors the macOS host: drops the lease-bound event identity so a late event from the old
+    /// document cannot be forwarded. This stub emits no events, so only the document is dropped.
+    func invalidateExpectations() { loadedVideoID = nil }
     func quiesce(completion: @escaping @MainActor () -> Void) { completion() }
     func bind(profile: OfficialPlaybackProfile) {}
     func detach(completion: (@MainActor () -> Void)? = nil) { completion?() }

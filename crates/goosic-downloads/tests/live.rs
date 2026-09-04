@@ -23,7 +23,14 @@ fn real_downloads_import_and_decode() {
         directory.path().join("decoded"),
     )
     .unwrap();
-    let added = library.import_legacy(&media).unwrap();
+    let added = match library.import_legacy(&media) {
+        Ok(added) => added,
+        Err(goosic_downloads::DownloadError::NoLegacyDownloads) => {
+            println!("the legacy download directory exists but holds no media");
+            return;
+        }
+        Err(error) => panic!("import failed: {error}"),
+    };
     let tracks = library.tracks();
     println!("imported {added} tracks; index holds {}", tracks.len());
     for track in tracks.iter().take(3) {
