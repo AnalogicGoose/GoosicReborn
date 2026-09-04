@@ -10,6 +10,8 @@ The app identity remains `goosic`; the historical preference keys remain unchang
 
 ## What the import actually does
 
+The Downloads screen can also import finalized `.webm` files from the legacy `offline-media/stream` directory. It references those files in place, skips empty or explicitly invalid entries, and never deletes or copies the previous media. A request to play one must first hold Rust's `localDownloadedFile` lease; Rust decodes the WebM/Opus source into its own WAV cache, and macOS AVFoundation opens only the returned decoded path. This build does not implement new downloads, yt-dlp, or cookie-backed extraction.
+
 The previous app kept its preferences in the web view's `localStorage`, which on macOS and Linux is a WebKit SQLite database. `goosic-settings` reads it as follows:
 
 - The database and any write-ahead log are **copied before they are opened**, so a partial or failed import cannot alter the old app's state. A test asserts the legacy file is byte-identical and its modification time unchanged after a read.

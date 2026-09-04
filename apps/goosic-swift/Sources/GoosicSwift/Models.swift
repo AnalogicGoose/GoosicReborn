@@ -73,6 +73,7 @@ enum GoosicEntityReference: Hashable {
 enum PlaybackTransition: String, Equatable {
     case idle
     case claiming
+    case preparingLocal
     case releasing
 }
 
@@ -90,6 +91,34 @@ struct GoosicTrack: Identifiable, Hashable {
     let duration: String
     let videoID: String
     let explicit: Bool
+    /// Optional upstream thumbnail URL used by macOS Now Playing artwork.
+    let thumbnail: String?
+
+    init(
+        id: String,
+        title: String,
+        subtitle: String,
+        artist: String,
+        artistID: String?,
+        album: String,
+        albumID: String?,
+        duration: String,
+        videoID: String,
+        explicit: Bool,
+        thumbnail: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.artist = artist
+        self.artistID = artistID
+        self.album = album
+        self.albumID = albumID
+        self.duration = duration
+        self.videoID = videoID
+        self.explicit = explicit
+        self.thumbnail = thumbnail
+    }
 
     /// One line under the title.
     ///
@@ -158,14 +187,26 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     @SwiftCrossUI.Published private(set) var duration: Double = 0
     @SwiftCrossUI.Published private(set) var volume: Double = 1
     @SwiftCrossUI.Published private(set) var isMuted = false
+    @SwiftCrossUI.Published private(set) var isAdvertisement = false
+    /// System media controls stay empty until the active renderer confirms one valid sample.
+    @SwiftCrossUI.Published private(set) var hasConfirmedPlaybackSample = false
     @SwiftCrossUI.Published private(set) var autoplay = true
     @SwiftCrossUI.Published private(set) var legacyImportAvailable = false
     @SwiftCrossUI.Published private(set) var legacyImported = false
     @SwiftCrossUI.Published private(set) var playbackTransition: PlaybackTransition = .idle
     @SwiftCrossUI.Published private(set) var playbackTransitionToken: UInt64 = 0
+    /// Serializes account/profile operations with every playback selection and control action.
+    /// This is set before renderer detachment begins, so no user action can claim a new lease
+    /// while a login or account promotion is between quiesce and Rust confirmation.
+    @SwiftCrossUI.Published private(set) var accountOperationInProgress = false
     @SwiftCrossUI.Published var playbackLabVideoID = ""
     @SwiftCrossUI.Published private(set) var hostStatus = "No official video loaded."
     @SwiftCrossUI.Published private(set) var hostDiagnostics = "No page loaded."
+    @SwiftCrossUI.Published private(set) var downloadedTracks: [GoosicDownloadedTrack] = []
+    @SwiftCrossUI.Published private(set) var accounts: [GoosicAccountSummary] = []
+    @SwiftCrossUI.Published private(set) var activeAccountId: String?
+    @SwiftCrossUI.Published private(set) var accountSnapshotEpoch: UInt64 = 0
+    @SwiftCrossUI.Published private(set) var downloadsLoading = false
     /// Every catalog page this session has requested, keyed so a late response cannot land on
     /// the wrong screen.
     @SwiftCrossUI.Published private(set) var pages: [CatalogKey: CatalogLoadState] = [:]
@@ -185,9 +226,23 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private var pendingPreferenceSave: GoosicPreferencesPatch?
     private var preferenceSaveToken: UInt64 = 0
     let officialPlaybackHost: OfficialPlaybackHost
+    let localPlaybackHost: LocalPlaybackHost
+    private var systemMediaControls: SystemMediaControls?
+    private var accountLoginHost: AccountLoginHost?
+    private var accountTransitionToken: UInt64 = 0
+
+    var activeAccount: GoosicAccountSummary? {
+        guard let activeAccountId else { return nil }
+        return accounts.first { $0.id == activeAccountId }
+    }
+
+    var activeAccountLabel: String {
+        activeAccount?.displayName ?? "Guest profile"
+    }
 
     init() {
         officialPlaybackHost = OfficialPlaybackHost()
+        localPlaybackHost = LocalPlaybackHost()
         officialPlaybackHost.onEvent = { [weak self] event in
             self?.receive(event)
         }
@@ -203,6 +258,17 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 self?.status = message
             }
         }
+        localPlaybackHost.onEvent = { [weak self] event in
+            self?.receive(event)
+        }
+        localPlaybackHost.onStatus = { [weak self] message in
+            self?.hostStatus = message
+            if self?.playbackState.owner == .localDownloadedFile {
+                self?.status = message
+            }
+        }
+        systemMediaControls = SystemMediaControls(model: self)
+        updateSystemMediaControls()
     }
 
     // MARK: - Navigation
@@ -211,6 +277,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         self.route = route
         detail = nil
         loadRoute(route)
+        if route == .downloads { loadDownloads() }
         savePreferences(GoosicPreferencesPatch(lastRoute: route.rawValue))
     }
 
@@ -235,10 +302,349 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 self.serviceConnected = true
                 self.status = response.payload?.message ?? "Rust service connected."
                 self.loadPreferences()
+                self.loadAccounts()
             }
         } catch {
             status = error.localizedDescription
         }
+    }
+
+    // MARK: - Accounts
+
+    func loadAccounts() {
+        guard client != nil else { return }
+        send(command: "accounts.get") { [weak self] response in
+            guard let self, let snapshot = response.payload?.accounts else { return }
+            self.applyAccounts(snapshot, initial: self.accountSnapshotEpoch == 0)
+        } failure: { [weak self] error in
+            self?.status = "Could not read account profiles: \(Self.describe(error).message)"
+        }
+    }
+
+    /// Applies a Rust snapshot only if it is not older than the one already rendered. This keeps
+    /// a late accounts.get response from resurrecting an account after a switch.
+    private func applyAccounts(_ snapshot: GoosicAccountsSnapshot, initial: Bool = false) {
+        guard AccountSnapshotSelection.accepts(epoch: snapshot.epoch, currentEpoch: accountSnapshotEpoch, initial: initial) else { return }
+        accounts = snapshot.accounts
+        activeAccountId = snapshot.activeAccountId
+        accountSnapshotEpoch = snapshot.epoch
+        guard initial else { return }
+        // A persisted active account is startup state, not a user transition. Bind its profile
+        // directly after accounts.get and do not manufacture a playback lease transition.
+        if let profile = activeAccount?.webkitProfileId,
+           let uuid = UUID(uuidString: profile),
+           playbackState.owner == .none {
+            officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: uuid))
+        }
+    }
+
+    func signIn() {
+        beginAccountLogin()
+    }
+
+    func beginAccountLogin() {
+        guard canChangeAccount else { return }
+        guard client != nil else {
+            status = "Connect to the Rust service before signing in."
+            return
+        }
+        guard beginAccountOperation() else { return }
+        let priorProfile = activeAccount.flatMap { UUID(uuidString: $0.webkitProfileId) } ?? OfficialPlaybackProfile.guest.identifier
+        prepareForAccountTransition(success: { [weak self] in
+            guard let self else { return }
+            let host = AccountLoginHost()
+            self.accountLoginHost = host
+            host.onCompleted = { [weak self] result, host in
+                guard let self else { return }
+                self.upsertAndActivate(result, host: host, priorProfile: priorProfile)
+            }
+            host.onCancelled = { [weak self] in
+                self?.accountLoginHost = nil
+                self?.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+                self?.finishAccountOperation()
+            }
+            host.start()
+            self.status = "Sign in in the secure account window."
+        }, failure: { [weak self] message in
+            guard let self else { return }
+            self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+            self.finishAccountOperation()
+            self.status = message
+        })
+    }
+
+    func switchAccount(to id: String) {
+        guard accounts.contains(where: { $0.id == id }) else { return }
+        guard id != activeAccountId else { return }
+        guard canChangeAccount else { return }
+        guard beginAccountOperation() else { return }
+        performAccountTransition(command: "accounts.activate", payload: GoosicRequestPayload(generation: playbackState.generation, accountId: id), target: id)
+    }
+
+    func signOut() {
+        guard activeAccountId != nil else { return }
+        guard canChangeAccount else { return }
+        guard beginAccountOperation() else { return }
+        performAccountTransition(command: AccountTransitionCommand.activationCommand(for: nil), payload: GoosicRequestPayload(generation: playbackState.generation, accountId: nil), target: nil)
+    }
+
+    func removeAccount(_ id: String) {
+        guard accounts.contains(where: { $0.id == id }) else { return }
+        guard canChangeAccount else { return }
+        let target = id == activeAccountId ? nil : activeAccountId
+        guard beginAccountOperation() else { return }
+        performAccountTransition(command: "accounts.remove", payload: GoosicRequestPayload(generation: playbackState.generation, accountId: id), target: target, removeId: id)
+    }
+
+    private var canChangeAccount: Bool {
+        guard AccountOperationGate.canInteract(isInProgress: accountOperationInProgress) else {
+            status = "An account operation is already in progress."
+            return false
+        }
+        guard AccountTransitionGate.canStart(owner: playbackState.owner, advertisement: isAdvertisement, transition: playbackTransition) else {
+            if isAdvertisement {
+                status = "Account changes are unavailable during an advertisement."
+            } else {
+            status = "Account changes are unavailable while playback is transitioning."
+            }
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    private func beginAccountOperation() -> Bool {
+        guard AccountOperationGate.canInteract(isInProgress: accountOperationInProgress) else {
+            status = "An account operation is already in progress."
+            return false
+        }
+        accountOperationInProgress = true
+        return true
+    }
+
+    private func finishAccountOperation() {
+        accountOperationInProgress = false
+    }
+
+    private func upsertAndActivate(_ result: AccountLoginResult, host: AccountLoginHost, priorProfile: UUID) {
+        guard client != nil else {
+            host.discardStaging()
+            officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+            accountLoginHost = nil
+            finishAccountOperation()
+            status = "Could not save account profile: Rust service is unavailable."
+            return
+        }
+        let upsert = GoosicAccountUpsert(
+            id: result.accountId.uuidString.lowercased(),
+            webkitProfileId: result.profileId.uuidString.lowercased(),
+            displayName: result.summary.displayName,
+            email: result.summary.email,
+            channel: result.summary.channel,
+            avatarUrl: result.summary.avatarUrl
+        )
+        status = "Saving account profile…"
+        send(command: "accounts.upsert", payload: GoosicRequestPayload(account: upsert)) { [weak self] response in
+            guard let self else { return }
+            let snapshot = response.payload?.accounts
+            let id = snapshot?.accounts.first(where: { $0.id == upsert.id })?.id ?? upsert.id!
+            self.activateStagedAccount(id: id, host: host, priorProfile: priorProfile, snapshot: snapshot)
+        } failure: { [weak self] error in
+            guard let self else { return }
+            host.discardStaging()
+            self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+            self.accountLoginHost = nil
+            self.finishAccountOperation()
+            self.status = "Could not save account profile: \(Self.describe(error).message)"
+        }
+    }
+
+    private func activateStagedAccount(id: String, host: AccountLoginHost, priorProfile: UUID, snapshot: GoosicAccountsSnapshot?) {
+        prepareForAccountTransition(success: { [weak self] in
+            guard let self else { return }
+            let token = self.beginAccountTransition()
+            var payload = GoosicRequestPayload(accountId: id)
+            payload.generation = self.playbackState.generation
+            self.send(command: "accounts.activate", payload: payload) { [weak self] response in
+                guard let self, self.isCurrentAccountTransition(token) else { return }
+                guard response.ok else {
+                    self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+                    self.rollbackStagedAccount(id: id, host: host, priorProfile: priorProfile, token: token,
+                                               message: "Account activation was rejected by Rust.")
+                    return
+                }
+                self.apply(response)
+                if let accounts = response.payload?.accounts ?? snapshot { self.applyAccounts(accounts) }
+                let profile = self.accounts.first(where: { $0.id == id }).flatMap { UUID(uuidString: $0.webkitProfileId) }
+                guard let profile else {
+                    self.rollbackStagedAccount(id: id, host: host, priorProfile: priorProfile, token: token, message: "Rust activated an account without a valid profile.")
+                    return
+                }
+                guard AccountStagingLifecycle.canCommit(upsertSucceeded: true, activationSucceeded: true, rebindSucceeded: true) else {
+                    self.rollbackStagedAccount(id: id, host: host, priorProfile: priorProfile, token: token, message: "Could not commit the staged account profile.")
+                    return
+                }
+                self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: profile))
+                host.commitPromotion()
+                self.accountLoginHost = nil
+                self.clearAccountScopedUI()
+                self.finishAccountTransition(token)
+                self.finishAccountOperation()
+                self.status = "Signed in to the new account."
+            } failure: { [weak self] error in
+                guard let self, self.isCurrentAccountTransition(token) else { return }
+                self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+                self.rollbackStagedAccount(id: id, host: host, priorProfile: priorProfile, token: token, message: "Account activation failed: \(Self.describe(error).message)")
+            }
+        }, failure: { [weak self] message in
+            guard let self else { return }
+            // Upsert has already persisted metadata, so a release/quiesce failure must follow
+            // the same deterministic rollback path as activation failure.
+            self.rollbackStagedAccount(id: id, host: host, priorProfile: priorProfile,
+                                       token: self.accountTransitionToken,
+                                       message: message)
+        })
+    }
+
+    private func rollbackStagedAccount(id: String, host: AccountLoginHost, priorProfile: UUID, token: UInt64, message: String) {
+        host.discardStaging()
+        officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+        var payload = GoosicRequestPayload(accountId: id)
+        payload.generation = playbackState.generation
+        send(command: "accounts.remove", payload: payload) { [weak self] response in
+            guard let self, self.isCurrentAccountTransition(token) else { return }
+            self.apply(response)
+            if let accounts = response.payload?.accounts { self.applyAccounts(accounts) }
+            self.accountLoginHost = nil
+            self.finishAccountTransition(token)
+            self.finishAccountOperation()
+            self.status = message
+        } failure: { [weak self] _ in
+            guard let self, self.isCurrentAccountTransition(token) else { return }
+            self.accountLoginHost = nil
+            self.finishAccountTransition(token)
+            self.finishAccountOperation()
+            self.status = "\(message) Metadata rollback also failed; refresh accounts before retrying."
+        }
+    }
+
+    private func performAccountTransition(
+        command: String,
+        payload: GoosicRequestPayload,
+        target: String?,
+        removeId: String? = nil,
+        snapshot: GoosicAccountsSnapshot? = nil
+    ) {
+        let priorProfile = activeAccount.flatMap { UUID(uuidString: $0.webkitProfileId) } ?? OfficialPlaybackProfile.guest.identifier
+        prepareForAccountTransition(success: { [weak self] in
+            guard let self else { return }
+            let token = self.beginAccountTransition()
+            self.status = "Changing account…"
+            var transitionPayload = payload
+            // Releasing a lease may advance Rust's generation. Account transitions must carry
+            // the generation returned by that release, never the pre-quiesce value.
+            transitionPayload.generation = self.playbackState.generation
+            self.send(command: command, payload: transitionPayload) { [weak self] response in
+                guard let self, self.isCurrentAccountTransition(token) else { return }
+                guard response.ok else {
+                    self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+                    self.finishAccountTransition(token)
+                    self.finishAccountOperation()
+                    self.status = "Account change was rejected by Rust."
+                    return
+                }
+                self.apply(response)
+                if let snapshot = response.payload?.accounts ?? snapshot {
+                    self.applyAccounts(snapshot)
+                } else {
+                    self.loadAccounts()
+                }
+                // Rebind only after Rust confirms the durable transition. A failed transition
+                // leaves the previous profile and its UI intact.
+                let profile = target.flatMap { id in self.accounts.first(where: { $0.id == id })?.webkitProfileId }
+                    .flatMap(UUID.init(uuidString:))
+                    ?? OfficialPlaybackProfile.guest.identifier
+                self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: profile))
+                self.clearAccountScopedUI()
+                self.finishAccountTransition(token)
+                self.finishAccountOperation()
+                self.status = target == nil ? "Signed out." : "Active account changed."
+                _ = removeId
+            } failure: { [weak self] error in
+                guard let self, self.isCurrentAccountTransition(token) else { return }
+                self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+                self.finishAccountTransition(token)
+                self.finishAccountOperation()
+                self.status = "Account change failed: \(Self.describe(error).message)"
+            }
+        }, failure: { [weak self] message in
+            guard let self else { return }
+            self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+            self.finishAccountOperation()
+            self.status = message
+        })
+    }
+
+    private func beginAccountTransition() -> UInt64 {
+        accountTransitionToken &+= 1
+        playbackTransition = .releasing
+        return accountTransitionToken
+    }
+
+    private func isCurrentAccountTransition(_ token: UInt64) -> Bool { token == accountTransitionToken }
+
+    private func finishAccountTransition(_ token: UInt64) {
+        guard token == accountTransitionToken else { return }
+        playbackTransition = .idle
+    }
+
+    private func clearAccountScopedUI() {
+        queue = GoosicQueue(tracks: [], currentIndex: 0)
+        currentTrack = nil
+        detail = nil
+        submittedQuery = ""
+        pages.removeAll()
+        beginTrack()
+        hasConfirmedPlaybackSample = false
+        updateSystemMediaControls()
+    }
+
+    private func prepareForAccountTransition(
+        success: @escaping @MainActor () -> Void,
+        failure: @escaping @MainActor (String) -> Void
+    ) {
+        let priorProfile = activeAccount.flatMap { UUID(uuidString: $0.webkitProfileId) } ?? OfficialPlaybackProfile.guest.identifier
+        guard playbackState.owner != .none else {
+            // Keep the login-only web view from coexisting with a mounted playback renderer,
+            // even when Rust currently reports no lease.
+            officialPlaybackHost.detach(completion: success)
+            return
+        }
+        let token = beginPlaybackTransition(.releasing)
+        hasConfirmedPlaybackSample = false
+        updateSystemMediaControls()
+        let release: @MainActor () -> Void = { [weak self] in
+            guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
+            let owner = self.playbackState.owner
+            if owner == .localDownloadedFile { self.localPlaybackHost.stop() }
+            else { self.officialPlaybackHost.invalidateExpectations() }
+            self.send(command: "playback.release", payload: GoosicRequestPayload(owner: owner, generation: self.playbackState.generation)) { [weak self] response in
+                guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
+                self.apply(response)
+                self.officialPlaybackHost.detach { [weak self] in
+                    guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
+                    self.finishPlaybackTransition(token)
+                    success()
+                }
+            } failure: { [weak self] error in
+                guard let self else { return }
+                self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
+                self.finishPlaybackTransition(token)
+                failure("Could not release playback for account change: \(Self.describe(error).message)")
+            }
+        }
+        if playbackState.owner == .officialWebView { officialPlaybackHost.quiesce { release() } }
+        else { release() }
     }
 
     // MARK: - Preferences
@@ -252,9 +658,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 self.apply(settings, restoringRoute: true)
             }
             self.loadRoute(self.route)
+            if self.route == .downloads { self.loadDownloads() }
         } failure: { [weak self] _ in
             guard let self else { return }
             self.loadRoute(self.route)
+            if self.route == .downloads { self.loadDownloads() }
         }
     }
 
@@ -271,6 +679,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func setAutoplay(_ enabled: Bool) {
+        guard allowPlaybackInteraction() else { return }
         autoplay = enabled
         savePreferences(GoosicPreferencesPatch(autoplay: enabled))
     }
@@ -329,6 +738,46 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         merged.lastRoute = update.lastRoute ?? merged.lastRoute
         merged.queueVisible = update.queueVisible ?? merged.queueVisible
         return merged
+    }
+
+    // MARK: - Downloads
+
+    func loadDownloads() {
+        guard client != nil else {
+            status = "Connect to the Rust service to read downloaded files."
+            return
+        }
+        downloadsLoading = true
+        send(command: "downloads.list") { [weak self] response in
+            guard let self else { return }
+            self.downloadsLoading = false
+            self.downloadedTracks = response.payload?.downloads ?? []
+        } failure: { [weak self] error in
+            guard let self else { return }
+            self.downloadsLoading = false
+            self.status = "Could not read downloaded files: \(Self.describe(error).message)"
+        }
+    }
+
+    /// Imports only finalized files already present in the previous Goosic media directory.
+    /// Rust leaves those files in place and does not invoke a downloader.
+    func importLegacyDownloads() {
+        guard client != nil else {
+            status = "Connect to the Rust service before importing downloaded files."
+            return
+        }
+        downloadsLoading = true
+        status = "Reading finalized files from the previous Goosic…"
+        send(command: "downloads.importLegacy") { [weak self] response in
+            guard let self else { return }
+            self.downloadsLoading = false
+            self.downloadedTracks = response.payload?.downloads ?? self.downloadedTracks
+            self.status = response.payload?.message ?? "Imported downloaded files from the previous Goosic."
+        } failure: { [weak self] error in
+            guard let self else { return }
+            self.downloadsLoading = false
+            self.status = "Could not import downloaded files: \(Self.describe(error).message)"
+        }
     }
 
     // MARK: - Catalog
@@ -473,6 +922,27 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         return text.isEmpty ? track.duration : text
     }
 
+    /// A value-type view of model state consumed by the system media adapter and its tests.
+    var mediaSnapshot: SystemMediaPlaybackSnapshot {
+        SystemMediaPlaybackSnapshot(
+            track: currentTrack,
+            currentTime: currentTime,
+            duration: duration,
+            isPaused: isPaused,
+            owner: playbackState.owner,
+            isAdvertisement: isAdvertisement,
+            hasQueue: !queue.tracks.isEmpty,
+            transition: playbackTransition,
+            volume: volume,
+            isMuted: isMuted,
+            isReady: hasConfirmedPlaybackSample
+        )
+    }
+
+    private func updateSystemMediaControls() {
+        systemMediaControls?.update(snapshot: mediaSnapshot)
+    }
+
     /// Where the scrubber should sit: the pending seek while it is still settling, otherwise
     /// the position the player last confirmed.
     var displayedPosition: Double {
@@ -484,7 +954,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     /// The scrubber's upper bound. Zero-length media would make an empty range, so it is only
     /// ever seekable once the player has reported a real duration.
-    var isSeekable: Bool { duration > 0 && playbackState.owner == .officialWebView }
+    var isSeekable: Bool {
+        duration > 0 && playbackState.owner != .none && !isAdvertisement
+    }
 
     var elapsedText: String { Self.timeText(displayedPosition) }
     var durationText: String { duration > 0 ? Self.timeText(duration) : "--:--" }
@@ -505,32 +977,78 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     // MARK: - Playback
 
+    @discardableResult
+    private func allowPlaybackInteraction() -> Bool {
+        guard AccountOperationGate.canInteract(isInProgress: accountOperationInProgress) else {
+            status = "Playback is temporarily unavailable while the account changes."
+            return false
+        }
+        return true
+    }
+
     func seek(to position: Double) {
-        guard isSeekable else { return }
+        guard allowPlaybackInteraction() else { return }
+        guard isSeekable else {
+            if isAdvertisement {
+                status = "Seeking is unavailable during advertisements."
+            }
+            return
+        }
         let clamped = min(max(position, 0), duration)
         pendingSeek = (clamped, Date())
-        officialPlaybackHost.seek(to: clamped)
+        if playbackState.owner == .localDownloadedFile {
+            localPlaybackHost.seek(to: clamped)
+        } else {
+            officialPlaybackHost.seek(to: clamped)
+        }
     }
 
     func setVolume(_ newVolume: Double) {
+        guard allowPlaybackInteraction() else { return }
+        guard !isAdvertisement else {
+            status = "Volume is unchanged during advertisements."
+            return
+        }
         let clamped = min(max(newVolume, 0), 1)
         volume = clamped
         isMuted = false
         volumeAppliedForLoad = true
-        officialPlaybackHost.setVolume(clamped)
+        if playbackState.owner == .localDownloadedFile {
+            localPlaybackHost.setVolume(clamped)
+        } else {
+            officialPlaybackHost.setVolume(clamped)
+        }
         savePreferences(GoosicPreferencesPatch(volume: clamped, muted: false))
     }
 
     func toggleMuted() {
+        guard allowPlaybackInteraction() else { return }
+        guard !isAdvertisement else {
+            status = "Mute is unavailable during advertisements."
+            return
+        }
         isMuted.toggle()
         volumeAppliedForLoad = true
-        officialPlaybackHost.setMuted(isMuted)
+        if playbackState.owner == .localDownloadedFile {
+            localPlaybackHost.setMuted(isMuted)
+        } else {
+            officialPlaybackHost.setMuted(isMuted)
+        }
         savePreferences(GoosicPreferencesPatch(muted: isMuted))
     }
 
     func play(_ track: GoosicTrack, in tracks: [GoosicTrack] = []) {
+        guard allowPlaybackInteraction() else { return }
         guard playbackTransition == .idle else {
             status = "Playback command pending; wait for Rust to finish before choosing another action."
+            return
+        }
+        if playbackState.owner == .localDownloadedFile {
+            status = "This catalog track is online. Release local playback before using officialWebView."
+            return
+        }
+        guard !isAdvertisement else {
+            status = "Track changes are unavailable while the official player is showing an advertisement."
             return
         }
         guard playbackState.owner != .localDownloadedFile else {
@@ -576,7 +1094,153 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
     }
 
+    /// Plays an imported local file after Rust grants the localDownloadedFile lease and returns a
+    /// decoded cache path. A catalog/official renderer is always quiesced before that claim.
+    func playDownloaded(_ track: GoosicDownloadedTrack) {
+        guard allowPlaybackInteraction() else { return }
+        guard track.available else {
+            status = "This downloaded file is missing from disk. Refresh Downloads to recheck it."
+            return
+        }
+        guard !isAdvertisement else {
+            status = "Downloaded-file playback is unavailable while the official player is showing an advertisement."
+            return
+        }
+        guard playbackTransition == .idle else {
+            status = "Playback command pending; wait for Rust to finish before choosing another action."
+            return
+        }
+        guard client != nil else {
+            status = "Connect to the Rust service before playing a downloaded file."
+            return
+        }
+        if playbackState.owner == .localDownloadedFile {
+            // A local track replacement is also a renderer switch: stop the old file before
+            // asking Rust for the next decoded path, even though the owner stays local.
+            localPlaybackHost.stopForReplacement()
+            currentTrack = nil
+            beginTrack()
+            prepareLocalTrack(track, token: beginPlaybackTransition(.preparingLocal))
+            return
+        }
+        if playbackState.owner == .officialWebView {
+            hasConfirmedPlaybackSample = false
+            updateSystemMediaControls()
+            let token = beginPlaybackTransition(.releasing)
+            status = "Quiescing official playback before switching to the local file…"
+            officialPlaybackHost.quiesce { [weak self] in
+                guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
+                self.officialPlaybackHost.invalidateExpectations()
+                self.send(command: "playback.release", payload: GoosicRequestPayload(
+                    owner: .officialWebView,
+                    generation: self.playbackState.generation
+                )) { [weak self] response in
+                    guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
+                    self.apply(response)
+                    self.currentTrack = nil
+                    self.beginTrack()
+                    self.finishPlaybackTransition(token)
+                    self.claimLocalTrack(track)
+                } failure: { [weak self] _ in
+                    self?.finishPlaybackTransition(token)
+                }
+            }
+            return
+        }
+        claimLocalTrack(track)
+    }
+
+    private func claimLocalTrack(_ track: GoosicDownloadedTrack) {
+        let token = beginPlaybackTransition(.claiming)
+        status = "Requesting localDownloadedFile playback claim from Rust…"
+        send(command: "playback.claim", payload: GoosicRequestPayload(
+            owner: .localDownloadedFile,
+            generation: playbackState.generation
+        )) { [weak self] response in
+            guard let self, self.isCurrentPlaybackTransition(token, kind: .claiming) else { return }
+            self.apply(response)
+            guard self.playbackState.owner == .localDownloadedFile else {
+                self.finishPlaybackTransition(token)
+                self.status = "Rust did not grant the localDownloadedFile playback claim."
+                return
+            }
+            self.finishPlaybackTransition(token)
+            self.prepareLocalTrack(track, token: self.beginPlaybackTransition(.preparingLocal))
+        } failure: { [weak self] _ in
+            self?.finishPlaybackTransition(token)
+        }
+    }
+
+    private func prepareLocalTrack(_ track: GoosicDownloadedTrack, token: UInt64) {
+        guard playbackState.owner == .localDownloadedFile else {
+            finishPlaybackTransition(token)
+            status = "Local playback lease was lost before preparation."
+            return
+        }
+        status = "Preparing decoded local audio for \(track.title)…"
+        send(command: "downloads.prepare", payload: GoosicRequestPayload(
+            owner: .localDownloadedFile,
+            generation: playbackState.generation,
+            catalogId: track.videoId
+        )) { [weak self] response in
+            guard let self, self.isCurrentPlaybackTransition(token, kind: .preparingLocal) else { return }
+            guard let path = response.payload?.localFile, !path.isEmpty else {
+                self.failLocalPlayback(token, message: "Rust did not return a decoded cache path.")
+                return
+            }
+            do {
+                try self.localPlaybackHost.prepare(localFile: path, videoID: track.videoId, generation: self.playbackState.generation)
+            } catch {
+                self.failLocalPlayback(token, message: "AVFoundation could not open the decoded file: \(error.localizedDescription)")
+                return
+            }
+            self.queue = GoosicQueue(tracks: [], currentIndex: 0)
+            self.currentTrack = GoosicTrack(
+                id: track.videoId,
+                title: track.title,
+                subtitle: track.subtitle,
+                artist: track.artist,
+                artistID: nil,
+                album: "",
+                albumID: nil,
+                duration: "",
+                videoID: track.videoId,
+                explicit: false
+            )
+            self.beginTrack()
+            guard self.localPlaybackHost.play() else {
+                self.failLocalPlayback(token, message: "AVFoundation did not confirm local playback.")
+                return
+            }
+            self.finishPlaybackTransition(token)
+            self.status = "Local playback confirmed for \(track.title)."
+        } failure: { [weak self] error in
+            guard let self else { return }
+            self.failLocalPlayback(token, message: "Could not prepare downloaded audio: \(Self.describe(error).message)")
+        }
+    }
+
+    private func failLocalPlayback(_ token: UInt64, message: String) {
+        guard isCurrentPlaybackTransition(token, kind: .preparingLocal) else { return }
+        localPlaybackHost.stop()
+        currentTrack = nil
+        beginTrack()
+        send(command: "playback.release", payload: GoosicRequestPayload(
+            owner: .localDownloadedFile,
+            generation: playbackState.generation
+        )) { [weak self] response in
+            guard let self, self.isCurrentPlaybackTransition(token, kind: .preparingLocal) else { return }
+            self.apply(response)
+            self.finishPlaybackTransition(token)
+            self.status = message
+        } failure: { [weak self] _ in
+            self?.finishPlaybackTransition(token)
+            self?.status = message
+        }
+    }
+
     func togglePause() {
+        guard allowPlaybackInteraction() else { return }
         guard playbackTransition == .idle else {
             status = "Playback command pending; pause is temporarily unavailable."
             return
@@ -589,6 +1253,15 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             }
             return
         }
+        if playbackState.owner == .localDownloadedFile, localPlaybackHost.isLoaded {
+            if isPaused {
+                guard localPlaybackHost.play() else { return }
+                status = "Local play requested; waiting for the next confirmed sample."
+            } else {
+                localPlaybackHost.pause()
+            }
+            return
+        }
         guard let track = queue.current ?? queue.tracks.first else {
             status = "Choose a track to begin."
             return
@@ -597,31 +1270,43 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func previous() {
+        guard allowPlaybackInteraction() else { return }
         guard playbackTransition == .idle else {
             status = "Playback command pending; previous is temporarily unavailable."
             return
         }
         guard !queue.tracks.isEmpty else { return }
+        guard !isAdvertisement else {
+            status = "Track changes are unavailable while the official player is showing an advertisement."
+            return
+        }
         let index = queue.currentIndex > 0 ? queue.currentIndex - 1 : queue.tracks.count - 1
         play(queue.tracks[index])
     }
 
     func next() {
+        guard allowPlaybackInteraction() else { return }
         guard playbackTransition == .idle else {
             status = "Playback command pending; next is temporarily unavailable."
             return
         }
         guard !queue.tracks.isEmpty else { return }
+        guard !isAdvertisement else {
+            status = "Track changes are unavailable while the official player is showing an advertisement."
+            return
+        }
         let index = (queue.currentIndex + 1) % queue.tracks.count
         play(queue.tracks[index])
     }
 
     func toggleQueue() {
+        guard allowPlaybackInteraction() else { return }
         queueVisible.toggle()
         savePreferences(GoosicPreferencesPatch(queueVisible: queueVisible))
     }
 
     func releasePlayback() {
+        guard allowPlaybackInteraction() else { return }
         guard playbackTransition == .idle else {
             status = "Playback command pending; release is temporarily unavailable."
             return
@@ -630,11 +1315,34 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Rust playback is already released."
             return
         }
+        // Do not advertise stale media while the renderer is being quiesced and the lease
+        // response is still in flight.
+        hasConfirmedPlaybackSample = false
+        updateSystemMediaControls()
         let operationToken = beginPlaybackTransition(.releasing)
         status = "Releasing playback…"
+        if playbackState.owner == .localDownloadedFile {
+            // Stop synchronously first; no timer callback may race the lease release.
+            localPlaybackHost.stop()
+            send(command: "playback.release", payload: GoosicRequestPayload(
+                owner: .localDownloadedFile,
+                generation: playbackState.generation
+            )) { [weak self] response in
+                guard let self, self.isCurrentPlaybackTransition(operationToken, kind: .releasing) else { return }
+                self.apply(response)
+                self.currentTrack = nil
+                self.beginTrack()
+                self.finishPlaybackTransition(operationToken)
+                self.status = "Playback released by Rust authority."
+            } failure: { [weak self] _ in
+                self?.finishPlaybackTransition(operationToken)
+            }
+            return
+        }
         officialPlaybackHost.quiesce { [weak self] in
             guard let self else { return }
             guard self.isCurrentPlaybackTransition(operationToken, kind: .releasing) else { return }
+            self.officialPlaybackHost.invalidateExpectations()
             self.send(command: "playback.release", payload: GoosicRequestPayload(owner: self.playbackState.owner, generation: self.playbackState.generation)) { [weak self] response in
                 guard let self else { return }
                 guard self.isCurrentPlaybackTransition(operationToken, kind: .releasing) else { return }
@@ -652,8 +1360,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func loadOfficialVideo() {
+        guard allowPlaybackInteraction() else { return }
         guard playbackTransition == .idle else {
             status = "Playback command pending; wait for Rust to finish before loading another video."
+            return
+        }
+        guard !isAdvertisement else {
+            status = "Track changes are unavailable while the official player is showing an advertisement."
             return
         }
         let videoID = playbackLabVideoID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -666,6 +1379,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         if playbackState.owner == .officialWebView {
+            currentTrack = nil
+            beginTrack()
             officialPlaybackHost.load(videoID: videoID, generation: playbackState.generation)
             return
         }
@@ -693,6 +1408,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func playOfficialVideo() {
+        guard allowPlaybackInteraction() else { return }
         guard playbackState.owner == .officialWebView else {
             status = "Claim officialWebView through Rust before controlling the official player."
             return
@@ -706,6 +1422,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func pauseOfficialVideo() {
+        guard allowPlaybackInteraction() else { return }
         guard playbackState.owner == .officialWebView else {
             status = "Claim officialWebView through Rust before controlling the official player."
             return
@@ -719,6 +1436,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func stopOfficialVideo() {
+        guard allowPlaybackInteraction() else { return }
         guard playbackState.owner == .officialWebView else {
             status = "Claim officialWebView through Rust before stopping it."
             return
@@ -765,6 +1483,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private func beginPlaybackTransition(_ transition: PlaybackTransition) -> UInt64 {
         playbackTransitionToken &+= 1
         playbackTransition = transition
+        updateSystemMediaControls()
         return playbackTransitionToken
     }
 
@@ -775,6 +1494,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private func finishPlaybackTransition(_ token: UInt64) {
         guard playbackTransitionToken == token else { return }
         playbackTransition = .idle
+        updateSystemMediaControls()
     }
 
     /// Clears everything the previous track confirmed, so no stale position or end marker is
@@ -785,7 +1505,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         duration = 0
         pendingSeek = nil
         endedVideoID = nil
+        isAdvertisement = false
+        hasConfirmedPlaybackSample = false
         volumeAppliedForLoad = false
+        updateSystemMediaControls()
     }
 
     private func select(_ track: GoosicTrack) {
@@ -799,7 +1522,15 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     private func apply(_ response: GoosicResponse) {
         if let state = response.payload?.state {
+            let previous = playbackState
             playbackState = state
+            if state.owner != previous.owner
+                || state.generation != previous.generation
+                || state.accountId != previous.accountId
+                || state.owner == .none {
+                hasConfirmedPlaybackSample = false
+            }
+            updateSystemMediaControls()
         }
         if response.requestId.hasPrefix("swift-") && response.payload?.message != nil {
             status = response.payload?.message ?? status
@@ -807,25 +1538,34 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     private func receive(_ event: OfficialPlaybackEvent) {
+        guard !accountOperationInProgress else { return }
         guard playbackState.owner == .officialWebView,
               event.generation == playbackState.generation,
               event.videoID == officialPlaybackHost.loadedVideoID else {
             return
         }
+        guard event.currentTime.isFinite, event.currentTime >= 0,
+              event.duration.isFinite, event.duration >= 0 else {
+            return
+        }
+        hasConfirmedPlaybackSample = true
         isPaused = event.state != "playing"
+        isAdvertisement = event.isAdvertisement
         currentTime = event.currentTime
         duration = event.duration
-        if volumeAppliedForLoad {
-            volume = event.volume
-            isMuted = event.isMuted
-        } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
-            // A fresh page starts at its own volume. Push the stored preference once, then
-            // follow whatever the player reports.
-            volumeAppliedForLoad = true
-            officialPlaybackHost.setVolume(volume)
-            officialPlaybackHost.setMuted(isMuted)
-        } else {
-            volumeAppliedForLoad = true
+        if !event.isAdvertisement {
+            if volumeAppliedForLoad {
+                volume = event.volume
+                isMuted = event.isMuted
+            } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
+                // A fresh content page starts at its own volume. Push the stored preference once,
+                // then follow what the player reports. Advertisements never enter this path.
+                volumeAppliedForLoad = true
+                officialPlaybackHost.setVolume(volume)
+                officialPlaybackHost.setMuted(isMuted)
+            } else {
+                volumeAppliedForLoad = true
+            }
         }
         if let pending = pendingSeek,
            abs(event.currentTime - pending.position) < 1.5
@@ -845,6 +1585,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         } else {
             status = "Official host reported \(event.state) for \(event.videoID)."
         }
+        updateSystemMediaControls()
         send(
             command: "playback.sample",
             payload: GoosicRequestPayload(
@@ -860,13 +1601,55 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
     }
 
+    private func receive(_ event: LocalPlaybackEvent) {
+        guard !accountOperationInProgress else { return }
+        guard playbackState.owner == .localDownloadedFile,
+              event.generation == playbackState.generation,
+              event.videoID == localPlaybackHost.loadedVideoID else {
+            return
+        }
+        guard event.currentTime.isFinite, event.currentTime >= 0,
+              event.duration.isFinite, event.duration >= 0 else {
+            return
+        }
+        hasConfirmedPlaybackSample = true
+        isPaused = event.state != "playing"
+        isAdvertisement = false
+        currentTime = event.currentTime
+        duration = event.duration
+        isMuted = event.isMuted
+        if !event.isMuted { volume = event.volume }
+        status = event.state == "ended"
+            ? "Local playback ended."
+            : "Local playback confirmed \(event.state) for \(event.videoID)."
+        updateSystemMediaControls()
+        send(
+            command: "playback.sample",
+            payload: GoosicRequestPayload(
+                owner: .localDownloadedFile,
+                generation: event.generation,
+                sequence: event.sequence,
+                marker: "audio"
+            )
+        ) { [weak self] response in
+            self?.applyState(response)
+        }
+        if event.state == "ended", endedVideoID != event.videoID {
+            endedVideoID = event.videoID
+            advanceAfterEnd()
+        }
+    }
+
     /// The official app followed its own queue. Treat the requested track as finished and let
     /// Goosic's queue decide, so the app never plays something the user did not choose.
     private func officialPlayerMovedOn(from finishedVideoID: String) {
+        guard !accountOperationInProgress else { return }
         guard playbackState.owner == .officialWebView else { return }
         guard endedVideoID != finishedVideoID else { return }
         endedVideoID = finishedVideoID
         isPaused = true
+        hasConfirmedPlaybackSample = false
+        updateSystemMediaControls()
         advanceAfterEnd()
     }
 
@@ -888,8 +1671,19 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     private func applyState(_ response: GoosicResponse) {
+        // A sample acknowledgement can arrive after account work has detached its renderer.
+        // Do not let that old lease-bound response resurrect playback UI/state.
+        guard !accountOperationInProgress else { return }
         if let state = response.payload?.state {
+            let previous = playbackState
             playbackState = state
+            if state.owner != previous.owner
+                || state.generation != previous.generation
+                || state.accountId != previous.accountId
+                || state.owner == .none {
+                hasConfirmedPlaybackSample = false
+            }
+            updateSystemMediaControls()
         }
     }
 }

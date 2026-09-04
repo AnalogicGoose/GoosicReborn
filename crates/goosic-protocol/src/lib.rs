@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: &str = "0.2.0";
+pub const PROTOCOL_VERSION: &str = "0.3.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +37,9 @@ pub struct RequestPayload {
     pub sequence: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    /// Metadata for `accounts.upsert`; this contains no credentials or WebKit data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<AccountUpsert>,
     /// `audio` or `advertisement`; markers are informational and never teardown playback.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marker: Option<String>,
@@ -97,6 +100,71 @@ pub struct ResponsePayload {
     /// Present only for `settings.*` responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<SettingsSnapshot>,
+    /// Present only for `accounts.*` responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accounts: Option<AccountsSnapshot>,
+    /// Present only for `downloads.*` responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub downloads: Option<Vec<DownloadedTrack>>,
+    /// The decoded file a downloaded track should be played from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_file: Option<String>,
+}
+
+/// Metadata identifying one local account and its corresponding platform WebKit profile.
+/// Authentication state remains entirely outside this protocol and persisted schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountSummary {
+    pub id: String,
+    pub webkit_profile_id: String,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+/// Account metadata accepted by `accounts.upsert`. Rust generates `id` when omitted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccountUpsert {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub webkit_profile_id: String,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountsSnapshot {
+    #[serde(default)]
+    pub accounts: Vec<AccountSummary>,
+    pub active_account_id: Option<String>,
+    pub epoch: u64,
+}
+
+/// One track the user has already downloaded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadedTrack {
+    pub video_id: String,
+    pub title: String,
+    pub artist: String,
+    pub bytes: u64,
+    /// Whether the file is present right now. Imported files are referenced where they are, so
+    /// this is resolved per request rather than remembered.
+    pub available: bool,
+    /// Whether this record came from a previous Goosic install.
+    pub imported: bool,
 }
 
 /// The preferences the shell reads and writes.
@@ -278,6 +346,7 @@ mod tests {
                 generation: Some(3),
                 sequence: Some(8),
                 account_id: None,
+                account: None,
                 marker: Some("advertisement".into()),
                 // Listed explicitly: a new payload field must force a look at this snapshot.
                 query: None,
@@ -289,7 +358,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&request).unwrap(),
-            r#"{"protocolVersion":"0.2.0","requestId":"r-1","command":"playback.sample","payload":{"owner":"officialWebView","generation":3,"sequence":8,"marker":"advertisement"}}"#
+            r#"{"protocolVersion":"0.3.0","requestId":"r-1","command":"playback.sample","payload":{"owner":"officialWebView","generation":3,"sequence":8,"marker":"advertisement"}}"#
         );
         let decoded: RequestEnvelope =
             serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();

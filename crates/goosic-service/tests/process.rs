@@ -13,12 +13,12 @@ fn binary_processes_one_request_per_line() {
     writeln!(input, "{}", "x".repeat(64 * 1024 + 1)).unwrap();
     writeln!(
         input,
-        r#"{{"protocolVersion":"0.2.0","requestId":"1","command":"hello","payload":{{}}}}"#
+        r#"{{"protocolVersion":"0.3.0","requestId":"1","command":"hello","payload":{{}}}}"#
     )
     .unwrap();
     writeln!(
         input,
-        r#"{{"protocolVersion":"0.2.0","requestId":"2","command":"state.get","payload":{{}}}}"#
+        r#"{{"protocolVersion":"0.3.0","requestId":"2","command":"state.get","payload":{{}}}}"#
     )
     .unwrap();
     drop(input);

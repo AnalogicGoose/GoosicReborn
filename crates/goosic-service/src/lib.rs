@@ -1,4 +1,6 @@
+pub mod accounts;
 pub mod catalog;
+pub mod downloads;
 pub mod settings;
 
 use goosic_catalog::Catalog;
@@ -11,6 +13,8 @@ pub fn handle_request(
     authority: &mut PlaybackAuthority,
     catalog: &Catalog,
     settings: &mut settings::Settings,
+    downloads: &mut downloads::Downloads,
+    accounts: &mut accounts::Accounts,
     request: RequestEnvelope,
 ) -> ResponseEnvelope {
     let request_id = request.request_id;
@@ -33,6 +37,22 @@ pub fn handle_request(
     if let Some(response) = settings::handle(settings, &request.command, &request_id, &payload) {
         return response;
     }
+    // Reading the download index and decoding a file likewise decide nothing about ownership;
+    // playing one still requires claiming `localDownloadedFile` from the authority.
+    if let Some(response) = downloads::handle(
+        downloads,
+        authority.state(),
+        &request.command,
+        &request_id,
+        &payload,
+    ) {
+        return response;
+    }
+    if let Some(response) =
+        accounts::handle(accounts, authority, &request.command, &request_id, &payload)
+    {
+        return response;
+    }
 
     let state = match request.command.as_str() {
         "hello" | "handshake" => {
@@ -47,19 +67,12 @@ pub fn handle_request(
         }
         "state.get" => authority.state().clone(),
         "account.change" => {
-            let generation = match payload.generation {
-                Some(generation) => generation,
-                None => {
-                    return failure(
-                        request_id,
-                        "invalidRequest",
-                        "account change requires generation",
-                    )
-                }
-            };
-            return core_result(
+            return accounts::handle_compat_change(
+                accounts,
+                authority,
                 request_id,
-                authority.change_account(payload.account_id, generation),
+                payload.account_id.as_deref(),
+                payload.generation,
             );
         }
         "playback.claim" => {
@@ -170,6 +183,25 @@ mod tests {
         Catalog::new()
     }
 
+    /// Downloads pointed at a throwaway path, so tests never read or write the real index.
+    fn downloads() -> downloads::Downloads {
+        let base = std::env::temp_dir().join(format!(
+            "goosic-service-downloads-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        downloads::Downloads::at(base.join("downloads.json"), base.join("decoded"), None)
+    }
+
+    fn accounts() -> accounts::Accounts {
+        let base = std::env::temp_dir().join(format!(
+            "goosic-service-accounts-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        accounts::Accounts::at(base.join("accounts.json"))
+    }
+
     /// Settings pointed at a throwaway path, so tests never read or write the real file.
     fn settings() -> settings::Settings {
         let path = std::env::temp_dir().join(format!(
@@ -196,11 +228,13 @@ mod tests {
             &mut authority,
             &catalog(),
             &mut settings(),
+            &mut downloads(),
+            &mut accounts(),
             request("1", "hello", RequestPayload::default()),
         );
         assert!(response.ok);
         let wire = serde_json::to_string(&response).unwrap();
-        assert!(wire.contains("\"protocolVersion\":\"0.2.0\""));
+        assert!(wire.contains("\"protocolVersion\":\"0.3.0\""));
         let decoded: ResponseEnvelope = serde_json::from_str(&wire).unwrap();
         assert_eq!(decoded.request_id, "1");
     }
@@ -212,6 +246,8 @@ mod tests {
             &mut authority,
             &catalog(),
             &mut settings(),
+            &mut downloads(),
+            &mut accounts(),
             request(
                 "1",
                 "playback.claim",
@@ -227,6 +263,8 @@ mod tests {
             &mut authority,
             &catalog(),
             &mut settings(),
+            &mut downloads(),
+            &mut accounts(),
             request(
                 "2",
                 "playback.sample",
@@ -251,6 +289,8 @@ mod tests {
             &mut authority,
             &catalog(),
             &mut settings(),
+            &mut downloads(),
+            &mut accounts(),
             request(
                 "1",
                 "account.change",

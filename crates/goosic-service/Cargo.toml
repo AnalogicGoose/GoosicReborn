@@ -6,12 +6,17 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+goosic-accounts = { path = "../goosic-accounts" }
 goosic-catalog = { path = "../goosic-catalog" }
 goosic-core = { path = "../goosic-core" }
+goosic-downloads = { path = "../goosic-downloads" }
 goosic-protocol = { path = "../goosic-protocol" }
 goosic-settings = { path = "../goosic-settings" }
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [[bin]]
 name = "goosic-service"

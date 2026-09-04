@@ -172,9 +172,9 @@ impl SettingsStore {
         } else if cfg!(target_os = "windows") {
             std::env::var_os("APPDATA").map(PathBuf::from)
         } else {
-            std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| {
-                std::env::var_os("HOME").map(|home| Path::new(&home).join(".config"))
-            })
+            std::env::var_os("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".config")))
         };
         base.map(|base| base.join("goosic").join("settings.json"))
             .ok_or(SettingsError::NoLocation)
@@ -292,8 +292,8 @@ impl SettingsStore {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(SettingsError::Unwritable)?;
         }
-        let encoded =
-            serde_json::to_vec_pretty(&self.document).map_err(|error| SettingsError::Unwritable(std::io::Error::other(error)))?;
+        let encoded = serde_json::to_vec_pretty(&self.document)
+            .map_err(|error| SettingsError::Unwritable(std::io::Error::other(error)))?;
         let temporary = self.path.with_extension("json.tmp");
         std::fs::write(&temporary, &encoded).map_err(SettingsError::Unwritable)?;
         std::fs::rename(&temporary, &self.path).map_err(SettingsError::Unwritable)?;
@@ -395,9 +395,8 @@ mod tests {
         connection
             .execute("CREATE TABLE ItemTable (key TEXT UNIQUE, value BLOB)", [])
             .unwrap();
-        let utf16 = |text: &str| -> Vec<u8> {
-            text.encode_utf16().flat_map(u16::to_le_bytes).collect()
-        };
+        let utf16 =
+            |text: &str| -> Vec<u8> { text.encode_utf16().flat_map(u16::to_le_bytes).collect() };
         for (key, value) in [
             ("ytm-theme", utf16("dark")),
             (
@@ -410,11 +409,16 @@ mod tests {
             ),
             (
                 "ytm-settings",
-                utf16(r#"{"state":{"closeAction":"tray","lastfmSessionKey":"secret"},"version":3}"#),
+                utf16(
+                    r#"{"state":{"closeAction":"tray","lastfmSessionKey":"secret"},"version":3}"#,
+                ),
             ),
         ] {
             connection
-                .execute("INSERT INTO ItemTable (key, value) VALUES (?1, ?2)", (key, value))
+                .execute(
+                    "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
+                    (key, value),
+                )
                 .unwrap();
         }
         path

@@ -49,11 +49,21 @@ struct GoosicSidebar: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.serviceConnected ? "Rust service connected" : "Service offline")
                         .font(.caption)
-                    Text("Guest profile")
+                    Text(model.activeAccountLabel)
                         .font(.caption2)
                         .foregroundColor(.gray)
                 }
             }
+            if let account = model.activeAccount {
+                Text(account.email ?? account.channel ?? "Signed in")
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+            }
+            Button(model.activeAccount == nil ? "Sign in" : "Manage accounts") {
+                model.navigate(to: .settings)
+            }
+            .font(.caption)
             Button("Connect to Rust service") { model.connect() }
                 .font(.caption)
                 .padding(.top, 3)
@@ -66,6 +76,9 @@ struct GoosicSidebar: View {
         }
         .padding(16)
         .frame(minWidth: 220)
+        // Behind the controls, never wrapping them: the material is a background leaf, so
+        // buttons and their accessibility stay native.
+        .background(MaterialSurface(kind: .sidebar))
     }
 }
 
@@ -130,7 +143,7 @@ struct CatalogCardView: View {
             }
             .frame(width: 148, alignment: .leading)
         }
-        .disabled(card.action == nil)
+        .disabled(card.action == nil || model.accountOperationInProgress)
     }
 }
 
@@ -171,7 +184,7 @@ struct TrackRow: View {
                 .foregroundColor(.gray)
             Button("Play") { model.play(track, in: context) }
                 .font(.caption)
-                .disabled(model.playbackTransition != .idle)
+                .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.isAdvertisement)
         }
         .padding(.vertical, 5)
     }
@@ -193,14 +206,15 @@ struct NowPlayingBar: View {
                 }
                 Spacer()
                 Button("Previous") { model.previous() }
-                    .disabled(model.playbackTransition != .idle || model.queue.tracks.isEmpty)
+                    .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.queue.tracks.isEmpty || model.isAdvertisement)
                 Button(model.isPaused ? "Play" : "Pause") { model.togglePause() }
-                    .disabled(model.playbackTransition != .idle)
+                    .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
                 Button("Next") { model.next() }
-                    .disabled(model.playbackTransition != .idle || model.queue.tracks.isEmpty)
+                    .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.queue.tracks.isEmpty || model.isAdvertisement)
                 Button(model.queueVisible ? "Hide queue" : "Show queue") { model.toggleQueue() }
+                    .disabled(model.accountOperationInProgress)
                 Button("Release") { model.releasePlayback() }
-                    .disabled(model.playbackTransition != .idle)
+                    .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
             }
             .padding(.horizontal, 14)
             PlaybackTransportBar(model: model)
@@ -213,6 +227,7 @@ struct NowPlayingBar: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, 5)
         }
+        .background(MaterialSurface(kind: .nowPlaying))
     }
 }
 
@@ -249,6 +264,7 @@ struct PlaybackTransportBar: View {
                 .frame(minWidth: 42)
             Button(model.isMuted ? "Unmute" : "Mute") { model.toggleMuted() }
                 .font(.caption2)
+                .disabled(model.accountOperationInProgress || model.isAdvertisement)
             Slider(
                 value: Binding(
                     get: { model.isMuted ? 0 : model.volume },
@@ -257,8 +273,10 @@ struct PlaybackTransportBar: View {
                 in: 0...1
             )
             .frame(width: 90)
+            .disabled(model.accountOperationInProgress || model.isAdvertisement)
             Button(model.autoplay ? "Autoplay on" : "Autoplay off") { model.setAutoplay(!model.autoplay) }
                 .font(.caption2)
+                .disabled(model.accountOperationInProgress)
         }
     }
 }
@@ -293,6 +311,6 @@ struct QueuePanel: View {
             }
         }
         .padding(12)
-        .background(Color.gray.opacity(0.10))
+        .background(MaterialSurface(kind: .queue))
     }
 }

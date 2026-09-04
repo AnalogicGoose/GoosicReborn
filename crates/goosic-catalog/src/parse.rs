@@ -146,7 +146,10 @@ pub fn responsive_item(node: &Value) -> Option<CatalogItem> {
             columns
                 .iter()
                 .filter_map(|column| {
-                    json::path(column, &["musicResponsiveListItemFlexColumnRenderer", "text"])
+                    json::path(
+                        column,
+                        &["musicResponsiveListItemFlexColumnRenderer", "text"],
+                    )
                 })
                 .collect()
         })
@@ -158,7 +161,10 @@ pub fn responsive_item(node: &Value) -> Option<CatalogItem> {
             columns
                 .iter()
                 .filter_map(|column| {
-                    json::path(column, &["musicResponsiveListItemFixedColumnRenderer", "text"])
+                    json::path(
+                        column,
+                        &["musicResponsiveListItemFixedColumnRenderer", "text"],
+                    )
                 })
                 .collect()
         })
@@ -241,7 +247,10 @@ pub fn two_row_item(node: &Value) -> Option<CatalogItem> {
     if title.is_empty() {
         return None;
     }
-    let subtitle = node.get("subtitle").map(json::runs_text).unwrap_or_default();
+    let subtitle = node
+        .get("subtitle")
+        .map(json::runs_text)
+        .unwrap_or_default();
     let endpoint = node.get("navigationEndpoint");
     let video_id = endpoint.and_then(watch_video_id);
     let destination = endpoint.and_then(destination);
@@ -364,7 +373,11 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
     for carousel in json::collect(response, "musicCarouselShelfRenderer") {
         let title = carousel
             .get("header")
-            .map(|header| json::first(header, "title").map(json::runs_text).unwrap_or_default())
+            .map(|header| {
+                json::first(header, "title")
+                    .map(json::runs_text)
+                    .unwrap_or_default()
+            })
             .unwrap_or_default();
         let items: Vec<CatalogItem> = json::collect(carousel, "musicTwoRowItemRenderer")
             .into_iter()
@@ -415,12 +428,17 @@ fn header_text(response: &Value) -> (String, String) {
         if title.is_empty() {
             continue;
         }
-        let subtitle = ["straplineTextOne", "subtitle", "description", "secondSubtitle"]
-            .iter()
-            .filter_map(|field| header.get(*field))
-            .map(json::runs_text)
-            .find(|text| !text.is_empty())
-            .unwrap_or_default();
+        let subtitle = [
+            "straplineTextOne",
+            "subtitle",
+            "description",
+            "secondSubtitle",
+        ]
+        .iter()
+        .filter_map(|field| header.get(*field))
+        .map(json::runs_text)
+        .find(|text| !text.is_empty())
+        .unwrap_or_default();
         return (title, subtitle);
     }
     (String::new(), String::new())
@@ -534,7 +552,10 @@ mod tests {
         assert_eq!(item.album.as_deref(), Some("Night Windows"));
         assert_eq!(item.album_id.as_deref(), Some("MPREalbum"));
         assert_eq!(item.duration.as_deref(), Some("3:42"));
-        assert_eq!(item.thumbnail.as_deref(), Some("https://example.test/art.jpg"));
+        assert_eq!(
+            item.thumbnail.as_deref(),
+            Some("https://example.test/art.jpg")
+        );
         assert!(item.explicit);
     }
 

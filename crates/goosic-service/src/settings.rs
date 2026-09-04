@@ -24,8 +24,7 @@ impl Default for Settings {
 
 impl Settings {
     pub fn new() -> Self {
-        let (store, unavailable) = match SettingsStore::default_path()
-            .and_then(SettingsStore::open)
+        let (store, unavailable) = match SettingsStore::default_path().and_then(SettingsStore::open)
         {
             Ok(store) => (Some(store), None),
             Err(error) => (None, Some(error)),
@@ -164,17 +163,31 @@ mod tests {
 
     #[test]
     fn non_settings_commands_are_not_claimed() {
-        let directory = std::env::temp_dir().join(format!("goosic-settings-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("goosic-settings-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let mut store = settings(&directory);
-        assert!(handle(&mut store, "playback.claim", "1", &RequestPayload::default()).is_none());
-        assert!(handle(&mut store, "catalog.search", "1", &RequestPayload::default()).is_none());
+        assert!(handle(
+            &mut store,
+            "playback.claim",
+            "1",
+            &RequestPayload::default()
+        )
+        .is_none());
+        assert!(handle(
+            &mut store,
+            "catalog.search",
+            "1",
+            &RequestPayload::default()
+        )
+        .is_none());
         let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]
     fn get_returns_defaults_and_set_persists() {
-        let directory = std::env::temp_dir().join(format!("goosic-settings-set-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("goosic-settings-set-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let mut store = settings(&directory);
 
@@ -209,7 +222,8 @@ mod tests {
 
     #[test]
     fn set_without_preferences_is_rejected() {
-        let directory = std::env::temp_dir().join(format!("goosic-settings-empty-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("goosic-settings-empty-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let mut store = settings(&directory);
         let response = handle(&mut store, "settings.set", "1", &RequestPayload::default()).unwrap();
@@ -220,11 +234,17 @@ mod tests {
 
     #[test]
     fn importing_without_a_legacy_store_says_so() {
-        let directory = std::env::temp_dir().join(format!("goosic-settings-nolegacy-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("goosic-settings-nolegacy-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let mut store = settings(&directory);
-        let response =
-            handle(&mut store, "settings.importLegacy", "1", &RequestPayload::default()).unwrap();
+        let response = handle(
+            &mut store,
+            "settings.importLegacy",
+            "1",
+            &RequestPayload::default(),
+        )
+        .unwrap();
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "legacyNotFound");
         let _ = std::fs::remove_dir_all(&directory);

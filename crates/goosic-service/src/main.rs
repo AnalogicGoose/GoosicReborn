@@ -56,6 +56,11 @@ fn main() {
     // Preferences are opened once; a failure is reported per request rather than at startup,
     // because a missing settings file must not stop playback from working.
     let mut settings = goosic_service::settings::Settings::new();
+    let mut downloads = goosic_service::downloads::Downloads::new();
+    let mut accounts = goosic_service::accounts::Accounts::new();
+    if let Err(error) = accounts.synchronize_authority(&mut authority) {
+        eprintln!("goosic-service: could not restore active account: {error}");
+    }
 
     let mut input = stdin.lock();
     let mut frame = Vec::with_capacity(MAX_FRAME_BYTES.min(8 * 1024));
@@ -86,7 +91,14 @@ fn main() {
                     line.pop();
                 }
                 match serde_json::from_slice::<RequestEnvelope>(&line) {
-                    Ok(request) => goosic_service::handle_request(&mut authority, &catalog, &mut settings, request),
+                    Ok(request) => goosic_service::handle_request(
+                        &mut authority,
+                        &catalog,
+                        &mut settings,
+                        &mut downloads,
+                        &mut accounts,
+                        request,
+                    ),
                     Err(error) => ResponseEnvelope::failure(
                         "",
                         ErrorObject {

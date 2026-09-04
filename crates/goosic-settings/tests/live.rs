@@ -35,11 +35,17 @@ fn the_real_legacy_store_imports_without_carrying_secrets() {
     );
 
     let written = std::fs::read_to_string(directory.path().join("settings.json")).unwrap();
-    for secret in legacy::CREDENTIAL_FIELDS.iter().chain(legacy::CREDENTIAL_KEYS.iter()) {
+    for secret in legacy::CREDENTIAL_FIELDS
+        .iter()
+        .chain(legacy::CREDENTIAL_KEYS.iter())
+    {
         assert!(
             !written.contains(secret),
             "the settings file must never contain `{secret}`"
         );
     }
-    println!("settings file is {} bytes and carries no credential fields", written.len());
+    println!(
+        "settings file is {} bytes and carries no credential fields",
+        written.len()
+    );
 }

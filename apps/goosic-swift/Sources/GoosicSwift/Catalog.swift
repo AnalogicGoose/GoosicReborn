@@ -64,7 +64,8 @@ extension GoosicTrack {
             albumID: item.albumId,
             duration: item.duration ?? "",
             videoID: videoID,
-            explicit: item.explicit ?? false
+            explicit: item.explicit ?? false,
+            thumbnail: item.thumbnail
         )
     }
 }

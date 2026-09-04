@@ -5,7 +5,9 @@
 //! silently dropped by a client-side frame limit.
 
 use goosic_catalog::{Catalog, CatalogError};
-use goosic_protocol::{CatalogPage, ErrorObject, RequestPayload, ResponseEnvelope, ResponsePayload};
+use goosic_protocol::{
+    CatalogPage, ErrorObject, RequestPayload, ResponseEnvelope, ResponsePayload,
+};
 
 /// Response budget for one catalog page, in serialized bytes. Kept below the shell's own
 /// response frame limit so a clamped page always fits with room for the envelope.
@@ -19,7 +21,12 @@ const MAX_TRACKS: usize = 500;
 
 /// Total rows a page carries across its shelves and track list.
 fn row_count(page: &CatalogPage) -> usize {
-    page.tracks.len() + page.shelves.iter().map(|shelf| shelf.items.len()).sum::<usize>()
+    page.tracks.len()
+        + page
+            .shelves
+            .iter()
+            .map(|shelf| shelf.items.len())
+            .sum::<usize>()
 }
 
 /// Drops the last `count` rows, taking from the track list first and then from the tail shelves.
@@ -67,7 +74,9 @@ pub fn clamp(mut page: CatalogPage, budget: usize) -> CatalogPage {
 
     // Shrink geometrically: serializing after every single removal is quadratic on long lists.
     loop {
-        let size = serde_json::to_vec(&page).map(|bytes| bytes.len()).unwrap_or(0);
+        let size = serde_json::to_vec(&page)
+            .map(|bytes| bytes.len())
+            .unwrap_or(0);
         if size <= budget {
             break;
         }
@@ -252,7 +261,12 @@ mod tests {
     #[test]
     fn catalog_commands_requiring_an_id_reject_a_missing_one_without_network_access() {
         let catalog = Catalog::new();
-        for command in ["catalog.album", "catalog.playlist", "catalog.artist", "catalog.browse"] {
+        for command in [
+            "catalog.album",
+            "catalog.playlist",
+            "catalog.artist",
+            "catalog.browse",
+        ] {
             let response = handle(&catalog, command, "1", &RequestPayload::default())
                 .unwrap_or_else(|| panic!("{command} is a catalog command"));
             assert!(!response.ok, "{command} accepted a missing catalogId");

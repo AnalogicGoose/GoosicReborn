@@ -189,8 +189,10 @@ struct LibraryScreen: View {
             VStack(alignment: .leading, spacing: 14) {
                 ScreenHeader(title: "Library", subtitle: "Your saved collection will live here")
                 EmptyState(
-                    title: "Not connected to an account",
-                    message: "The catalog is browsed as a guest, so there is no personal library to read. A signed-in library needs account profiles in the official web view, which is migration phase 4."
+                    title: model.activeAccount == nil ? "Not connected to an account" : "Personal library is next",
+                    message: model.activeAccount == nil
+                        ? "The catalog is browsed as a guest, so there is no personal library to read. Sign in from Settings to create an isolated account profile."
+                        : "This account is signed in, but personal library reads are intentionally left as the next authenticated-data step."
                 )
                 Text("What works today: Home, Explore, Charts, Moods & genres, New releases, and Search all read the live catalog, and songs play through the official player.")
                     .font(.caption)
@@ -207,14 +209,57 @@ struct DownloadsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                ScreenHeader(title: "Downloads", subtitle: "Migration status")
-                EmptyState(
-                    title: "No downloads yet",
-                    message: "Explicit local downloads and the localDownloadedFile playback owner are migration phase 3. Rust already enforces that they can never play at the same time as the official player."
-                )
+                ScreenHeader(title: "Downloads", subtitle: "Local files already present on this Mac")
+                HStack(spacing: 8) {
+                    Button("Refresh") { model.loadDownloads() }
+                    Button("Import previous Goosic files") { model.importLegacyDownloads() }
+                        .disabled(model.downloadsLoading)
+                }
+                Text("This screen is read-only: Goosic only imports finalized WebM/Opus files already on disk. It never starts a downloader or reads account cookies.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                if model.downloadsLoading {
+                    Text("Reading the local downloads index…")
+                        .font(.subheadline)
+                } else if model.downloadedTracks.isEmpty {
+                    EmptyState(
+                        title: "No imported files",
+                        message: "Import a previous Goosic installation if its finalized offline-media files are still on this Mac."
+                    )
+                } else {
+                    ForEach(model.downloadedTracks) { track in
+                        DownloadedTrackRow(track: track, model: model)
+                    }
+                }
             }
             .padding(24)
         }
+    }
+}
+
+struct DownloadedTrackRow: View {
+    let track: GoosicDownloadedTrack
+    let model: GoosicAppModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(track.available ? "♪" : "!")
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                Text(track.subtitle)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                Text(track.available ? "\(track.bytes) bytes · \(track.videoId)" : "File is missing")
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+            }
+            Spacer()
+            Button("Play downloaded") { model.playDownloaded(track) }
+                .font(.caption)
+                .disabled(!track.available || model.accountOperationInProgress || model.playbackTransition != .idle || model.isAdvertisement)
+        }
+        .padding(.vertical, 6)
     }
 }
 
@@ -234,6 +279,7 @@ struct SettingsScreen: View {
                 Text("Catalog reads go through Rust to YouTube Music as an anonymous guest. No cookies, account headers, or credentials are sent, and no catalog data reaches the protocol beyond titles and identifiers.")
                     .font(.caption)
                     .foregroundColor(.gray)
+                AccountSettingsSection(model: model)
                 Text("Preferences")
                     .font(.headline)
                     .padding(.top, 8)
@@ -272,14 +318,17 @@ struct SettingsScreen: View {
                     TextField("YouTube Music video ID", text: Binding(get: { model.playbackLabVideoID }, set: { model.playbackLabVideoID = $0 }))
                         .frame(minWidth: 260)
                     Button("Load official video") { model.loadOfficialVideo() }
-                        .disabled(model.playbackTransition != .idle)
+                        .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
                 }
                 HStack(spacing: 8) {
                     Button("Play") { model.playOfficialVideo() }
+                        .disabled(model.accountOperationInProgress)
                     Button("Pause") { model.pauseOfficialVideo() }
+                        .disabled(model.accountOperationInProgress)
                     Button("Stop") { model.stopOfficialVideo() }
+                        .disabled(model.accountOperationInProgress)
                     Button("Release") { model.releasePlayback() }
-                        .disabled(model.playbackTransition != .idle)
+                        .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
                 }
                 Text(model.hostStatus)
                     .font(.caption)
@@ -296,6 +345,55 @@ struct SettingsScreen: View {
             }
             .padding(24)
         }
+    }
+}
+
+struct AccountSettingsSection: View {
+    let model: GoosicAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Accounts")
+                .font(.headline)
+            Text("Each account has an isolated WebKit profile. Goosic stores only metadata; authentication remains in that profile and never crosses into Rust.")
+                .font(.caption)
+                .foregroundColor(.gray)
+            Button("Add account") { model.signIn() }
+                .disabled(!model.serviceConnected || model.accountOperationInProgress || model.playbackTransition != .idle || model.isAdvertisement)
+            if model.accounts.isEmpty {
+                Text("No signed-in accounts. Use Add account to open the secure Google sign-in window.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            } else {
+                ForEach(model.accounts) { account in
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(account.displayName)
+                            Text(account.email ?? account.channel ?? "YouTube Music account")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        if account.id == model.activeAccountId {
+                            Text("Active")
+                                .font(.caption)
+                        } else {
+                            Button("Switch") { model.switchAccount(to: account.id) }
+                                .font(.caption)
+                                .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.isAdvertisement)
+                        }
+                        Button(account.id == model.activeAccountId ? "Sign out" : "Remove") {
+                            if account.id == model.activeAccountId { model.signOut() }
+                            else { model.removeAccount(account.id) }
+                        }
+                        .font(.caption)
+                        .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.isAdvertisement)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .padding(.top, 8)
     }
 }
 

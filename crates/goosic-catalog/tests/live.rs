@@ -14,7 +14,9 @@ use goosic_protocol::CatalogItemKind;
 #[ignore = "requires network access to music.youtube.com"]
 fn search_returns_playable_songs() {
     let catalog = Catalog::new();
-    let page = catalog.search("daft punk", "songs").expect("search succeeds");
+    let page = catalog
+        .search("daft punk", "songs")
+        .expect("search succeeds");
     println!("shelves: {}", page.shelves.len());
     let songs: Vec<_> = page
         .shelves
@@ -84,7 +86,12 @@ fn album_from_search_loads_its_tracks() {
         .expect("an album result");
     println!("album {} :: {}", album.title, album.id);
     let page = catalog.album(&album.id).expect("album page loads");
-    println!("  {} — {} ({} tracks)", page.title, page.subtitle, page.tracks.len());
+    println!(
+        "  {} — {} ({} tracks)",
+        page.title,
+        page.subtitle,
+        page.tracks.len()
+    );
     for track in page.tracks.iter().take(5) {
         println!(
             "    {} [{}] {}",

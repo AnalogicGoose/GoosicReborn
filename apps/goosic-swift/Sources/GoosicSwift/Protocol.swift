@@ -1,6 +1,6 @@
 import Foundation
 
-let goosicProtocolVersion = "0.2.0"
+let goosicProtocolVersion = "0.3.0"
 
 enum GoosicOwner: String, Codable {
     case none
@@ -13,6 +13,7 @@ struct GoosicRequestPayload: Codable {
     var generation: UInt64?
     var sequence: UInt64?
     var accountId: String?
+    var account: GoosicAccountUpsert?
     var marker: String?
     var query: String?
     var filter: String?
@@ -25,6 +26,7 @@ struct GoosicRequestPayload: Codable {
         generation: UInt64? = nil,
         sequence: UInt64? = nil,
         accountId: String? = nil,
+        account: GoosicAccountUpsert? = nil,
         marker: String? = nil,
         query: String? = nil,
         filter: String? = nil,
@@ -36,6 +38,7 @@ struct GoosicRequestPayload: Codable {
         self.generation = generation
         self.sequence = sequence
         self.accountId = accountId
+        self.account = account
         self.marker = marker
         self.query = query
         self.filter = filter
@@ -76,6 +79,45 @@ struct GoosicRequest: Codable {
     var requestId: String
     var command: String
     var payload: GoosicRequestPayload = .init()
+}
+
+/// Metadata-only account records. Authentication state remains in the platform WebKit profile.
+struct GoosicAccountSummary: Codable, Identifiable, Hashable {
+    var id: String
+    var webkitProfileId: String
+    var displayName: String
+    var email: String?
+    var channel: String?
+    var avatarUrl: String?
+
+    init(id: String, webkitProfileId: String, displayName: String, email: String? = nil, channel: String? = nil, avatarUrl: String? = nil) {
+        self.id = id; self.webkitProfileId = webkitProfileId; self.displayName = displayName
+        self.email = email; self.channel = channel; self.avatarUrl = avatarUrl
+    }
+}
+
+struct GoosicAccountUpsert: Codable, Hashable {
+    var id: String?
+    var webkitProfileId: String
+    var displayName: String
+    var email: String?
+    var channel: String?
+    var avatarUrl: String?
+
+    init(id: String? = nil, webkitProfileId: String, displayName: String, email: String? = nil, channel: String? = nil, avatarUrl: String? = nil) {
+        self.id = id; self.webkitProfileId = webkitProfileId; self.displayName = displayName
+        self.email = email; self.channel = channel; self.avatarUrl = avatarUrl
+    }
+}
+
+struct GoosicAccountsSnapshot: Codable, Equatable {
+    var accounts: [GoosicAccountSummary]
+    var activeAccountId: String?
+    var epoch: UInt64
+
+    init(accounts: [GoosicAccountSummary] = [], activeAccountId: String? = nil, epoch: UInt64 = 0) {
+        self.accounts = accounts; self.activeAccountId = activeAccountId; self.epoch = epoch
+    }
 }
 
 struct GoosicPlaybackState: Codable {
@@ -150,6 +192,26 @@ struct GoosicResponsePayload: Codable {
     var markerAccepted: Bool?
     var catalog: GoosicCatalogPage?
     var settings: GoosicSettings?
+    var accounts: GoosicAccountsSnapshot?
+    /// Tracks already present on disk. The service resolves availability for every list request.
+    var downloads: [GoosicDownloadedTrack]?
+    /// The decoded cache path returned only after Rust has prepared a local track.
+    var localFile: String?
+}
+
+struct GoosicDownloadedTrack: Codable, Identifiable, Hashable {
+    var videoId: String
+    var title: String
+    var artist: String
+    var bytes: UInt64
+    var available: Bool
+    var imported: Bool
+
+    var id: String { videoId }
+    var subtitle: String {
+        let parts = [artist].filter { !$0.isEmpty }
+        return parts.isEmpty ? "Downloaded file" : parts.joined(separator: " · ")
+    }
 }
 
 struct GoosicSettings: Codable {

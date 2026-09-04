@@ -51,8 +51,8 @@ pub fn default_store_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var_os("HOME")?;
-        let root = Path::new(&home)
-            .join("Library/WebKit/com.github.ivasy.ytubic/WebsiteData/Default");
+        let root =
+            Path::new(&home).join("Library/WebKit/com.github.ivasy.ytubic/WebsiteData/Default");
         return first_local_storage_database(&root);
     }
     #[cfg(target_os = "linux")]
@@ -240,14 +240,19 @@ mod tests {
             ),
             (
                 "ytm-settings",
-                utf16(r#"{"state":{"closeAction":"tray","lastfmSessionKey":"secret-session"},"version":3}"#),
+                utf16(
+                    r#"{"state":{"closeAction":"tray","lastfmSessionKey":"secret-session"},"version":3}"#,
+                ),
             ),
             ("musixmatch-user-token", utf16("secret-token")),
             ("ytubic-query-cache", utf16(r#"{"huge":true}"#)),
         ];
         for (key, value) in rows {
             connection
-                .execute("INSERT INTO ItemTable (key, value) VALUES (?1, ?2)", (key, value))
+                .execute(
+                    "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
+                    (key, value),
+                )
                 .unwrap();
         }
         path
@@ -286,7 +291,11 @@ mod tests {
 
         assert!(legacy.values.contains_key("ytm-settings"));
         assert!(
-            legacy.state("ytm-settings").unwrap().get("lastfmSessionKey").is_none(),
+            legacy
+                .state("ytm-settings")
+                .unwrap()
+                .get("lastfmSessionKey")
+                .is_none(),
             "a session key must never be carried into the new store"
         );
         assert!(!legacy.values.contains_key("musixmatch-user-token"));

@@ -26,6 +26,8 @@ Catalog commands are `catalog.search` (`query`, `filter`), `catalog.browse` (`ca
 
 Settings commands are `settings.get`, `settings.set` (a partial `preferences` patch; absent fields are left alone), and `settings.importLegacy`. Each answers with a `settings` payload.
 
+Downloads commands are `downloads.list`, `downloads.importLegacy`, and `downloads.prepare`. The first two inspect finalized files already present in the user's previous Goosic media directory; they never start a downloader. `downloads.prepare` is accepted only while Rust's active owner is `localDownloadedFile` and its generation matches, then decodes the source WebM/Opus into Rust's private WAV cache and returns that path to the macOS AVFoundation host.
+
 ### Frame budget
 
 Requests are capped at 64 KB. A catalog page is clamped by the service to 192 KB serialized — first by structural caps, then by dropping rows — and sets `truncated` when anything was removed, so a partial list is never presented as complete. The shell accepts responses up to 256 KB and gives `catalog.*` commands a longer wait than playback commands, because they reach a third-party service.
@@ -39,6 +41,21 @@ Requests are capped at 64 KB. A catalog page is clamped by the service to 192 KB
 5. `advertisement` (and any other marker) is metadata. An accepted marker does not release ownership, change generation, or turn into an error/teardown.
 6. Stable error codes identify invalid owner/request, owner conflict/mismatch, missing owner, generation mismatch, and non-monotonic samples.
 
+## Platform material
+
+Screens stay portable SwiftCrossUI; only the material behind them is platform-specific. `MaterialSurfacePlatformResolver` is a pure function from platform and OS major version to a backend, so selection is testable without a window:
+
+| Platform | Backend |
+| --- | --- |
+| macOS 26+ | `NSGlassEffectView` (Liquid Glass) |
+| macOS 14–25 | `NSVisualEffectView` |
+| Windows | reserved for a WinUI backdrop |
+| anything else, or an unknown version | plain background |
+
+Two rules keep this from leaking into behaviour. The material is applied with `.background(…)`, so it is a leaf *behind* the content and never wraps it — controls and their accessibility stay native. And its host view returns `nil` from `hitTest`, so it cannot swallow a click meant for a button above it.
+
+Unsupported versions fall back rather than failing: there is no private feature toggle and no reimplemented blur.
+
 ## Official playback host (macOS)
 
 One `WKWebView` renders the official player, in its own website data store, and is the only place online audio is produced. Three things about that host are load-bearing and easy to break:
@@ -50,6 +67,10 @@ One `WKWebView` renders the official player, in its own website data store, and 
 Bridge events are accepted only when the version, nonce, generation, and video id all match the active load, the sequence advances, and the reported position, duration, and volume are possible. A rejection says which check failed; an opaque rejection is unactionable.
 
 The official app runs its own "up next" queue. When it follows that queue to a video Goosic did not request, the observer pauses it and the host reports the move; Goosic then plays its own next track. Goosic owns the queue, so the app never plays something the user did not choose.
+
+## Local downloaded-file host (macOS)
+
+The local renderer is one `AVAudioPlayer` over a decoded WAV path returned by Rust. It is not a WebView and does not receive cookies or network URLs. Rust's local lease is claimed before preparation; the official WebView is paused and invalidated before that claim, and the local player is stopped synchronously before a release or owner switch. AVFoundation-confirmed play, pause, position, and end events carry the local Rust generation and an independent monotonic sequence.
 
 ## Security boundary
 
