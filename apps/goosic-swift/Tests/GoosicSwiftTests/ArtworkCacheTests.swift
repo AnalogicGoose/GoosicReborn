@@ -73,36 +73,46 @@ final class ArtworkCacheKeyTests: XCTestCase {
     }
 }
 
-@MainActor
+/// Isolation is applied per test rather than to the class: swift-corelibs-xctest
+/// discovers tests by casting the method to `(Self) -> () throws -> Void`, and a
+/// `@MainActor`-isolated method does not carry that type, so an isolated class aborts
+/// the whole run on Linux before any test executes.
 final class ArtworkCacheBehaviourTests: XCTestCase {
+    @MainActor
     private func makeCache() -> (ArtworkCache, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("goosic-artwork-tests-\(UUID().uuidString)")
         return (ArtworkCache(directory: directory), directory)
     }
 
-    func testAnEmptyOrMissingURLNeverProducesAFile() {
-        let (cache, directory) = makeCache()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        XCTAssertNil(cache.localFile(for: nil))
-        XCTAssertNil(cache.localFile(for: ""))
+    func testAnEmptyOrMissingURLNeverProducesAFile() async {
+        await MainActor.run {
+            let (cache, directory) = makeCache()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            XCTAssertNil(cache.localFile(for: nil))
+            XCTAssertNil(cache.localFile(for: ""))
+        }
     }
 
-    func testARefusedHostIsNotRetriedAndNeverResolves() {
-        let (cache, directory) = makeCache()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        XCTAssertNil(cache.localFile(for: "https://example.test/art.jpg"))
-        XCTAssertNil(cache.localFile(for: "https://example.test/art.jpg"))
+    func testARefusedHostIsNotRetriedAndNeverResolves() async {
+        await MainActor.run {
+            let (cache, directory) = makeCache()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            XCTAssertNil(cache.localFile(for: "https://example.test/art.jpg"))
+            XCTAssertNil(cache.localFile(for: "https://example.test/art.jpg"))
+        }
     }
 
-    func testAnAlreadyCachedFileIsReturnedWithoutAFetch() throws {
-        let (cache, directory) = makeCache()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let remote = "https://yt3.googleusercontent.com/already-there"
-        let expected = directory.appendingPathComponent("\(ArtworkCache.cacheKey(for: remote)).img")
-        try Data("pretend image".utf8).write(to: expected)
+    func testAnAlreadyCachedFileIsReturnedWithoutAFetch() async throws {
+        try await MainActor.run {
+            let (cache, directory) = makeCache()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let remote = "https://yt3.googleusercontent.com/already-there"
+            let expected = directory.appendingPathComponent("\(ArtworkCache.cacheKey(for: remote)).img")
+            try Data("pretend image".utf8).write(to: expected)
 
-        XCTAssertEqual(cache.localFile(for: remote), expected)
+            XCTAssertEqual(cache.localFile(for: remote), expected)
+        }
     }
 }
 
@@ -155,8 +165,12 @@ final class RepeatModeTests: XCTestCase {
     }
 }
 
-@MainActor
+/// Isolation is applied per test rather than to the class: swift-corelibs-xctest
+/// discovers tests by casting the method to `(Self) -> () throws -> Void`, and a
+/// `@MainActor`-isolated method does not carry that type, so an isolated class aborts
+/// the whole run on Linux before any test executes.
 final class QueueAdvanceTests: XCTestCase {
+    @MainActor
     private func model(tracks: Int) -> GoosicAppModel {
         let model = GoosicAppModel()
         model.queue = GoosicQueue(
@@ -180,99 +194,128 @@ final class QueueAdvanceTests: XCTestCase {
         return model
     }
 
-    func testAnEmptyQueueHasNowhereToGo() {
-        XCTAssertNil(model(tracks: 0).indexAfter(0, wrapping: true))
-    }
-
-    func testInOrderPlaybackWalksForward() {
-        let model = model(tracks: 3)
-        XCTAssertEqual(model.indexAfter(0, wrapping: false), 1)
-        XCTAssertEqual(model.indexAfter(1, wrapping: false), 2)
-    }
-
-    func testTheEndOfAQueueStopsSoRadioCanTakeOver() {
-        // `wrapping: false` is the natural end of a track.
-        XCTAssertNil(model(tracks: 3).indexAfter(2, wrapping: false))
-    }
-
-    func testPressingNextAtTheEndWrapsEvenWithRepeatOff() {
-        // A deliberate Next should move rather than do nothing.
-        XCTAssertEqual(model(tracks: 3).indexAfter(2, wrapping: true), 0)
-    }
-
-    func testRepeatAllWrapsAtTheNaturalEnd() {
-        let model = model(tracks: 3)
-        model.cycleRepeatMode()
-        XCTAssertEqual(model.repeatMode, .all)
-        XCTAssertEqual(model.indexAfter(2, wrapping: false), 0)
-    }
-
-    func testRepeatOneStaysOnTheSameTrack() {
-        let model = model(tracks: 3)
-        model.cycleRepeatMode()
-        model.cycleRepeatMode()
-        XCTAssertEqual(model.repeatMode, .one)
-        XCTAssertEqual(model.indexAfter(1, wrapping: false), 1)
-        XCTAssertEqual(model.indexAfter(1, wrapping: true), 1)
-    }
-
-    func testShuffleNeverPicksTheTrackItIsAlreadyOn() {
-        let model = model(tracks: 4)
-        model.toggleShuffle()
-        XCTAssertTrue(model.shuffle)
-        for _ in 0..<200 {
-            XCTAssertNotEqual(model.indexAfter(2, wrapping: false), 2)
+    func testAnEmptyQueueHasNowhereToGo() async {
+        await MainActor.run {
+            XCTAssertNil(model(tracks: 0).indexAfter(0, wrapping: true))
         }
     }
 
-    func testShuffleOverASingleTrackStopsAtTheEndRatherThanLooping() {
-        let model = model(tracks: 1)
-        model.toggleShuffle()
-        XCTAssertNil(model.indexAfter(0, wrapping: false))
-        XCTAssertEqual(model.indexAfter(0, wrapping: true), 0)
+    func testInOrderPlaybackWalksForward() async {
+        await MainActor.run {
+            let model = model(tracks: 3)
+            XCTAssertEqual(model.indexAfter(0, wrapping: false), 1)
+            XCTAssertEqual(model.indexAfter(1, wrapping: false), 2)
+        }
+    }
+
+    func testTheEndOfAQueueStopsSoRadioCanTakeOver() async {
+        await MainActor.run {
+            // `wrapping: false` is the natural end of a track.
+            XCTAssertNil(model(tracks: 3).indexAfter(2, wrapping: false))
+        }
+    }
+
+    func testPressingNextAtTheEndWrapsEvenWithRepeatOff() async {
+        await MainActor.run {
+            // A deliberate Next should move rather than do nothing.
+            XCTAssertEqual(model(tracks: 3).indexAfter(2, wrapping: true), 0)
+        }
+    }
+
+    func testRepeatAllWrapsAtTheNaturalEnd() async {
+        await MainActor.run {
+            let model = model(tracks: 3)
+            model.cycleRepeatMode()
+            XCTAssertEqual(model.repeatMode, .all)
+            XCTAssertEqual(model.indexAfter(2, wrapping: false), 0)
+        }
+    }
+
+    func testRepeatOneStaysOnTheSameTrack() async {
+        await MainActor.run {
+            let model = model(tracks: 3)
+            model.cycleRepeatMode()
+            model.cycleRepeatMode()
+            XCTAssertEqual(model.repeatMode, .one)
+            XCTAssertEqual(model.indexAfter(1, wrapping: false), 1)
+            XCTAssertEqual(model.indexAfter(1, wrapping: true), 1)
+        }
+    }
+
+    func testShuffleNeverPicksTheTrackItIsAlreadyOn() async {
+        await MainActor.run {
+            let model = model(tracks: 4)
+            model.toggleShuffle()
+            XCTAssertTrue(model.shuffle)
+            for _ in 0..<200 {
+                XCTAssertNotEqual(model.indexAfter(2, wrapping: false), 2)
+            }
+        }
+    }
+
+    func testShuffleOverASingleTrackStopsAtTheEndRatherThanLooping() async {
+        await MainActor.run {
+            let model = model(tracks: 1)
+            model.toggleShuffle()
+            XCTAssertNil(model.indexAfter(0, wrapping: false))
+            XCTAssertEqual(model.indexAfter(0, wrapping: true), 0)
+        }
     }
 }
 
-@MainActor
+/// Isolation is applied per test rather than to the class: swift-corelibs-xctest
+/// discovers tests by casting the method to `(Self) -> () throws -> Void`, and a
+/// `@MainActor`-isolated method does not carry that type, so an isolated class aborts
+/// the whole run on Linux before any test executes.
 final class LyricsTests: XCTestCase {
-    func testDisplayDurationsBecomeSeconds() {
-        XCTAssertEqual(GoosicAppModel.durationSeconds("3:42"), 222)
-        XCTAssertEqual(GoosicAppModel.durationSeconds("0:09"), 9)
-        XCTAssertEqual(GoosicAppModel.durationSeconds("1:02:03"), 3_723)
+    func testDisplayDurationsBecomeSeconds() async {
+        await MainActor.run {
+            XCTAssertEqual(GoosicAppModel.durationSeconds("3:42"), 222)
+            XCTAssertEqual(GoosicAppModel.durationSeconds("0:09"), 9)
+            XCTAssertEqual(GoosicAppModel.durationSeconds("1:02:03"), 3_723)
+        }
     }
 
-    func testAMalformedDurationIsRefusedRatherThanGuessed() {
-        // A wrong length would narrow the lyrics lookup to the wrong recording.
-        XCTAssertNil(GoosicAppModel.durationSeconds(""))
-        XCTAssertNil(GoosicAppModel.durationSeconds("222"))
-        XCTAssertNil(GoosicAppModel.durationSeconds("a:b"))
-        XCTAssertNil(GoosicAppModel.durationSeconds("1:2:3:4"))
+    func testAMalformedDurationIsRefusedRatherThanGuessed() async {
+        await MainActor.run {
+            // A wrong length would narrow the lyrics lookup to the wrong recording.
+            XCTAssertNil(GoosicAppModel.durationSeconds(""))
+            XCTAssertNil(GoosicAppModel.durationSeconds("222"))
+            XCTAssertNil(GoosicAppModel.durationSeconds("a:b"))
+            XCTAssertNil(GoosicAppModel.durationSeconds("1:2:3:4"))
+        }
     }
 
-    func testLyricsDecodeFromTheServiceWireShape() throws {
-        let wire = """
-        {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,"payload":{"lyrics":{\
-        "source":"LRCLIB","synced":true,"lines":[\
-        {"atMs":19160,"text":"When you were here before"},\
-        {"atMs":24090,"text":"Couldn't look you in the eye"}]}}}
-        """
-        let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
-        let lyrics = try XCTUnwrap(response.payload?.lyrics)
-        XCTAssertTrue(lyrics.synced)
-        XCTAssertEqual(lyrics.source, "LRCLIB")
-        XCTAssertEqual(lyrics.lines.count, 2)
-        XCTAssertEqual(lyrics.lines[0].atMs, 19_160)
+    func testLyricsDecodeFromTheServiceWireShape() async throws {
+        try await MainActor.run {
+            let wire = """
+            {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,"payload":{"lyrics":{\
+            "source":"LRCLIB","synced":true,"lines":[\
+            {"atMs":19160,"text":"When you were here before"},\
+            {"atMs":24090,"text":"Couldn't look you in the eye"}]}}}
+            """
+            let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
+            let lyrics = try XCTUnwrap(response.payload?.lyrics)
+            XCTAssertTrue(lyrics.synced)
+            XCTAssertEqual(lyrics.source, "LRCLIB")
+            XCTAssertEqual(lyrics.lines.count, 2)
+            XCTAssertEqual(lyrics.lines[0].atMs, 19_160)
+        }
     }
 
-    func testRepeatedLyricLinesStillGetDistinctIdentities() {
-        // A chorus repeats its text; `ForEach` needs the ids to differ anyway.
-        let first = GoosicLyricsLine(atMs: 1_000, text: "Chorus")
-        let second = GoosicLyricsLine(atMs: 60_000, text: "Chorus")
-        XCTAssertNotEqual(first.id, second.id)
+    func testRepeatedLyricLinesStillGetDistinctIdentities() async {
+        await MainActor.run {
+            // A chorus repeats its text; `ForEach` needs the ids to differ anyway.
+            let first = GoosicLyricsLine(atMs: 1_000, text: "Chorus")
+            let second = GoosicLyricsLine(atMs: 60_000, text: "Chorus")
+            XCTAssertNotEqual(first.id, second.id)
+        }
     }
 
-    func testNothingIsHighlightedWithoutLyrics() {
-        XCTAssertNil(GoosicAppModel().activeLyricIndex)
+    func testNothingIsHighlightedWithoutLyrics() async {
+        await MainActor.run {
+            XCTAssertNil(GoosicAppModel().activeLyricIndex)
+        }
     }
 
     private let timed = [
@@ -281,33 +324,42 @@ final class LyricsTests: XCTestCase {
         GoosicLyricsLine(atMs: 20_000, text: "Twenty"),
     ]
 
-    func testTheHighlightFollowsThePosition() {
-        func active(_ ms: Int64) -> Int? {
-            GoosicAppModel.activeLyricIndex(lines: timed, synced: true, positionMs: ms)
+    func testTheHighlightFollowsThePosition() async {
+        await MainActor.run {
+            // A local function does not inherit the closure's isolation.
+            @MainActor func active(_ ms: Int64) -> Int? {
+                GoosicAppModel.activeLyricIndex(lines: timed, synced: true, positionMs: ms)
+            }
+            XCTAssertEqual(active(0), 0)
+            XCTAssertEqual(active(9_999), 0)
+            XCTAssertEqual(active(10_000), 1)
+            XCTAssertEqual(active(25_000), 2)
         }
-        XCTAssertEqual(active(0), 0)
-        XCTAssertEqual(active(9_999), 0)
-        XCTAssertEqual(active(10_000), 1)
-        XCTAssertEqual(active(25_000), 2)
     }
 
-    func testNothingIsHighlightedBeforeTheFirstLine() {
-        let late = [GoosicLyricsLine(atMs: 5_000, text: "Starts late")]
-        XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 0))
-        XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 4_999))
-        XCTAssertEqual(
-            GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 5_000),
-            0
-        )
+    func testNothingIsHighlightedBeforeTheFirstLine() async {
+        await MainActor.run {
+            let late = [GoosicLyricsLine(atMs: 5_000, text: "Starts late")]
+            XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 0))
+            XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 4_999))
+            XCTAssertEqual(
+                GoosicAppModel.activeLyricIndex(lines: late, synced: true, positionMs: 5_000),
+                0
+            )
+        }
     }
 
-    func testUnsyncedLyricsNeverHighlight() {
-        let plain = [GoosicLyricsLine(atMs: -1, text: "Just words")]
-        XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: plain, synced: false, positionMs: 9_999))
+    func testUnsyncedLyricsNeverHighlight() async {
+        await MainActor.run {
+            let plain = [GoosicLyricsLine(atMs: -1, text: "Just words")]
+            XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: plain, synced: false, positionMs: 9_999))
+        }
     }
 
-    func testAnEmptyDocumentNeverHighlights() {
-        XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: [], synced: true, positionMs: 1_000))
+    func testAnEmptyDocumentNeverHighlights() async {
+        await MainActor.run {
+            XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: [], synced: true, positionMs: 1_000))
+        }
     }
 }
 

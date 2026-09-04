@@ -79,6 +79,8 @@ The shell is one SwiftCrossUI target that compiles for more than one backend. Ev
 
 The backend is chosen at build time through `SCUI_DEFAULT_BACKEND`, and the Make targets always set it: `AppKitBackend` on macOS, `GtkBackend` on Linux. It has to be explicit. SwiftCrossUI's `DefaultBackend` otherwise names every platform's backend target and, although each carries a platform condition, SwiftPM still resolves `swift-winui` into the build graph and tries to compile its C targets, which need Windows headers.
 
+Two portability rules follow from the toolchain rather than from this design, and both are load-bearing because breaking either produces a failure far from its cause. `URLSession` lives in `FoundationNetworking` off Darwin, so any file that fetches over HTTP needs a `#if canImport(FoundationNetworking)` import. And swift-corelibs-xctest discovers tests by casting each method to `(Self) -> () throws -> Void`; a `@MainActor`-isolated method does not carry that type, so an isolated `XCTestCase` subclass aborts the entire run before a single test executes. Isolation therefore goes on the individual test — `func testX() async` wrapping its body in `await MainActor.run` — never on the class.
+
 A stub build browses, searches, and renders the transport, but produces no audio. That is deliberate: a renderer that played without claiming a Rust lease would be a hole in the ownership model, so the absence of a host is expressed as a host that refuses rather than as an unguarded fallback.
 
 ## Official playback host (macOS)

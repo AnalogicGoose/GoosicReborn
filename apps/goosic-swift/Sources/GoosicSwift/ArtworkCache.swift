@@ -1,4 +1,9 @@
 import Foundation
+// swift-corelibs-foundation splits URLSession out of Foundation; on Darwin this module does not
+// exist and the type is already in scope.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Downloads and caches catalog artwork.
 ///
