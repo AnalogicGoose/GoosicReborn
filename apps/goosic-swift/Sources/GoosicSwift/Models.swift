@@ -228,6 +228,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     @SwiftCrossUI.Published private(set) var autoplay = true
     @SwiftCrossUI.Published private(set) var shuffle = false
     @SwiftCrossUI.Published private(set) var repeatMode: RepeatMode = .off
+    @SwiftCrossUI.Published private(set) var theme: GoosicTheme = .system
     @SwiftCrossUI.Published var lyricsVisible = false
     @SwiftCrossUI.Published private(set) var lyrics: GoosicLyrics?
     @SwiftCrossUI.Published private(set) var lyricsStatus = "Nothing playing."
@@ -838,6 +839,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         autoplay = settings.autoplay
         shuffle = settings.shuffle
         repeatMode = RepeatMode(rawValue: settings.repeatMode) ?? .off
+        setTheme(GoosicTheme.named(settings.theme), persist: false)
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
@@ -850,6 +852,17 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         guard allowPlaybackInteraction() else { return }
         autoplay = enabled
         savePreferences(GoosicPreferencesPatch(autoplay: enabled))
+    }
+
+    /// Chooses an appearance, and stores it unless it came from storage in the first place.
+    ///
+    /// Publishing `theme` is what applies it: the shell hands it to SwiftCrossUI as a preferred
+    /// colour scheme, which is the only thing the backend honours.
+    func setTheme(_ theme: GoosicTheme, persist: Bool = true) {
+        self.theme = theme
+        if persist {
+            savePreferences(GoosicPreferencesPatch(theme: theme.rawValue))
+        }
     }
 
     func toggleShuffle() {

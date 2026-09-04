@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
@@ -204,16 +205,28 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// Distinguishes staging directories created within one process.
+///
+/// A timestamp alone is not enough: two threads can read the clock in the same tick, and
+/// `create_dir_all` succeeds on a directory that already exists — so both would share one
+/// staging directory and the first to finish would delete the other's copy mid-read.
+static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// Creates a private staging directory for one read.
+///
+/// `create_dir` rather than `create_dir_all`, so an unexpected collision is an error instead of
+/// two callers silently sharing a directory.
 fn tempdir() -> Result<PathBuf, SettingsError> {
     let base = std::env::temp_dir().join(format!(
-        "goosic-legacy-{}-{}",
+        "goosic-legacy-{}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or_default()
+            .unwrap_or_default(),
+        STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::create_dir_all(&base).map_err(SettingsError::LegacyUnreadable)?;
+    std::fs::create_dir(&base).map_err(SettingsError::LegacyUnreadable)?;
     Ok(base)
 }
 
@@ -316,6 +329,33 @@ mod tests {
             std::fs::metadata(&database).unwrap().modified().unwrap(),
             modified_before
         );
+    }
+
+    #[test]
+    fn concurrent_reads_do_not_share_a_staging_directory() {
+        // Two threads reading at once used to be able to land on the same staging path, and the
+        // first to finish deleted the other's copy out from under it.
+        let directory = tempfile::tempdir().unwrap();
+        let database = legacy_database(directory.path());
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let database = database.clone();
+                std::thread::spawn(move || LegacyPreferences::read(&database))
+            })
+            .collect();
+        for handle in handles {
+            let legacy = handle.join().expect("no thread panicked").expect("read succeeds");
+            assert_eq!(legacy.string("ytm-theme"), Some("dark"));
+        }
+    }
+
+    #[test]
+    fn each_read_gets_its_own_staging_directory() {
+        let first = tempdir().unwrap();
+        let second = tempdir().unwrap();
+        assert_ne!(first, second);
+        let _ = std::fs::remove_dir_all(&first);
+        let _ = std::fs::remove_dir_all(&second);
     }
 
     #[test]

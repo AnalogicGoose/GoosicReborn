@@ -38,6 +38,7 @@ struct GoosicShell: View {
                     .frame(width: 1, height: 1)
             }
         }
+        .preferredColorScheme(model.theme.colorScheme)
         // A music app should show music on launch. `connect()` is idempotent, and the sidebar
         // button remains the way back after a transport failure drops the child process.
         .onAppear { model.connect() }

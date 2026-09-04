@@ -310,3 +310,36 @@ final class LyricsTests: XCTestCase {
         XCTAssertNil(GoosicAppModel.activeLyricIndex(lines: [], synced: true, positionMs: 1_000))
     }
 }
+
+final class ThemeTests: XCTestCase {
+    func testStoredValuesDecodeToTheirTheme() {
+        XCTAssertEqual(GoosicTheme.named("system"), .system)
+        XCTAssertEqual(GoosicTheme.named("light"), .light)
+        XCTAssertEqual(GoosicTheme.named("dark"), .dark)
+    }
+
+    func testAStoredValueIsNormalizedBeforeItIsMatched() {
+        // The value can come from a hand-edited file or a previous Goosic install.
+        XCTAssertEqual(GoosicTheme.named("  Dark  "), .dark)
+        XCTAssertEqual(GoosicTheme.named("LIGHT"), .light)
+    }
+
+    func testAnUnrecognizedValueFallsBackToFollowingTheSystem() {
+        XCTAssertEqual(GoosicTheme.named("neon"), .system)
+        XCTAssertEqual(GoosicTheme.named(""), .system)
+    }
+
+    func testEveryThemeRoundTripsThroughItsWireValue() {
+        for theme in GoosicTheme.allCases {
+            XCTAssertEqual(GoosicTheme.named(theme.rawValue), theme)
+        }
+    }
+
+    func testSystemMeansNoPreferenceSoTheOSKeepsDeciding() {
+        // A nil colour scheme is SwiftCrossUI's "follow the system"; the app does not
+        // reimplement light and dark.
+        XCTAssertNil(GoosicTheme.system.colorScheme)
+        XCTAssertNotNil(GoosicTheme.light.colorScheme)
+        XCTAssertNotNil(GoosicTheme.dark.colorScheme)
+    }
+}

@@ -9,6 +9,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 - **A real transport.** Elapsed and total time, seeking, volume and mute, and autoplay to the next queued track — all reflecting what the player confirms, never what was requested. Goosic's queue overrides the official app's own "up next", so it never plays something you did not choose.
 - **Preferences that persist.** Volume, mute, autoplay, shuffle, repeat, the queue panel, and the screen you were on are stored by Rust and restored on launch. Preferences from a previous Goosic install can be imported; the old data is read, never changed, and credentials are never carried over.
 - **Enforced ownership.** `goosic-core` allows one playback owner at a time, scopes transitions to a generation, and requires strictly increasing sample sequences. Switching to a downloaded file quiesces the official host first; switching away stops the local renderer first.
+- **Appearance.** System, light, or dark, applied through the toolkit so it works on every backend and survives a restart. Imported from a previous Goosic install along with the rest of the preferences.
 - **Lyrics.** Synced lyrics from LRCLIB, with the current line highlighted as the track plays, falling back to plain text and saying plainly when a track has none.
 - **Shuffle and repeat.** Off / all / one, plus shuffle that never picks the track it is already on. Both persist, and both are carried over from a previous Goosic install.
 - **Radio.** When a queue runs out, playback continues with the radio that follows the last track, and any playing track can seed a new one. This is the previous Goosic's "auto radio", and the imported preference maps onto autoplay, so it stays off for anyone who had it off.
@@ -53,7 +54,6 @@ The shell connects to the service on launch, so Home loads without any manual st
 - **No signed-in library.** Sign-in and per-account WebKit profiles work, but catalog reads are still anonymous, so Library has nothing personal to show. Authenticated catalog reads are the next slice.
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
 - **macOS only.** Windows and Linux playback hosts remain explicit stubs so no renderer can bypass Rust's authority.
-- **The imported theme is not applied.** A legacy theme preference is stored and shown, but the shell does not style itself from it yet.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
 - Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
 

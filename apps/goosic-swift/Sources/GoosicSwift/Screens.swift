@@ -301,6 +301,7 @@ struct SettingsScreen: View {
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
+                AppearanceSection(model: model)
                 Text("Playback")
                     .font(.headline)
                     .padding(.top, 8)
@@ -308,43 +309,61 @@ struct SettingsScreen: View {
                 Text("Account: \(model.playbackState.accountId ?? "none")")
                     .font(.caption)
                     .foregroundColor(.gray)
-                Text("Playback Lab")
-                    .font(.headline)
-                    .padding(.top, 8)
-                Text("Load a specific 11-character YouTube Music video ID directly, for testing the host without going through the catalog.")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                HStack(spacing: 8) {
-                    TextField("YouTube Music video ID", text: Binding(get: { model.playbackLabVideoID }, set: { model.playbackLabVideoID = $0 }))
-                        .frame(minWidth: 260)
-                    Button("Load official video") { model.loadOfficialVideo() }
-                        .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
-                }
-                HStack(spacing: 8) {
-                    Button("Play") { model.playOfficialVideo() }
-                        .disabled(model.accountOperationInProgress)
-                    Button("Pause") { model.pauseOfficialVideo() }
-                        .disabled(model.accountOperationInProgress)
-                    Button("Stop") { model.stopOfficialVideo() }
-                        .disabled(model.accountOperationInProgress)
-                    Button("Release") { model.releasePlayback() }
-                        .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
-                }
-                Text(model.hostStatus)
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                Text("Page probe")
-                    .font(.headline)
-                    .padding(.top, 8)
-                Text(model.hostDiagnostics)
-                    .font(.caption2)
-                    .foregroundColor(.gray)
-                Text("The status above reports confirmed host events only; a load or play request is not treated as audible playback until WebKit sends a validated event.")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
+                PlaybackLabSection(model: model)
             }
             .padding(24)
         }
+    }
+}
+
+/// The official-host test controls, extracted so the settings screen stays inside the view
+/// builder's child limit.
+struct PlaybackLabSection: View {
+    let model: GoosicAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Playback Lab")
+                .font(.headline)
+                .padding(.top, 8)
+            Text("Load a specific 11-character YouTube Music video ID directly, for testing the host without going through the catalog.")
+                .font(.caption)
+                .foregroundColor(.gray)
+            HStack(spacing: 8) {
+                TextField("YouTube Music video ID", text: Binding(get: { model.playbackLabVideoID }, set: { model.playbackLabVideoID = $0 }))
+                    .frame(minWidth: 260)
+                Button("Load official video") { model.loadOfficialVideo() }
+                    .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
+            }
+            HStack(spacing: 8) {
+                // Without a floor these squeeze their own labels into ellipses.
+                Button("Play") { model.playOfficialVideo() }
+                    .frame(minWidth: 72)
+                    .disabled(model.accountOperationInProgress)
+                Button("Pause") { model.pauseOfficialVideo() }
+                    .frame(minWidth: 72)
+                    .disabled(model.accountOperationInProgress)
+                Button("Stop") { model.stopOfficialVideo() }
+                    .frame(minWidth: 72)
+                    .disabled(model.accountOperationInProgress)
+                Button("Release") { model.releasePlayback() }
+                    .frame(minWidth: 72)
+                    .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
+            }
+            Text(model.hostStatus)
+                .font(.caption)
+                .foregroundColor(.gray)
+            Text("Page probe")
+                .font(.headline)
+                .padding(.top, 8)
+            Text(model.hostDiagnostics)
+                .font(.caption2)
+                .foregroundColor(.gray)
+            Text("The status above reports confirmed host events only; a load or play request is not treated as audible playback until WebKit sends a validated event.")
+                .font(.caption2)
+                .foregroundColor(.gray)
+        }
+        .padding(.top, 8)
     }
 }
 
@@ -392,6 +411,31 @@ struct AccountSettingsSection: View {
                     .padding(.vertical, 4)
                 }
             }
+        }
+        .padding(.top, 8)
+    }
+}
+
+/// Appearance choice. Its own view because a view builder takes only so many direct children,
+/// and the settings screen was already at that limit.
+struct AppearanceSection: View {
+    let model: GoosicAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Appearance")
+                .font(.headline)
+            HStack(spacing: 8) {
+                ForEach(GoosicTheme.allCases, id: \.self) { option in
+                    Button(option.label) { model.setTheme(option) }
+                        .font(.caption)
+                        .frame(minWidth: 68)
+                        .background(model.theme == option ? Color.blue.opacity(0.18) : Color.clear)
+                }
+            }
+            Text("System follows whatever macOS is set to; the app does not reimplement light and dark.")
+                .font(.caption2)
+                .foregroundColor(.gray)
         }
         .padding(.top, 8)
     }
