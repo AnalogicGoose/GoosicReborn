@@ -37,6 +37,16 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and
 
 Rust 1.88+ and Cargo everywhere. The Rust workspace is portable and needs nothing else: `rusqlite` is bundled and `ureq` uses rustls, so there is no system SQLite or OpenSSL to install.
 
+A distribution-packaged Rust splits apart what `rustup` ships as one toolchain, and an editor is the first thing to notice. `rust-analyzer` resolves its sysroot from `rustc --print sysroot` — `/usr` on a packaged install — and reports ``can't load standard library, try installing `rust-src` sysroot_path=/usr`` when the standard-library sources are not there. Without them it cannot see `core`, so `Option` stops resolving and every `None` arm is read as a new binding (``Variable `None` should have snake_case name``) and macros like `matches!` fail to expand (`expected bool, found ()`). Those diagnostics are the missing sysroot, not the code: `cargo check` stays clean throughout. `cargo fmt` and `cargo clippy` are separate packages on the same installs.
+
+| Distribution | Install |
+| --- | --- |
+| Fedora | `sudo dnf install rust-src rustfmt clippy` |
+| Debian/Ubuntu | `sudo apt install rust-src rustfmt` (clippy ships in `rust-clippy`) |
+| Arch | `sudo pacman -S rust-src` (`rust` already carries rustfmt and clippy) |
+
+Keep them at the same version as `rustc`; a mismatched `rust-src` produces the same errors it was meant to fix. `rustup` users get all three with `rustup component add rust-src rustfmt clippy`.
+
 The Swift shell needs Swift 5.10+ and, per platform:
 
 | Platform | Also needs |
