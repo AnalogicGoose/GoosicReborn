@@ -140,3 +140,95 @@ final class RadioPageTests: XCTestCase {
         XCTAssertTrue(page.playableTracks.isEmpty)
     }
 }
+
+final class RepeatModeTests: XCTestCase {
+    func testTheCycleVisitsEveryModeAndReturns() {
+        XCTAssertEqual(RepeatMode.off.next, .all)
+        XCTAssertEqual(RepeatMode.all.next, .one)
+        XCTAssertEqual(RepeatMode.one.next, .off)
+    }
+
+    func testEveryModeRoundTripsThroughItsWireValue() {
+        for mode in RepeatMode.allCases {
+            XCTAssertEqual(RepeatMode(rawValue: mode.rawValue), mode)
+        }
+    }
+}
+
+@MainActor
+final class QueueAdvanceTests: XCTestCase {
+    private func model(tracks: Int) -> GoosicAppModel {
+        let model = GoosicAppModel()
+        model.queue = GoosicQueue(
+            tracks: (0..<tracks).map { index in
+                GoosicTrack(
+                    id: "v\(index)",
+                    title: "Track \(index)",
+                    subtitle: "",
+                    artist: "",
+                    artistID: nil,
+                    album: "",
+                    albumID: nil,
+                    duration: "",
+                    videoID: "v\(index)",
+                    explicit: false,
+                    thumbnail: nil
+                )
+            },
+            currentIndex: 0
+        )
+        return model
+    }
+
+    func testAnEmptyQueueHasNowhereToGo() {
+        XCTAssertNil(model(tracks: 0).indexAfter(0, wrapping: true))
+    }
+
+    func testInOrderPlaybackWalksForward() {
+        let model = model(tracks: 3)
+        XCTAssertEqual(model.indexAfter(0, wrapping: false), 1)
+        XCTAssertEqual(model.indexAfter(1, wrapping: false), 2)
+    }
+
+    func testTheEndOfAQueueStopsSoRadioCanTakeOver() {
+        // `wrapping: false` is the natural end of a track.
+        XCTAssertNil(model(tracks: 3).indexAfter(2, wrapping: false))
+    }
+
+    func testPressingNextAtTheEndWrapsEvenWithRepeatOff() {
+        // A deliberate Next should move rather than do nothing.
+        XCTAssertEqual(model(tracks: 3).indexAfter(2, wrapping: true), 0)
+    }
+
+    func testRepeatAllWrapsAtTheNaturalEnd() {
+        let model = model(tracks: 3)
+        model.cycleRepeatMode()
+        XCTAssertEqual(model.repeatMode, .all)
+        XCTAssertEqual(model.indexAfter(2, wrapping: false), 0)
+    }
+
+    func testRepeatOneStaysOnTheSameTrack() {
+        let model = model(tracks: 3)
+        model.cycleRepeatMode()
+        model.cycleRepeatMode()
+        XCTAssertEqual(model.repeatMode, .one)
+        XCTAssertEqual(model.indexAfter(1, wrapping: false), 1)
+        XCTAssertEqual(model.indexAfter(1, wrapping: true), 1)
+    }
+
+    func testShuffleNeverPicksTheTrackItIsAlreadyOn() {
+        let model = model(tracks: 4)
+        model.toggleShuffle()
+        XCTAssertTrue(model.shuffle)
+        for _ in 0..<200 {
+            XCTAssertNotEqual(model.indexAfter(2, wrapping: false), 2)
+        }
+    }
+
+    func testShuffleOverASingleTrackStopsAtTheEndRatherThanLooping() {
+        let model = model(tracks: 1)
+        model.toggleShuffle()
+        XCTAssertNil(model.indexAfter(0, wrapping: false))
+        XCTAssertEqual(model.indexAfter(0, wrapping: true), 0)
+    }
+}

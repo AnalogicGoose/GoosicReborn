@@ -68,6 +68,9 @@ pub struct Preferences {
     pub autoplay: bool,
     pub last_route: String,
     pub queue_visible: bool,
+    pub shuffle: bool,
+    /// `off`, `all`, or `one`.
+    pub repeat_mode: String,
 }
 
 impl Default for Preferences {
@@ -79,6 +82,8 @@ impl Default for Preferences {
             autoplay: true,
             last_route: "home".into(),
             queue_visible: false,
+            shuffle: false,
+            repeat_mode: "off".into(),
         }
     }
 }
@@ -99,6 +104,9 @@ impl Preferences {
         };
         if self.last_route.trim().is_empty() {
             self.last_route = "home".into();
+        }
+        if !matches!(self.repeat_mode.as_str(), "off" | "all" | "one") {
+            self.repeat_mode = "off".into();
         }
         self
     }
@@ -125,6 +133,12 @@ fn apply_patch(patch: PreferencesPatch, preferences: &mut Preferences) {
     }
     if let Some(visible) = patch.queue_visible {
         preferences.queue_visible = visible;
+    }
+    if let Some(shuffle) = patch.shuffle {
+        preferences.shuffle = shuffle;
+    }
+    if let Some(mode) = patch.repeat_mode {
+        preferences.repeat_mode = mode;
     }
 }
 
@@ -233,6 +247,8 @@ impl SettingsStore {
             autoplay: preferences.autoplay,
             last_route: preferences.last_route.clone(),
             queue_visible: preferences.queue_visible,
+            shuffle: preferences.shuffle,
+            repeat_mode: preferences.repeat_mode.clone(),
             imported_from_legacy: self.has_imported(),
             legacy_available,
         }
@@ -272,6 +288,14 @@ impl SettingsStore {
             // track finishes.
             if let Some(auto) = playback.get("autoRadio").and_then(Value::as_bool) {
                 preferences.autoplay = auto;
+            }
+            if let Some(shuffle) = playback.get("shuffle").and_then(Value::as_bool) {
+                preferences.shuffle = shuffle;
+            }
+            // The legacy store spells this the same way, so an unrecognized value is corrected
+            // by `sanitized` rather than trusted.
+            if let Some(mode) = playback.get("repeat").and_then(Value::as_str) {
+                preferences.repeat_mode = mode.to_owned();
             }
         }
 
@@ -401,7 +425,7 @@ mod tests {
             ("ytm-theme", utf16("dark")),
             (
                 "ytm-playback",
-                utf16(r#"{"state":{"volume":0.4,"muted":true,"autoRadio":false},"version":2}"#),
+                utf16(r#"{"state":{"volume":0.4,"muted":true,"autoRadio":false,"shuffle":true,"repeat":"all"},"version":2}"#),
             ),
             (
                 "ytm-layout",
@@ -439,6 +463,48 @@ mod tests {
         let kept = &opened.document().legacy;
         assert_eq!(kept["ytm-layout"]["state"]["mode"], "bottom");
         assert!(opened.has_imported());
+    }
+
+    #[test]
+    fn shuffle_and_repeat_come_across_from_the_legacy_playback_document() {
+        let directory = tempfile::tempdir().unwrap();
+        let legacy = legacy_database(directory.path());
+        let mut opened = store(directory.path());
+        let imported = opened.import_legacy(&legacy).unwrap().clone();
+        assert!(imported.shuffle);
+        assert_eq!(imported.repeat_mode, "all");
+    }
+
+    #[test]
+    fn an_unrecognized_repeat_mode_is_corrected_rather_than_trusted() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut opened = store(directory.path());
+        let corrected = opened
+            .update(PreferencesPatch {
+                repeat_mode: Some("sideways".into()),
+                ..Default::default()
+            })
+            .unwrap()
+            .clone();
+        assert_eq!(corrected.repeat_mode, "off");
+    }
+
+    #[test]
+    fn every_repeat_mode_the_shell_can_set_survives_a_round_trip() {
+        for mode in ["off", "all", "one"] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut opened = store(directory.path());
+            opened
+                .update(PreferencesPatch {
+                    repeat_mode: Some(mode.into()),
+                    shuffle: Some(true),
+                    ..Default::default()
+                })
+                .unwrap();
+            let reopened = store(directory.path());
+            assert_eq!(reopened.preferences().repeat_mode, mode);
+            assert!(reopened.preferences().shuffle);
+        }
     }
 
     #[test]

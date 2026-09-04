@@ -307,7 +307,8 @@ final class PreferencesWireTests: XCTestCase {
         let wire = """
         {"protocolVersion":"0.2.0","requestId":"swift-1","ok":true,"payload":{"settings":{\
         "theme":"dark","volume":0.4,"muted":false,"autoplay":true,"lastRoute":"charts",\
-        "queueVisible":false,"importedFromLegacy":true,"legacyAvailable":true}}}
+        "queueVisible":false,"shuffle":true,"repeatMode":"all",\
+        "importedFromLegacy":true,"legacyAvailable":true}}}
         """
         let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
         let settings = try XCTUnwrap(response.payload?.settings)
@@ -315,6 +316,8 @@ final class PreferencesWireTests: XCTestCase {
         XCTAssertEqual(settings.volume, 0.4)
         XCTAssertEqual(GoosicRoute(rawValue: settings.lastRoute), .charts)
         XCTAssertTrue(settings.importedFromLegacy)
+        XCTAssertTrue(settings.shuffle)
+        XCTAssertEqual(RepeatMode(rawValue: settings.repeatMode), .all)
     }
 
     func testEveryRouteRawValueRoundTripsSoARestoredRouteIsNeverLost() {

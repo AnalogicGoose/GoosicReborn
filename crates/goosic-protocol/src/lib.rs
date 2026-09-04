@@ -181,6 +181,9 @@ pub struct SettingsSnapshot {
     pub autoplay: bool,
     pub last_route: String,
     pub queue_visible: bool,
+    pub shuffle: bool,
+    /// `off`, `all`, or `one`.
+    pub repeat_mode: String,
     /// Whether preferences from a previous Goosic install have been imported.
     pub imported_from_legacy: bool,
     /// Whether a legacy store is present to import from. Never a credential store.
@@ -203,6 +206,10 @@ pub struct PreferencesPatch {
     pub last_route: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queue_visible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shuffle: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repeat_mode: Option<String>,
 }
 
 /// What a catalog row is, and therefore where the shell may navigate or what it may play.

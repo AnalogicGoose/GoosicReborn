@@ -316,6 +316,10 @@ struct PlaybackTransportBar: View {
             )
             .frame(width: 90)
             .disabled(model.accountOperationInProgress || model.isAdvertisement)
+            Button(model.shuffle ? "Shuffle on" : "Shuffle off") { model.toggleShuffle() }
+                .font(.caption2)
+            Button(model.repeatMode.label) { model.cycleRepeatMode() }
+                .font(.caption2)
             Button(model.autoplay ? "Autoplay on" : "Autoplay off") { model.setAutoplay(!model.autoplay) }
                 .font(.caption2)
                 .disabled(model.accountOperationInProgress)

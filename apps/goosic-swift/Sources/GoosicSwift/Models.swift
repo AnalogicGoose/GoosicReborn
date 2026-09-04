@@ -70,6 +70,30 @@ enum GoosicEntityReference: Hashable {
     }
 }
 
+/// What happens when the queue reaches its end.
+enum RepeatMode: String, CaseIterable, Equatable {
+    case off
+    case all
+    case one
+
+    /// The next mode in the cycle a single button steps through.
+    var next: RepeatMode {
+        switch self {
+        case .off: return .all
+        case .all: return .one
+        case .one: return .off
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .off: return "Repeat off"
+        case .all: return "Repeat all"
+        case .one: return "Repeat one"
+        }
+    }
+}
+
 enum PlaybackTransition: String, Equatable {
     case idle
     case claiming
@@ -202,6 +226,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// System media controls stay empty until the active renderer confirms one valid sample.
     @SwiftCrossUI.Published private(set) var hasConfirmedPlaybackSample = false
     @SwiftCrossUI.Published private(set) var autoplay = true
+    @SwiftCrossUI.Published private(set) var shuffle = false
+    @SwiftCrossUI.Published private(set) var repeatMode: RepeatMode = .off
     @SwiftCrossUI.Published private(set) var legacyImportAvailable = false
     @SwiftCrossUI.Published private(set) var legacyImported = false
     @SwiftCrossUI.Published private(set) var playbackTransition: PlaybackTransition = .idle
@@ -700,6 +726,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         volume = min(max(settings.volume, 0), 1)
         isMuted = settings.muted
         autoplay = settings.autoplay
+        shuffle = settings.shuffle
+        repeatMode = RepeatMode(rawValue: settings.repeatMode) ?? .off
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
@@ -712,6 +740,39 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         guard allowPlaybackInteraction() else { return }
         autoplay = enabled
         savePreferences(GoosicPreferencesPatch(autoplay: enabled))
+    }
+
+    func toggleShuffle() {
+        guard allowPlaybackInteraction() else { return }
+        shuffle.toggle()
+        savePreferences(GoosicPreferencesPatch(shuffle: shuffle))
+    }
+
+    func cycleRepeatMode() {
+        guard allowPlaybackInteraction() else { return }
+        repeatMode = repeatMode.next
+        savePreferences(GoosicPreferencesPatch(repeatMode: repeatMode.rawValue))
+    }
+
+    /// The queue position to play after `index`, honouring shuffle and repeat.
+    ///
+    /// Returns `nil` when the queue is finished, which is what lets radio take over.
+    /// `wrapping` is false at the natural end of a track and true for a deliberate Next, so
+    /// pressing Next at the end of a list moves rather than stopping.
+    func indexAfter(_ index: Int, wrapping: Bool) -> Int? {
+        let count = queue.tracks.count
+        guard count > 0 else { return nil }
+        if repeatMode == .one { return index }
+        if shuffle {
+            guard count > 1 else { return (repeatMode == .all || wrapping) ? index : nil }
+            // Any position but the current one, so shuffle never repeats a track back to back.
+            var candidate = index
+            while candidate == index { candidate = Int.random(in: 0..<count) }
+            return candidate
+        }
+        let next = index + 1
+        if next < count { return next }
+        return (repeatMode == .all || wrapping) ? 0 : nil
     }
 
     /// Imports preferences from a previous Goosic install.
@@ -1328,7 +1389,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Track changes are unavailable while the official player is showing an advertisement."
             return
         }
-        let index = (queue.currentIndex + 1) % queue.tracks.count
+        // A deliberate Next wraps even with repeat off; only the end of a track stops.
+        guard let index = indexAfter(queue.currentIndex, wrapping: true) else { return }
         play(queue.tracks[index])
     }
 
@@ -1695,8 +1757,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Track finished. Autoplay is off."
             return
         }
-        let nextIndex = queue.currentIndex + 1
-        guard queue.tracks.indices.contains(nextIndex) else {
+        guard let nextIndex = indexAfter(queue.currentIndex, wrapping: false) else {
             extendWithRadio()
             return
         }

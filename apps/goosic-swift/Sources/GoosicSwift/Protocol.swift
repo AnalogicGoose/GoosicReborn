@@ -56,6 +56,8 @@ struct GoosicPreferencesPatch: Codable {
     var autoplay: Bool?
     var lastRoute: String?
     var queueVisible: Bool?
+    var shuffle: Bool?
+    var repeatMode: String?
 
     init(
         theme: String? = nil,
@@ -63,7 +65,9 @@ struct GoosicPreferencesPatch: Codable {
         muted: Bool? = nil,
         autoplay: Bool? = nil,
         lastRoute: String? = nil,
-        queueVisible: Bool? = nil
+        queueVisible: Bool? = nil,
+        shuffle: Bool? = nil,
+        repeatMode: String? = nil
     ) {
         self.theme = theme
         self.volume = volume
@@ -71,6 +75,8 @@ struct GoosicPreferencesPatch: Codable {
         self.autoplay = autoplay
         self.lastRoute = lastRoute
         self.queueVisible = queueVisible
+        self.shuffle = shuffle
+        self.repeatMode = repeatMode
     }
 }
 
@@ -221,6 +227,9 @@ struct GoosicSettings: Codable {
     var autoplay: Bool
     var lastRoute: String
     var queueVisible: Bool
+    var shuffle: Bool
+    /// `off`, `all`, or `one`.
+    var repeatMode: String
     /// Whether preferences from a previous Goosic install have been imported.
     var importedFromLegacy: Bool
     /// Whether a previous Goosic install's preferences are present to import.
