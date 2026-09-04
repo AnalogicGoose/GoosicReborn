@@ -2,22 +2,22 @@
 
 ## Data flow
 
-`SwiftCrossUI shell -> GoosicServiceClient -> goosic-service (NDJSON) -> goosic-core | goosic-catalog | goosic-settings -> goosic-protocol`
+`SwiftCrossUI shell -> GoosicServiceClient -> goosic-service (NDJSON) -> goosic-core | goosic-catalog | goosic-settings | goosic-downloads | goosic-accounts -> goosic-protocol`
 
 The shell requests transitions; it never decides whether a playback transition is valid. `goosic-core` is the single authority and has no UI, WebView, network, cookie, or audio dependencies. The service owns one authority instance for its process lifetime.
 
 `goosic-catalog` is a separate, read-only concern: it answers *what exists* and never *who may play*. Catalog commands are dispatched before the authority and cannot alter ownership, generation, or sequence. It is the only crate that performs network I/O, and it is split into a pure parsing layer (unit-tested against fixtures) and a thin HTTP client (covered by `#[ignore]`d live tests).
 
-`goosic-settings` owns durable preferences for the same reason: the shell is a renderer, and persistence should not be reimplemented per platform. Like the catalog it is dispatched before the authority and cannot change who owns playback.
+`goosic-settings` owns durable preferences for the same reason: the shell is a renderer, and persistence should not be reimplemented per platform. `goosic-downloads` indexes and decodes local media, and `goosic-accounts` stores account metadata only — it has no WebKit, cookie, or credential integration, because the platform UI owns the actual profile data. All three are dispatched before the authority and cannot change who owns playback.
 
 `goosic-service` is private to one app process and one client: the Swift shell launches it as a child and communicates over inherited stdin/stdout. It is not a daemon or socket endpoint, and those streams must never be shared or multiplexed. Generation provides freshness authorization within this single-client boundary. If a future design multiplexes clients, it must first add an unforgeable per-client capability and require active-owner authorization before allowing account resets.
 
-## Wire contract (protocol 0.2.0)
+## Wire contract (protocol 0.3.0)
 
 Every request is one JSON object per line:
 
 ```json
-{"protocolVersion":"0.2.0","requestId":"r-1","command":"playback.claim","payload":{"owner":"officialWebView","generation":0}}
+{"protocolVersion":"0.3.0","requestId":"r-1","command":"playback.claim","payload":{"owner":"officialWebView","generation":0}}
 ```
 
 Every request produces exactly one response line. A response has `ok: true` and a payload, or `ok: false` and a structured `{code,message}` error. Playback commands are `hello`/`handshake`, `state.get`, `account.change`, `playback.claim`, `playback.release`, and `playback.sample`. Owners are exactly `none`, `officialWebView`, and `localDownloadedFile`; online playback means only `officialWebView`.
@@ -40,6 +40,18 @@ Requests are capped at 64 KB. A catalog page is clamped by the service to 192 KB
 4. Account change clears the owner, advances generation, replaces the account identifier, and resets sequence.
 5. `advertisement` (and any other marker) is metadata. An accepted marker does not release ownership, change generation, or turn into an error/teardown.
 6. Stable error codes identify invalid owner/request, owner conflict/mismatch, missing owner, generation mismatch, and non-monotonic samples.
+
+## Artwork
+
+Catalog rows carry a thumbnail URL, and the shell fetches those itself rather than routing them through Rust. Two reasons: the service protocol is strictly serial, so a dense screen would serialize twenty downloads behind one another; and images are presentation, not authority.
+
+SwiftCrossUI's `Image` reads its source synchronously while computing layout, so it is never handed a remote URL — `ArtworkCache` downloads off the main thread, writes to a local cache, and `Image` only ever opens a local file. A half-written file cannot be picked up mid-download, because each is written beside its destination and renamed.
+
+The fetch is deliberately narrow:
+
+- **HTTPS only, and only from the hosts YouTube Music serves artwork from.** The match is on a label boundary, so `evilgoogleusercontent.com` is refused. A catalog response cannot point the shell at an arbitrary server.
+- **An ephemeral session with cookie storage disabled**, so a thumbnail request can never become an authenticated one.
+- Bounded size and concurrency, and a failure is remembered so a broken image is not retried on every layout.
 
 ## Platform material
 

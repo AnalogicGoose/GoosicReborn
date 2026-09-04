@@ -87,7 +87,13 @@ extension GoosicCard {
             // navigating somewhere the shell cannot render.
             action = nil
         }
-        self.init(id: item.id, title: item.title, subtitle: item.subtitle, action: action)
+        self.init(
+            id: item.id,
+            title: item.title,
+            subtitle: item.subtitle,
+            action: action,
+            thumbnail: item.thumbnail
+        )
     }
 }
 

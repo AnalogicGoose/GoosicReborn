@@ -149,6 +149,17 @@ struct GoosicCard: Identifiable, Hashable {
     let title: String
     let subtitle: String
     let action: GoosicCardAction?
+    /// Upstream artwork URL. Fetched and cached by the shell, never rendered from the network
+    /// directly, because `Image` loads its source during layout.
+    let thumbnail: String?
+
+    init(id: String, title: String, subtitle: String, action: GoosicCardAction?, thumbnail: String? = nil) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.action = action
+        self.thumbnail = thumbnail
+    }
 }
 
 struct GoosicShelf: Identifiable, Hashable {
@@ -230,6 +241,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private var systemMediaControls: SystemMediaControls?
     private var accountLoginHost: AccountLoginHost?
     private var accountTransitionToken: UInt64 = 0
+    private let artwork = ArtworkCache()
+    /// Bumped when artwork arrives. Views read it so a late thumbnail re-renders its card.
+    @SwiftCrossUI.Published private(set) var artworkVersion: UInt64 = 0
 
     var activeAccount: GoosicAccountSummary? {
         guard let activeAccountId else { return nil }
@@ -240,9 +254,19 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         activeAccount?.displayName ?? "Guest profile"
     }
 
+    /// The local file for a piece of artwork, or `nil` while it is still being fetched.
+    ///
+    /// Safe to call from a view body: it never blocks and never touches the network inline.
+    func artworkFile(for remote: String?) -> URL? {
+        artwork.localFile(for: remote)
+    }
+
     init() {
         officialPlaybackHost = OfficialPlaybackHost()
         localPlaybackHost = LocalPlaybackHost()
+        artwork.onArtworkLoaded = { [weak self] in
+            self?.artworkVersion &+= 1
+        }
         officialPlaybackHost.onEvent = { [weak self] event in
             self?.receive(event)
         }

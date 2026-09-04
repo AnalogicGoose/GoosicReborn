@@ -107,6 +107,37 @@ struct ShelfView: View {
     }
 }
 
+/// Catalog artwork, with a glyph until the image is on disk.
+///
+/// `Image` reads its source while computing layout, so it is only ever handed a local file that
+/// the cache has already written. `model.artworkVersion` is read here so a late download
+/// re-renders this view.
+struct ArtworkView: View {
+    let remote: String?
+    let placeholder: String
+    let width: Double
+    let height: Double
+    let model: GoosicAppModel
+
+    var body: some View {
+        // Reading the version participates this view in artwork updates.
+        let _ = model.artworkVersion
+        if let file = model.artworkFile(for: remote) {
+            // The file extension is a cache detail, so the format is sniffed from the bytes.
+            Image(file, useFileExtension: false)
+                .resizable()
+                .frame(width: width, height: height)
+                .cornerRadius(7)
+        } else {
+            Text(placeholder)
+                .font(.title)
+                .frame(width: width, height: height, alignment: .center)
+                .background(Color.blue.opacity(0.16))
+                .cornerRadius(7)
+        }
+    }
+}
+
 struct CatalogCardView: View {
     let card: GoosicCard
     let model: GoosicAppModel
@@ -130,11 +161,13 @@ struct CatalogCardView: View {
             }
         }) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(glyph)
-                    .font(.title)
-                    .frame(width: 148, height: 82, alignment: .center)
-                    .background(Color.blue.opacity(0.16))
-                    .cornerRadius(7)
+                ArtworkView(
+                    remote: card.thumbnail,
+                    placeholder: glyph,
+                    width: 148,
+                    height: 82,
+                    model: model
+                )
                 Text(card.title)
                     .font(.subheadline)
                 Text(card.subtitle)
@@ -163,8 +196,13 @@ struct TrackRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(isCurrent ? "▶" : "♪")
-                .frame(width: 22)
+            ArtworkView(
+                remote: track.thumbnail,
+                placeholder: isCurrent ? "▶" : "♪",
+                width: 34,
+                height: 34,
+                model: model
+            )
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(track.title)
