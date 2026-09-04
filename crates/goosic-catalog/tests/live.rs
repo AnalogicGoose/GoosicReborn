@@ -102,3 +102,38 @@ fn album_from_search_loads_its_tracks() {
     }
     assert!(!page.tracks.is_empty());
 }
+
+#[test]
+#[ignore = "requires network access to music.youtube.com"]
+fn radio_continues_from_a_real_track() {
+    let catalog = Catalog::new();
+    let results = catalog.search("daft punk", "songs").expect("search succeeds");
+    let seed = results
+        .shelves
+        .iter()
+        .flat_map(|shelf| shelf.items.iter())
+        .find_map(|item| item.video_id.clone())
+        .expect("a playable song");
+    println!("seed video: {seed}");
+
+    let page = catalog.radio(&seed).expect("radio loads");
+    println!("radio queue: {} tracks", page.tracks.len());
+    for track in page.tracks.iter().take(5) {
+        println!(
+            "  {} — {} [{}] {}",
+            track.title,
+            track.artist.as_deref().unwrap_or("?"),
+            track.duration.as_deref().unwrap_or("?"),
+            track.video_id.as_deref().unwrap_or("?")
+        );
+    }
+    assert!(!page.tracks.is_empty(), "radio should return a queue");
+    assert!(
+        page.tracks.iter().all(|track| track.video_id.is_some()),
+        "every radio row must be playable"
+    );
+    assert!(
+        !page.tracks.iter().any(|track| track.id == seed),
+        "the seed track must not be queued again"
+    );
+}

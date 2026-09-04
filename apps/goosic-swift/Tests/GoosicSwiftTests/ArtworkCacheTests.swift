@@ -105,3 +105,38 @@ final class ArtworkCacheBehaviourTests: XCTestCase {
         XCTAssertEqual(cache.localFile(for: remote), expected)
     }
 }
+
+final class RadioPageTests: XCTestCase {
+    /// A radio page is tracks-only, unlike the shelf pages the browse routes return.
+    func testARadioPageDecodesIntoPlayableTracksWithArtwork() throws {
+        let wire = """
+        {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,"payload":{"catalog":{\
+        "id":"radio:JhulBGMA7G4","title":"Radio","tracks":[\
+        {"kind":"song","id":"qXI87eMP-bs","title":"Face to Face","subtitle":"Daft Punk",\
+        "artist":"Daft Punk","duration":"4:01","videoId":"qXI87eMP-bs",\
+        "thumbnail":"https://yt3.googleusercontent.com/a"},\
+        {"kind":"song","id":"mllzzUjMezU","title":"Shooting Stars","subtitle":"Bag Raiders",\
+        "artist":"Bag Raiders","duration":"3:56","videoId":"mllzzUjMezU"}]}}}
+        """
+        let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
+        let page = CatalogPageView(wire: try XCTUnwrap(response.payload?.catalog))
+
+        XCTAssertEqual(page.id, "radio:JhulBGMA7G4")
+        XCTAssertTrue(page.shelves.isEmpty)
+        XCTAssertEqual(page.tracks.count, 2)
+        XCTAssertEqual(page.playableTracks.map(\.videoID), ["qXI87eMP-bs", "mllzzUjMezU"])
+        XCTAssertEqual(page.tracks[0].thumbnail, "https://yt3.googleusercontent.com/a")
+        XCTAssertNil(page.tracks[1].thumbnail, "artwork is optional on a queue row")
+    }
+
+    func testARadioPageThatCameBackEmptyIsTreatedAsNothingToPlay() throws {
+        let wire = """
+        {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,\
+        "payload":{"catalog":{"id":"radio:x","title":"Radio"}}}
+        """
+        let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
+        let page = CatalogPageView(wire: try XCTUnwrap(response.payload?.catalog))
+        XCTAssertTrue(page.isEmpty)
+        XCTAssertTrue(page.playableTracks.isEmpty)
+    }
+}

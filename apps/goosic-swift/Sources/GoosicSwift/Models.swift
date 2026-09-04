@@ -242,6 +242,12 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private var accountLoginHost: AccountLoginHost?
     private var accountTransitionToken: UInt64 = 0
     private let artwork = ArtworkCache()
+    /// A radio request is outstanding. Guards against a burst of `ended` events each starting
+    /// their own continuation.
+    private var radioExtensionInFlight = false
+    /// The track the current radio was seeded from, so a radio that itself runs out does not
+    /// immediately reseed from the same song and loop.
+    private var radioSeedVideoID: String?
     /// Bumped when artwork arrives. Views read it so a late thumbnail re-renders its card.
     @SwiftCrossUI.Published private(set) var artworkVersion: UInt64 = 0
 
@@ -1086,6 +1092,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
         if !tracks.isEmpty {
             queue = GoosicQueue(tracks: tracks, currentIndex: tracks.firstIndex(of: track) ?? 0)
+            // A deliberately chosen list is a fresh listening context, so the radio seed guard
+            // is cleared and this queue may start its own radio when it runs out.
+            radioSeedVideoID = nil
         } else {
             select(track)
         }
@@ -1688,10 +1697,78 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         let nextIndex = queue.currentIndex + 1
         guard queue.tracks.indices.contains(nextIndex) else {
-            status = "Queue finished."
+            extendWithRadio()
             return
         }
         play(queue.tracks[nextIndex])
+    }
+
+    /// Continues past the end of the queue with the radio that follows the last track.
+    ///
+    /// This is what the previous Goosic called "auto radio", and the imported preference maps
+    /// onto `autoplay`, so a user who had it off does not suddenly get endless playback.
+    private func extendWithRadio() {
+        guard let seed = queue.current ?? currentTrack else {
+            status = "Queue finished."
+            return
+        }
+        // Radio is only meaningful for the official player: a local file has no upstream queue,
+        // and asking for one would claim the wrong owner.
+        guard playbackState.owner == .officialWebView else {
+            status = "Queue finished."
+            return
+        }
+        guard !radioExtensionInFlight, radioSeedVideoID != seed.videoID else {
+            status = "Queue finished."
+            return
+        }
+        radioExtensionInFlight = true
+        radioSeedVideoID = seed.videoID
+        status = "Queue finished. Starting radio from \(seed.title)…"
+        requestRadio(seed: seed) { [weak self] tracks in
+            guard let self else { return }
+            self.radioExtensionInFlight = false
+            guard let first = tracks.first else {
+                self.status = "Queue finished. Radio had nothing to continue with."
+                return
+            }
+            self.queue = GoosicQueue(tracks: [seed] + tracks, currentIndex: 0)
+            self.play(first)
+        }
+    }
+
+    /// Replaces the queue with the radio that follows `track` and starts it.
+    func startRadio(from track: GoosicTrack) {
+        guard allowPlaybackInteraction() else { return }
+        guard !radioExtensionInFlight else { return }
+        radioExtensionInFlight = true
+        radioSeedVideoID = track.videoID
+        status = "Starting radio from \(track.title)…"
+        requestRadio(seed: track) { [weak self] tracks in
+            guard let self else { return }
+            self.radioExtensionInFlight = false
+            guard let first = tracks.first else {
+                self.status = "Radio had nothing to play after \(track.title)."
+                return
+            }
+            self.queue = GoosicQueue(tracks: [track] + tracks, currentIndex: 0)
+            self.play(first)
+        }
+    }
+
+    private func requestRadio(seed: GoosicTrack, completion: @escaping ([GoosicTrack]) -> Void) {
+        send(
+            command: "catalog.radio",
+            payload: GoosicRequestPayload(catalogId: seed.videoID)
+        ) { [weak self] response in
+            guard self != nil else { return }
+            let page = response.payload?.catalog.map(CatalogPageView.init(wire:))
+            completion(page?.tracks ?? [])
+        } failure: { [weak self] error in
+            guard let self else { return }
+            self.radioExtensionInFlight = false
+            self.status = "Could not start radio: \(Self.describe(error).message)"
+        }
     }
 
     private func applyState(_ response: GoosicResponse) {

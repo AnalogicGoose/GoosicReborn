@@ -155,6 +155,10 @@ pub fn handle(
             Ok(playlist_id) => respond(id, catalog.playlist(&playlist_id)),
             Err(response) => response,
         },
+        "catalog.radio" => match catalog_id(payload, request_id) {
+            Ok(video_id) => respond(id, catalog.radio(&video_id)),
+            Err(response) => response,
+        },
         "catalog.artist" => match catalog_id(payload, request_id) {
             Ok(browse_id) => respond(id, catalog.artist(&browse_id)),
             Err(response) => response,

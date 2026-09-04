@@ -249,6 +249,10 @@ struct NowPlayingBar: View {
                     .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
                 Button("Next") { model.next() }
                     .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.queue.tracks.isEmpty || model.isAdvertisement)
+                Button("Radio") {
+                    if let track = model.currentTrack { model.startRadio(from: track) }
+                }
+                .disabled(model.currentTrack == nil || model.accountOperationInProgress || model.playbackTransition != .idle)
                 Button(model.queueVisible ? "Hide queue" : "Show queue") { model.toggleQueue() }
                     .disabled(model.accountOperationInProgress)
                 Button("Release") { model.releasePlayback() }

@@ -293,6 +293,75 @@ pub fn two_row_item(node: &Value) -> Option<CatalogItem> {
     })
 }
 
+/// Normalizes one `playlistPanelVideoRenderer`, the row shape the watch queue uses.
+///
+/// This is a different renderer from the list rows elsewhere: its byline is one text node
+/// rather than separate columns, so the artist is read from the byline's navigation runs.
+pub fn queue_item(node: &Value) -> Option<CatalogItem> {
+    let title = node.get("title").map(json::runs_text)?;
+    if title.is_empty() {
+        return None;
+    }
+    let video_id = node
+        .get("videoId")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| watch_video_id(node))?;
+
+    let byline = node
+        .get("longBylineText")
+        .or_else(|| node.get("shortBylineText"));
+    let subtitle = byline.map(json::runs_text).unwrap_or_default();
+    let refs = references(&[byline.unwrap_or(&Value::Null)]);
+    let duration = node
+        .get("lengthText")
+        .map(json::runs_text)
+        .filter(|text| json::is_duration(text));
+
+    Some(CatalogItem {
+        kind: CatalogItemKind::Song,
+        id: video_id.clone(),
+        title,
+        subtitle,
+        artist: refs.artist.as_ref().map(|(name, _)| name.clone()),
+        artist_id: refs.artist.as_ref().map(|(_, id)| id.clone()),
+        album: refs.album.as_ref().map(|(name, _)| name.clone()),
+        album_id: refs.album.as_ref().map(|(_, id)| id.clone()),
+        duration,
+        thumbnail: json::thumbnail(node, THUMBNAIL_BUDGET),
+        video_id: Some(video_id),
+        explicit: is_explicit(node),
+    })
+}
+
+/// Builds the ordered queue that follows a track.
+///
+/// The first row is the track that was asked about, so it is dropped: the caller already has it
+/// and re-queueing it would replay what just finished.
+pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
+    let mut tracks: Vec<CatalogItem> = json::collect(response, "playlistPanelVideoRenderer")
+        .into_iter()
+        .filter_map(queue_item)
+        .collect();
+    if tracks.first().is_some_and(|first| first.id == seed_video_id) {
+        tracks.remove(0);
+    }
+    // Upstream can repeat a row across continuations; a queue with duplicates plays the same
+    // track twice in a row.
+    let mut seen = std::collections::HashSet::new();
+    tracks.retain(|track| seen.insert(track.id.clone()));
+
+    CatalogPage {
+        id: format!("radio:{seed_video_id}"),
+        title: "Radio".to_owned(),
+        subtitle: String::new(),
+        shelves: Vec::new(),
+        tracks,
+        thumbnail: None,
+        truncated: false,
+    }
+}
+
 /// Flattens every responsive row in a search response, in relevance order.
 pub fn search_items(response: &Value) -> Vec<CatalogItem> {
     json::collect(response, "musicResponsiveListItemRenderer")
@@ -661,6 +730,78 @@ mod tests {
         assert_eq!(shelves[0].title, "Listen again");
         assert_eq!(shelves[0].items[0].kind, CatalogItemKind::Album);
         assert_eq!(shelves[0].items[0].id, "MPREalbum");
+    }
+
+    fn queue_row(video_id: &str, title: &str) -> Value {
+        json!({
+            "videoId": video_id,
+            "title": {"runs": [{"text": title}]},
+            "longBylineText": {"runs": [
+                {
+                    "text": "Signal Fires",
+                    "navigationEndpoint": {"browseEndpoint": {
+                        "browseId": "UCartist",
+                        "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}
+                        }
+                    }}
+                },
+                {"text": " • Album • 2026"}
+            ]},
+            "lengthText": {"runs": [{"text": "3:42"}]},
+            "thumbnail": {"thumbnails": [{"url": "https://example.test/q.jpg", "width": 226, "height": 226}]}
+        })
+    }
+
+    #[test]
+    fn a_queue_row_is_normalized_with_its_artist_and_duration() {
+        let item = queue_item(&queue_row("abcdefghijk", "Afterglow")).expect("row parses");
+        assert_eq!(item.kind, CatalogItemKind::Song);
+        assert_eq!(item.id, "abcdefghijk");
+        assert_eq!(item.video_id.as_deref(), Some("abcdefghijk"));
+        assert_eq!(item.artist.as_deref(), Some("Signal Fires"));
+        assert_eq!(item.duration.as_deref(), Some("3:42"));
+        assert_eq!(item.thumbnail.as_deref(), Some("https://example.test/q.jpg"));
+    }
+
+    #[test]
+    fn a_queue_row_without_a_video_id_is_skipped() {
+        let row = json!({"title": {"runs": [{"text": "Header"}]}});
+        assert!(queue_item(&row).is_none());
+    }
+
+    #[test]
+    fn radio_drops_the_seed_track_so_it_is_not_replayed() {
+        let response = json!({"contents": [
+            {"playlistPanelVideoRenderer": queue_row("seedvideoid", "The seed")},
+            {"playlistPanelVideoRenderer": queue_row("nextvideoid", "The next one")},
+        ]});
+        let page = radio_page("seedvideoid", &response);
+        assert_eq!(page.tracks.len(), 1);
+        assert_eq!(page.tracks[0].id, "nextvideoid");
+        assert_eq!(page.id, "radio:seedvideoid");
+    }
+
+    #[test]
+    fn radio_keeps_a_leading_row_that_is_not_the_seed() {
+        let response = json!({"contents": [
+            {"playlistPanelVideoRenderer": queue_row("othervideoi", "Not the seed")},
+        ]});
+        assert_eq!(radio_page("seedvideoid", &response).tracks.len(), 1);
+    }
+
+    #[test]
+    fn radio_removes_repeated_rows_so_a_track_cannot_play_twice_in_a_row() {
+        let response = json!({"contents": [
+            {"playlistPanelVideoRenderer": queue_row("aaaaaaaaaaa", "One")},
+            {"playlistPanelVideoRenderer": queue_row("bbbbbbbbbbb", "Two")},
+            {"playlistPanelVideoRenderer": queue_row("aaaaaaaaaaa", "One again")},
+        ]});
+        let page = radio_page("seedvideoid", &response);
+        assert_eq!(
+            page.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["aaaaaaaaaaa", "bbbbbbbbbbb"]
+        );
     }
 
     #[test]

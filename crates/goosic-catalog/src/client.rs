@@ -151,6 +151,25 @@ impl InnertubeClient {
         }
         self.post("browse", json!({"browseId": browse_id}))
     }
+
+    /// Asks for the queue that follows a track.
+    ///
+    /// `RDAMVM<videoId>` is the radio playlist the web client uses for "start radio from this
+    /// song"; it is a well-known id shape, not a value from a previous response.
+    pub fn radio(&self, video_id: &str) -> Result<Value, CatalogError> {
+        let video_id = video_id.trim();
+        if video_id.is_empty() {
+            return Err(CatalogError::InvalidRequest("video id is empty".into()));
+        }
+        self.post(
+            "next",
+            json!({
+                "videoId": video_id,
+                "playlistId": format!("RDAMVM{video_id}"),
+                "isAudioOnly": true,
+            }),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -168,6 +187,13 @@ mod tests {
     #[test]
     fn unknown_filter_is_rejected_rather_than_silently_ignored() {
         let error = search_params("podcasts").unwrap_err();
+        assert!(matches!(error, CatalogError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn radio_requires_a_video_id_before_any_network_call() {
+        let client = InnertubeClient::new();
+        let error = client.radio("  ").map(|_| ()).unwrap_err();
         assert!(matches!(error, CatalogError::InvalidRequest(_)));
     }
 

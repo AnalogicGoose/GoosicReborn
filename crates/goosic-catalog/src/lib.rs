@@ -9,7 +9,10 @@ mod json;
 mod parse;
 
 pub use client::{search_params, InnertubeClient};
-pub use parse::{artist_page, browse_page, browse_shelves, search_page, track_list_page};
+pub use parse::{
+    artist_page, browse_page, browse_shelves, queue_item, radio_page, search_page,
+    track_list_page,
+};
 
 use goosic_protocol::CatalogPage;
 use thiserror::Error;
@@ -125,6 +128,16 @@ impl Catalog {
             return Err(CatalogError::Empty);
         }
         page.id = browse_id;
+        Ok(page)
+    }
+
+    /// The queue that follows a track, for continuing playback when a list runs out.
+    pub fn radio(&self, video_id: &str) -> Result<CatalogPage, CatalogError> {
+        let response = self.client.radio(video_id)?;
+        let page = parse::radio_page(video_id, &response);
+        if page.tracks.is_empty() {
+            return Err(CatalogError::Empty);
+        }
         Ok(page)
     }
 
