@@ -85,6 +85,30 @@ Under the Swift 6 language mode that pattern gains a second requirement: the bod
 
 A stub build browses, searches, and renders the transport, but produces no audio. That is deliberate: a renderer that played without claiming a Rust lease would be a hole in the ownership model, so the absence of a host is expressed as a host that refuses rather than as an unguarded fallback.
 
+## The official bridge, and what is not platform-specific about it
+
+`OfficialBridge` holds the half of the bridge that does not belong to any WebKit
+implementation: the wire shape of a message, the page observer that produces them, the media
+session guard, and `rejectionReason` — the function that decides whether an event is
+trustworthy at all.
+
+It is separate for one reason. macOS drives a `WKWebView` and Linux will drive a WebKitGTK
+`WebKitWebView`, and if each host carried its own copy of that logic there would be two
+answers to "may this play" that are free to drift apart. Version checks, token matching,
+generation matching, and the strictly increasing sequence are the enforcement of the
+authority's contract at the renderer's edge; they are not a detail of an engine.
+
+The JavaScript moves across unchanged because it does not need changing: WebKitGTK exposes
+the same `window.webkit.messageHandlers.<name>.postMessage` that WKWebView does, so one
+observer serves both.
+
+What stays per-platform is only the transport — creating the view, installing the script, and
+receiving the message — plus how the message's origin is established. macOS checks
+`WKScriptMessage.frameInfo.securityOrigin` against the allowed host after the fact. WebKitGTK
+does not deliver an origin with the message, so the equivalent guarantee has to come from
+registering the handler in an isolated script world, where the page's own scripts cannot see
+the handler to post to it in the first place.
+
 ## Official playback host (macOS)
 
 One `WKWebView` renders the official player, in its own website data store, and is the only place online audio is produced. Three things about that host are load-bearing and easy to break:

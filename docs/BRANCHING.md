@@ -124,6 +124,74 @@ stubs, so the job reports the state without blocking a merge on work nobody has 
 The rule this makes enforceable is the one `development` already had: it must always build
 and pass. Before it was an intention; now the trunk is red or green in public.
 
+## Automatic propagation
+
+Merges *down* are mechanical and were being done by hand, which is how `platform/macos` and
+`platform/windows` once sat three weeks behind the trunk. A workflow does them now. What is
+never automatic is promotion — nothing is merged *toward* `main`, because deciding that
+something is ready to ship is a judgement, not a chore.
+
+The cascade follows the branch names, which is what makes it need no configuration:
+
+| A push lands on | It is merged into |
+| --- | --- |
+| `main` | `development` |
+| `development` | `platform/macos`, `platform/linux`, `platform/windows`, and every `feature/<slug>` / `fix/<slug>` |
+| `platform/<os>` | every `feature/<os>/<slug>` and `fix/<os>/<slug>` |
+
+Each step triggers the next, so a hotfix reaches every branch in the repository through one
+push and no further instructions.
+
+`main` is in that table because of hotfixes. A hotfix is cut from `main`, fixed, and merged
+back to `main` — and at that moment the trunk does not have it. Merging `main` into
+`development` by hand is the step everyone forgets, and forgetting it is expensive in a
+specific way: nothing breaks, the fix simply disappears at the next deployment, when
+`development` overwrites `main` with a history that never learned about it. The bug returns
+and looks new.
+
+After an ordinary deployment the same merge is a no-op — `main` holds nothing `development`
+lacks — so it costs nothing and stays silent. The step only does work in the case where
+skipping it would quietly lose a fix.
+
+This is the point where the naming convention stops being documentation and starts being
+executable. A branch called `fix/macos/thing` is a child of `platform/macos`; one called
+`fix/macos-thing` is a child of `development`, and the hyphen is the whole difference. Name a
+branch wrong and the robot syncs it from the wrong parent.
+
+Three rules keep the cascade from becoming noise or damage:
+
+**A conflict opens a pull request; it never forces anything.** A merge between a platform port
+and a change to the core is exactly the kind of thing a person has to resolve, and a robot
+that guesses is worse than one that stops. There is no `push --force` anywhere in this: a
+platform branch's own installers, scripts, and configuration survive by construction.
+
+**Branches already contained in their parent are skipped.** A finished work branch still exists
+until someone deletes it, and merging into it produces a commit nobody will ever read and a CI
+run nobody will read either.
+
+**Stale branches are skipped.** A branch with no activity for weeks is not waiting for updates.
+
+The propagated push is a normal push, so CI runs on the result — and it should, because merging
+a parent into a branch that has its own work produces a tree that has never been compiled. That
+is not waste: it is the check that tells you your in-progress branch still builds against the
+trunk. What the tree-hash skip removes is the *other* case, where the merge changed nothing.
+
+## Skipping work that is provably identical
+
+CI compares the git tree hash of what it is about to build against the trees that have already
+passed. If it matches, the jobs are skipped; the bytes are identical, so the answer is known.
+
+The hash is of the *content*, not of where it came from, and that distinction is the whole
+design. A merge result is not the branch that was tested: it is that branch combined with
+whatever the target had gained meanwhile, and that combination may never have been compiled.
+Trusting a green light because of a branch's ancestry would skip exactly the runs worth doing.
+
+The repository has already produced both cases in one afternoon. Four branches — a fix, the
+trunk, and two platform branches — ended up sharing one tree hash and were compiled four
+times. In the same batch, a merge into the Linux playback work produced a new tree: the first
+that combined WebKitGTK, the shared bridge, and the Swift 6 mode. Content hashing skips the
+first three and builds the fourth.
+
 ## Deployment
 
 A deployment is `development` → `main`, and nothing else reaches `main`. Before it:

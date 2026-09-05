@@ -35,7 +35,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and
 
 ## Working in this repository
 
-Branches follow a five-branch model — `main` for deployments, `development` as the trunk, and one long-lived branch per platform. Which one a change is cut from depends on whether it would be wrong to leave out on another platform; [docs/BRANCHING.md](docs/BRANCHING.md) has the rule and the reasoning. [AGENTS.md](AGENTS.md) is the short version for AI coding agents, along with the invariants that are not open to change.
+Branches follow a five-branch model — `main` for deployments, `development` as the trunk, and one long-lived branch per platform. Which one a change is cut from depends on whether it would be wrong to leave out on another platform; [docs/BRANCHING.md](docs/BRANCHING.md) has the rule and the reasoning. [AGENTS.md](AGENTS.md) is the short version for AI coding agents, along with the invariants that are not open to change; [CLAUDE.md](CLAUDE.md) exists only to point Claude Code at it, so there is one file to keep current instead of two. Merges down the branch tree are automatic, and CI builds Rust on all three platforms plus the shell on Linux and macOS for every push.
 
 ## Prerequisites
 
@@ -89,6 +89,7 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
 - **Audio is macOS only.** The shell itself builds and runs on Linux — navigation, the live catalog, search, and the transport UI all work there — but both playback hosts are macOS-only. On every other platform `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs that report the limitation rather than producing sound, so no renderer can bypass Rust's authority. A Linux host would mean WebKitGTK for the official player and a local renderer for decoded files, both claiming the same Rust leases.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
+- **Two download tests fail on Windows.** `goosic-downloads` builds and 13 of its 15 tests pass there, but path handling assumes Unix syntax and the legacy import returns `InvalidFilename`. CI reports it without blocking, because it is a real bug in shared code rather than an accepted platform limit.
 - Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
 
 `goosic-service` is a private, one-process-per-app, single-client child reached through inherited stdin/stdout. It is not a daemon or socket service; stdio must never be shared or multiplexed. Generation is freshness authorization within that boundary. Future multiplexing requires an unforgeable per-client capability and active-owner authorization before account resets.
