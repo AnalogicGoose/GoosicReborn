@@ -62,6 +62,8 @@ Swift package resolution needs network access the first time because SwiftCrossU
 
 The Make targets always set `SCUI_DEFAULT_BACKEND` explicitly — `AppKitBackend` on macOS, `GtkBackend` on Linux. Leaving it unset is not equivalent: SwiftCrossUI's `DefaultBackend` then names every platform's backend target, and SwiftPM pulls `swift-winui`'s C targets into the build graph, which fail on a non-Windows host looking for `wtypesbase.h`.
 
+A distribution-packaged Swift has an editor-only failure of its own, and like the `rust-src` one above it accuses the code rather than the packaging. Fedora's `swift-lang` ships a `sourcekit-lsp` that resolves no C module declared by a SwiftPM target: `import CGtk` reports `No such module`, and so does a six-line package whose only dependency is a zlib shim. `swift build` and `make test` succeed throughout, because the compiler is not the component at fault. If the editor underlines an import that plainly compiles, the fix is a toolchain, not a setting: install an official one from [swift.org](https://www.swift.org/install/linux/) — `swiftly` places it under `~/.local/share/swiftly` without disturbing the packaged one — and point the Swift extension at its `bin` directory with `swift.path`. Put that same toolchain on `PATH` for `make` as well. The editor and the Makefile share one build directory, and two different toolchains writing to it invalidate each other's artifacts on every switch, which reads as an editor that recompiles the world each time it is opened.
+
 ## Build, run, and test
 
 ```sh
