@@ -111,4 +111,9 @@ individual test method instead.
   co-authorship, attribution, or session trailers.
 - **Rust** is edition 2021, `max_width = 100` (`rustfmt.toml`). Tests live beside the code
   they cover; live network tests are `#[ignore]`d.
+- **Swift is built in the Swift 6 language mode.** Concurrency errors are errors, not warnings.
+  Do not reach for `@unchecked Sendable` to silence one — the single existing use, on
+  `GoosicServiceClient`, is a claim about a serial queue that the compiler cannot verify, and it
+  needs to stay the only one. In tests, a `MainActor.run` body must not touch `self`; make the
+  fixture `static` instead.
 - **English** for all code, comments, documents, and commit messages.

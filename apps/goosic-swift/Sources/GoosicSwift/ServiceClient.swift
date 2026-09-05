@@ -30,7 +30,11 @@ enum ServiceClientError: LocalizedError {
 
 /// Serial, asynchronous request/response client for the Rust NDJSON authority.
 /// All pipe I/O occurs off the UI thread and each response has a bounded wait.
-final class GoosicServiceClient {
+///
+/// `@unchecked` because the guarantee is the serial `requestQueue`, not the type: every mutable
+/// field is read and written only from inside it. The compiler cannot see that, so touching this
+/// state from anywhere else silently breaks the claim.
+final class GoosicServiceClient: @unchecked Sendable {
     /// Catalog pages are the only large responses; the service clamps a page well below this.
     private static let maxFrameBytes = 256 * 1024
     private static let responseTimeout: TimeInterval = 5
@@ -88,7 +92,7 @@ final class GoosicServiceClient {
     func send(
         command: String,
         payload: GoosicRequestPayload = .init(),
-        completion: @escaping (Result<GoosicResponse, Error>) -> Void
+        completion: @escaping @MainActor @Sendable (Result<GoosicResponse, Error>) -> Void
     ) {
         requestQueue.async { [self] in
             let result: Result<GoosicResponse, Error>
@@ -112,7 +116,7 @@ final class GoosicServiceClient {
                 result = .failure(error)
             }
             DispatchQueue.main.async {
-                completion(result)
+                MainActor.assumeIsolated { completion(result) }
             }
         }
     }
