@@ -103,7 +103,29 @@ Two portability rules bite far from their cause: `URLSession` needs a
 whole run on a `@MainActor`-isolated `XCTestCase` subclass — put the isolation on the
 individual test method instead.
 
-## 5. Conventions
+## 5. Keep the working copy tidy
+
+Merges down the branch tree are automatic and finished branches are pruned from the remote
+weekly, so a local clone accumulates branches whose upstream no longer exists. Clear them at
+the start of a session, or any time the branch list stops being readable:
+
+```sh
+git fetch --prune
+git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads \
+  | awk '$2 == "[gone]" { print $1 }' \
+  | xargs -r git branch -d
+```
+
+Two details matter. `-d` refuses to delete a branch whose commits are not already merged, so
+if something was never integrated it survives and says so — never reach for `-D` to make the
+error go away, because that is exactly the case worth reading. And `for-each-ref` is used
+instead of parsing `git branch -vv` because the latter marks the current branch with an
+asterisk, which ends up in the branch name and produces a confusing failure.
+
+This only touches your own clone. Deleting anything on the remote is the pruning workflow's
+job, and it only removes branches whose commits already live in their parent.
+
+## 6. Conventions
 
 - **Documentation is written, not suggested.** Markdown under `docs/`, the README, and this
   file are edited directly. If a code change makes a document wrong, fix the document in the
