@@ -105,6 +105,25 @@ nothing that `development` does not already carry, and a sideways merge drags on
 half-finished port into the other's history. If both platforms need the same thing, that
 thing belongs on `development`.
 
+## What CI checks
+
+`.github/workflows/ci.yml` runs on every push and pull request, and it exists because of a
+specific failure mode this repository has: a change can be correct on the platform you are
+sitting at and broken on another, and nobody finds out until someone with that machine is
+free. The Swift 6 language mode landed that way — two errors that only a Mac could see, each
+costing a round trip through a colleague.
+
+Three jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
+portable by construction and there is no excuse for it to break anywhere. The GTK 4 shell
+builds and tests on Linux. The AppKit shell builds and tests on macOS.
+
+Windows is marked `continue-on-error`. The shell has never been built there and the hosts are
+stubs, so the job reports the state without blocking a merge on work nobody has started. When
+`platform/windows` has real work, that flag comes off.
+
+The rule this makes enforceable is the one `development` already had: it must always build
+and pass. Before it was an intention; now the trunk is red or green in public.
+
 ## Deployment
 
 A deployment is `development` → `main`, and nothing else reaches `main`. Before it:
