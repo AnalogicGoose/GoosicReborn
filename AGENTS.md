@@ -1,0 +1,114 @@
+# AGENTS.md
+
+Instructions for AI coding agents working in this repository. Read this before making a
+change; it is short because everything in it is load-bearing.
+
+GoosicReborn is a native rewrite of Goosic: a Rust playback authority plus a SwiftCrossUI
+shell, built for macOS, Linux, and Windows out of one repository. Rust decides what is
+allowed; the shell renders and asks.
+
+## 1. Check what branch you are on first
+
+This repository uses a five-branch model, documented in full in
+[docs/BRANCHING.md](docs/BRANCHING.md). The part you must not get wrong:
+
+- `main` is **deployment only**. Never commit to it, never branch from it (except a
+  `hotfix/<slug>`), never merge into it outside a deployment.
+- `development` is the trunk. Cross-platform work is cut from it and merges back to it.
+- `platform/macos`, `platform/linux`, `platform/windows` hold work that exists only to
+  satisfy one operating system's API.
+
+Before you write anything, answer: **would this change be wrong to leave out on another
+platform?**
+
+- **Yes** → it is cross-platform. Work on `feature/<slug>` or `fix/<slug>` cut from
+  `development`. This covers everything in `crates/`, `goosic-protocol`, shared Swift views,
+  the Makefile, and every document.
+- **No**, it exists only because of one OS's API → work on `feature/<os>/<slug>` cut from
+  `platform/<os>`, where `<os>` is `macos`, `linux`, or `windows`.
+
+If you are unsure, choose `development`. A shared change made on a platform branch is
+invisible to the other two until that branch lands, which is how this repository would get a
+three-way conflict in the same file.
+
+**A platform branch should not be the first place a shared file changes.** If Linux work
+seems to need a new field in `goosic-protocol`, that need is not Linux-specific: land it on
+`development` first, sync it down, then build the platform-specific part on top.
+
+Never merge one `platform/*` into another. Never rebase a long-lived branch — they are
+shared, and rewriting their history breaks every other copy.
+
+## 2. Commands
+
+```sh
+make test            # Rust workspace tests + Swift tests, offline and deterministic
+make test-rust       # Rust only
+make test-swift      # Swift only
+make build-swift     # build the shell for the host platform
+make run-swift       # build the service and launch the shell against it
+make test-rust-live  # opt-in; hits music.youtube.com. Do not run it in a normal check.
+```
+
+`make test` must pass before you hand work back. On Linux, `cargo fmt` and `cargo clippy`
+need separate packages on a distribution-packaged Rust — see the README's Prerequisites.
+
+## 3. Invariants that are not yours to change
+
+These come from [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), which is the authority. If a
+task seems to require breaking one, stop and say so instead of working around it.
+
+- **`goosic-core` is the single playback authority.** One owner at a time, scoped to a
+  generation, with strictly increasing sample sequences. The shell requests transitions; it
+  never decides whether one is valid. `goosic-core` has no UI, WebView, network, cookie, or
+  audio dependency — do not add one.
+- **`goosic-service` stdout is protocol-only.** One request per stdin line, one response per
+  stdout line. Diagnostics go to stderr. It is a private, single-client child process reached
+  through inherited stdio — not a daemon, not a socket, never shared or multiplexed.
+- **Catalog reads are anonymous by construction.** No cookies, no `Authorization`, no account
+  headers; a test asserts this. `goosic-catalog` answers *what exists*, never *who may play*.
+- **Credentials never cross the protocol and never reach stdout.** Cookies, bridge tokens,
+  signing keys, and media URLs stay in platform-secure storage.
+- **Advertisements are reported, never bypassed.** They are informational markers.
+- **No GPL source is copied into this repository.** The previous Goosic is read for
+  compatibility of formats and storage keys only — see
+  [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md). The legacy import reads old
+  data and never modifies or deletes it, and never carries credentials over.
+- **No downloader.** `goosic-downloads` imports finalized legacy files and decodes them. It
+  contains no yt-dlp path and no account-cookie path, and must not grow one.
+- **A clamped catalog page says so.** Never present a partial list as complete.
+
+## 4. Where platform-specific code lives
+
+The shell is shared except at its edges. Platform work belongs in these seams, behind the
+existing abstractions, not scattered through the screens:
+
+| Concern | File | State |
+| --- | --- | --- |
+| Playback host abstraction | `PlatformPlaybackHost.swift` | shared; the extension point |
+| Official (web) playback | `OfficialPlaybackHost.swift` | macOS real, others stubbed |
+| Local decoded-file playback | `LocalPlaybackHost.swift` | macOS real, others stubbed |
+| System media controls | `SystemMediaControls.swift` | macOS real, others stubbed |
+| Window material | `MaterialSurface.swift` | macOS real, plain elsewhere |
+| Account WebKit profiles | `AccountLoginHost.swift` | macOS real, others stubbed |
+
+A stub reports the limitation. It must never produce sound or silently succeed, because that
+would let a renderer escape Rust's authority. When you implement one for a platform, keep the
+others' behaviour unchanged.
+
+Two portability rules bite far from their cause: `URLSession` needs a
+`#if canImport(FoundationNetworking)` import off Darwin, and swift-corelibs-xctest aborts the
+whole run on a `@MainActor`-isolated `XCTestCase` subclass — put the isolation on the
+individual test method instead.
+
+## 5. Conventions
+
+- **Documentation is written, not suggested.** Markdown under `docs/`, the README, and this
+  file are edited directly. If a code change makes a document wrong, fix the document in the
+  same change.
+- **Prose over bullets in `docs/`.** Existing documents explain *why* a contract exists, not
+  just what it is. Match that.
+- **Commit messages** state what changed and why it had to change, in the imperative. No
+  co-authorship, attribution, or session trailers.
+- **Rust** is edition 2021, `max_width = 100` (`rustfmt.toml`). Tests live beside the code
+  they cover; live network tests are `#[ignore]`d.
+- **English** for all code, comments, documents, and commit messages.
