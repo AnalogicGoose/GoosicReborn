@@ -4,3 +4,6 @@ DerivedData/
 *.swp
 .DS_Store
 apps/goosic-swift/.swiftpm/
+# Editor configuration is per-machine: the Swift extension needs an absolute build path
+# and a backend that differs by platform, so it cannot be shared.
+.vscode/
