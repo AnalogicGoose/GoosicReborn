@@ -192,6 +192,26 @@ times. In the same batch, a merge into the Linux playback work produced a new tr
 that combined WebKitGTK, the shared bridge, and the Swift 6 mode. Content hashing skips the
 first three and builds the fourth.
 
+## Pruning finished branches
+
+A weekly workflow deletes work branches from the remote, on one condition: every commit on the
+branch is already an ancestor of its parent. That is what makes it safe rather than merely
+careful — deleting such a branch removes a label, not work, because the commits go on living
+in the parent.
+
+Age is never the reason. A branch untouched for months may hold the only copy of something
+half-finished, and "stale" is how you delete a colleague's work while believing you tidied up.
+Age is only a grace period on top: a branch merged less than a week ago is kept, so one merged
+this morning and still in use is not swept away this afternoon. A branch with an open pull
+request is kept too, because someone is still talking about it.
+
+The long-lived branches — `main`, `development`, and the three `platform/*` — are never
+candidates, whatever their state.
+
+Each deletion is logged with the branch's SHA, and GitHub can restore a deleted branch from
+its branch list. Run it manually from the Actions tab to see the list before anything happens;
+the manual run defaults to a dry run.
+
 ## Deployment
 
 A deployment is `development` → `main`, and nothing else reaches `main`. Before it:
