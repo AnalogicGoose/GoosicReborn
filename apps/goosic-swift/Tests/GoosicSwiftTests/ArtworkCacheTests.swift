@@ -79,7 +79,7 @@ final class ArtworkCacheKeyTests: XCTestCase {
 /// the whole run on Linux before any test executes.
 final class ArtworkCacheBehaviourTests: XCTestCase {
     @MainActor
-    private func makeCache() -> (ArtworkCache, URL) {
+    private static func makeCache() -> (ArtworkCache, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("goosic-artwork-tests-\(UUID().uuidString)")
         return (ArtworkCache(directory: directory), directory)
@@ -87,7 +87,7 @@ final class ArtworkCacheBehaviourTests: XCTestCase {
 
     func testAnEmptyOrMissingURLNeverProducesAFile() async {
         await MainActor.run {
-            let (cache, directory) = makeCache()
+            let (cache, directory) = Self.makeCache()
             defer { try? FileManager.default.removeItem(at: directory) }
             XCTAssertNil(cache.localFile(for: nil))
             XCTAssertNil(cache.localFile(for: ""))
@@ -96,7 +96,7 @@ final class ArtworkCacheBehaviourTests: XCTestCase {
 
     func testARefusedHostIsNotRetriedAndNeverResolves() async {
         await MainActor.run {
-            let (cache, directory) = makeCache()
+            let (cache, directory) = Self.makeCache()
             defer { try? FileManager.default.removeItem(at: directory) }
             XCTAssertNil(cache.localFile(for: "https://example.test/art.jpg"))
             XCTAssertNil(cache.localFile(for: "https://example.test/art.jpg"))
@@ -105,7 +105,7 @@ final class ArtworkCacheBehaviourTests: XCTestCase {
 
     func testAnAlreadyCachedFileIsReturnedWithoutAFetch() async throws {
         try await MainActor.run {
-            let (cache, directory) = makeCache()
+            let (cache, directory) = Self.makeCache()
             defer { try? FileManager.default.removeItem(at: directory) }
             let remote = "https://yt3.googleusercontent.com/already-there"
             let expected = directory.appendingPathComponent("\(ArtworkCache.cacheKey(for: remote)).img")
@@ -171,7 +171,7 @@ final class RepeatModeTests: XCTestCase {
 /// the whole run on Linux before any test executes.
 final class QueueAdvanceTests: XCTestCase {
     @MainActor
-    private func model(tracks: Int) -> GoosicAppModel {
+    private static func model(tracks: Int) -> GoosicAppModel {
         let model = GoosicAppModel()
         model.queue = GoosicQueue(
             tracks: (0..<tracks).map { index in
@@ -196,13 +196,13 @@ final class QueueAdvanceTests: XCTestCase {
 
     func testAnEmptyQueueHasNowhereToGo() async {
         await MainActor.run {
-            XCTAssertNil(model(tracks: 0).indexAfter(0, wrapping: true))
+            XCTAssertNil(Self.model(tracks: 0).indexAfter(0, wrapping: true))
         }
     }
 
     func testInOrderPlaybackWalksForward() async {
         await MainActor.run {
-            let model = model(tracks: 3)
+            let model = Self.model(tracks: 3)
             XCTAssertEqual(model.indexAfter(0, wrapping: false), 1)
             XCTAssertEqual(model.indexAfter(1, wrapping: false), 2)
         }
@@ -211,20 +211,20 @@ final class QueueAdvanceTests: XCTestCase {
     func testTheEndOfAQueueStopsSoRadioCanTakeOver() async {
         await MainActor.run {
             // `wrapping: false` is the natural end of a track.
-            XCTAssertNil(model(tracks: 3).indexAfter(2, wrapping: false))
+            XCTAssertNil(Self.model(tracks: 3).indexAfter(2, wrapping: false))
         }
     }
 
     func testPressingNextAtTheEndWrapsEvenWithRepeatOff() async {
         await MainActor.run {
             // A deliberate Next should move rather than do nothing.
-            XCTAssertEqual(model(tracks: 3).indexAfter(2, wrapping: true), 0)
+            XCTAssertEqual(Self.model(tracks: 3).indexAfter(2, wrapping: true), 0)
         }
     }
 
     func testRepeatAllWrapsAtTheNaturalEnd() async {
         await MainActor.run {
-            let model = model(tracks: 3)
+            let model = Self.model(tracks: 3)
             model.cycleRepeatMode()
             XCTAssertEqual(model.repeatMode, .all)
             XCTAssertEqual(model.indexAfter(2, wrapping: false), 0)
@@ -233,7 +233,7 @@ final class QueueAdvanceTests: XCTestCase {
 
     func testRepeatOneStaysOnTheSameTrack() async {
         await MainActor.run {
-            let model = model(tracks: 3)
+            let model = Self.model(tracks: 3)
             model.cycleRepeatMode()
             model.cycleRepeatMode()
             XCTAssertEqual(model.repeatMode, .one)
@@ -244,7 +244,7 @@ final class QueueAdvanceTests: XCTestCase {
 
     func testShuffleNeverPicksTheTrackItIsAlreadyOn() async {
         await MainActor.run {
-            let model = model(tracks: 4)
+            let model = Self.model(tracks: 4)
             model.toggleShuffle()
             XCTAssertTrue(model.shuffle)
             for _ in 0..<200 {
@@ -255,7 +255,7 @@ final class QueueAdvanceTests: XCTestCase {
 
     func testShuffleOverASingleTrackStopsAtTheEndRatherThanLooping() async {
         await MainActor.run {
-            let model = model(tracks: 1)
+            let model = Self.model(tracks: 1)
             model.toggleShuffle()
             XCTAssertNil(model.indexAfter(0, wrapping: false))
             XCTAssertEqual(model.indexAfter(0, wrapping: true), 0)
@@ -318,7 +318,7 @@ final class LyricsTests: XCTestCase {
         }
     }
 
-    private let timed = [
+    private static let timed = [
         GoosicLyricsLine(atMs: 0, text: "Zero"),
         GoosicLyricsLine(atMs: 10_000, text: "Ten"),
         GoosicLyricsLine(atMs: 20_000, text: "Twenty"),
@@ -328,7 +328,7 @@ final class LyricsTests: XCTestCase {
         await MainActor.run {
             // A local function does not inherit the closure's isolation.
             @MainActor func active(_ ms: Int64) -> Int? {
-                GoosicAppModel.activeLyricIndex(lines: timed, synced: true, positionMs: ms)
+                GoosicAppModel.activeLyricIndex(lines: Self.timed, synced: true, positionMs: ms)
             }
             XCTAssertEqual(active(0), 0)
             XCTAssertEqual(active(9_999), 0)
