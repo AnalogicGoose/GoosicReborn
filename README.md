@@ -51,7 +51,7 @@ A distribution-packaged Rust splits apart what `rustup` ships as one toolchain, 
 
 Keep them at the same version as `rustc`; a mismatched `rust-src` produces the same errors it was meant to fix. `rustup` users get all three with `rustup component add rust-src rustfmt clippy`.
 
-The Swift shell needs Swift 5.10+ and, per platform:
+The Swift shell is built in the Swift 6 language mode and needs Swift 6.0+ and, per platform:
 
 | Platform | Also needs |
 | --- | --- |
