@@ -192,6 +192,34 @@ times. In the same batch, a merge into the Linux playback work produced a new tr
 that combined WebKitGTK, the shared bridge, and the Swift 6 mode. Content hashing skips the
 first three and builds the fourth.
 
+## Who writes the build cache
+
+A repository gets 10 GB of Actions cache, and this one filled it: 34 entries, 12.7 GB, with
+every branch holding its own copy of the same dependency tree — 1.3 GB each across ten live
+branches, of which 5.9 GB was ten copies of one macOS Swift build. Nothing was broken;
+GitHub simply evicts the least recently used entries once you pass the limit, so the cost was
+paid as thrash rather than as an error.
+
+Copies accumulate because of how the scope works. A run may restore a cache written by its
+own branch or by the *default* branch, and by nothing else — a branch cannot read its
+parent's. So a branch that saves its own copy helps only itself, and the tree of branches
+this repository keeps guarantees one copy per branch. Only the default branch writes now, and
+every branch reads from it; the condition is derived from
+`github.event.repository.default_branch` rather than naming a branch, because which branch is
+default has already changed twice and a stale name here would silently stop all caching.
+
+That creates one problem worth stating plainly, because it is the reason the workflow has a
+schedule. The default branch is `main`, and `main` is deployment-only: it builds a few times
+a year. A cache only `main` may write, on a branch that almost never runs, is a cache nobody
+has. So CI also runs on a weekly schedule and on `workflow_dispatch`, and a run started
+either way ignores the passport — otherwise the tree would be recognised as already passed,
+every heavy job would skip, and the run would write nothing. Scheduled runs always use the
+default branch, which is exactly the branch that has to hold the cache.
+
+The keys are the hash of `Package.resolved`, so an entry stays correct until a dependency
+moves, and restoring counts as access, which keeps it from expiring. In practice `main`
+rebuilds the cache when the schedule notices a new key, and every other branch reads it.
+
 ## Pruning finished branches
 
 A weekly workflow deletes work branches from the remote, on one condition: every commit on the
