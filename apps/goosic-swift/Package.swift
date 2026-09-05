@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "GoosicSwift",
+    name: "goosic-swift",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "goosic-swift", targets: ["GoosicSwift"]),
