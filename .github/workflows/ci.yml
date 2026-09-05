@@ -12,10 +12,67 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+    # Decides what this run actually has to do, before spending a runner on it.
+    guard:
+        name: Decide what to build
+        runs-on: ubuntu-latest
+        outputs:
+            known-good: ${{ steps.tree.outputs.known-good }}
+            tree: ${{ steps.tree.outputs.tree }}
+            rust: ${{ steps.paths.outputs.rust }}
+            swift: ${{ steps.paths.outputs.swift }}
+        steps:
+            -   uses: actions/checkout@v4
+                with:
+                    fetch-depth: 0
+
+            # The passport. A git tree hash fingerprints the exact file contents, so a match
+            # means these bytes already passed, whichever branch produced them. Ancestry would
+            # be the wrong test: a merge result is the tested branch combined with whatever the
+            # target gained meanwhile, and that combination may never have been compiled.
+            -   name: Look for a tree that already passed
+                id: tree
+                run: |
+                    TREE=$(git rev-parse HEAD^{tree})
+                    echo "tree=$TREE" >> "$GITHUB_OUTPUT"
+                    if git ls-remote --exit-code --tags origin "refs/tags/ci-passed/$TREE" >/dev/null 2>&1; then
+                        echo "known-good=true" >> "$GITHUB_OUTPUT"
+                        echo "Tree $TREE already passed. Skipping the heavy jobs."
+                    else
+                        echo "known-good=false" >> "$GITHUB_OUTPUT"
+                        echo "Tree $TREE is new."
+                    fi
+
+            # Documentation cannot break a build. Anything unclassifiable builds everything.
+            -   name: See which parts of the tree changed
+                id: paths
+                run: |
+                    BEFORE="${{ github.event.before }}"
+                    if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                        echo "rust=true"  >> "$GITHUB_OUTPUT"
+                        echo "swift=true" >> "$GITHUB_OUTPUT"
+                        exit 0
+                    fi
+                    CHANGED=$(git diff --name-only "$BEFORE" HEAD)
+                    echo "$CHANGED"
+                    CODE=$(echo "$CHANGED" | grep -vE '^(docs/|\.claude/|[^/]*\.md$)' || true)
+                    if [ -z "$CODE" ]; then
+                        echo "rust=false"  >> "$GITHUB_OUTPUT"
+                        echo "swift=false" >> "$GITHUB_OUTPUT"
+                    elif echo "$CODE" | grep -qvE '^crates/'; then
+                        echo "rust=true"  >> "$GITHUB_OUTPUT"
+                        echo "swift=true" >> "$GITHUB_OUTPUT"
+                    else
+                    echo "rust=true"   >> "$GITHUB_OUTPUT"
+                        echo "swift=false" >> "$GITHUB_OUTPUT"
+                    fi
+
     # The Rust workspace is portable by design: rusqlite is bundled and ureq uses rustls,
     # so there is no system SQLite or OpenSSL to install on any of the three.
     rust:
         name: Rust (${{ matrix.os }})
+        needs: guard
+        if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.rust == 'true'
         runs-on: ${{ matrix.os }}
         # Windows has never been built here. Report it, do not block on it.
         continue-on-error: ${{ matrix.os == 'windows-latest' }}
@@ -34,6 +91,8 @@ jobs:
     # no window, which is checked and true.
     shell-linux:
         name: Shell (Linux, GTK 4)
+        needs: guard
+        if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.swift == 'true'
         runs-on: ubuntu-latest
         steps:
             -   uses: actions/checkout@v4
@@ -63,6 +122,8 @@ jobs:
 
     shell-macos:
         name: Shell (macOS, AppKit)
+        needs: guard
+        if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.swift == 'true'
         runs-on: macos-latest
         steps:
             -   uses: actions/checkout@v4
@@ -82,3 +143,28 @@ jobs:
             
             -   run: make build-swift
             -   run: make test-swift
+
+    # The stamp, and it only goes on a tree the heavy jobs actually compiled. A tree skipped
+    # because just documentation moved is never claimed to have been built.
+    seal:
+        name: Stamp this tree as passing
+        needs: [guard, rust, shell-linux, shell-macos]
+        if: >-
+            always()
+            && needs.guard.outputs.known-good == 'false'
+            && needs.guard.outputs.rust == 'true'
+            && needs.guard.outputs.swift == 'true'
+            && !contains(needs.*.result, 'failure')
+            && !contains(needs.*.result, 'cancelled')
+        runs-on: ubuntu-latest
+        steps:
+            # The repository's default GITHUB_TOKEN is read-only, and opening it up for every
+            # workflow to write one tag would be the wrong trade. Reuse the propagation token.
+            -   uses: actions/checkout@v4
+                with:
+                    token: ${{ secrets.PROPAGATE_TOKEN }}
+            -   name: Tag the tree
+                run: |
+                    TREE="${{ needs.guard.outputs.tree }}"
+                    git tag "ci-passed/$TREE" || exit 0
+                    git push origin "refs/tags/ci-passed/$TREE" || true
