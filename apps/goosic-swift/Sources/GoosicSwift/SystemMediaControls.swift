@@ -145,7 +145,7 @@ private extension String {
 
 #if os(macOS)
 import AppKit
-import MediaPlayer
+@preconcurrency import MediaPlayer
 
 /// Bridges confirmed Goosic playback to macOS Now Playing and Remote Command Center.
 /// Commands call the model only; the adapter never reaches either playback host directly.
