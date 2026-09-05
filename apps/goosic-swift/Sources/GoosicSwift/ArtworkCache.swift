@@ -17,7 +17,7 @@ import FoundationNetworking
 final class ArtworkCache {
     /// Hosts YouTube Music serves artwork from. Anything else is refused rather than fetched,
     /// so a catalog response cannot point the shell at an arbitrary server.
-    private static let allowedHostSuffixes = [
+    nonisolated private static let allowedHostSuffixes = [
         "googleusercontent.com",
         "ggpht.com",
         "ytimg.com",
