@@ -49,7 +49,10 @@ make run-swift       # build the service and launch the shell against it
 make test-rust-live  # opt-in; hits music.youtube.com. Do not run it in a normal check.
 ```
 
-`make test` must pass before you hand work back. On Linux, `cargo fmt` and `cargo clippy`
+`make test` must pass before you hand work back. CI repeats it on Linux, macOS, and
+Windows for every push — see [docs/BRANCHING.md](docs/BRANCHING.md) — so a change that only
+compiles on the platform you are working on will be caught, but it is cheaper to notice it
+yourself: platform-specific code inside a `#if` is invisible to the compiler you are running. On Linux, `cargo fmt` and `cargo clippy`
 need separate packages on a distribution-packaged Rust — see the README's Prerequisites.
 
 ## 3. Invariants that are not yours to change
