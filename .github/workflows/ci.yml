@@ -5,11 +5,28 @@ name: CI
 on:
     push:
     pull_request:
+    # Only the default branch writes the build caches, and the default branch is `main`,
+    # which builds solely at a deployment. A cache nobody refreshes is a cache nobody has, so
+    # give `main` a reason to build: a scheduled run rebuilds it after a dependency bump
+    # changes the key, and `workflow_dispatch` does it on demand. Scheduled runs always use
+    # the default branch, which is exactly the branch that needs to hold the cache.
+    schedule:
+        -   cron: "17 4 * * 1"
+    workflow_dispatch:
 
 # A second push to the same branch makes the first run pointless. Cancel it.
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
+
+# Every branch may read a cache written by itself or by the default branch, and by nothing
+# else — there is no reading a parent's. So a branch that writes its own copy helps only
+# itself, and ten live branches storing one dependency tree each filled the repository's
+# 10 GB allowance with ten copies of the same bytes. Let the default branch write and let
+# everyone read it. Derived rather than hardcoded, because which branch is default has
+# already changed twice and a stale name here would silently stop all caching.
+env:
+    IS_CACHE_WRITER: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
     # Decides what this run actually has to do, before spending a runner on it.
@@ -35,6 +52,15 @@ jobs:
                 run: |
                     TREE=$(git rev-parse HEAD^{tree})
                     echo "tree=$TREE" >> "$GITHUB_OUTPUT"
+                    # A scheduled or hand-started run exists to rebuild the cache, and the
+                    # passport would defeat it: this tree passed long ago, so every heavy job
+                    # would skip and nothing would be written. Asking for the run is the answer.
+                    EVENT="${{ github.event_name }}"
+                    if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then
+                        echo "known-good=false" >> "$GITHUB_OUTPUT"
+                        echo "Run was asked for deliberately. Building even if tree $TREE passed."
+                        exit 0
+                    fi
                     if git ls-remote --exit-code --tags origin "refs/tags/ci-passed/$TREE" >/dev/null 2>&1; then
                         echo "known-good=true" >> "$GITHUB_OUTPUT"
                         echo "Tree $TREE already passed. Skipping the heavy jobs."
@@ -84,6 +110,8 @@ jobs:
             - uses: actions/checkout@v4
             - uses: dtolnay/rust-toolchain@stable
             - uses: Swatinem/rust-cache@v2
+              with:
+                  save-if: ${{ env.IS_CACHE_WRITER == 'true' }}
             # Not `make test-rust`: nmake on Windows is not GNU make.
             - run: cargo test --workspace
 
@@ -110,8 +138,9 @@ jobs:
 
             # Keyed on Package.resolved: dependencies are pinned, so the key only moves when
             # they do. The path is the scratch directory the Makefile uses on Linux.
-            -   name: Cache the Swift build
-                uses: actions/cache@v4
+            -   name: Restore the Swift build
+                id: swift-build-cache
+                uses: actions/cache/restore@v4
                 with:
                     path: ~/.cache/goosic-swift-build
                     key: swift-linux-${{ hashFiles('apps/goosic-swift/Package.resolved') }}
@@ -119,6 +148,17 @@ jobs:
 
             -   run: make build-swift
             -   run: make test-swift
+
+            # Split from the restore because `actions/cache` writes unconditionally and only
+            # the default branch may write here. Skipped on an exact hit too: the key is the
+            # dependency fingerprint, so an existing entry is already the answer, and writing
+            # a duplicate key is an error rather than a refresh.
+            -   name: Save the Swift build
+                if: env.IS_CACHE_WRITER == 'true' && steps.swift-build-cache.outputs.cache-hit != 'true'
+                uses: actions/cache/save@v4
+                with:
+                    path: ~/.cache/goosic-swift-build
+                    key: swift-linux-${{ hashFiles('apps/goosic-swift/Package.resolved') }}
 
     shell-macos:
         name: Shell (macOS, AppKit)
@@ -134,15 +174,23 @@ jobs:
                 with:
                     xcode-version: latest-stable
             
-            -   name: Cache the Swift build
-                uses: actions/cache@v4
+            -   name: Restore the Swift build
+                id: swift-build-cache
+                uses: actions/cache/restore@v4
                 with:
                     path: ~/Library/Caches/goosic-swift-build
                     key: swift-macos-${{ hashFiles('apps/goosic-swift/Package.resolved') }}
                     restore-keys: swift-macos-
-            
+
             -   run: make build-swift
             -   run: make test-swift
+
+            -   name: Save the Swift build
+                if: env.IS_CACHE_WRITER == 'true' && steps.swift-build-cache.outputs.cache-hit != 'true'
+                uses: actions/cache/save@v4
+                with:
+                    path: ~/Library/Caches/goosic-swift-build
+                    key: swift-macos-${{ hashFiles('apps/goosic-swift/Package.resolved') }}
 
     # The stamp, and it only goes on a tree the heavy jobs actually compiled. A tree skipped
     # because just documentation moved is never claimed to have been built.
