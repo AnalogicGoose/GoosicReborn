@@ -1,0 +1,88 @@
+name: Propagate
+
+# Only after CI went green on a branch that has children. A red branch propagates nothing.
+on:
+    workflow_run:
+        workflows: ["CI"]
+        types: [completed]
+        branches: [main, development, 'platform/**']
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    cascade:
+        if: github.event.workflow_run.conclusion == 'success'
+        runs-on: ubuntu-latest
+        steps:
+            -   uses: actions/checkout@v4
+                with:
+                    fetch-depth: 0
+                    # Not GITHUB_TOKEN: pushes made with it do not start workflows, so the
+                    # children would be synced and never checked, and the cascade would stop
+                    # one level down.
+                    token: ${{ secrets.PROPAGATE_TOKEN }}
+            
+            -   name: Merge into the children of this branch
+                env:
+                    GH_TOKEN: ${{ secrets.PROPAGATE_TOKEN }}
+                    PARENT: ${{ github.event.workflow_run.head_branch }}
+                run: |
+                    set -euo pipefail
+                    git config user.name  "goosic-propagate[bot]"
+                    git config user.email "goosic-propagate@users.noreply.github.com"
+                    git fetch --quiet origin
+
+                    # The cascade is read off the branch names, which is why it needs no config.
+                    case "$PARENT" in
+                      main)        CHILDREN="development" ;;
+                      development) CHILDREN="platform/macos platform/linux platform/windows $(
+                                     git branch -r --format='%(refname:short)' \
+                                       | sed 's|^origin/||' \
+                                       | grep -E '^(feature|fix)/' \
+                                       | grep -vE '^(feature|fix)/(macos|linux|windows)/' || true)" ;;
+                      platform/*)  OS="${PARENT#platform/}"
+                                   CHILDREN="$(git branch -r --format='%(refname:short)' \
+                                     | sed 's|^origin/||' \
+                                     | grep -E "^(feature|fix)/$OS/" || true)" ;;
+                      *)           CHILDREN="" ;;
+                    esac
+
+                    for CHILD in $CHILDREN; do
+                      git rev-parse --verify "origin/$CHILD" >/dev/null 2>&1 || continue
+
+                      # A finished branch still exists until someone deletes it. Merging into
+                      # one makes a commit nobody reads and a CI run nobody reads either.
+                      if git merge-base --is-ancestor "origin/$CHILD" "origin/$PARENT"; then
+                        echo "skip $CHILD: already contained in $PARENT"
+                        continue
+                      fi
+
+                      # A branch untouched for a month is not waiting for updates.
+                      AGE=$(( ( $(date +%s) - $(git log -1 --format=%ct "origin/$CHILD") ) / 86400 ))
+                      if [ "$AGE" -gt 30 ]; then
+                        echo "skip $CHILD: no activity in $AGE days"
+                        continue
+                      fi
+
+                      git checkout --quiet -B "$CHILD" "origin/$CHILD"
+                      if git merge --no-edit --no-ff "origin/$PARENT" -m "Merge $PARENT into $CHILD"; then
+                        git push --quiet origin "$CHILD"
+                        echo "merged $PARENT into $CHILD"
+                      else
+                        # A clash between a platform port and a change to the core is a
+                        # person's call. Never force: each branch's own installers and
+                        # configuration survive by this.
+                        git merge --abort
+                        BRANCH="propagate/$PARENT-into-$CHILD"
+                        BRANCH="${BRANCH//\//-}"
+                        git checkout --quiet -B "$BRANCH" "origin/$PARENT"
+                        git push --quiet --force-with-lease origin "$BRANCH"
+                        gh pr create --base "$CHILD" --head "$BRANCH" \
+                          --title "Propagate $PARENT into $CHILD (conflict)" \
+                          --body "Automatic propagation hit a conflict, so it stopped and asked. Resolve it here." \
+                          || echo "a pull request for $CHILD is already open"
+                        echo "conflict merging $PARENT into $CHILD; opened a pull request"
+                      fi
+                    done

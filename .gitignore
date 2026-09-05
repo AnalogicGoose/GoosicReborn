@@ -1,0 +1,6 @@
+/target/
+.build/
+DerivedData/
+*.swp
+.DS_Store
+apps/goosic-swift/.swiftpm/
