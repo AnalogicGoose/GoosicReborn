@@ -49,7 +49,10 @@ make run-swift       # build the service and launch the shell against it
 make test-rust-live  # opt-in; hits music.youtube.com. Do not run it in a normal check.
 ```
 
-`make test` must pass before you hand work back. On Linux, `cargo fmt` and `cargo clippy`
+`make test` must pass before you hand work back. CI repeats it on Linux, macOS, and
+Windows for every push — see [docs/BRANCHING.md](docs/BRANCHING.md) — so a change that only
+compiles on the platform you are working on will be caught, but it is cheaper to notice it
+yourself: platform-specific code inside a `#if` is invisible to the compiler you are running. On Linux, `cargo fmt` and `cargo clippy`
 need separate packages on a distribution-packaged Rust — see the README's Prerequisites.
 
 ## 3. Invariants that are not yours to change
@@ -111,4 +114,9 @@ individual test method instead.
   co-authorship, attribution, or session trailers.
 - **Rust** is edition 2021, `max_width = 100` (`rustfmt.toml`). Tests live beside the code
   they cover; live network tests are `#[ignore]`d.
+- **Swift is built in the Swift 6 language mode.** Concurrency errors are errors, not warnings.
+  Do not reach for `@unchecked Sendable` to silence one — the single existing use, on
+  `GoosicServiceClient`, is a claim about a serial queue that the compiler cannot verify, and it
+  needs to stay the only one. In tests, a `MainActor.run` body must not touch `self`; make the
+  fixture `static` instead.
 - **English** for all code, comments, documents, and commit messages.

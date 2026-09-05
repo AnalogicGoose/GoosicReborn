@@ -145,7 +145,7 @@ private extension String {
 
 #if os(macOS)
 import AppKit
-import MediaPlayer
+@preconcurrency import MediaPlayer
 
 /// Bridges confirmed Goosic playback to macOS Now Playing and Remote Command Center.
 /// Commands call the model only; the adapter never reaches either playback host directly.
@@ -153,7 +153,10 @@ import MediaPlayer
 final class SystemMediaControls {
     private weak var model: GoosicAppModel?
     private let commandCenter: MPRemoteCommandCenter
-    private var commandTargets: [(MPRemoteCommand, Any)] = []
+    /// `nonisolated(unsafe)` so `deinit`, which is nonisolated, can unregister these. Every
+    /// other access is from a main-actor method, and by the time `deinit` runs nothing else
+    /// holds a reference, so there is no second accessor to race with.
+    nonisolated(unsafe) private var commandTargets: [(MPRemoteCommand, Any)] = []
     private var artworkTask: Task<Void, Never>?
     private var artworkToken: UInt64 = 0
     private var projection: SystemMediaNowPlayingProjection?

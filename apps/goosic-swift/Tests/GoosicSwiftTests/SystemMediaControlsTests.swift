@@ -111,13 +111,11 @@ final class SystemMediaProjectionTests: XCTestCase {
         XCTAssertFalse(availability.stop)
     }
 
-    #if os(macOS)
     func testEmbeddedPageMediaSessionGuardClearsMetadataAndHandlers() {
-        let script = OfficialPlaybackHost.mediaSessionGuardScript
+        let script = OfficialBridge.mediaSessionGuardScript
         XCTAssertTrue(script.contains("session.metadata = null"))
         XCTAssertTrue(script.contains("session.playbackState = 'none'"))
         XCTAssertTrue(script.contains("Object.defineProperty(session, 'setActionHandler'"))
         XCTAssertTrue(script.contains("setActionHandler(action, null)"))
     }
-    #endif
 }
