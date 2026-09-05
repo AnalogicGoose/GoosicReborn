@@ -470,7 +470,7 @@ struct OfficialPlaybackSurface: NSViewRepresentable {
         nsView.layer?.opacity = 0.01
     }
 
-    static func dismantleNSView(_ nsView: OfficialPlaybackContainer, coordinator: Void) {
+    nonisolated static func dismantleNSView(_ nsView: OfficialPlaybackContainer, coordinator: Void) {
         // The model owns the host and performs asynchronous media quiescing before detachment.
         // This is intentionally a no-op here; SwiftCrossUI may dismantle/recreate wrappers during
         // layout, and a second WKWebView must never be created for the same model.
