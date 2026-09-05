@@ -454,7 +454,7 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
     nonisolated private static func isAllowedNavigation(_ url: URL?) -> Bool {
         guard let url else { return false }
         if url.absoluteString == "about:blank" { return true }
-        return url.scheme == "https" && url.host == allowedHost
+        return url.scheme == "https" && url.host == OfficialBridge.allowedHost
     }
 }
 
