@@ -21,6 +21,19 @@ deployment, so its history is a list of releases rather than a list of changes. 
 `development` is the branch that matters: it is the one that must always build and pass its
 tests, because it is what every other branch is cut from and re-synced against.
 
+One exception exists, and it is narrow: `.github/workflows/ci.yml`. A branch may read a build
+cache written by itself or by the default branch and by nothing else, and only the default
+branch's own copy of a workflow is what a scheduled run executes. With `main` as the default
+branch, the workflow has to exist here in its current form or caching stops working for every
+branch at once. Workflow infrastructure that the default branch must carry may therefore land
+on `main` directly. Code and documentation still arrive only through a deployment.
+
+Such a commit leaves `main` one commit ahead of `development` and several behind, which looks
+like the start of a divergence and is not. The cascade merges `main` into `development` after
+every green run here, and that merge changes no files: `development` already contains
+everything that shipped, so the merge records the deployment commit and nothing else. The gap
+closes on the next run instead of accumulating.
+
 The three `platform/*` branches are long-lived on purpose. A platform port is not one
 change; it is a sequence of them that stays incomplete for a while, and merging half a port
 into `development` would leave the trunk claiming support it does not have. They collect the
