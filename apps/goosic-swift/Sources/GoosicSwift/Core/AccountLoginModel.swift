@@ -98,6 +98,68 @@ enum AccountStagingLifecycle {
 /// metadata-only object returned by the page; no cookies, headers, or URL query values cross this
 /// boundary.
 enum AccountLoginValidation {
+    /// How long a staged sign-in may stay open before it is abandoned.
+    static let completionTimeout: TimeInterval = 30
+
+    /// The only hosts a login surface may reach. Sign-in walks through several Google properties
+    /// before it lands, so the list cannot be one entry, but it is a list and not a pattern: a
+    /// login window that follows an arbitrary redirect is a window collecting a password for
+    /// somebody else. Shared rather than per-platform, because a rule that decides where
+    /// credentials may be typed must not have two versions.
+    static let allowedLoginHosts: Set<String> = [
+        "accounts.google.com", "www.youtube.com", "music.youtube.com",
+        "myaccount.google.com", "consent.google.com", "ogs.google.com",
+    ]
+
+    /// Whether the login surface may navigate its main frame to `url`.
+    static func isAllowedLoginURL(_ url: URL?) -> Bool {
+        guard let url, let host = url.host else { return false }
+        guard url.scheme == "https", url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443 else { return false }
+        return allowedLoginHosts.contains(host.lowercased())
+    }
+
+    /// Runs in the page only after exact-origin navigation. The marker requires an account-menu
+    /// affordance in the authenticated shell; arriving at music.youtube.com alone is not enough.
+    ///
+    /// This lives beside the rules that judge its output rather than in either host. What counts
+    /// as a completed sign-in must not depend on which WebKit is running, for the same reason
+    /// `OfficialBridge` holds the playback observer: a second copy would be a second answer, and
+    /// the one that drifted would be the one nobody was reading.
+    static let completionScript = """
+    (() => {
+      if (location.origin !== 'https://music.youtube.com') return '';
+      const marker = document.querySelector('#avatar-btn, button[aria-label*="Account"], [aria-label*="Google Account"]');
+      if (!marker) return '';
+      const clip = (value, limit) => (value || '').trim().slice(0, limit);
+      const text = (selector, limit) => clip(document.querySelector(selector)?.textContent, limit);
+      const attr = (selector, name, limit) => clip(document.querySelector(selector)?.getAttribute(name), limit);
+      const visible = (element) => {
+        if (!element) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+      };
+      const signInVisible = Array.from(document.querySelectorAll('a,button,[role="button"]'))
+        .some((element) => visible(element) && /sign\\s*in|log\\s*in/i.test(element.textContent || element.getAttribute('aria-label') || ''));
+      if (signInVisible) return '';
+      const identity = clip(marker.getAttribute('aria-label') || marker.getAttribute('title') || '', 320);
+      const signedOut = /sign\\s*in|log\\s*in|not\\s*signed/i.test(identity);
+      const email = text('#account-email', 320);
+      const channel = text('ytmusic-account-menu-renderer #channel-title', 128);
+      const avatarUrl = attr('#avatar-btn img', 'src', 2048);
+      if (signedOut) return '';
+      if (!identity && !email && !channel) {
+        try { marker.click(); } catch (_) {}
+        return '';
+      }
+      return JSON.stringify({
+        displayName: text('#account-name', 128) || clip(identity, 128),
+        email, channel, avatarUrl
+      });
+    })();
+    """
+
     static let maxMetadataBytes = 16 * 1024
     static let maxDisplayNameBytes = 128
     static let maxEmailBytes = 320

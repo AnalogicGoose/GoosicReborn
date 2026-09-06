@@ -237,30 +237,52 @@ final class WebKitWebViewWidget: Gtk.Widget {
         webkit_web_view_stop_loading(webViewPointer)
     }
 
+    /// What the renderer is actually showing. Checks that decide whether a page may be trusted
+    /// have to be made against this rather than against whatever was last requested.
+    var currentURL: URL? {
+        guard let uri = webkit_web_view_get_uri(webViewPointer) else { return nil }
+        return URL(string: String(cString: uri))
+    }
+
     /// Loads markup with no network access, for mounting the renderer before a lease exists and
     /// for returning it to a document that can play nothing once the lease is gone.
     func load(html: String) {
         webkit_web_view_load_html(webViewPointer, html, nil)
     }
 
-    /// Refuses every navigation that does not stay on the official host.
+    /// Where a renderer is allowed to go. Playback and sign-in need different answers: the
+    /// player must never leave the official host, and a login has to walk through several Google
+    /// properties before it lands.
+    enum NavigationPolicy {
+        case officialPlayerOnly
+        case loginHosts
+    }
+
+    private var navigationPolicy: NavigationPolicy = .officialPlayerOnly
+
+    /// Refuses every navigation the policy does not name.
     ///
     /// macOS decides this in `decidePolicyFor navigationAction`. Without it a redirect could
     /// carry the renderer to a document the observer was never bound to, and the host would be
-    /// driving a page it cannot vouch for while still holding Rust's lease.
-    func guardNavigation() {
+    /// driving a page it cannot vouch for while still holding Rust's lease. On the login surface
+    /// the stakes are the other kind: a window that follows an arbitrary redirect is a window
+    /// collecting a password for somebody else.
+    func guardNavigation(_ policy: NavigationPolicy = .officialPlayerOnly) {
+        navigationPolicy = policy
         g_signal_connect_data(
             UnsafeMutableRawPointer(webViewPointer),
             "decide-policy",
             unsafeBitCast(Self.decidePolicy, to: GCallback.self),
-            nil, nil, GConnectFlags(rawValue: 0)
+            Unmanaged.passUnretained(self).toOpaque(),
+            nil, GConnectFlags(rawValue: 0)
         )
     }
 
     private static let decidePolicy: @convention(c) (
         UnsafeMutableRawPointer?, OpaquePointer?, UInt32, UnsafeMutableRawPointer?
-    ) -> gboolean = { _, decision, type, _ in
-        guard let decision else { return gboolean(0) }
+    ) -> gboolean = { _, decision, type, userData in
+        guard let decision, let userData else { return gboolean(0) }
+        let widget = Unmanaged<WebKitWebViewWidget>.fromOpaque(userData).takeUnretainedValue()
         // WebKitPolicyDecision is a derivable type and Swift gives it a typed pointer; the
         // navigation subclass is declared final and stays opaque. One object, two spellings.
         let policy = UnsafeMutableRawPointer(decision)
@@ -275,7 +297,16 @@ final class WebKitWebViewWidget: Gtk.Widget {
             return gboolean(1)
         }
         let text = String(cString: uri)
-        if text == "about:blank" || text.hasPrefix("https://" + OfficialBridge.allowedHost) {
+        let allowed: Bool
+        switch widget.navigationPolicy {
+        case .officialPlayerOnly:
+            allowed = text == "about:blank"
+                || text.hasPrefix("https://" + OfficialBridge.allowedHost)
+        case .loginHosts:
+            // The same allow-list macOS uses, and the same reasoning: a list, never a pattern.
+            allowed = AccountLoginValidation.isAllowedLoginURL(URL(string: text))
+        }
+        if allowed {
             webkit_policy_decision_use(policy)
         } else {
             webkit_policy_decision_ignore(policy)
