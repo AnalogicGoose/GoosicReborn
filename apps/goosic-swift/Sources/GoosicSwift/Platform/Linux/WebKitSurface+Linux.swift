@@ -305,8 +305,9 @@ final class WebKitWebViewWidget: Gtk.Widget {
         case .loginHosts:
             // `about:blank` is where a fresh web view starts and where WebKitGTK parks a frame
             // it is between documents on. Refusing it stalls the sign-in before it begins, and
-            // it carries no origin to be redirected to in the first place. Everything else is
-            // the same allow-list macOS uses, for the same reason: a list, never a pattern.
+            // it carries no origin to be redirected to in the first place. Everything else goes
+            // to the same shared rule macOS asks, so where a password may be typed has one
+            // answer on both platforms.
             allowed = text == "about:blank"
                 || AccountLoginValidation.isAllowedLoginURL(URL(string: text))
         }
