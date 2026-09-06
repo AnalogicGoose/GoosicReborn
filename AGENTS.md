@@ -112,7 +112,7 @@ the screens:
 | --- | --- | --- | --- |
 | Playback host abstraction | `PlatformPlaybackHost.swift` | — | shared; the extension point |
 | Official (web) playback | `OfficialBridge.swift` | `OfficialPlaybackHost+*.swift`, `WebKitSurface+Linux.swift` | macOS real, Linux written but never yet heard, Windows stubbed |
-| Local decoded-file playback | `LocalPlaybackEvent.swift` | `LocalPlaybackHost+*.swift` | macOS real, others stubbed |
+| Local decoded-file playback | `LocalPlaybackEvent.swift` | `LocalPlaybackHost+*.swift` | macOS AVFoundation, Linux GStreamer, Windows stubbed |
 | System media controls | `SystemMediaPlayback.swift` | `SystemMediaControls+*.swift` | macOS Now Playing, Linux MPRIS, Windows stubbed |
 | Window material | `MaterialSurfaceKind.swift` | `MaterialSurface+*.swift` | macOS real, plain elsewhere |
 | Account WebKit profiles | `AccountLoginModel.swift` | `AccountLoginHost+*.swift` | macOS and Linux real, Windows stubbed |
@@ -136,6 +136,11 @@ decides anything — a command from the bus is rechecked against
 `SystemMediaCommandAvailability` before it reaches the model, so a remote client cannot ask for
 a transition the app itself would refuse.
 
+The Linux local host is the one seam that is genuinely verified rather than merely compiled:
+`LocalPlaybackHostTests` opens a real WAV through GStreamer and reads back its duration.
+It can do that because `prepare` leaves the pipeline paused, which decodes without opening the
+audio device — silent, and needing no display, so it runs in CI like any other test.
+
 The Linux official host is the one entry above that compiles and passes its tests without
 anyone having heard it play. Treat "written" as exactly that: the wire contract is covered by
 `OfficialBridgeTests`, but nothing has yet confirmed that WebKitGTK reaches the player, so a
@@ -144,10 +149,16 @@ profiles are not isolated either — `bind(profile:)` says so out loud instead o
 because a caller that believes it is playing under an account would be playing under guest
 storage.
 
-Two portability rules bite far from their cause: `URLSession` needs a
-`#if canImport(FoundationNetworking)` import off Darwin, and swift-corelibs-xctest aborts the
-whole run on a `@MainActor`-isolated `XCTestCase` subclass — put the isolation on the
-individual test method instead.
+Two portability rules bite far from their cause. `URLSession` needs a
+`#if canImport(FoundationNetworking)` import off Darwin. And swift-corelibs-xctest discovers
+tests by casting method signatures, so `@MainActor` anywhere in one is fatal: not only on the
+`XCTestCase` subclass but on an individual test method too, which the earlier version of this
+note got wrong. The failure is `Could not cast value of type '... -> @Swift.MainActor () throws
+-> ()'` followed by signal 6, and it takes the entire run with it rather than the one test.
+
+Leave the method unisolated and put the work in a `MainActor.run` body, which then has to be
+`async` — and remember the other half of the rule: that body must not touch `self`, so a
+fixture becomes `static`.
 
 ## 5. Keep the working copy tidy
 

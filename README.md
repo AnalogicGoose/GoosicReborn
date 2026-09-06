@@ -56,7 +56,7 @@ The Swift shell is built in the Swift 6 language mode and needs Swift 6.0+ and, 
 | Platform | Also needs |
 | --- | --- |
 | macOS 14.0+ | Xcode's toolchain; nothing further |
-| Linux | GTK 4 and WebKitGTK 6.0 development headers (`gtk4-devel` and `webkitgtk6.0-devel` on Fedora, `libgtk-4-dev` and `libwebkitgtk-6.0-dev` on Debian) — `CGtk` and `CWebKitGTK` resolve them through `pkg-config` |
+| Linux | Development headers for GTK 4, WebKitGTK 6.0, GLib and GStreamer — `gtk4-devel webkitgtk6.0-devel glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel` on Fedora, `libgtk-4-dev libwebkitgtk-6.0-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev` on Debian. `CGtk`, `CWebKitGTK`, `CGLib` and `CGStreamer` resolve them through `pkg-config`. GStreamer also needs its runtime plugins (`gstreamer1-plugins-good`, `gstreamer1-plugin-libav`) to decode anything, and WebKitGTK plays through the same ones |
 
 Swift package resolution needs network access the first time because SwiftCrossUI is pinned to the official `0.9.0` tag.
 
