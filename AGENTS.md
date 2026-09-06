@@ -113,7 +113,7 @@ the screens:
 | Playback host abstraction | `PlatformPlaybackHost.swift` | — | shared; the extension point |
 | Official (web) playback | `OfficialBridge.swift` | `OfficialPlaybackHost+*.swift`, `WebKitSurface+Linux.swift` | macOS real, Linux written but never yet heard, Windows stubbed |
 | Local decoded-file playback | `LocalPlaybackEvent.swift` | `LocalPlaybackHost+*.swift` | macOS real, others stubbed |
-| System media controls | `SystemMediaPlayback.swift` | `SystemMediaControls+*.swift` | macOS real, others stubbed |
+| System media controls | `SystemMediaPlayback.swift` | `SystemMediaControls+*.swift` | macOS Now Playing, Linux MPRIS, Windows stubbed |
 | Window material | `MaterialSurfaceKind.swift` | `MaterialSurface+*.swift` | macOS real, plain elsewhere |
 | Account WebKit profiles | `AccountLoginModel.swift` | `AccountLoginHost+*.swift` | macOS real, others stubbed |
 
@@ -125,6 +125,16 @@ play` have one answer rather than one per platform.
 A stub reports the limitation. It must never produce sound or silently succeed, because that
 would let a renderer escape Rust's authority. When you implement one for a platform, keep the
 others' behaviour unchanged.
+
+Linux publishes its media controls over MPRIS, which is a bus interface rather than a system
+API, so two rules follow from that and not from taste. A method is declared in the
+introspection XML only when Goosic can honour it, because a declared method that refuses at
+runtime becomes a dead button in every panel on the desktop. And `Position` is deliberately
+left out of `PropertiesChanged`, as the specification asks: a player that announced every tick
+would wake every panel several times a second. Neither the MPRIS adapter nor the macOS one
+decides anything — a command from the bus is rechecked against
+`SystemMediaCommandAvailability` before it reaches the model, so a remote client cannot ask for
+a transition the app itself would refuse.
 
 The Linux official host is the one entry above that compiles and passes its tests without
 anyone having heard it play. Treat "written" as exactly that: the wire contract is covered by
