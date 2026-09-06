@@ -102,15 +102,43 @@ final class AccountProfileValidationTests: XCTestCase {
     func testLoginNavigationAllowsOnlyMainFrameHTTPSAllowlist() {
         XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://accounts.google.com/signin")))
         XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://music.youtube.com/")))
-        // Both were refused during a real sign-in, which is why they are here.
+        // Each of these was refused during a real sign-in, which is why they are covered.
         XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://accounts.youtube.com/accounts/SetSID")))
         XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://gds.google.com/web/consent")))
         XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://evil.example/")))
         XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "http://accounts.google.com/")))
         XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "about:blank")))
         XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://user:pass@accounts.google.com/")))
-        XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://accounts.google.com.evil.example/")))
         XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(nil))
+    }
+
+    /// Google localises sign-in onto country domains, so the rule checks the shape of a host
+    /// rather than its exact spelling. These are the shapes it must keep refusing.
+    func testGoogleCountryDomainsAreAcceptedWithoutOpeningTheDoor() {
+        for allowed in [
+            "https://accounts.google.com.ni/signin",     // the one that stalled a real sign-in
+            "https://accounts.google.es/",
+            "https://accounts.google.co.uk/",
+            "https://consent.google.com.mx/",
+            "https://myaccount.google.de/",
+        ] {
+            XCTAssertTrue(
+                AccountLoginValidation.isAllowedLoginURL(URL(string: allowed)), allowed
+            )
+        }
+        for refused in [
+            "https://accounts.google.com.evil.example/",  // too many labels after google
+            "https://accounts.google.evil.com/",          // a label too long to be a suffix
+            "https://evil.google.com/",                   // not a service this knows
+            "https://accounts.notgoogle.com/",            // second label is not google
+            "https://accounts.google.com.ni.evil.example/",
+            "https://google.com/",                        // no service label at all
+            "https://accounts.google/",                   // no suffix at all
+        ] {
+            XCTAssertFalse(
+                AccountLoginValidation.isAllowedLoginURL(URL(string: refused)), refused
+            )
+        }
     }
 }
 
