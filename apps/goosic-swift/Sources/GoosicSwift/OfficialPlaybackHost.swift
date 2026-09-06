@@ -476,7 +476,7 @@ struct OfficialPlaybackSurface: NSViewRepresentable {
         // layout, and a second WKWebView must never be created for the same model.
     }
 }
-#else
+#elseif !os(Linux)
 import Foundation
 import SwiftCrossUI
 

@@ -89,25 +89,49 @@ final class WebKitWebViewWidget: Gtk.Widget {
         widget.onMessage?(String(cString: json))
     }
 
+    /// Runs `body` with a NULL-terminated allow list naming the one origin these scripts may run
+    /// on. The strings are owned by this call and freed before it returns.
+    private static func withAllowList(_ body: (UnsafePointer<UnsafePointer<CChar>?>) -> Void) {
+        let pattern = strdup("https://" + OfficialBridge.allowedHost + "/*")
+        defer { free(pattern) }
+        var list: [UnsafePointer<CChar>?] = [UnsafePointer(pattern), nil]
+        list.withUnsafeMutableBufferPointer { buffer in
+            body(UnsafePointer(buffer.baseAddress!))
+        }
+    }
+
     /// Installs a script into the bridge's world, restricted to the one origin it may run on.
     func install(script source: String) {
-        var allowed = ["https://" + OfficialBridge.allowedHost + "/*"]
-        allowed.withUnsafeMutableBufferPointer { buffer in
-            var list: [UnsafePointer<CChar>?] = buffer.map { UnsafePointer(strdup($0)) }
-            list.append(nil)
-            defer { list.forEach { $0.map { free(UnsafeMutableRawPointer(mutating: $0)) } } }
-            list.withUnsafeMutableBufferPointer { allowList in
-                guard let script = webkit_user_script_new_for_world(
-                    source,
-                    WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
-                    WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
-                    Self.scriptWorld,
-                    allowList.baseAddress,
-                    nil
-                ) else { return }
-                webkit_user_content_manager_add_script(userContentManager, script)
-                webkit_user_script_unref(script)
-            }
+        Self.withAllowList { allowList in
+            guard let script = webkit_user_script_new_for_world(
+                source,
+                WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
+                WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
+                Self.scriptWorld,
+                allowList,
+                nil
+            ) else { return }
+            webkit_user_content_manager_add_script(userContentManager, script)
+            webkit_user_script_unref(script)
+        }
+    }
+
+    /// Installs a script into the page's own world.
+    ///
+    /// The media-session guard has to run here rather than in the bridge's world. It overrides
+    /// `navigator.mediaSession` for the page, and an isolated world gets its own wrappers of the
+    /// same objects, so a guard installed there would leave the page's session untouched.
+    func install(pageScript source: String) {
+        Self.withAllowList { allowList in
+            guard let script = webkit_user_script_new(
+                source,
+                WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
+                WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+                allowList,
+                nil
+            ) else { return }
+            webkit_user_content_manager_add_script(userContentManager, script)
+            webkit_user_script_unref(script)
         }
     }
 
@@ -116,25 +140,146 @@ final class WebKitWebViewWidget: Gtk.Widget {
         webkit_user_content_manager_remove_all_scripts(userContentManager)
     }
 
-    /// Loads markup with no network access, for mounting the renderer before a lease exists.
+    private var onLoadFinished: (() -> Void)?
+
+    /// Runs JavaScript in the bridge's isolated world, which shares the page's DOM but not its
+    /// scope: the player can be driven without the page being able to observe the driver.
+    ///
+    /// `completion` receives the result encoded as JSON, or a message describing the failure.
+    /// Passing none runs the script and ignores what it returns, which is what the transport
+    /// commands want — they are requests, and the answer arrives through the bridge instead.
+    func evaluate(_ script: String, completion: ((String?, String?) -> Void)? = nil) {
+        guard let completion else {
+            webkit_web_view_evaluate_javascript(
+                webViewPointer, script, -1, Self.scriptWorld, nil, nil, nil, nil
+            )
+            return
+        }
+        let box = Unmanaged.passRetained(Evaluation(completion)).toOpaque()
+        webkit_web_view_evaluate_javascript(
+            webViewPointer, script, -1, Self.scriptWorld, nil, nil, Self.evaluated, box
+        )
+    }
+
+    /// Carries a Swift closure across the C callback boundary, retained until it fires once.
+    private final class Evaluation {
+        let completion: (String?, String?) -> Void
+        init(_ completion: @escaping (String?, String?) -> Void) { self.completion = completion }
+    }
+
+    private static let evaluated: GAsyncReadyCallback = { source, result, userData in
+        guard let userData else { return }
+        let evaluation = Unmanaged<Evaluation>.fromOpaque(userData).takeRetainedValue()
+        guard let source else {
+            evaluation.completion(nil, "the renderer went away before the script returned")
+            return
+        }
+        let view = UnsafeMutableRawPointer(source).assumingMemoryBound(to: WebKitWebView.self)
+        var error: UnsafeMutablePointer<GError>?
+        guard let value = webkit_web_view_evaluate_javascript_finish(view, result, &error) else {
+            let message = error.map { String(cString: $0.pointee.message) } ?? "an unknown failure"
+            if let error { g_error_free(error) }
+            evaluation.completion(nil, message)
+            return
+        }
+        defer { g_object_unref(UnsafeMutableRawPointer(value)) }
+        guard let json = jsc_value_to_json(value, 0) else {
+            evaluation.completion(nil, nil)
+            return
+        }
+        defer { g_free(json) }
+        evaluation.completion(String(cString: json), nil)
+    }
+
+    /// Navigates to a document. Only the host calls this, and only after Rust granted the lease.
+    func loadPage(url: String) {
+        webkit_web_view_load_uri(webViewPointer, url)
+    }
+
+    func stopLoading() {
+        webkit_web_view_stop_loading(webViewPointer)
+    }
+
+    /// Loads markup with no network access, for mounting the renderer before a lease exists and
+    /// for returning it to a document that can play nothing once the lease is gone.
     func load(html: String) {
         webkit_web_view_load_html(webViewPointer, html, nil)
+    }
+
+    /// Refuses every navigation that does not stay on the official host.
+    ///
+    /// macOS decides this in `decidePolicyFor navigationAction`. Without it a redirect could
+    /// carry the renderer to a document the observer was never bound to, and the host would be
+    /// driving a page it cannot vouch for while still holding Rust's lease.
+    func guardNavigation() {
+        g_signal_connect_data(
+            UnsafeMutableRawPointer(webViewPointer),
+            "decide-policy",
+            unsafeBitCast(Self.decidePolicy, to: GCallback.self),
+            nil, nil, GConnectFlags(rawValue: 0)
+        )
+    }
+
+    private static let decidePolicy: @convention(c) (
+        UnsafeMutableRawPointer?, OpaquePointer?, UInt32, UnsafeMutableRawPointer?
+    ) -> gboolean = { _, decision, type, _ in
+        guard let decision else { return gboolean(0) }
+        // WebKitPolicyDecision is a derivable type and Swift gives it a typed pointer; the
+        // navigation subclass is declared final and stays opaque. One object, two spellings.
+        let policy = UnsafeMutableRawPointer(decision)
+            .assumingMemoryBound(to: WebKitPolicyDecision.self)
+        guard type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION.rawValue else {
+            return gboolean(0)
+        }
+        guard let action = webkit_navigation_policy_decision_get_navigation_action(decision),
+                let request = webkit_navigation_action_get_request(action),
+                let uri = webkit_uri_request_get_uri(request) else {
+            webkit_policy_decision_ignore(policy)
+            return gboolean(1)
+        }
+        let text = String(cString: uri)
+        if text == "about:blank" || text.hasPrefix("https://" + OfficialBridge.allowedHost) {
+            webkit_policy_decision_use(policy)
+        } else {
+            webkit_policy_decision_ignore(policy)
+        }
+        return gboolean(1)
+    }
+
+    /// Reports when a document has finished loading, which is when the page is worth probing.
+    func observeLoad(onFinished: @escaping () -> Void) {
+        onLoadFinished = onFinished
+        g_signal_connect_data(
+            UnsafeMutableRawPointer(webViewPointer),
+            "load-changed",
+            unsafeBitCast(Self.loadChanged, to: GCallback.self),
+            Unmanaged.passUnretained(self).toOpaque(),
+            nil, GConnectFlags(rawValue: 0)
+        )
+    }
+
+    private static let loadChanged: @convention(c) (
+        UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?
+    ) -> Void = { _, event, userData in
+        guard let userData, event == WEBKIT_LOAD_FINISHED.rawValue else { return }
+        Unmanaged<WebKitWebViewWidget>.fromOpaque(userData)
+            .takeUnretainedValue()
+            .onLoadFinished?()
     }
 }
 
 /// Mounts the renderer inside the SwiftCrossUI hierarchy. The macOS side does the same job with
 /// `NSViewRepresentable` and `OfficialPlaybackContainer`; this is the GTK mirror of it.
 ///
-/// The widget is created once and handed back through `onCreate`, so the host can hold the single
-/// renderer it owns rather than letting layout churn produce a second one.
+/// The renderer is handed in rather than built here, and that is the whole point. SwiftCrossUI
+/// may rebuild a representable during layout; constructing a widget on each call would leave the
+/// shell with a second renderer while the first is still loaded and still playing — a media owner
+/// Rust never granted a lease to. The host owns the one widget, for the same reason the macOS side
+/// reparents its existing `WKWebView` instead of making another.
 struct WebKitSurface: GtkWidgetRepresentable {
-    let onCreate: (WebKitWebViewWidget) -> Void
+    let widget: WebKitWebViewWidget
 
-    func makeGtkWidget(context: Context) -> WebKitWebViewWidget {
-        let widget = WebKitWebViewWidget()
-        onCreate(widget)
-        return widget
-    }
+    func makeGtkWidget(context: Context) -> WebKitWebViewWidget { widget }
 
     func updateGtkWidget(_ gtkWidget: WebKitWebViewWidget, context: Context) {}
 }

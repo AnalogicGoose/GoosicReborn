@@ -91,7 +91,7 @@ existing abstractions, not scattered through the screens:
 | Concern | File | State |
 | --- | --- | --- |
 | Playback host abstraction | `PlatformPlaybackHost.swift` | shared; the extension point |
-| Official (web) playback | `OfficialPlaybackHost.swift` | macOS real, others stubbed |
+| Official (web) playback | `OfficialPlaybackHost.swift` (macOS, and the stub), `LinuxOfficialPlaybackHost.swift` + `LinuxWebKitSurface.swift` (GTK) | macOS real, Linux written but never yet heard, Windows stubbed |
 | Local decoded-file playback | `LocalPlaybackHost.swift` | macOS real, others stubbed |
 | System media controls | `SystemMediaControls.swift` | macOS real, others stubbed |
 | Window material | `MaterialSurface.swift` | macOS real, plain elsewhere |
@@ -100,6 +100,14 @@ existing abstractions, not scattered through the screens:
 A stub reports the limitation. It must never produce sound or silently succeed, because that
 would let a renderer escape Rust's authority. When you implement one for a platform, keep the
 others' behaviour unchanged.
+
+The Linux official host is the one entry above that compiles and passes its tests without
+anyone having heard it play. Treat "written" as exactly that: the wire contract is covered by
+`OfficialBridgeTests`, but nothing has yet confirmed that WebKitGTK reaches the player, so a
+report that it does not work is a bug to investigate rather than a surprise. Its account
+profiles are not isolated either — `bind(profile:)` says so out loud instead of pretending,
+because a caller that believes it is playing under an account would be playing under guest
+storage.
 
 Two portability rules bite far from their cause: `URLSession` needs a
 `#if canImport(FoundationNetworking)` import off Darwin, and swift-corelibs-xctest aborts the
