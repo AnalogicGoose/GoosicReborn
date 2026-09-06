@@ -27,7 +27,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 - `goosic-lyrics` — LRCLIB lookups and LRC parsing; no account, no key, no credentials.
 - `goosic-downloads` — read-only legacy media indexing plus WebM/Opus-to-WAV decode caching; it contains no downloader or account-cookie path.
 - `goosic-service` — one request per stdin line, one response per stdout line, with no diagnostics on stdout.
-- `apps/goosic-swift` — the shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host. It builds on macOS against AppKit and on Linux against GTK 4; the playback hosts are macOS-only, so the Linux build browses but does not sound.
+- `apps/goosic-swift` — the shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host. It builds on macOS against AppKit and on Linux against GTK 4. Official playback now has a real WebKitGTK host on Linux as well, though nobody has yet heard it play; local file playback and the system media controls remain macOS-only, so the Linux build browses and is learning to sound.
 
 ## Architecture
 
