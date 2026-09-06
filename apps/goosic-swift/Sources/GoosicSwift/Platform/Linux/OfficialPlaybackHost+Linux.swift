@@ -9,6 +9,7 @@ import SwiftCrossUI
 /// has one answer. What differs is only how a script is run and how a message arrives.
 @MainActor
 final class OfficialPlaybackHost {
+    private var container: WebKitContainerWidget?
     private var widget: WebKitWebViewWidget?
     private var expectedToken: String?
     private var expectedGeneration: UInt64?
@@ -27,16 +28,36 @@ final class OfficialPlaybackHost {
     /// owns the queue, so the shell decides what actually plays instead.
     var onPageAdvanced: ((String) -> Void)?
 
-    /// Hands out the one renderer, creating it the first time it is asked for.
+    /// Hands out the mount point, creating it the first time it is asked for.
     ///
-    /// The host owns the widget rather than the representable that displays it. A representable
-    /// is rebuilt during layout, and a renderer built there would be a second media owner while
-    /// the first is still loaded and still playing.
-    func makeWidget() -> WebKitWebViewWidget {
-        if let widget { return widget }
-        let widget = WebKitWebViewWidget()
-        attach(widget)
-        return widget
+    /// The host owns it rather than the representable that displays it. A representable is
+    /// rebuilt during layout, and a renderer built there would be a second media owner with the
+    /// first still loaded and still playing.
+    func makeContainer() -> WebKitContainerWidget {
+        if let container { return container }
+        let container = WebKitContainerWidget()
+        self.container = container
+        rebuildRenderer()
+        return container
+    }
+
+    /// Replaces the renderer with one bound to the active profile's session.
+    private func rebuildRenderer() {
+        guard let container else { return }
+        // The old document is gone, so nothing it might still say is worth accepting.
+        invalidateExpectations()
+        attach(container.replaceRenderer(profileDirectory: Self.directory(for: activeProfile)))
+    }
+
+    /// Where a profile's cookies live. The guest profile deliberately gets a directory of its
+    /// own rather than WebKitGTK's shared default, so that signing into an account cannot leave
+    /// anything behind that a later guest session would pick up.
+    private static func directory(for profile: OfficialPlaybackProfile) -> String {
+        let environment = ProcessInfo.processInfo.environment
+        let root = environment["XDG_DATA_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/share").path
+        return root + "/goosic/profiles/" + profile.identifier.uuidString
     }
 
     /// Binds this host to the renderer it drives. The widget goes on to live in the SwiftCrossUI
@@ -67,18 +88,15 @@ final class OfficialPlaybackHost {
         }
     }
 
-    /// Records the profile and says plainly that it is not isolated yet.
+    /// Moves playback onto a profile's own cookies and storage.
     ///
-    /// Account isolation needs a `WebKitNetworkSession` per profile, and a session is given to a
-    /// web view when it is created rather than swapped into one, so honouring this means
-    /// rebuilding the renderer. Until that exists, staying quiet would let a caller believe it
-    /// is playing under an account while it plays under guest storage.
+    /// A `WebKitNetworkSession` is given to a web view as it is constructed and cannot be
+    /// swapped into an existing one, so honouring this costs a new renderer. The model releases
+    /// Rust's lease before calling here, which is what makes tearing the old one down safe.
     func bind(profile: OfficialPlaybackProfile) {
         guard profile != activeProfile else { return }
         activeProfile = profile
-        if profile != .guest {
-            onStatus?("Official playback on Linux runs under guest storage; account profiles are not isolated yet.")
-        }
+        rebuildRenderer()
     }
 
     func load(videoID: String, generation: UInt64) {
@@ -368,7 +386,7 @@ struct OfficialPlaybackSurface: View {
     let model: GoosicAppModel
 
     var body: some View {
-        WebKitSurface(widget: model.officialPlaybackHost.makeWidget())
+        WebKitSurface(container: model.officialPlaybackHost.makeContainer())
     }
 }
 #endif
