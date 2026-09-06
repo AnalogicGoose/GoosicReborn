@@ -303,8 +303,12 @@ final class WebKitWebViewWidget: Gtk.Widget {
             allowed = text == "about:blank"
                 || text.hasPrefix("https://" + OfficialBridge.allowedHost)
         case .loginHosts:
-            // The same allow-list macOS uses, and the same reasoning: a list, never a pattern.
-            allowed = AccountLoginValidation.isAllowedLoginURL(URL(string: text))
+            // `about:blank` is where a fresh web view starts and where WebKitGTK parks a frame
+            // it is between documents on. Refusing it stalls the sign-in before it begins, and
+            // it carries no origin to be redirected to in the first place. Everything else is
+            // the same allow-list macOS uses, for the same reason: a list, never a pattern.
+            allowed = text == "about:blank"
+                || AccountLoginValidation.isAllowedLoginURL(URL(string: text))
         }
         if allowed {
             webkit_policy_decision_use(policy)
@@ -313,8 +317,12 @@ final class WebKitWebViewWidget: Gtk.Widget {
             // from a page that simply never arrives. Naming the host on stderr is what makes a
             // blocked redirect diagnosable. The host only: a sign-in URL carries tokens in its
             // query, and those never go anywhere near a log.
-            let host = URL(string: text)?.host ?? "an unparsable URL"
-            FileHandle.standardError.write(Data("goosic: refused navigation to \(host)\n".utf8))
+            // A host when there is one, otherwise the scheme: "an unparsable URL" told us
+            // something was refused without telling us what kind of thing, which cost a round
+            // trip. Neither form can carry a token, which is the only constraint that matters.
+            let what = URL(string: text)?.host
+                ?? "a \(text.prefix(while: { $0 != ":" })) URL"
+            FileHandle.standardError.write(Data("goosic: refused navigation to \(what)\n".utf8))
             webkit_policy_decision_ignore(policy)
         }
         return gboolean(1)
