@@ -29,6 +29,13 @@ final class AccountLoginHost {
     private var navigationToken: UInt64 = 0
     private var pollingTask: Task<Void, Never>?
 
+    /// Diagnostics go to stderr, never stdout, and never carry a URL or anything from the page.
+    /// A sign-in that fails silently is the hardest kind to report, so the trace exists to make
+    /// "the window just closed" into something with a cause attached.
+    nonisolated static func trace(_ message: String) {
+        FileHandle.standardError.write(Data("goosic login: \(message)\n".utf8))
+    }
+
     func start() {
         guard window == nil else { return }
         // Both identifiers are generated before the surface opens and are never derived from
@@ -47,7 +54,16 @@ final class AccountLoginHost {
         // Deliberately no bridge: a login is a browser surface, not a playback channel. Native
         // code only evaluates the bounded metadata projection, and only at exact completion.
         webView.observeLoad { [weak self] in
-            MainActor.assumeIsolated { self?.startCompletionPolling() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                Self.trace(
+                    "page finished loading; "
+                        + (AccountLoginValidation.isExactCompletionOrigin(self.webView?.currentURL)
+                            ? "on the completion origin, looking for the account menu"
+                            : "not the completion origin yet")
+                )
+                self.startCompletionPolling()
+            }
         }
         self.webView = webView
 
@@ -68,6 +84,10 @@ final class AccountLoginHost {
         webView.loadPage(url: url.absoluteString)
     }
 
+    /// Set while GTK is itself tearing the window down, so this does not destroy it a second
+    /// time from inside its own `close-request` handler.
+    private var windowIsBeingDestroyedByGTK = false
+
     func close() {
         guard !closing else { return }
         closing = true
@@ -77,7 +97,7 @@ final class AccountLoginHost {
         webView?.stopLoading()
         webView?.removeInstalledScripts()
         if !awaitingPromotion && !promotionCommitted { discardStaging() }
-        window?.destroy()
+        if !windowIsBeingDestroyedByGTK { window?.destroy() }
         webView = nil
         window = nil
     }
@@ -142,6 +162,9 @@ final class AccountLoginHost {
             }
             if !Task.isCancelled, token == self.navigationToken, !self.closing,
                !self.completionDelivered {
+                // Without this the window simply vanishes and the user is told nothing, which
+                // looks identical to a crash and to a sign-in that silently failed.
+                Self.trace("gave up waiting for a completed sign-in after \(Int(AccountLoginValidation.completionTimeout))s")
                 self.cancel()
             }
         }
@@ -184,13 +207,22 @@ final class AccountLoginHost {
 
     /// The user closing the window is a cancellation, and it has to reach the model: Rust is
     /// holding nothing yet, but the shell is waiting for an answer.
+    /// The closure owns a reference, released when it dies with the window.
+    ///
+    /// Cancelling tells the model, and the model's answer is to drop its own reference to this
+    /// host. Holding one here means the pointer GTK carries cannot go stale while the window
+    /// that carries it is still alive.
     private static func observeClose(of window: Gtk.Window, host: AccountLoginHost) {
         g_signal_connect_data(
             UnsafeMutableRawPointer(window.widgetPointer),
             "close-request",
             unsafeBitCast(closeRequested, to: GCallback.self),
-            Unmanaged.passUnretained(host).toOpaque(),
-            nil, GConnectFlags(rawValue: 0)
+            Unmanaged.passRetained(host).toOpaque(),
+            { data, _ in
+                guard let data else { return }
+                Unmanaged<AccountLoginHost>.fromOpaque(data).release()
+            },
+            GConnectFlags(rawValue: 0)
         )
     }
 
@@ -201,6 +233,9 @@ final class AccountLoginHost {
         let host = Unmanaged<AccountLoginHost>.fromOpaque(userData).takeUnretainedValue()
         MainActor.assumeIsolated {
             guard !host.closing else { return }
+            // GTK destroys the window itself once this returns false; doing it here as well
+            // tears down a widget from inside its own handler.
+            host.windowIsBeingDestroyedByGTK = true
             host.cancel()
         }
         // Let GTK carry on and destroy the window; `close()` has already torn down the renderer.
