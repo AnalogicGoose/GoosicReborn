@@ -309,6 +309,12 @@ final class WebKitWebViewWidget: Gtk.Widget {
         if allowed {
             webkit_policy_decision_use(policy)
         } else {
+            // Refusals are silent to the user by design, and a silent refusal is indistinguishable
+            // from a page that simply never arrives. Naming the host on stderr is what makes a
+            // blocked redirect diagnosable. The host only: a sign-in URL carries tokens in its
+            // query, and those never go anywhere near a log.
+            let host = URL(string: text)?.host ?? "an unparsable URL"
+            FileHandle.standardError.write(Data("goosic: refused navigation to \(host)\n".utf8))
             webkit_policy_decision_ignore(policy)
         }
         return gboolean(1)
