@@ -101,6 +101,24 @@ enum AccountLoginValidation {
     /// How long a staged sign-in may stay open before it is abandoned.
     static let completionTimeout: TimeInterval = 30
 
+    /// The only hosts a login surface may reach. Sign-in walks through several Google properties
+    /// before it lands, so the list cannot be one entry, but it is a list and not a pattern: a
+    /// login window that follows an arbitrary redirect is a window collecting a password for
+    /// somebody else. Shared rather than per-platform, because a rule that decides where
+    /// credentials may be typed must not have two versions.
+    static let allowedLoginHosts: Set<String> = [
+        "accounts.google.com", "www.youtube.com", "music.youtube.com",
+        "myaccount.google.com", "consent.google.com", "ogs.google.com",
+    ]
+
+    /// Whether the login surface may navigate its main frame to `url`.
+    static func isAllowedLoginURL(_ url: URL?) -> Bool {
+        guard let url, let host = url.host else { return false }
+        guard url.scheme == "https", url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443 else { return false }
+        return allowedLoginHosts.contains(host.lowercased())
+    }
+
     /// Runs in the page only after exact-origin navigation. The marker requires an account-menu
     /// affordance in the authenticated shell; arriving at music.youtube.com alone is not enough.
     ///
