@@ -18,8 +18,45 @@ final class WebKitWebViewWidget: Gtk.Widget {
     private var handlerID: UInt = 0
     private var bridgeIsOpen = false
 
-    init() {
-        super.init(webkit_web_view_new())
+    /// Builds a renderer whose cookies and storage live in `directory`, or in WebKitGTK's shared
+    /// default when none is given.
+    ///
+    /// The session is a construct-only property, which is the whole reason accounts cost a new
+    /// renderer rather than a setter: there is no swapping one in later, and a view that kept
+    /// the old session would keep the old sign-in with it.
+    convenience init(profileDirectory directory: String?) {
+        self.init(Self.makeWebView(profileDirectory: directory))
+    }
+
+    /// Creates the underlying object, bound to its own session when a directory is given.
+    private static func makeWebView(
+        profileDirectory directory: String?
+    ) -> UnsafeMutablePointer<GtkWidget> {
+        guard let directory,
+              let session = webkit_network_session_new(directory + "/data", directory + "/cache")
+        else {
+            return webkit_web_view_new()
+        }
+        // The view takes its own reference during construction.
+        defer { g_object_unref(UnsafeMutableRawPointer(session)) }
+        var value = GValue()
+        g_value_init(&value, webkit_network_session_get_type())
+        g_value_set_object(&value, UnsafeMutableRawPointer(session))
+        defer { g_value_unset(&value) }
+        let name = strdup("network-session")
+        defer { free(name) }
+        var names: [UnsafePointer<CChar>?] = [UnsafePointer(name)]
+        var values: [GValue] = [value]
+        guard let object = g_object_new_with_properties(
+            webkit_web_view_get_type(), 1, &names, &values
+        ) else {
+            return webkit_web_view_new()
+        }
+        return UnsafeMutableRawPointer(object).assumingMemoryBound(to: GtkWidget.self)
+    }
+
+    private init(_ pointer: UnsafeMutablePointer<GtkWidget>) {
+        super.init(pointer)
         configure()
         expandHorizontally = true
         useExpandHorizontally = true
@@ -276,11 +313,42 @@ final class WebKitWebViewWidget: Gtk.Widget {
 /// shell with a second renderer while the first is still loaded and still playing — a media owner
 /// Rust never granted a lease to. The host owns the one widget, for the same reason the macOS side
 /// reparents its existing `WKWebView` instead of making another.
+/// A stable mount point whose one child is the renderer.
+///
+/// Switching accounts means building a new web view, because a network session can only be given
+/// to a view as it is constructed. A representable cannot be asked to hand back a different
+/// widget after the fact, so the box is what stays in the hierarchy and the renderer inside it is
+/// what gets replaced. It is the same job the macOS side gives `OfficialPlaybackContainer`.
+final class WebKitContainerWidget: Gtk.Box {
+    private(set) var renderer: WebKitWebViewWidget?
+
+    convenience init() {
+        self.init(orientation: .vertical, spacing: 0)
+        expandHorizontally = true
+        useExpandHorizontally = true
+        expandVertically = true
+        useExpandVertically = true
+    }
+
+    /// Tears down the current renderer and builds one bound to `profileDirectory`.
+    func replaceRenderer(profileDirectory: String?) -> WebKitWebViewWidget {
+        if let renderer {
+            renderer.stopLoading()
+            renderer.removeInstalledScripts()
+            remove(renderer)
+        }
+        let widget = WebKitWebViewWidget(profileDirectory: profileDirectory)
+        add(widget)
+        renderer = widget
+        return widget
+    }
+}
+
 struct WebKitSurface: GtkWidgetRepresentable {
-    let widget: WebKitWebViewWidget
+    let container: WebKitContainerWidget
 
-    func makeGtkWidget(context: Context) -> WebKitWebViewWidget { widget }
+    func makeGtkWidget(context: Context) -> WebKitContainerWidget { container }
 
-    func updateGtkWidget(_ gtkWidget: WebKitWebViewWidget, context: Context) {}
+    func updateGtkWidget(_ gtkWidget: WebKitContainerWidget, context: Context) {}
 }
 #endif
