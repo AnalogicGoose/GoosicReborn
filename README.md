@@ -5,7 +5,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 ## What works today
 
 - **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust, as an anonymous guest. Albums, playlists, and artists open to their real track lists.
-- **Real playback (macOS).** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single WKWebView host. Advertisements are reported as informational markers and are never bypassed.
+- **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single web host — WKWebView on macOS, WebKitGTK on Linux. Advertisements are reported as informational markers and are never bypassed. Only macOS has been heard to play; see the limitations below for what that means on Linux.
 - **A real transport.** Elapsed and total time, seeking, volume and mute, and autoplay to the next queued track — all reflecting what the player confirms, never what was requested. Goosic's queue overrides the official app's own "up next", so it never plays something you did not choose.
 - **Preferences that persist.** Volume, mute, autoplay, shuffle, repeat, the queue panel, and the screen you were on are stored by Rust and restored on launch. Preferences from a previous Goosic install can be imported; the old data is read, never changed, and credentials are never carried over.
 - **Enforced ownership.** `goosic-core` allows one playback owner at a time, scopes transitions to a generation, and requires strictly increasing sample sequences. Switching to a downloaded file quiesces the official host first; switching away stops the local renderer first.
@@ -15,7 +15,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 - **Radio.** When a queue runs out, playback continues with the radio that follows the last track, and any playing track can seed a new one. This is the previous Goosic's "auto radio", and the imported preference maps onto autoplay, so it stays off for anyone who had it off.
 - **Artwork.** Albums, playlists, artists, and tracks show their real cover art, fetched and cached by the shell over an anonymous, host-restricted HTTPS session.
 - **Native material.** The sidebar, queue, and now-playing surfaces sit on a real platform material: `NSGlassEffectView` on macOS 26+, `NSVisualEffectView` on macOS 14–25, and a plain background anywhere else. It is a background leaf that never wraps the controls, so buttons and their accessibility stay native.
-- **Legacy downloads.** The Downloads screen can import finalized `.webm` files from the previous Goosic install without copying or deleting them. Rust decodes them into a private WAV cache and macOS AVFoundation plays only that decoded file; no downloader, yt-dlp, or account cookie is involved.
+- **Legacy downloads.** The Downloads screen can import finalized `.webm` files from the previous Goosic install without copying or deleting them. Rust decodes them into a private WAV cache and the local host plays only that decoded file — AVFoundation on macOS, GStreamer on Linux; no downloader, yt-dlp, or account cookie is involved.
 
 ## Crates and apps
 
@@ -27,7 +27,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 - `goosic-lyrics` — LRCLIB lookups and LRC parsing; no account, no key, no credentials.
 - `goosic-downloads` — read-only legacy media indexing plus WebM/Opus-to-WAV decode caching; it contains no downloader or account-cookie path.
 - `goosic-service` — one request per stdin line, one response per stdout line, with no diagnostics on stdout.
-- `apps/goosic-swift` — the shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host. It builds on macOS against AppKit and on Linux against GTK 4. Official playback now has a real WebKitGTK host on Linux as well, though nobody has yet heard it play; local file playback and the system media controls remain macOS-only, so the Linux build browses and is learning to sound.
+- `apps/goosic-swift` — the shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host. It builds on macOS against AppKit and on Linux against GTK 4. Every platform seam now has a real Linux implementation behind it: WebKitGTK for official playback, GStreamer for decoded local files, MPRIS for the system media controls, and per-account network sessions for sign-in. Windows keeps the stubs.
 
 ## Architecture
 
@@ -89,7 +89,8 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 
 - **No signed-in library.** Sign-in and per-account WebKit profiles work, but catalog reads are still anonymous, so Library has nothing personal to show. Authenticated catalog reads are the next slice.
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
-- **Audio is macOS only.** The shell itself builds and runs on Linux — navigation, the live catalog, search, and the transport UI all work there — but both playback hosts are macOS-only. On every other platform `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs that report the limitation rather than producing sound, so no renderer can bypass Rust's authority. A Linux host would mean WebKitGTK for the official player and a local renderer for decoded files, both claiming the same Rust leases.
+- **Linux audio is written but unheard.** Both playback hosts now exist there — WebKitGTK for the official player, GStreamer for decoded files — and both claim the same Rust leases as their macOS counterparts. What is missing is a person confirming that sound comes out. The local host is the only one with runtime evidence: its tests open a real WAV and read the duration back, which they can do silently because a paused pipeline decodes without touching the audio device. The official host has never been past compiling. Treat a report that Linux does not play as a bug to investigate, not as an expected limitation.
+- **Windows has no audio at all.** `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs there. A stub reports the limitation rather than producing sound, so no renderer can bypass Rust's authority.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
 - **Two download tests fail on Windows.** `goosic-downloads` builds and 13 of its 15 tests pass there, but path handling assumes Unix syntax and the legacy import returns `InvalidFilename`. CI reports it without blocking, because it is a real bug in shared code rather than an accepted platform limit.
 - Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
