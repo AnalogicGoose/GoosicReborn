@@ -101,27 +101,54 @@ enum AccountLoginValidation {
     /// How long a staged sign-in may stay open before it is abandoned.
     static let completionTimeout: TimeInterval = 30
 
-    /// The only hosts a login surface may reach. Sign-in walks through several Google properties
-    /// before it lands, so the list cannot be one entry, but it is a list and not a pattern: a
-    /// login window that follows an arbitrary redirect is a window collecting a password for
-    /// somebody else. Shared rather than per-platform, because a rule that decides where
-    /// credentials may be typed must not have two versions.
-    /// Every entry is a host Google itself redirects a sign-in through, and each was added
-    /// because a real attempt was refused at it — `accounts.youtube.com` and `gds.google.com`
-    /// came from a Linux run that stalled and then timed out with the window closing silently.
-    /// Expect this list to grow the same way rather than by guessing: widening it to a pattern
-    /// like `*.google.com` would defeat the point of having it.
+    /// Where a login surface may go. A window that follows an arbitrary redirect is a window
+    /// collecting a password for somebody else, so this stays narrow; it is shared rather than
+    /// per-platform because a rule about where credentials may be typed must not have two
+    /// versions that can drift.
+    ///
+    /// The YouTube hosts a sign-in passes through. These have no country variants, so they stay
+    /// an exact list.
     static let allowedLoginHosts: Set<String> = [
-        "accounts.google.com", "accounts.youtube.com", "www.youtube.com", "music.youtube.com",
-        "myaccount.google.com", "consent.google.com", "ogs.google.com", "gds.google.com",
+        "accounts.youtube.com", "www.youtube.com", "music.youtube.com",
+    ]
+
+    /// The Google services a sign-in is allowed to visit, as the leftmost label.
+    static let googleSignInLabels: Set<String> = [
+        "accounts", "consent", "myaccount", "gds", "ogs",
     ]
 
     /// Whether the login surface may navigate its main frame to `url`.
     static func isAllowedLoginURL(_ url: URL?) -> Bool {
-        guard let url, let host = url.host else { return false }
+        guard let url, let host = url.host?.lowercased() else { return false }
         guard url.scheme == "https", url.user == nil, url.password == nil,
               url.port == nil || url.port == 443 else { return false }
-        return allowedLoginHosts.contains(host.lowercased())
+        return allowedLoginHosts.contains(host) || isGoogleSignInHost(host)
+    }
+
+    /// Whether `host` is one of Google's own sign-in services on one of its country domains.
+    ///
+    /// This is the one place the rule stopped being a plain list, and it was forced: Google
+    /// localises sign-in onto country domains, and a Nicaraguan attempt died at
+    /// `accounts.google.com.ni`. There are roughly two hundred of those and they are not a set
+    /// anybody can keep correct by hand, so the shape is checked instead of the spelling.
+    ///
+    /// What the shape still refuses is the thing the list existed to refuse. The service label
+    /// must be one Goosic knows, the second label must be exactly `google`, and what follows may
+    /// only be one or two labels of at most three letters — a public suffix and nothing else.
+    /// `accounts.google.com.evil.example` has too many labels, `accounts.google.evil.com` has one
+    /// that is too long, and `evil.google.com` is not a service on the list. What it does concede
+    /// is a country registry that Google does not own: someone holding `google.zz` could serve
+    /// `accounts.google.zz`. That is a narrower hole than a wildcard and a wider one than an
+    /// enumeration, and it is the trade this makes knowingly.
+    static func isGoogleSignInHost(_ host: String) -> Bool {
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count == 3 || labels.count == 4 else { return false }
+        guard labels[1] == "google", googleSignInLabels.contains(String(labels[0])) else {
+            return false
+        }
+        return labels.dropFirst(2).allSatisfy { label in
+            !label.isEmpty && label.count <= 3 && label.allSatisfy { $0.isLetter && $0.isASCII }
+        }
     }
 
     /// Runs in the page only after exact-origin navigation. The marker requires an account-menu
