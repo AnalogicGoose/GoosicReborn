@@ -106,9 +106,14 @@ enum AccountLoginValidation {
     /// login window that follows an arbitrary redirect is a window collecting a password for
     /// somebody else. Shared rather than per-platform, because a rule that decides where
     /// credentials may be typed must not have two versions.
+    /// Every entry is a host Google itself redirects a sign-in through, and each was added
+    /// because a real attempt was refused at it — `accounts.youtube.com` and `gds.google.com`
+    /// came from a Linux run that stalled and then timed out with the window closing silently.
+    /// Expect this list to grow the same way rather than by guessing: widening it to a pattern
+    /// like `*.google.com` would defeat the point of having it.
     static let allowedLoginHosts: Set<String> = [
-        "accounts.google.com", "www.youtube.com", "music.youtube.com",
-        "myaccount.google.com", "consent.google.com", "ogs.google.com",
+        "accounts.google.com", "accounts.youtube.com", "www.youtube.com", "music.youtube.com",
+        "myaccount.google.com", "consent.google.com", "ogs.google.com", "gds.google.com",
     ]
 
     /// Whether the login surface may navigate its main frame to `url`.
