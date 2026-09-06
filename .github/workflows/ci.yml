@@ -153,12 +153,17 @@ jobs:
             # the default branch may write here. Skipped on an exact hit too: the key is the
             # dependency fingerprint, so an existing entry is already the answer, and writing
             # a duplicate key is an error rather than a refresh.
+            #
+            # The key comes from the restore rather than being spelled out again. `swift build`
+            # rewrites `Package.resolved` when the toolchain's SwiftPM formats it differently,
+            # so recomputing the hash here stores the build under a key no restore will ever
+            # ask for, and the entry can only ever be found by the prefix fallback.
             -   name: Save the Swift build
                 if: env.IS_CACHE_WRITER == 'true' && steps.swift-build-cache.outputs.cache-hit != 'true'
                 uses: actions/cache/save@v4
                 with:
                     path: ~/.cache/goosic-swift-build
-                    key: swift-linux-${{ hashFiles('apps/goosic-swift/Package.resolved') }}
+                    key: ${{ steps.swift-build-cache.outputs.cache-primary-key }}
 
     shell-macos:
         name: Shell (macOS, AppKit)
@@ -190,7 +195,7 @@ jobs:
                 uses: actions/cache/save@v4
                 with:
                     path: ~/Library/Caches/goosic-swift-build
-                    key: swift-macos-${{ hashFiles('apps/goosic-swift/Package.resolved') }}
+                    key: ${{ steps.swift-build-cache.outputs.cache-primary-key }}
 
     # The stamp, and it only goes on a tree the heavy jobs actually compiled. A tree skipped
     # because just documentation moved is never claimed to have been built.

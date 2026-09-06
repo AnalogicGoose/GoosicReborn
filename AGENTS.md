@@ -13,7 +13,10 @@ This repository uses a five-branch model, documented in full in
 [docs/BRANCHING.md](docs/BRANCHING.md). The part you must not get wrong:
 
 - `main` is **deployment only**. Never commit to it, never branch from it (except a
-  `hotfix/<slug>`), never merge into it outside a deployment.
+  `hotfix/<slug>`), never merge into it outside a deployment. The single exception is
+  `.github/workflows/ci.yml`: `main` is the default branch, only the default branch writes
+  the build cache, and only its own copy of a workflow is what a scheduled run executes, so
+  the file has to be current there. Nothing else earns that exception.
 - `development` is the trunk. Cross-platform work is cut from it and merges back to it.
 - `platform/macos`, `platform/linux`, `platform/windows` hold work that exists only to
   satisfy one operating system's API.
