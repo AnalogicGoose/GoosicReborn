@@ -54,15 +54,15 @@ final class SystemMediaControls {
     )
     private var volume: Double = 1
 
-    private static let busName = "org.mpris.MediaPlayer2.goosic"
-    private static let objectPath = "/org/mpris/MediaPlayer2"
-    private static let rootInterface = "org.mpris.MediaPlayer2"
-    private static let playerInterface = "org.mpris.MediaPlayer2.Player"
+    nonisolated private static let busName = "org.mpris.MediaPlayer2.goosic"
+    nonisolated private static let objectPath = "/org/mpris/MediaPlayer2"
+    nonisolated private static let rootInterface = "org.mpris.MediaPlayer2"
+    nonisolated private static let playerInterface = "org.mpris.MediaPlayer2.Player"
     nonisolated static let noTrackPath = "/org/mpris/MediaPlayer2/TrackList/NoTrack"
 
     /// Only the members Goosic can answer. Declaring a method here and refusing it at runtime
     /// would put a dead button in every panel on the desktop.
-    private static let introspectionXML = """
+    nonisolated private static let introspectionXML = """
     <node>
       <interface name='org.mpris.MediaPlayer2'>
         <property name='CanQuit' type='b' access='read'/>
@@ -104,8 +104,26 @@ final class SystemMediaControls {
     </node>
     """
 
+    /// Whether this process has already claimed the bus name.
+    ///
+    /// It has to be asked, because a `SystemMediaControls` is built more often than the shell has
+    /// media controls. `@State`'s initialiser is not an autoclosure, so `GoosicAppModel()` is
+    /// evaluated on every construction of the view struct — every render — while `State.update`
+    /// keeps the first storage and throws the new value away. Only the first model survives;
+    /// the rest are built and immediately released.
+    private static var busNameClaimed = false
+
     init(model: GoosicAppModel) {
         self.model = model
+        // A later instance is one of those throwaways. It publishes nothing rather than asking
+        // the bus for a name a live instance already holds.
+        guard !Self.busNameClaimed else { return }
+        Self.busNameClaimed = true
+        // Retained, not unretained. GDBus keeps this pointer for as long as it owns the name and
+        // calls back through it long after `init` returns; handing it an object nobody holds is
+        // how a discarded instance becomes a use-after-free in a callback. The matching release
+        // never comes, which is the intended trade: the owner of the name is the surviving model
+        // and it lives as long as the process.
         ownerID = g_bus_own_name(
             G_BUS_TYPE_SESSION,
             Self.busName,
@@ -113,13 +131,13 @@ final class SystemMediaControls {
             Self.busAcquired,
             nil,
             Self.nameLost,
-            Unmanaged.passUnretained(self).toOpaque(),
+            Unmanaged.passRetained(self).toOpaque(),
             nil
         )
     }
 
-    // No `deinit`. These controls live as long as the shell, and the session bus releases a name
-    // when its process exits, so nothing here outlives the program.
+    // No `deinit`. The instance that owns the name is retained by the bus for the life of the
+    // process, and the session bus releases the name when that process exits.
 
     /// Republishes what the desktop shows, and only when something a client can see has moved.
     func update(snapshot: SystemMediaPlaybackSnapshot) {
@@ -155,26 +173,45 @@ final class SystemMediaControls {
             set_property: SystemMediaControls.setProperty,
             padding: (nil, nil, nil, nil, nil, nil, nil, nil)
         )
-        var root: guint = 0
-        var player: guint = 0
-        if let info = g_dbus_node_info_lookup_interface(node, SystemMediaControls.rootInterface) {
-            root = g_dbus_connection_register_object(
-                connection, SystemMediaControls.objectPath, info, &vtable, userData, nil, &error
+        // A fresh GError per call, and never one that is reused. GLib asserts that the location
+        // it is handed already points at NULL, so passing the same one to a second call after the
+        // first has failed trips `assertion 'error == NULL || *error == NULL' failed` and returns
+        // without registering anything.
+        func register(_ interface: String) -> guint {
+            guard let info = g_dbus_node_info_lookup_interface(node, interface) else { return 0 }
+            var registerError: UnsafeMutablePointer<GError>?
+            let id = g_dbus_connection_register_object(
+                connection, SystemMediaControls.objectPath, info, &vtable, userData, nil,
+                &registerError
             )
+            if let registerError { g_error_free(registerError) }
+            return id
         }
-        if let info = g_dbus_node_info_lookup_interface(node, SystemMediaControls.playerInterface) {
-            player = g_dbus_connection_register_object(
-                connection, SystemMediaControls.objectPath, info, &vtable, userData, nil, &error
-            )
-        }
-        if let error { g_error_free(error) }
+        let root = register(SystemMediaControls.rootInterface)
+        let player = register(SystemMediaControls.playerInterface)
 
         // GDBus dispatches on the thread whose main context owns the connection, and that is the
         // GTK main loop: this actor's thread.
         MainActor.assumeIsolated {
+            // Acquiring the name is not promised to happen once — a bus that drops and returns
+            // calls this again — and registering the same path twice leaves the first pair
+            // orphaned and answering.
+            controls.unregisterExistingObjects()
             controls.connectionAddress = address
             controls.rootRegistration = root
             controls.playerRegistration = player
+        }
+    }
+
+    private func unregisterExistingObjects() {
+        guard let connection = OpaquePointer(bitPattern: connectionAddress) else { return }
+        if rootRegistration != 0 {
+            g_dbus_connection_unregister_object(connection, rootRegistration)
+            rootRegistration = 0
+        }
+        if playerRegistration != 0 {
+            g_dbus_connection_unregister_object(connection, playerRegistration)
+            playerRegistration = 0
         }
     }
 
@@ -185,14 +222,24 @@ final class SystemMediaControls {
 
     // MARK: - Encoding
 
-    private static func withVariantType<T>(_ signature: String, _ body: (OpaquePointer) -> T) -> T? {
-        guard let type = g_variant_type_new(signature) else { return nil }
-        defer { g_variant_type_free(type) }
+    /// The two container types this adapter builds, created once instead of per call.
+    ///
+    /// `G_VARIANT_TYPE("a{sv}")` is a cast of a string constant in C and costs nothing; the
+    /// macro is invisible to Swift, so the equivalent is an allocation. Making it once rather
+    /// than on every property read keeps a signal that fires several times a second from
+    /// allocating and freeing a type each time.
+    /// Held as addresses for the same reason the connection is: a `GVariantType` is a C handle
+    /// and not `Sendable`, and these are read from the bus callbacks as well as from the actor.
+    nonisolated private static let vardictTypeAddress = UInt(bitPattern: g_variant_type_new("a{sv}"))
+    nonisolated private static let stringArrayTypeAddress = UInt(bitPattern: g_variant_type_new("as"))
+
+    nonisolated static func withVariantType<T>(_ address: UInt, _ body: (OpaquePointer) -> T) -> T? {
+        guard let type = OpaquePointer(bitPattern: address) else { return nil }
         return body(type)
     }
 
-    private static func stringArray(_ values: [String]) -> OpaquePointer? {
-        withVariantType("as") { type -> OpaquePointer? in
+    nonisolated static func stringArray(_ values: [String]) -> OpaquePointer? {
+        withVariantType(stringArrayTypeAddress) { type -> OpaquePointer? in
             var builder = GVariantBuilder()
             g_variant_builder_init(&builder, type)
             for value in values {
@@ -202,12 +249,12 @@ final class SystemMediaControls {
         } ?? nil
     }
 
-    private static func entry(_ key: String, _ value: OpaquePointer?) -> OpaquePointer? {
+    nonisolated static func entry(_ key: String, _ value: OpaquePointer?) -> OpaquePointer? {
         guard let value else { return nil }
         return g_variant_new_dict_entry(g_variant_new_string(key), g_variant_new_variant(value))
     }
 
-    private static func variant(for value: MPRISPropertyValue) -> OpaquePointer? {
+    nonisolated static func variant(for value: MPRISPropertyValue) -> OpaquePointer? {
         switch value {
         case .string(let text): return g_variant_new_string(text)
         case .objectPath(let path): return g_variant_new_object_path(path)
@@ -219,8 +266,8 @@ final class SystemMediaControls {
         }
     }
 
-    private static func variant(for metadata: MPRISMetadata) -> OpaquePointer? {
-        withVariantType("a{sv}") { type -> OpaquePointer? in
+    nonisolated static func variant(for metadata: MPRISMetadata) -> OpaquePointer? {
+        withVariantType(vardictTypeAddress) { type -> OpaquePointer? in
             var builder = GVariantBuilder()
             g_variant_builder_init(&builder, type)
             var fields: [OpaquePointer?] = [
@@ -426,7 +473,7 @@ final class SystemMediaControls {
     private func emitPlayerPropertiesChanged() {
         guard let connection = OpaquePointer(bitPattern: connectionAddress) else { return }
         let properties = changedProperties()
-        let changed = Self.withVariantType("a{sv}") { type -> OpaquePointer? in
+        let changed = Self.withVariantType(Self.vardictTypeAddress) { type -> OpaquePointer? in
             var builder = GVariantBuilder()
             g_variant_builder_init(&builder, type)
             for (name, value) in properties {
