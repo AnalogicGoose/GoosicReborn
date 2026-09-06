@@ -6,11 +6,6 @@ import WebKit
 
 @MainActor
 final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
-    nonisolated private static let allowedHosts: Set<String> = [
-        "accounts.google.com", "www.youtube.com", "music.youtube.com",
-        "myaccount.google.com", "consent.google.com", "ogs.google.com"
-    ]
-
     private var window: NSWindow?
     private var webView: WKWebView?
     private var accountId: UUID?
@@ -117,7 +112,7 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard navigationAction.targetFrame?.isMainFrame == true else { return decisionHandler(.cancel) }
-        decisionHandler(Self.isAllowedMainFrameURL(navigationAction.request.url) ? .allow : .cancel)
+        decisionHandler(AccountLoginValidation.isAllowedLoginURL(navigationAction.request.url) ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -171,13 +166,6 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         nil
-    }
-
-    nonisolated static func isAllowedMainFrameURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        guard url.scheme == "https", url.user == nil, url.password == nil,
-              url.host != nil, url.port == nil || url.port == 443 else { return false }
-        return allowedHosts.contains(url.host!.lowercased())
     }
 
 }
