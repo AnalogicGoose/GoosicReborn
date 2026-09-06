@@ -97,15 +97,18 @@ final class AccountProfileValidationTests: XCTestCase {
                                                           summary: summary), .wait)
     }
 
-    #if os(macOS)
+    /// No longer behind `#if os(macOS)`: the rule moved into the shared half, so the platform
+    /// that reaches these hosts second is covered by the same test rather than by a copy of it.
     func testLoginNavigationAllowsOnlyMainFrameHTTPSAllowlist() {
-        XCTAssertTrue(AccountLoginHost.isAllowedMainFrameURL(URL(string: "https://accounts.google.com/signin")))
-        XCTAssertTrue(AccountLoginHost.isAllowedMainFrameURL(URL(string: "https://music.youtube.com/")))
-        XCTAssertFalse(AccountLoginHost.isAllowedMainFrameURL(URL(string: "https://evil.example/")))
-        XCTAssertFalse(AccountLoginHost.isAllowedMainFrameURL(URL(string: "http://accounts.google.com/")))
-        XCTAssertFalse(AccountLoginHost.isAllowedMainFrameURL(URL(string: "about:blank")))
+        XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://accounts.google.com/signin")))
+        XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://music.youtube.com/")))
+        XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://evil.example/")))
+        XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "http://accounts.google.com/")))
+        XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "about:blank")))
+        XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://user:pass@accounts.google.com/")))
+        XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://accounts.google.com.evil.example/")))
+        XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(nil))
     }
-    #endif
 }
 
 final class AccountTransitionGateTests: XCTestCase {

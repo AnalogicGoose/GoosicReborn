@@ -115,7 +115,7 @@ the screens:
 | Local decoded-file playback | `LocalPlaybackEvent.swift` | `LocalPlaybackHost+*.swift` | macOS real, others stubbed |
 | System media controls | `SystemMediaPlayback.swift` | `SystemMediaControls+*.swift` | macOS Now Playing, Linux MPRIS, Windows stubbed |
 | Window material | `MaterialSurfaceKind.swift` | `MaterialSurface+*.swift` | macOS real, plain elsewhere |
-| Account WebKit profiles | `AccountLoginModel.swift` | `AccountLoginHost+*.swift` | macOS real, others stubbed |
+| Account WebKit profiles | `AccountLoginModel.swift` | `AccountLoginHost+*.swift` | macOS and Linux real, Windows stubbed |
 
 The `Core` column is the half that decides things and the `Platform` column is the half that
 talks to an operating system. Rules, wire shapes, and validation belong in `Core` — those are
