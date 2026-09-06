@@ -1,4 +1,6 @@
-#if !os(macOS)
+// Linux has a real host of its own under Platform/Linux. What remains here is the stub for
+// platforms with no renderer yet.
+#if !os(macOS) && !os(Linux)
 import Foundation
 import SwiftCrossUI
 
