@@ -102,6 +102,9 @@ final class AccountProfileValidationTests: XCTestCase {
     func testLoginNavigationAllowsOnlyMainFrameHTTPSAllowlist() {
         XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://accounts.google.com/signin")))
         XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://music.youtube.com/")))
+        // Both were refused during a real sign-in, which is why they are here.
+        XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://accounts.youtube.com/accounts/SetSID")))
+        XCTAssertTrue(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://gds.google.com/web/consent")))
         XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "https://evil.example/")))
         XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "http://accounts.google.com/")))
         XCTAssertFalse(AccountLoginValidation.isAllowedLoginURL(URL(string: "about:blank")))
