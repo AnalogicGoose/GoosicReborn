@@ -6,11 +6,6 @@ import WebKit
 
 @MainActor
 final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
-    nonisolated private static let allowedHosts: Set<String> = [
-        "accounts.google.com", "www.youtube.com", "music.youtube.com",
-        "myaccount.google.com", "consent.google.com", "ogs.google.com"
-    ]
-
     private var window: NSWindow?
     private var webView: WKWebView?
     private var accountId: UUID?
@@ -22,7 +17,6 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     private var completionDelivered = false
     private var navigationToken: UInt64 = 0
     private var pollingTask: Task<Void, Never>?
-    private let completionTimeout: TimeInterval = 30
     var onCompleted: ((AccountLoginResult, AccountLoginHost) -> Void)?
     var onCancelled: (() -> Void)?
 
@@ -118,7 +112,7 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard navigationAction.targetFrame?.isMainFrame == true else { return decisionHandler(.cancel) }
-        decisionHandler(Self.isAllowedMainFrameURL(navigationAction.request.url) ? .allow : .cancel)
+        decisionHandler(AccountLoginValidation.isAllowedLoginURL(navigationAction.request.url) ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -135,14 +129,14 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         let token = navigationToken
         pollingTask = Task { @MainActor [weak self, weak webView] in
             guard let self else { return }
-            let deadline = Date().addingTimeInterval(self.completionTimeout)
+            let deadline = Date().addingTimeInterval(AccountLoginValidation.completionTimeout)
             while !Task.isCancelled, Date() < deadline {
                 guard !self.closing, token == self.navigationToken, let webView,
                       AccountLoginValidation.isExactCompletionOrigin(webView.url) else {
                     try? await Task.sleep(for: .milliseconds(250))
                     continue
                 }
-                webView.evaluateJavaScript(Self.completionScript) { [weak self, weak webView] value, _ in
+                webView.evaluateJavaScript(AccountLoginValidation.completionScript) { [weak self, weak webView] value, _ in
                     Task { @MainActor [weak self, weak webView] in
                         guard let self, let webView, !self.closing,
                               token == self.navigationToken,
@@ -174,47 +168,5 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         nil
     }
 
-    nonisolated static func isAllowedMainFrameURL(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        guard url.scheme == "https", url.user == nil, url.password == nil,
-              url.host != nil, url.port == nil || url.port == 443 else { return false }
-        return allowedHosts.contains(url.host!.lowercased())
-    }
-
-    /// Runs in the page only after exact-origin navigation. The marker requires an account-menu
-    /// affordance in the authenticated shell; arriving at music.youtube.com alone is insufficient.
-    private static let completionScript = """
-    (() => {
-      if (location.origin !== 'https://music.youtube.com') return '';
-      const marker = document.querySelector('#avatar-btn, button[aria-label*="Account"], [aria-label*="Google Account"]');
-      if (!marker) return '';
-      const clip = (value, limit) => (value || '').trim().slice(0, limit);
-      const text = (selector, limit) => clip(document.querySelector(selector)?.textContent, limit);
-      const attr = (selector, name, limit) => clip(document.querySelector(selector)?.getAttribute(name), limit);
-      const visible = (element) => {
-        if (!element) return false;
-        const style = getComputedStyle(element);
-        const rect = element.getBoundingClientRect();
-        return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
-      };
-      const signInVisible = Array.from(document.querySelectorAll('a,button,[role="button"]'))
-        .some((element) => visible(element) && /sign\\s*in|log\\s*in/i.test(element.textContent || element.getAttribute('aria-label') || ''));
-      if (signInVisible) return '';
-      const identity = clip(marker.getAttribute('aria-label') || marker.getAttribute('title') || '', 320);
-      const signedOut = /sign\\s*in|log\\s*in|not\\s*signed/i.test(identity);
-      const email = text('#account-email', 320);
-      const channel = text('ytmusic-account-menu-renderer #channel-title', 128);
-      const avatarUrl = attr('#avatar-btn img', 'src', 2048);
-      if (signedOut) return '';
-      if (!identity && !email && !channel) {
-        try { marker.click(); } catch (_) {}
-        return '';
-      }
-      return JSON.stringify({
-        displayName: text('#account-name', 128) || clip(identity, 128),
-        email, channel, avatarUrl
-      });
-    })();
-    """
 }
 #endif
