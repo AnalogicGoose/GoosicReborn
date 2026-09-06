@@ -85,17 +85,42 @@ task seems to require breaking one, stop and say so instead of working around it
 
 ## 4. Where platform-specific code lives
 
-The shell is shared except at its edges. Platform work belongs in these seams, behind the
-existing abstractions, not scattered through the screens:
+The directory says which platform a file belongs to, so nobody has to infer it from a name:
 
-| Concern | File | State |
-| --- | --- | --- |
-| Playback host abstraction | `PlatformPlaybackHost.swift` | shared; the extension point |
-| Official (web) playback | `OfficialPlaybackHost.swift` | macOS real, others stubbed |
-| Local decoded-file playback | `LocalPlaybackHost.swift` | macOS real, others stubbed |
-| System media controls | `SystemMediaControls.swift` | macOS real, others stubbed |
-| Window material | `MaterialSurface.swift` | macOS real, plain elsewhere |
-| Account WebKit profiles | `AccountLoginHost.swift` | macOS real, others stubbed |
+```
+Sources/GoosicSwift/
+    Core/                 compiled everywhere; no #if os(...) belongs here
+    Platform/macOS/       AppKit, WebKit, AVFoundation, MediaPlayer
+    Platform/Linux/       GTK 4, WebKitGTK
+    Platform/Stubs/       every platform without a real implementation
+```
+
+Files under `Platform/` carry their platform as a suffix — `OfficialPlaybackHost+macOS.swift`,
+`OfficialPlaybackHost+Unsupported.swift`. That is not decoration and not a second way of
+saying what the directory already says: SwiftPM derives each object file from the source's
+base name, so one target cannot hold two files called `OfficialPlaybackHost.swift`, and the
+build fails with `multiple producers` rather than anything that names the real cause.
+
+Each file still opens with the `#if os(...)` that makes it true. The directory is where a
+reader looks; the guard is what the compiler obeys. Keeping both means a misplaced file
+fails to compile instead of silently vanishing from a platform.
+
+Platform work belongs in these seams, behind the existing abstractions, not scattered through
+the screens:
+
+| Concern | Core | Platform | State |
+| --- | --- | --- | --- |
+| Playback host abstraction | `PlatformPlaybackHost.swift` | — | shared; the extension point |
+| Official (web) playback | `OfficialBridge.swift` | `OfficialPlaybackHost+*.swift` | macOS real, others stubbed |
+| Local decoded-file playback | `LocalPlaybackEvent.swift` | `LocalPlaybackHost+*.swift` | macOS real, others stubbed |
+| System media controls | `SystemMediaPlayback.swift` | `SystemMediaControls+*.swift` | macOS real, others stubbed |
+| Window material | `MaterialSurfaceKind.swift` | `MaterialSurface+*.swift` | macOS real, plain elsewhere |
+| Account WebKit profiles | `AccountLoginModel.swift` | `AccountLoginHost+*.swift` | macOS real, others stubbed |
+
+The `Core` column is the half that decides things and the `Platform` column is the half that
+talks to an operating system. Rules, wire shapes, and validation belong in `Core` — those are
+the parts a test can reach on any machine, and splitting them out is what makes `may this
+play` have one answer rather than one per platform.
 
 A stub reports the limitation. It must never produce sound or silently succeed, because that
 would let a renderer escape Rust's authority. When you implement one for a platform, keep the
