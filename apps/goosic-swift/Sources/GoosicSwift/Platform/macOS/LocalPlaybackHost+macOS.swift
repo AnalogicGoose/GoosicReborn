@@ -3,16 +3,6 @@ import AVFoundation
 import Foundation
 
 /// A confirmed event from the local decoded-file renderer.
-struct LocalPlaybackEvent {
-    let generation: UInt64
-    let videoID: String
-    let sequence: UInt64
-    let state: String
-    let currentTime: Double
-    let duration: Double
-    let volume: Double
-    let isMuted: Bool
-}
 
 /// The sole local-file audio renderer. It accepts only the decoded cache path returned by Rust;
 /// it never opens a WebM source, starts a network request, or reads account state.
@@ -164,40 +154,5 @@ final class LocalPlaybackHost: NSObject, AVAudioPlayerDelegate {
             self.emit(state: "ended", generation: generation, videoID: videoID, player: player)
         }
     }
-}
-#else
-import Foundation
-
-struct LocalPlaybackEvent {
-    let generation: UInt64
-    let videoID: String
-    let sequence: UInt64
-    let state: String
-    let currentTime: Double
-    let duration: Double
-    let volume: Double
-    let isMuted: Bool
-}
-
-/// Explicit non-macOS stub. AVFoundation local playback is not silently emulated elsewhere.
-@MainActor
-final class LocalPlaybackHost {
-    var onEvent: ((LocalPlaybackEvent) -> Void)?
-    var onStatus: ((String) -> Void)?
-    var loadedVideoID: String? { nil }
-    var isLoaded: Bool { false }
-
-    func prepare(localFile: String, videoID: String, generation: UInt64) throws {
-        throw NSError(domain: "GoosicPlayback", code: 4, userInfo: [
-            NSLocalizedDescriptionKey: "Local downloaded-file playback is only available on macOS.",
-        ])
-    }
-    @discardableResult func play() -> Bool { onStatus?("Local downloaded-file playback is only available on macOS."); return false }
-    func pause() {}
-    func stop() {}
-    func stopForReplacement() {}
-    func seek(to seconds: Double) {}
-    func setVolume(_ volume: Double) {}
-    func setMuted(_ muted: Bool) {}
 }
 #endif
