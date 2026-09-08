@@ -75,6 +75,8 @@ struct CatalogPageBody: View {
     let state: CatalogLoadState
     let subject: String
     let model: GoosicAppModel
+    @State private var visibleTrackCount = 15
+    @State private var visibleShelfCount = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -93,12 +95,24 @@ struct CatalogPageBody: View {
                     EmptyState(title: "Nothing to show", message: "\(subject) came back empty.")
                 } else {
                     if !page.tracks.isEmpty {
-                        ForEach(page.tracks) { track in
+                        ForEach(Array(page.tracks.prefix(visibleTrackCount))) { track in
                             TrackRow(track: track, context: page.tracks, model: model)
                         }
+                        if visibleTrackCount < page.tracks.count {
+                            Button("Show more tracks") {
+                                visibleTrackCount = min(visibleTrackCount + 15, page.tracks.count)
+                            }
+                            .font(.caption)
+                        }
                     }
-                    ForEach(page.shelves) { shelf in
+                    ForEach(Array(page.shelves.prefix(visibleShelfCount))) { shelf in
                         ShelfView(shelf: shelf, model: model)
+                    }
+                    if visibleShelfCount < page.shelves.count {
+                        Button("Show more sections") {
+                            visibleShelfCount = min(visibleShelfCount + 1, page.shelves.count)
+                        }
+                        .font(.caption)
                     }
                     if page.nextCursor != nil {
                         Button(model.catalogContinuationsLoading.contains(key) ? "Loading more…" : "Load more") {
@@ -133,6 +147,17 @@ struct CatalogRouteScreen: View {
     let model: GoosicAppModel
 
     var body: some View {
+        #if os(macOS) && !GOOSIC_PORTABLE
+        // The macOS catalog uses SwiftUI's real lazy containers. SwiftCrossUI's current
+        // ScrollView eagerly lays out every ForEach child and beach-balls on large pages.
+        NativeMacCatalogRouteSurface(
+            route: route,
+            title: title,
+            subtitle: subtitle,
+            state: model.state(for: .route(route)),
+            model: model
+        )
+        #else
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ScreenHeader(title: title, subtitle: subtitle)
@@ -148,6 +173,7 @@ struct CatalogRouteScreen: View {
             }
             .padding(24)
         }
+        #endif
     }
 }
 
