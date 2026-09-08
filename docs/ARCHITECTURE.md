@@ -130,3 +130,12 @@ The local renderer is one `AVAudioPlayer` over a decoded WAV path returned by Ru
 The protocol carries identifiers, playback metadata, and public catalog metadata only. Cookies, credentials, bridge tokens, signing keys, and downloaded media URLs must stay in platform-secure storage and never be logged or placed on stdout. WebView implementations must validate origin and generation before forwarding events to this authority.
 
 Catalog reads are anonymous by construction: the client sends no cookies, no `Authorization`, and no account headers, and a test asserts its request context carries none. The anonymous `visitorData` token upstream returns is held in memory for the process lifetime to keep results stable; it is never persisted or written to stdout. A signed-in surface (a real library) is therefore not reachable through this client — it needs the official web view.
+
+Account-scoped catalog reads use `PersonalCatalogHost`, a separate native browser-profile seam.
+On macOS it creates an ephemeral view over the active account's persistent
+`WKWebsiteDataStore`, performs the browse from the trusted YouTube Music origin, and projects the
+answer directly into the small catalog shape the shell renders. The profile's cookies and request
+context remain inside WebKit. Raw responses and credentials never cross the Rust service
+protocol. Binding another account cancels in-flight reads and clears account-scoped page state,
+so a late response cannot paint one user's Library under another user's identity. Unsupported
+platform hosts fail explicitly until their native account integration implements the same seam.

@@ -10,6 +10,7 @@ enum CatalogKey: Hashable {
     case album(String)
     case artist(String)
     case playlist(String)
+    case library(String)
 
     static func entity(_ reference: GoosicEntityReference) -> CatalogKey {
         switch reference {
@@ -18,6 +19,26 @@ enum CatalogKey: Hashable {
         case .playlist(let id): return .playlist(id)
         }
     }
+}
+
+enum PersonalLibrarySection: String, CaseIterable, Identifiable {
+    case playlists = "Playlists"
+    case songs = "Songs"
+    case albums = "Albums"
+    case artists = "Artists"
+
+    var id: String { rawValue }
+
+    var browseID: String {
+        switch self {
+        case .playlists: return "FEmusic_liked_playlists"
+        case .songs: return "VLLM"
+        case .albums: return "FEmusic_liked_albums"
+        case .artists: return "FEmusic_library_corpus_artists"
+        }
+    }
+
+    var key: CatalogKey { .library(rawValue) }
 }
 
 enum CatalogLoadState {
@@ -34,6 +55,7 @@ struct CatalogPageView: Hashable {
     let subtitle: String
     let shelves: [GoosicShelf]
     let tracks: [GoosicTrack]
+    let nextCursor: String?
     /// The service clamped this page to fit one protocol frame.
     let truncated: Bool
 
@@ -119,7 +141,35 @@ extension CatalogPageView {
             subtitle: page.subtitle ?? "",
             shelves: shelves,
             tracks: (page.tracks ?? []).compactMap(GoosicTrack.init(catalog:)),
+            nextCursor: page.nextCursor,
             truncated: page.truncated ?? false
+        )
+    }
+
+    func appending(_ continuation: CatalogPageView) -> CatalogPageView {
+        var seen = Set(shelves.map(\.id))
+        var mergedShelves = shelves
+        for shelf in continuation.shelves {
+            var candidate = shelf
+            var suffix = 2
+            while !seen.insert(candidate.id).inserted {
+                candidate = GoosicShelf(
+                    id: "\(shelf.id)-\(suffix)",
+                    title: shelf.title,
+                    cards: shelf.cards
+                )
+                suffix += 1
+            }
+            mergedShelves.append(candidate)
+        }
+        return CatalogPageView(
+            id: id,
+            title: title,
+            subtitle: subtitle,
+            shelves: mergedShelves,
+            tracks: tracks + continuation.tracks,
+            nextCursor: continuation.nextCursor,
+            truncated: truncated || continuation.truncated
         )
     }
 }

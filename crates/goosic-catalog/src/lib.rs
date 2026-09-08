@@ -10,8 +10,8 @@ mod parse;
 
 pub use client::{search_params, InnertubeClient};
 pub use parse::{
-    artist_page, browse_page, browse_shelves, queue_item, radio_page, search_page,
-    track_list_page,
+    artist_page, browse_continuation_page, browse_page, browse_shelves, continuation_token,
+    queue_item, radio_page, search_page, track_list_page,
 };
 
 use goosic_protocol::CatalogPage;
@@ -105,6 +105,15 @@ impl Catalog {
         })?;
         let response = self.client.browse(browse_id)?;
         let page = parse::browse_page(browse_id, title, &response);
+        if page.shelves.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        Ok(page)
+    }
+
+    pub fn browse_continuation(&self, cursor: &str) -> Result<CatalogPage, CatalogError> {
+        let response = self.client.browse_continuation(cursor)?;
+        let page = parse::browse_continuation_page(&response);
         if page.shelves.is_empty() {
             return Err(CatalogError::Empty);
         }

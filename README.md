@@ -4,7 +4,8 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 
 ## What works today
 
-- **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust, as an anonymous guest. Albums, playlists, and artists open to their real track lists.
+- **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
+- **Personal content (macOS).** A signed-in Home and the Library's playlists, liked songs, albums, and artists are read inside the active account's isolated WebKit profile. Cookies never leave WebKit; the shared shell receives normalized public music metadata only. See [the content parity map](docs/CONTENT_PARITY.md) for the full old-Goosic comparison.
 - **Real playback (macOS).** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single WKWebView host. Advertisements are reported as informational markers and are never bypassed.
 - **A real transport.** Elapsed and total time, seeking, volume and mute, and autoplay to the next queued track — all reflecting what the player confirms, never what was requested. Goosic's queue overrides the official app's own "up next", so it never plays something you did not choose.
 - **Preferences that persist.** Volume, mute, autoplay, shuffle, repeat, the queue panel, and the screen you were on are stored by Rust and restored on launch. Preferences from a previous Goosic install can be imported; the old data is read, never changed, and credentials are never carried over.

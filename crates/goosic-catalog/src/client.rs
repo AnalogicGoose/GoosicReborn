@@ -152,6 +152,14 @@ impl InnertubeClient {
         self.post("browse", json!({"browseId": browse_id}))
     }
 
+    pub fn browse_continuation(&self, continuation: &str) -> Result<Value, CatalogError> {
+        let continuation = continuation.trim();
+        if continuation.is_empty() {
+            return Err(CatalogError::InvalidRequest("continuation is empty".into()));
+        }
+        self.post("browse", json!({"continuation": continuation}))
+    }
+
     /// Asks for the queue that follows a track.
     ///
     /// `RDAMVM<videoId>` is the radio playlist the web client uses for "start radio from this
@@ -201,6 +209,13 @@ mod tests {
     fn empty_query_is_rejected_before_any_network_call() {
         let client = InnertubeClient::new();
         let error = client.search("   ", "all").unwrap_err();
+        assert!(matches!(error, CatalogError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn empty_continuation_is_rejected_before_any_network_call() {
+        let client = InnertubeClient::new();
+        let error = client.browse_continuation("  ").unwrap_err();
         assert!(matches!(error, CatalogError::InvalidRequest(_)));
     }
 
