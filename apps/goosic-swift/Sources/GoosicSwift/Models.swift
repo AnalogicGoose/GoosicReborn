@@ -281,6 +281,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// The track the loaded lyrics belong to, so a stale answer cannot land on a new song.
     private var lyricsVideoID: String?
     private var lyricsRequestInFlight = false
+    /// Playback bridges report twice a second. Remembering the last presentation state lets us
+    /// avoid publishing an identical status/control tree on every poll.
+    private var lastOfficialEventState: String?
+    private var lastOfficialEventWasAdvertisement: Bool?
+    private var lastLocalEventState: String?
     /// Bumped when artwork arrives. Views read it so a late thumbnail re-renders its card.
     @SwiftCrossUI.Published private(set) var artworkVersion: UInt64 = 0
 
@@ -337,6 +342,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     // MARK: - Navigation
 
     func navigate(to route: GoosicRoute) {
+        // A second click on the selected tab used to republish the whole model, rebuild the
+        // catalog tree, write preferences, and refresh Downloads. On a dense page that was
+        // enough to trigger macOS's beach ball even though nothing had changed.
+        guard self.route != route || detail != nil else { return }
         self.route = route
         detail = nil
         loadRoute(route)
@@ -744,7 +753,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     func toggleLyrics() {
         lyricsVisible.toggle()
-        if lyricsVisible { loadLyricsIfNeeded() }
+        if lyricsVisible {
+            queueVisible = false
+            loadLyricsIfNeeded()
+        }
     }
 
     /// Fetches lyrics for the current track, unless they are already loaded for it.
@@ -1106,14 +1118,23 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         pages[key] = .loading
         send(command: command, payload: payload) { [weak self] response in
             guard let self else { return }
-            guard let page = response.payload?.catalog else {
+            guard let wirePage = response.payload?.catalog else {
                 self.pages[key] = .failed(
                     code: "invalidResponse",
                     message: "The service answered without a catalog page."
                 )
                 return
             }
-            self.pages[key] = .loaded(CatalogPageView(wire: page))
+            // A Home/Explore response can contain hundreds of rows. Converting, deduplicating,
+            // and constructing them on the main actor made the app beach-ball exactly when the
+            // loading label disappeared.
+            Task { [weak self] in
+                let page = await Task.detached(priority: .userInitiated) {
+                    CatalogPageView(wire: wirePage)
+                }.value
+                guard let self else { return }
+                self.pages[key] = .loaded(page)
+            }
         } failure: { [weak self] error in
             guard let self else { return }
             let described = Self.describe(error)
@@ -1520,6 +1541,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     func toggleQueue() {
         guard allowPlaybackInteraction() else { return }
         queueVisible.toggle()
+        if queueVisible { lyricsVisible = false }
         savePreferences(GoosicPreferencesPatch(queueVisible: queueVisible))
     }
 
@@ -1727,6 +1749,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         pendingSeek = nil
         endedVideoID = nil
         isAdvertisement = false
+        lastOfficialEventState = nil
+        lastOfficialEventWasAdvertisement = nil
+        lastLocalEventState = nil
         hasConfirmedPlaybackSample = false
         volumeAppliedForLoad = false
         updateSystemMediaControls()
@@ -1743,15 +1768,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     private func apply(_ response: GoosicResponse) {
         if let state = response.payload?.state {
-            let previous = playbackState
-            playbackState = state
-            if state.owner != previous.owner
-                || state.generation != previous.generation
-                || state.accountId != previous.accountId
-                || state.owner == .none {
-                hasConfirmedPlaybackSample = false
-            }
-            updateSystemMediaControls()
+            applyPlaybackStateIfMeaningfullyChanged(state)
         }
         if response.requestId.hasPrefix("swift-") && response.payload?.message != nil {
             status = response.payload?.message ?? status
@@ -1769,16 +1786,41 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
               event.duration.isFinite, event.duration >= 0 else {
             return
         }
-        hasConfirmedPlaybackSample = true
+        var presentationChanged = false
+        if !hasConfirmedPlaybackSample {
+            hasConfirmedPlaybackSample = true
+            presentationChanged = true
+        }
         loadLyricsIfNeeded()
-        isPaused = event.state != "playing"
-        isAdvertisement = event.isAdvertisement
-        currentTime = event.currentTime
-        duration = event.duration
+        let nextPaused = event.state != "playing"
+        if isPaused != nextPaused {
+            isPaused = nextPaused
+            presentationChanged = true
+        }
+        if isAdvertisement != event.isAdvertisement {
+            isAdvertisement = event.isAdvertisement
+            presentationChanged = true
+        }
+        // A one-second visual cadence is smooth enough for a music progress bar and halves the
+        // number of whole-shell invalidations caused by WebKit's 500 ms observer.
+        if abs(currentTime - event.currentTime) >= 0.9 || event.state == "ended" {
+            currentTime = event.currentTime
+            presentationChanged = true
+        }
+        if abs(duration - event.duration) >= 0.1 {
+            duration = event.duration
+            presentationChanged = true
+        }
         if !event.isAdvertisement {
             if volumeAppliedForLoad {
-                volume = event.volume
-                isMuted = event.isMuted
+                if abs(volume - event.volume) > 0.01 {
+                    volume = event.volume
+                    presentationChanged = true
+                }
+                if isMuted != event.isMuted {
+                    isMuted = event.isMuted
+                    presentationChanged = true
+                }
             } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
                 // A fresh content page starts at its own volume. Push the stored preference once,
                 // then follow what the player reports. Advertisements never enter this path.
@@ -1798,16 +1840,25 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             endedVideoID = event.videoID
             advanceAfterEnd()
         }
-        if event.isAdvertisement {
-            status = "Official host confirmed advertisement playback (informational marker; ads are not bypassed)."
-        } else if event.state == "playing" {
-            status = "Official host confirmed media playback for \(event.videoID)."
-        } else if event.state == "ended" {
-            status = "Official host reported the video ended."
-        } else {
-            status = "Official host reported \(event.state) for \(event.videoID)."
+        if lastOfficialEventState != event.state || lastOfficialEventWasAdvertisement != event.isAdvertisement {
+            let nextStatus: String
+            if event.isAdvertisement {
+                nextStatus = "Official host confirmed advertisement playback (informational marker; ads are not bypassed)."
+            } else if event.state == "playing" {
+                nextStatus = "Official host confirmed media playback for \(event.videoID)."
+            } else if event.state == "ended" {
+                nextStatus = "Official host reported the video ended."
+            } else {
+                nextStatus = "Official host reported \(event.state) for \(event.videoID)."
+            }
+            if status != nextStatus {
+                status = nextStatus
+                presentationChanged = true
+            }
+            lastOfficialEventState = event.state
+            lastOfficialEventWasAdvertisement = event.isAdvertisement
         }
-        updateSystemMediaControls()
+        if presentationChanged { updateSystemMediaControls() }
         send(
             command: "playback.sample",
             payload: GoosicRequestPayload(
@@ -1834,17 +1885,32 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
               event.duration.isFinite, event.duration >= 0 else {
             return
         }
-        hasConfirmedPlaybackSample = true
-        isPaused = event.state != "playing"
-        isAdvertisement = false
-        currentTime = event.currentTime
-        duration = event.duration
-        isMuted = event.isMuted
-        if !event.isMuted { volume = event.volume }
-        status = event.state == "ended"
-            ? "Local playback ended."
-            : "Local playback confirmed \(event.state) for \(event.videoID)."
-        updateSystemMediaControls()
+        var presentationChanged = false
+        if !hasConfirmedPlaybackSample {
+            hasConfirmedPlaybackSample = true
+            presentationChanged = true
+        }
+        let nextPaused = event.state != "playing"
+        if isPaused != nextPaused { isPaused = nextPaused; presentationChanged = true }
+        if isAdvertisement { isAdvertisement = false; presentationChanged = true }
+        if abs(currentTime - event.currentTime) >= 0.9 || event.state == "ended" {
+            currentTime = event.currentTime
+            presentationChanged = true
+        }
+        if abs(duration - event.duration) >= 0.1 { duration = event.duration; presentationChanged = true }
+        if isMuted != event.isMuted { isMuted = event.isMuted; presentationChanged = true }
+        if !event.isMuted, abs(volume - event.volume) > 0.01 {
+            volume = event.volume
+            presentationChanged = true
+        }
+        if lastLocalEventState != event.state {
+            let nextStatus = event.state == "ended"
+                ? "Local playback ended."
+                : "Local playback confirmed \(event.state) for \(event.videoID)."
+            if status != nextStatus { status = nextStatus; presentationChanged = true }
+            lastLocalEventState = event.state
+        }
+        if presentationChanged { updateSystemMediaControls() }
         send(
             command: "playback.sample",
             payload: GoosicRequestPayload(
@@ -1964,15 +2030,22 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         // Do not let that old lease-bound response resurrect playback UI/state.
         guard !accountOperationInProgress else { return }
         if let state = response.payload?.state {
-            let previous = playbackState
-            playbackState = state
-            if state.owner != previous.owner
-                || state.generation != previous.generation
-                || state.accountId != previous.accountId
-                || state.owner == .none {
-                hasConfirmedPlaybackSample = false
-            }
-            updateSystemMediaControls()
+            applyPlaybackStateIfMeaningfullyChanged(state)
         }
+    }
+
+    /// Rust advances `sampleSequence` for every 500 ms player observation. That sequence is a
+    /// protocol replay guard, not presentation state, and publishing it rebuilt every catalog
+    /// view twice per second. Only ownership changes belong in the observable UI model.
+    private func applyPlaybackStateIfMeaningfullyChanged(_ state: GoosicPlaybackState) {
+        let previous = playbackState
+        guard state.owner != previous.owner
+            || state.generation != previous.generation
+            || state.accountId != previous.accountId else {
+            return
+        }
+        playbackState = state
+        hasConfirmedPlaybackSample = false
+        updateSystemMediaControls()
     }
 }

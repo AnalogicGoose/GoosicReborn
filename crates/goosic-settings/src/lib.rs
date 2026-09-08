@@ -180,18 +180,12 @@ pub struct SettingsStore {
 impl SettingsStore {
     /// The per-user settings file for this platform.
     pub fn default_path() -> Result<PathBuf, SettingsError> {
-        let base = if cfg!(target_os = "macos") {
-            std::env::var_os("HOME")
-                .map(|home| Path::new(&home).join("Library/Application Support"))
-        } else if cfg!(target_os = "windows") {
-            std::env::var_os("APPDATA").map(PathBuf::from)
-        } else {
-            std::env::var_os("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".config")))
-        };
-        base.map(|base| base.join("goosic").join("settings.json"))
-            .ok_or(SettingsError::NoLocation)
+        goosic_paths::config_dir(
+            goosic_paths::Platform::current(),
+            &goosic_paths::Environment::current(),
+        )
+        .map(|base| base.join("settings.json"))
+        .ok_or(SettingsError::NoLocation)
     }
 
     /// Opens the store at `path`, creating nothing until something is saved.

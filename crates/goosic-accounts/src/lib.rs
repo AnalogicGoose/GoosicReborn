@@ -140,18 +140,12 @@ pub struct AccountStore {
 
 impl AccountStore {
     pub fn default_path() -> Result<PathBuf, AccountError> {
-        let base = if cfg!(target_os = "macos") {
-            std::env::var_os("HOME")
-                .map(|home| Path::new(&home).join("Library/Application Support"))
-        } else if cfg!(target_os = "windows") {
-            std::env::var_os("APPDATA").map(PathBuf::from)
-        } else {
-            std::env::var_os("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".config")))
-        };
-        base.map(|base| base.join("goosic").join("accounts.json"))
-            .ok_or(AccountError::NoLocation)
+        goosic_paths::config_dir(
+            goosic_paths::Platform::current(),
+            &goosic_paths::Environment::current(),
+        )
+        .map(|base| base.join("accounts.json"))
+        .ok_or(AccountError::NoLocation)
     }
 
     /// On Unix, opens the leaf without following symlinks. Parent-directory symlinks are

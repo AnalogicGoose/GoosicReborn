@@ -85,20 +85,35 @@ struct GoosicSidebar: View {
 struct ShelfView: View {
     let shelf: GoosicShelf
     let model: GoosicAppModel
+    // SwiftCrossUI currently lays out every ForEach child eagerly. Keep the first batch tiny;
+    // more items remain available without ever mounting a 60-card shelf in one frame.
+    @State private var visibleItemCount = 8
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(shelf.title)
                 .font(.headline)
             if let tracks = shelf.trackList {
-                ForEach(tracks) { track in
+                ForEach(Array(tracks.prefix(visibleItemCount))) { track in
                     TrackRow(track: track, context: tracks, model: model)
+                }
+                if visibleItemCount < tracks.count {
+                    Button("Show more tracks") {
+                        visibleItemCount = min(visibleItemCount + 8, tracks.count)
+                    }
+                    .font(.caption)
                 }
             } else {
                 ScrollView(.horizontal) {
                     HStack(alignment: .top, spacing: 10) {
-                        ForEach(shelf.cards) { card in
+                        ForEach(Array(shelf.cards.prefix(visibleItemCount))) { card in
                             CatalogCardView(card: card, model: model)
+                        }
+                        if visibleItemCount < shelf.cards.count {
+                            Button("Show more") {
+                                visibleItemCount = min(visibleItemCount + 8, shelf.cards.count)
+                            }
+                            .frame(width: 110, height: 82)
                         }
                     }
                 }

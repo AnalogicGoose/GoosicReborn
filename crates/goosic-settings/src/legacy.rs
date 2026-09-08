@@ -46,49 +46,14 @@ pub const CREDENTIAL_KEYS: [&str; 3] = [
 
 /// The default location of the legacy web view's local storage on this platform.
 ///
-/// Windows is absent on purpose: WebView2 stores local storage in a LevelDB directory, not a
-/// SQLite database, and no reader for it exists here yet.
+/// `None` on Windows on purpose: WebView2 keeps local storage in a LevelDB directory rather than
+/// a SQLite database, and no reader for that exists here.
 pub fn default_store_path() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var_os("HOME")?;
-        let root =
-            Path::new(&home).join("Library/WebKit/com.github.ivasy.ytubic/WebsiteData/Default");
-        return first_local_storage_database(&root);
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let home = std::env::var_os("HOME")?;
-        let root = Path::new(&home).join(".local/share/com.github.ivasy.ytubic");
-        return first_local_storage_database(&root);
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        None
-    }
-}
-
-/// Finds `LocalStorage/localstorage.sqlite3` under an origin-hashed directory tree.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn first_local_storage_database(root: &Path) -> Option<PathBuf> {
-    fn search(directory: &Path, depth: usize) -> Option<PathBuf> {
-        if depth > 6 {
-            return None;
-        }
-        let candidate = directory.join("LocalStorage/localstorage.sqlite3");
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        for entry in std::fs::read_dir(directory).ok()?.flatten() {
-            if entry.file_type().ok()?.is_dir() {
-                if let Some(found) = search(&entry.path(), depth + 1) {
-                    return Some(found);
-                }
-            }
-        }
-        None
-    }
-    search(root, 0)
+    let root = goosic_paths::legacy_localstorage_root(
+        goosic_paths::Platform::current(),
+        &goosic_paths::Environment::current(),
+    )?;
+    goosic_paths::find_local_storage_database(&root)
 }
 
 /// Removes credential-shaped fields from an imported value, at any depth.

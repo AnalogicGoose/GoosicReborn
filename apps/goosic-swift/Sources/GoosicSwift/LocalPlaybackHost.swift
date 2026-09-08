@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) && !GOOSIC_PORTABLE
 import AVFoundation
 import Foundation
 

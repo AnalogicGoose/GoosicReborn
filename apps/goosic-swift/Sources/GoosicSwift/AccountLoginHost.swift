@@ -143,7 +143,7 @@ enum AccountLoginValidation {
     }
 }
 
-#if os(macOS)
+#if os(macOS) && !GOOSIC_PORTABLE
 import AppKit
 import WebKit
 
@@ -361,11 +361,21 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     """
 }
 #else
+/// Explicit non-macOS stub.
+///
+/// It exposes the whole surface the model calls, including the staging lifecycle, so the shell
+/// compiles here. Sign-in itself is refused rather than faked: `start()` cancels immediately,
+/// which leaves the app on the guest profile.
 @MainActor
 final class AccountLoginHost {
     var onCompleted: ((AccountLoginResult, AccountLoginHost) -> Void)?
     var onCancelled: (() -> Void)?
+
     func start() { onCancelled?() }
     func close() {}
+
+    /// No staging store is ever created here, so promoting and discarding are both no-ops.
+    func commitPromotion() {}
+    func discardStaging() {}
 }
 #endif

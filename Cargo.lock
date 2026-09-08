@@ -234,6 +234,7 @@ dependencies = [
 name = "goosic-accounts"
 version = "0.1.0"
 dependencies = [
+ "goosic-paths",
  "goosic-protocol",
  "libc",
  "serde",
@@ -267,6 +268,7 @@ dependencies = [
 name = "goosic-downloads"
 version = "0.1.0"
 dependencies = [
+ "goosic-paths",
  "goosic-protocol",
  "matroska-demuxer",
  "opus-pure",
@@ -286,6 +288,10 @@ dependencies = [
  "thiserror",
  "ureq",
 ]
+
+[[package]]
+name = "goosic-paths"
+version = "0.1.0"
 
 [[package]]
 name = "goosic-protocol"
@@ -315,6 +321,7 @@ dependencies = [
 name = "goosic-settings"
 version = "0.1.0"
 dependencies = [
+ "goosic-paths",
  "goosic-protocol",
  "rusqlite",
  "serde",

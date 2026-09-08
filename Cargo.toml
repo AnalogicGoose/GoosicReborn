@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/goosic-paths",
     "crates/goosic-protocol",
     "crates/goosic-core",
     "crates/goosic-catalog",

@@ -96,11 +96,14 @@ final class ArtworkCacheBehaviourTests: XCTestCase {
     }
 
     func testAnAlreadyCachedFileIsReturnedWithoutAFetch() throws {
-        let (cache, directory) = makeCache()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("goosic-artwork-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let remote = "https://yt3.googleusercontent.com/already-there"
         let expected = directory.appendingPathComponent("\(ArtworkCache.cacheKey(for: remote)).img")
         try Data("pretend image".utf8).write(to: expected)
+        let cache = ArtworkCache(directory: directory)
 
         XCTAssertEqual(cache.localFile(for: remote), expected)
     }

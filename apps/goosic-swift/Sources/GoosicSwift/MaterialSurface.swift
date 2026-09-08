@@ -55,7 +55,7 @@ enum MaterialSurfacePlatformResolver {
 typealias MaterialSurfaceResolver = MaterialSurfacePlatformResolver
 typealias MaterialSurfaceBackendResolver = MaterialSurfacePlatformResolver
 
-#if os(macOS)
+#if os(macOS) && !GOOSIC_PORTABLE
 import AppKit
 // `NSViewRepresentable` and its `Context` are SwiftCrossUI's AppKit backend types, not AppKit's.
 import AppKitBackend

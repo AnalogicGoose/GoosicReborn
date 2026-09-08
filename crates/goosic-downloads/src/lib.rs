@@ -129,15 +129,15 @@ impl DownloadLibrary {
         Ok(support_directory()?.join("decoded"))
     }
 
-    /// The previous Goosic install's downloaded media directory, if this platform has one.
+    /// The previous Goosic install's downloaded media directory, if one is present.
+    ///
+    /// This used to key off `HOME`, which Windows does not set, so legacy downloads that really
+    /// were there could never be found on Windows.
     pub fn default_legacy_directory() -> Option<PathBuf> {
-        let home = std::env::var_os("HOME")?;
-        let candidate = if cfg!(target_os = "macos") {
-            Path::new(&home)
-                .join("Library/Application Support/com.github.ivasy.ytubic/offline-media/stream")
-        } else {
-            Path::new(&home).join(".local/share/com.github.ivasy.ytubic/offline-media/stream")
-        };
+        let candidate = goosic_paths::legacy_media_dir(
+            goosic_paths::Platform::current(),
+            &goosic_paths::Environment::current(),
+        )?;
         candidate.is_dir().then_some(candidate)
     }
 
@@ -326,18 +326,13 @@ impl DownloadLibrary {
     }
 }
 
+/// Downloaded media and its decode cache are data, not configuration.
 fn support_directory() -> Result<PathBuf, DownloadError> {
-    let base = if cfg!(target_os = "macos") {
-        std::env::var_os("HOME").map(|home| Path::new(&home).join("Library/Application Support"))
-    } else if cfg!(target_os = "windows") {
-        std::env::var_os("APPDATA").map(PathBuf::from)
-    } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".local/share")))
-    };
-    base.map(|base| base.join("goosic"))
-        .ok_or(DownloadError::NoLocation)
+    goosic_paths::data_dir(
+        goosic_paths::Platform::current(),
+        &goosic_paths::Environment::current(),
+    )
+    .ok_or(DownloadError::NoLocation)
 }
 
 /// A cached decode is usable when it exists and is not older than its source.

@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) && !GOOSIC_PORTABLE
 import AppKit
 import AppKitBackend
 import Foundation
@@ -721,6 +721,10 @@ final class OfficialPlaybackHost {
         loadedVideoID = nil
         onStatus?("Official playback host is only available on macOS.")
     }
+
+    /// Nothing is ever expected here, but the model calls this before releasing a lease and the
+    /// surfaces must match.
+    func invalidateExpectations() {}
 
     func play() { onStatus?("Official playback host is only available on macOS.") }
     func pause() { onStatus?("Official playback host is only available on macOS.") }

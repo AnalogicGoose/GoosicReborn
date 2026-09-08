@@ -1,6 +1,7 @@
 import DefaultBackend
 import SwiftCrossUI
 
+#if !os(macOS) || GOOSIC_PORTABLE
 @main
 struct GoosicApp: App {
     var body: some Scene {
@@ -10,6 +11,7 @@ struct GoosicApp: App {
         .defaultSize(width: 1_080, height: 720)
     }
 }
+#endif
 
 struct GoosicShell: View {
     @State private var model = GoosicAppModel()

@@ -143,7 +143,7 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
-#if os(macOS)
+#if os(macOS) && !GOOSIC_PORTABLE
 import AppKit
 import MediaPlayer
 

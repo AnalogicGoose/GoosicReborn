@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+goosic-paths = { path = "../goosic-paths" }
 goosic-protocol = { path = "../goosic-protocol" }
 libc.workspace = true
 serde.workspace = true
