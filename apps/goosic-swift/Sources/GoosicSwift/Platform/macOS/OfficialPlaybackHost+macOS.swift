@@ -26,6 +26,8 @@ final class OfficialPlaybackHost: NSObject {
     private var expectedVideoID: String?
     private var lastSequence: UInt64 = 0
     private var advertisementActive = false
+    private var transport = MacMediaTransportRequest()
+    private var transportInFlight = false
     private var activeProfile = OfficialPlaybackProfile.guest
     private(set) var loadedVideoID: String?
     private(set) var isLoading = false
@@ -122,6 +124,8 @@ final class OfficialPlaybackHost: NSObject {
         // it prevents an old document's bridge messages from being accepted after a same-video
         // reload. It is deliberately not a URL parameter, because the official app rewrites its
         // own location and drops unknown query items.
+        transport.reset()
+        transportInFlight = false
         let token = UUID().uuidString
         expectedToken = token
         expectedGeneration = generation
@@ -163,11 +167,11 @@ final class OfficialPlaybackHost: NSObject {
     }
 
     func play() {
-        evaluateMediaScript("media => { const result = media.play(); return result ? 'play-requested' : 'play-requested'; }")
+        requestTransport(paused: false)
     }
 
     func pause() {
-        evaluateMediaScript("media => { media.pause(); return 'pause-requested'; }")
+        requestTransport(paused: true)
     }
 
     /// Requests a position change. Like play and pause, this is a request: the position is not
@@ -263,6 +267,8 @@ final class OfficialPlaybackHost: NSObject {
     /// Clears the lease-bound event identity. Call after media is quiesced and before releasing
     /// Rust's lease so a late event from the old document cannot be forwarded.
     func invalidateExpectations() {
+        transport.reset()
+        transportInFlight = false
         expectedToken = nil
         expectedGeneration = nil
         expectedVideoID = nil
@@ -296,6 +302,49 @@ final class OfficialPlaybackHost: NSObject {
         isLoading = false
     }
 
+    private func requestTransport(paused: Bool) {
+        guard expectedToken != nil, webView != nil else {
+            onStatus?("Choose a track before controlling playback.")
+            return
+        }
+        transport.request(paused: paused)
+        drainTransport()
+    }
+
+    /// Keep an early click until a validated sample proves that the media element exists.
+    /// Results from a replaced document or superseded request cannot clear the latest intent.
+    private func drainTransport() {
+        guard !transportInFlight, let paused = transport.paused,
+              let token = expectedToken, let webView else { return }
+        let revision = transport.revision
+        transportInFlight = true
+        webView.callAsyncJavaScript("""
+            const media = document.querySelector('audio,video');
+            if (!media) return 'no-media';
+            if (paused) media.pause();
+            else await media.play();
+            return 'requested';
+            """, arguments: ["paused": paused], in: nil, in: .page) { [weak self] result in
+            guard let self, self.expectedToken == token else { return }
+            self.transportInFlight = false
+            guard self.transport.revision == revision else {
+                self.drainTransport()
+                return
+            }
+            switch result {
+            case .success(let value):
+                if value as? String == "no-media" {
+                    self.onStatus?("Waiting for the official player to become ready…")
+                } else {
+                    self.transport.complete(revision: revision)
+                }
+            case .failure:
+                self.transport.complete(revision: revision)
+                self.onStatus?("The official player could not start or pause playback. Try Play again.")
+            }
+        }
+    }
+
     private func evaluateMediaScript(_ functionBody: String) {
         guard let webView else {
             onStatus?("Official host is not attached to the native view.")
@@ -308,10 +357,14 @@ final class OfficialPlaybackHost: NSObject {
           return (\(functionBody))(media);
         })();
         """
-        webView.evaluateJavaScript(script) { [weak self] _, error in
-            guard let self, let error else { return }
+        webView.evaluateJavaScript(script) { [weak self] value, error in
+            guard let self else { return }
             DispatchQueue.main.async {
-                self.onStatus?("Official host command was rejected: \(error.localizedDescription)")
+                if error != nil {
+                    self.onStatus?("The official player rejected this control. Try again once playback is ready.")
+                } else if value as? String == "no-media" {
+                    self.onStatus?("The official player is still loading. Try this control again shortly.")
+                }
             }
         }
     }
@@ -393,6 +446,7 @@ final class OfficialPlaybackHost: NSObject {
         lastSequence = event.sequence
         advertisementActive = event.isAdvertisement
         isLoading = false
+        drainTransport()
         onEvent?(OfficialPlaybackEvent(
             generation: event.generation,
             videoID: event.videoID,

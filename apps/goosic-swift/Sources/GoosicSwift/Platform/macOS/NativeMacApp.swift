@@ -17,7 +17,6 @@ struct GoosicMacApp: SwiftUI.App {
     var body: some SwiftUI.Scene {
         SwiftUI.WindowGroup("Goosic") {
             NativeMacRootView(store: store)
-                .preferredColorScheme(.dark)
                 .tint(.goosicPink)
                 .frame(minWidth: 1_020, minHeight: 680)
                 .onAppear {
@@ -46,22 +45,29 @@ final class NativeMacModelStore: Combine.ObservableObject {
     }
 }
 
+/// Lays the window out the way Music does on macOS 26: the detail column is drawn full-width
+/// and the sidebar floats over its leading edge as one continuous glass surface. Page layout
+/// starts beside the sidebar through `nativeMacLeadingInset`; shelf rows are the exception and
+/// scroll underneath it, which is what gives the glass something to refract.
+///
+/// `NavigationSplitView` cannot produce this: it lays the detail column beside the sidebar, so
+/// nothing ever passes under the glass and the two columns read as separate panels.
 private struct NativeMacRootView: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var sidebarVisible = true
 
     private var model: GoosicAppModel { store.model }
+    private var leadingInset: CGFloat { sidebarVisible ? NativeMacSidebar.width : 0 }
 
     var body: some SwiftUI.View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            NativeMacSidebar(store: store)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 290)
-        } detail: {
+        ZStack(alignment: .topLeading) {
             ZStack(alignment: .bottom) {
                 detailContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 NativeMacPlayerBar(store: store)
+                    .padding(.leading, leadingInset)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
 
@@ -70,29 +76,60 @@ private struct NativeMacRootView: SwiftUI.View {
                     .opacity(0.001)
                     .offset(x: -2_000, y: -2_000)
                     .allowsHitTesting(false)
+                    .accessibilityHidden(true)
 
                 if model.queueVisible {
                     NativeMacQueuePanel(store: store)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                         .padding(.trailing, 20)
-                        .padding(.bottom, 88)
+                        .padding(.bottom, 112)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 } else if model.lyricsVisible {
                     NativeMacLyricsPanel(store: store)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                         .padding(.trailing, 20)
-                        .padding(.bottom, 88)
+                        .padding(.bottom, 112)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    SwiftUI.Text(model.detail == nil ? model.route.title : model.detail?.kindLabel ?? "Goosic")
-                        .font(.headline)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !model.serviceConnected || (model.currentTrack != nil && !model.hasConfirmedPlaybackSample) {
+                    SwiftUI.HStack(spacing: 8) {
+                        SwiftUI.Image(systemName: model.serviceConnected ? "info.circle" : "wifi.slash")
+                        SwiftUI.Text(model.serviceConnected ? model.hostStatus : model.status)
+                            .lineLimit(2).font(.caption)
+                        SwiftUI.Spacer()
+                        if !model.serviceConnected { SwiftUI.Button("Reconnect", action: model.connect) }
+                    }
+                    .padding(10)
+                    .padding(.leading, leadingInset)
+                    .background(.thinMaterial)
                 }
             }
+            .environment(\.nativeMacLeadingInset, leadingInset)
+
+            if sidebarVisible {
+                NativeMacSidebar(store: store)
+                    .transition(.move(edge: .leading))
+            }
         }
-        .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                SwiftUI.Button {
+                    SwiftUI.withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+                        sidebarVisible.toggle()
+                    }
+                } label: {
+                    SwiftUI.Image(systemName: "sidebar.leading")
+                }
+                .help(sidebarVisible ? "Hide sidebar" : "Show sidebar")
+                .keyboardShortcut("s", modifiers: [.command, .control])
+            }
+        }
         .modifier(NativeMacTransparentToolbar())
-        .background(SwiftUI.Color.black)
+        .background(NativeMacWindowChrome())
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: model.queueVisible)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: model.lyricsVisible)
     }
 
     @SwiftUI.ViewBuilder
@@ -119,10 +156,13 @@ private struct NativeMacRootView: SwiftUI.View {
                         ? "Sign in to load your saved music."
                         : "Your personal library connection is the next data step."
                 )
+                .padding(.leading, leadingInset)
             case .downloads:
                 NativeMacDownloadsView(store: store)
+                    .padding(.leading, leadingInset)
             case .settings:
                 NativeMacSettingsView(store: store)
+                    .padding(.leading, leadingInset)
             }
         }
     }
@@ -139,18 +179,71 @@ private struct NativeMacRootView: SwiftUI.View {
     }
 }
 
+/// The toolbar draws no background of its own, so the catalog scrolls under it and the sidebar
+/// column reads as one continuous surface from the traffic lights down. A visible toolbar bar
+/// is what split the sidebar into a titlebar band and a list band.
 private struct NativeMacTransparentToolbar: SwiftUI.ViewModifier {
     @SwiftUI.ViewBuilder
     func body(content: Content) -> some SwiftUI.View {
         if #available(macOS 15.0, *) {
             content.toolbarBackgroundVisibility(.hidden, for: .automatic)
+                .toolbar(removing: .title)
         } else {
             content
         }
     }
 }
 
+/// Makes the hosting window edge-to-edge: content extends under the titlebar, so the system
+/// sidebar and toolbar glass have something to refract instead of sitting on window chrome.
+private struct NativeMacWindowChrome: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { configure(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        configure(nsView.window)
+    }
+
+    private func configure(_ window: NSWindow?) {
+        guard let window else { return }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+    }
+}
+
+/// Width of the floating sidebar, so page layout begins beside it while the detail column is
+/// drawn full-width underneath. Zero when the sidebar is hidden.
+private struct NativeMacLeadingInsetKey: SwiftUI.EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension SwiftUI.EnvironmentValues {
+    var nativeMacLeadingInset: CGFloat {
+        get { self[NativeMacLeadingInsetKey.self] }
+        set { self[NativeMacLeadingInsetKey.self] = newValue }
+    }
+}
+
+/// One glass sheet behind the whole sidebar, titlebar included. The list and the account
+/// footer sit on it without materials of their own, so the column has no bands.
+private struct NativeMacSidebarSurface: SwiftUI.View {
+    var body: some SwiftUI.View {
+        if #available(macOS 26.0, *) {
+            SwiftUI.Rectangle().fill(.clear)
+                .glassEffect(.regular, in: .rect(cornerRadius: 0))
+        } else {
+            SwiftUI.Rectangle().fill(.ultraThinMaterial)
+        }
+    }
+}
+
 private struct NativeMacSidebar: SwiftUI.View {
+    static let width: CGFloat = 210
+
     @ObservedObject var store: NativeMacModelStore
 
     private var model: GoosicAppModel { store.model }
@@ -158,148 +251,306 @@ private struct NativeMacSidebar: SwiftUI.View {
     var body: some SwiftUI.View {
         SwiftUI.List {
             SwiftUI.Section {
-                    sidebarButton(.search, icon: "magnifyingglass")
-                    sidebarButton(.home, icon: "house.fill")
+                row(.search, icon: "magnifyingglass")
+                row(.home, icon: "house.fill")
             }
 
             SwiftUI.Section("Discover") {
-                sidebarButton(.explore, icon: "globe")
-                sidebarButton(.charts, icon: "chart.xyaxis.line")
-                sidebarButton(.moodsAndGenres, icon: "theatermasks")
-                sidebarButton(.newReleases, icon: "sparkles")
+                row(.explore, icon: "globe")
+                row(.charts, icon: "chart.xyaxis.line")
+                row(.moodsAndGenres, icon: "theatermasks")
+                row(.newReleases, icon: "sparkles")
             }
 
             SwiftUI.Section("Collection") {
-                sidebarButton(.library, icon: "music.note.list")
-                sidebarButton(.downloads, icon: "arrow.down.circle")
+                row(.library, icon: "music.note.list")
+                row(.downloads, icon: "arrow.down.circle")
             }
 
             SwiftUI.Section("Goosic") {
-                sidebarButton(.settings, icon: "gearshape")
+                row(.settings, icon: "gearshape")
             }
         }
         .listStyle(.sidebar)
+        .environment(\.defaultMinListRowHeight, 30)
         .scrollContentBackground(.hidden)
-        .modifier(NativeMacSidebarGlass())
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            SwiftUI.VStack(spacing: 10) {
-                SwiftUI.HStack {
-                    SwiftUI.Image(systemName: "music.note")
-                    SwiftUI.Text("Music").fontWeight(.semibold)
-                    SwiftUI.Spacer()
-                }
-                .font(.caption)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(SwiftUI.Color.goosicPink, in: Capsule())
-
-                SwiftUI.HStack(spacing: 10) {
-                    SwiftUI.Text(String(model.activeAccountLabel.prefix(1)).uppercased())
-                        .font(.headline)
-                        .frame(width: 38, height: 38)
-                        .background(SwiftUI.Color.goosicPink, in: Circle())
-                    SwiftUI.VStack(alignment: .leading, spacing: 1) {
-                        SwiftUI.Text(model.activeAccountLabel).lineLimit(1)
-                        SwiftUI.Text(model.serviceConnected ? "Connected" : "Offline")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    SwiftUI.Spacer()
-                }
-            }
-            .padding(12)
-            .modifier(NativeMacSidebarFooterBackground())
-        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { footer }
+        .frame(width: Self.width)
+        .frame(maxHeight: .infinity)
+        .background { NativeMacSidebarSurface().ignoresSafeArea() }
     }
 
-    private func sidebarButton(_ route: GoosicRoute, icon: String) -> some SwiftUI.View {
-        let selected = model.route == route && model.detail == nil
-        return SwiftUI.Button {
-            model.navigate(to: route)
-        } label: {
-            SwiftUI.HStack(spacing: 10) {
-                SwiftUI.Image(systemName: icon).frame(width: 18)
+    /// Rows are plain buttons on a native list, so they take the system row metrics while the
+    /// selection stays the neutral pill Music uses rather than the focused accent highlight.
+    private func row(_ route: GoosicRoute, icon: String) -> some SwiftUI.View {
+        let selected = model.detail == nil && model.route == route
+        return SwiftUI.Button { model.navigate(to: route) } label: {
+            SwiftUI.Label {
                 SwiftUI.Text(route.title).fontWeight(selected ? .semibold : .regular)
-                SwiftUI.Spacer()
+            } icon: {
+                SwiftUI.Image(systemName: icon).foregroundStyle(SwiftUI.Color.blue)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .background(selected ? SwiftUI.Color.goosicPink : .clear, in: RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
-        .listRowBackground(SwiftUI.Color.clear)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(selected ? SwiftUI.Color.primary.opacity(0.09) : SwiftUI.Color.clear)
+                .padding(.horizontal, 10)
+        )
     }
-}
 
-private struct NativeMacSidebarGlass: SwiftUI.ViewModifier {
-    @SwiftUI.ViewBuilder
-    func body(content: Content) -> some SwiftUI.View {
-        if #available(macOS 26.0, *) {
-            content.glassEffect(.regular, in: Rectangle())
-        } else {
-            content.background(.ultraThinMaterial)
+    private var footer: some SwiftUI.View {
+        SwiftUI.Button { model.navigate(to: .settings) } label: {
+            SwiftUI.HStack(spacing: 10) {
+                SwiftUI.Text(String(model.activeAccountLabel.prefix(1)).uppercased())
+                    .font(.headline)
+                    .frame(width: 34, height: 34)
+                    .background(SwiftUI.Color.goosicPink, in: Circle())
+                SwiftUI.VStack(alignment: .leading, spacing: 1) {
+                    SwiftUI.Text(model.activeAccountLabel).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    SwiftUI.Text(model.serviceConnected ? "Connected" : "Offline")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                SwiftUI.Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Account: \(model.activeAccountLabel)")
     }
 }
 
-private struct NativeMacSidebarFooterBackground: SwiftUI.ViewModifier {
-    @SwiftUI.ViewBuilder
-    func body(content: Content) -> some SwiftUI.View {
-        if #available(macOS 26.0, *) {
-            content.background(SwiftUI.Color.clear)
-        } else {
-            content.background(.ultraThinMaterial)
-        }
-    }
-}
-
+/// The compact now-playing capsule, laid out like Music's: transport, the current song over a
+/// hairline progress bar, then More, Lyrics, Queue, and a volume slider that unfolds out of the
+/// speaker button in place of the two panel toggles. Every control is a plain glyph on the
+/// glass; the capsule itself is the only chrome.
 private struct NativeMacPlayerBar: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
+    @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var scrubPosition: Double = 0
+    @State private var isScrubbing = false
+    @State private var statusVisible = false
+    @State private var volumeExpanded = false
+    @State private var progressHovered = false
 
     private var model: GoosicAppModel { store.model }
+    private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
+    private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
+    private var canAdjustVolume: Bool { !busy && !model.isAdvertisement }
+    private var showsTimes: Bool { progressHovered || isScrubbing }
 
     var body: some SwiftUI.View {
         SwiftUI.HStack(spacing: 14) {
-            SwiftUI.HStack(spacing: 8) {
-                SwiftUI.Button(action: model.previous) { SwiftUI.Image(systemName: "backward.fill") }
-                SwiftUI.Button(action: model.togglePause) {
-                    SwiftUI.Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
-                        .font(.title3)
+            transport
+            nowPlaying
+                .frame(maxWidth: .infinity)
+            trailingControls
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .frame(minWidth: 640, maxWidth: 960)
+        .modifier(NativeMacPlayerGlass())
+        .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+        .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.12), value: volumeExpanded)
+        .onChange(of: model.currentTrack?.id) { _, _ in isScrubbing = false }
+        .onChange(of: model.isSeekable) { _, seekable in if !seekable { isScrubbing = false } }
+    }
+
+    private var transport: some SwiftUI.View {
+        SwiftUI.HStack(spacing: 2) {
+            glyph("Shuffle", "shuffle", size: 13, active: model.shuffle, subtle: true, action: model.toggleShuffle)
+            glyph("Previous track", "backward.fill", size: 17, action: model.previous)
+                .disabled(!canControl || model.isAdvertisement)
+            SwiftUI.Button(action: model.togglePause) {
+                SwiftUI.ZStack {
+                    if busy {
+                        SwiftUI.ProgressView().controlSize(.small)
+                    } else {
+                        SwiftUI.Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                    }
                 }
-                SwiftUI.Button(action: model.next) { SwiftUI.Image(systemName: "forward.fill") }
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
             }
-            .disabled(model.currentTrack == nil)
+            .buttonStyle(.plain)
+            .accessibilityLabel(model.isPaused ? "Play" : "Pause")
+            .help(busy ? "Preparing playback" : model.isPaused ? "Play" : "Pause")
+            .disabled(!canControl)
+            glyph("Next track", "forward.fill", size: 17, action: model.next)
+                .disabled(!canControl || model.isAdvertisement)
+            glyph(model.repeatMode.label, model.repeatMode == .one ? "repeat.1" : "repeat", size: 13,
+                  active: model.repeatMode != .off, subtle: true, action: model.cycleRepeatMode)
+        }
+    }
 
-            SwiftUI.Divider().frame(height: 28)
-
-            SwiftUI.VStack(alignment: .leading, spacing: 2) {
-                SwiftUI.Text(model.currentTrack?.title ?? "Nothing playing")
-                    .font(.subheadline.weight(.semibold)).lineLimit(1)
-                SwiftUI.Text(model.nowPlayingSubtitle)
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+    private var nowPlaying: some SwiftUI.View {
+        SwiftUI.VStack(spacing: 4) {
+            SwiftUI.HStack(spacing: 10) {
+                NativeMacPanelArtwork(url: model.currentTrack?.thumbnail, size: 36)
+                SwiftUI.VStack(alignment: .leading, spacing: 2) {
+                    SwiftUI.Text(model.currentTrack?.title ?? "Nothing playing")
+                        .font(.subheadline.weight(.semibold)).lineLimit(1)
+                    SwiftUI.Text(busy ? "Preparing playback…" : model.nowPlayingSubtitle)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(minWidth: 180, alignment: .leading)
+            progress
+        }
+    }
 
-            SwiftUI.Spacer()
-
-            SwiftUI.Button(action: model.toggleLyrics) { SwiftUI.Image(systemName: "quote.bubble") }
-            SwiftUI.Button(action: model.toggleQueue) { SwiftUI.Image(systemName: "list.bullet") }
-            SwiftUI.Button(action: model.toggleMuted) {
-                SwiftUI.Image(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+    /// A hairline that thickens on hover and reveals the times at either end. Dragging scrubs;
+    /// the seek is sent once on release so the transport is not flooded mid-drag.
+    private var progress: some SwiftUI.View {
+        let total = max(model.duration, 1)
+        let position = isScrubbing ? scrubPosition : min(model.displayedPosition, total)
+        return SwiftUI.HStack(spacing: 6) {
+            if showsTimes {
+                SwiftUI.Text(GoosicAppModel.timeText(position)).transition(.opacity)
             }
-            SwiftUI.Slider(
-                value: Binding(get: { model.isMuted ? 0 : model.volume }, set: model.setVolume),
-                in: 0...1
-            )
-            .frame(width: 105)
+            SwiftUI.GeometryReader { proxy in
+                SwiftUI.ZStack(alignment: .leading) {
+                    Capsule().fill(.primary.opacity(0.15))
+                    Capsule().fill(.primary.opacity(0.75))
+                        .frame(width: max(proxy.size.width * position / total, 0))
+                }
+                .frame(height: showsTimes ? 4 : 2)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard model.isSeekable, !busy else { return }
+                            isScrubbing = true
+                            scrubPosition = min(max(value.location.x / proxy.size.width, 0), 1) * total
+                        }
+                        .onEnded { _ in
+                            guard isScrubbing else { return }
+                            model.seek(to: scrubPosition)
+                            isScrubbing = false
+                        }
+                )
+            }
+            .frame(height: 12)
+            if showsTimes {
+                SwiftUI.Text(model.durationText).transition(.opacity)
+            }
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.secondary)
+        .opacity(model.isSeekable ? 1 : 0.45)
+        .onHover { progressHovered = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: showsTimes)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playback position")
+        .accessibilityValue("\(model.elapsedText) of \(model.durationText)")
+    }
+
+    private var trailingControls: some SwiftUI.View {
+        SwiftUI.HStack(spacing: 2) {
+            moreMenu
+            if !volumeExpanded {
+                glyph("Lyrics", "quote.bubble", size: 14, active: model.lyricsVisible, action: model.toggleLyrics)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                glyph("Queue", "list.bullet", size: 14, active: model.queueVisible, action: model.toggleQueue)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+            SwiftUI.HStack(spacing: 6) {
+                if volumeExpanded {
+                    SwiftUI.Slider(value: Binding(get: { model.isMuted ? 0 : model.volume }, set: model.setVolume), in: 0...1)
+                        .controlSize(.small)
+                        .frame(width: 84)
+                        .accessibilityLabel("Volume")
+                        .disabled(!canAdjustVolume)
+                        .transition(.scale(scale: 0.4, anchor: .trailing).combined(with: .opacity))
+                }
+                glyph(model.isMuted ? "Unmute" : "Mute",
+                      model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill", size: 14, action: model.toggleMuted)
+                    .disabled(!canAdjustVolume)
+            }
+            .onHover { volumeExpanded = $0 }
+        }
+    }
+
+    private var moreMenu: some SwiftUI.View {
+        SwiftUI.Menu {
+            if let track = model.currentTrack {
+                NativeMacTrackMenuItems(track: track, model: model, includePlay: false)
+                SwiftUI.Divider()
+            }
+            SwiftUI.Button("Playback status…") { statusVisible = true }
+        } label: {
+            SwiftUI.Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(SwiftUI.Color.primary)
+                .frame(width: 28, height: 32)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More")
+        .popover(isPresented: $statusVisible) {
+            SwiftUI.VStack(alignment: .leading, spacing: 8) {
+                SwiftUI.Text("Playback status").font(.headline)
+                SwiftUI.Text(model.status)
+                if model.isAdvertisement { SwiftUI.Text("Advertisement · Seeking and track changes are unavailable.") }
+            }
+            .font(.callout).padding(18).frame(width: 300)
+        }
+    }
+
+    private func glyph(_ title: String, _ name: String, size: CGFloat, active: Bool = false,
+                       subtle: Bool = false, action: @escaping () -> Void) -> some SwiftUI.View {
+        SwiftUI.Button(action: action) {
+            SwiftUI.Image(systemName: name)
+                .font(.system(size: size, weight: .medium))
+                .foregroundStyle(active ? SwiftUI.Color.goosicPink : subtle ? SwiftUI.Color.secondary : SwiftUI.Color.primary)
+                .frame(width: 28, height: 32)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 20)
-        .frame(height: 64)
-        .modifier(NativeMacPlayerGlass())
-        .shadow(color: .black.opacity(0.35), radius: 22, y: 10)
+        .accessibilityLabel(title)
+        .help(title)
+    }
+}
+
+/// Glass chrome for a single control. Apply it to the button itself, never to a container: a
+/// button style propagates through the environment, so one placed on the split view turns every
+/// list row and catalog card into a filled control too.
+///
+/// The tint is cleared because the app tint is `goosicPink`, and a tinted glass button is drawn
+/// as a solid fill of that colour rather than as glass. Pink stays an accent applied to icons and
+/// selection, so call sites do not need to reset the tint themselves.
+struct NativeMacGlassButtons: SwiftUI.ViewModifier {
+    @SwiftUI.ViewBuilder
+    func body(content: Content) -> some SwiftUI.View {
+        if #available(macOS 26.0, *) {
+            content.buttonStyle(.glass).tint(Optional<SwiftUI.Color>.none)
+        } else {
+            content.buttonStyle(.bordered).tint(Optional<SwiftUI.Color>.none)
+        }
+    }
+}
+
+private struct NativeMacSearchGlass: SwiftUI.ViewModifier {
+    @SwiftUI.ViewBuilder
+    func body(content: Content) -> some SwiftUI.View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular, in: .rect(cornerRadius: 12))
+        } else {
+            content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
     }
 }
 
@@ -307,7 +558,7 @@ private struct NativeMacPlayerGlass: SwiftUI.ViewModifier {
     @SwiftUI.ViewBuilder
     func body(content: Content) -> some SwiftUI.View {
         if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: .capsule)
+            content.glassEffect(.regular, in: .rect(cornerRadius: 28))
         } else {
             content
                 .background(.ultraThinMaterial, in: Capsule())
@@ -318,6 +569,7 @@ private struct NativeMacPlayerGlass: SwiftUI.ViewModifier {
 
 private struct NativeMacSearchView: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
+    @SwiftUI.Environment(\.nativeMacLeadingInset) private var leadingInset
 
     private var model: GoosicAppModel { store.model }
 
@@ -328,11 +580,14 @@ private struct NativeMacSearchView: SwiftUI.View {
                     "Search music",
                     text: Binding(get: { model.query }, set: { model.query = $0 })
                 )
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .padding(10)
+                .modifier(NativeMacSearchGlass())
                 .onSubmit { model.search() }
                 SwiftUI.Button("Search") { model.search() }
             }
             .padding(24)
+            .padding(.leading, leadingInset)
 
             if model.submittedQuery.isEmpty {
                 NativeMacEmptyPage(title: "Search", icon: "magnifyingglass", message: "Find songs, albums, artists, and playlists.")
@@ -352,6 +607,7 @@ private struct NativeMacSearchView: SwiftUI.View {
 private struct NativeMacEntityView: SwiftUI.View {
     let entity: GoosicEntityReference
     @ObservedObject var store: NativeMacModelStore
+    @SwiftUI.Environment(\.nativeMacLeadingInset) private var leadingInset
 
     private var model: GoosicAppModel { store.model }
 
@@ -362,6 +618,7 @@ private struct NativeMacEntityView: SwiftUI.View {
                 SwiftUI.Spacer()
             }
             .padding(.horizontal, 24)
+            .padding(.leading, leadingInset)
             .padding(.top, 12)
             NativeMacCatalogPage(
                 key: .entity(entity),
@@ -387,7 +644,7 @@ private struct NativeMacQueuePanel: SwiftUI.View {
                 SwiftUI.Button(action: model.toggleQueue) {
                     SwiftUI.Image(systemName: "xmark")
                 }
-                .buttonStyle(.plain)
+                .modifier(NativeMacGlassButtons())
             }
 
             if model.queue.tracks.isEmpty {
@@ -422,6 +679,7 @@ private struct NativeMacQueuePanel: SwiftUI.View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .contextMenu { NativeMacTrackMenuItems(track: track, model: model, context: model.queue.tracks) }
                         }
                     }
                 }
@@ -452,7 +710,7 @@ private struct NativeMacLyricsPanel: SwiftUI.View {
                 SwiftUI.Button(action: model.toggleLyrics) {
                     SwiftUI.Image(systemName: "xmark")
                 }
-                .buttonStyle(.plain)
+                .modifier(NativeMacGlassButtons())
             }
 
             SwiftUI.ScrollView {
@@ -462,7 +720,7 @@ private struct NativeMacLyricsPanel: SwiftUI.View {
                         SwiftUI.ForEach(Array(lyrics.lines.enumerated()), id: \.element.id) { index, line in
                             SwiftUI.Text(line.text.isEmpty ? "♪" : line.text)
                                 .font(index == active ? .headline : .body)
-                                .foregroundStyle(index == active ? SwiftUI.Color.white : .secondary)
+                                .foregroundStyle(index == active ? SwiftUI.Color.primary : .secondary)
                         }
                     }
                 } else {
@@ -482,18 +740,19 @@ private struct NativeMacLyricsPanel: SwiftUI.View {
 
 private struct NativeMacPanelArtwork: SwiftUI.View {
     let url: String?
+    var size: CGFloat = 42
 
     var body: some SwiftUI.View {
         SwiftUI.AsyncImage(url: url.flatMap(URL.init(string:))) { phase in
             if case .success(let image) = phase {
                 image.resizable().scaledToFill()
             } else {
-                SwiftUI.Color.white.opacity(0.08)
+                SwiftUI.Color.primary.opacity(0.08)
                     .overlay(SwiftUI.Image(systemName: "music.note"))
             }
         }
-        .frame(width: 42, height: 42)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size / 6))
     }
 }
 
@@ -586,6 +845,7 @@ private struct NativeMacOfficialPlaybackSurface: SwiftUI.NSViewRepresentable {
     func updateNSView(_ nsView: OfficialPlaybackContainer, context: Context) {
         nsView.wantsLayer = true
         nsView.layer?.opacity = 0.01
+        nsView.setAccessibilityHidden(true)
     }
 }
 

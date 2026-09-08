@@ -20,6 +20,12 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     var onCompleted: ((AccountLoginResult, AccountLoginHost) -> Void)?
     var onCancelled: (() -> Void)?
 
+    /// Diagnostics for the staged sign-in go to stderr, never to the protocol. Nothing here is
+    /// a credential: hosts, decisions, and the length of the metadata projection only.
+    private func note(_ message: String) {
+        FileHandle.standardError.write(("[account-login] " + message + "\n").data(using: .utf8) ?? Data())
+    }
+
     func start() {
         guard window == nil else { return }
         // Both UUIDs are generated before the login surface opens and are never derived from
@@ -116,10 +122,18 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        note("finished \(webView.url?.host ?? "?")\(webView.url?.path ?? "") exactOrigin=\(AccountLoginValidation.isExactCompletionOrigin(webView.url))")
         startCompletionPolling(for: webView)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let failure = error as NSError
+        // A load superseded by the next redirect in Google's sign-in chain is not a failure.
+        if failure.domain == NSURLErrorDomain, failure.code == NSURLErrorCancelled {
+            note("navigation superseded at \(webView.url?.host ?? "?")")
+            return
+        }
+        note("navigation failed: \(failure.domain) \(failure.code) at \(webView.url?.host ?? "?")")
         cancel()
     }
 
@@ -136,12 +150,23 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                     try? await Task.sleep(for: .milliseconds(250))
                     continue
                 }
-                webView.evaluateJavaScript(AccountLoginValidation.completionScript) { [weak self, weak webView] value, _ in
+                webView.callAsyncJavaScript(AccountLoginValidation.completionScript, arguments: [:], in: nil, in: .page) { [weak self, weak webView] result in
+                    var failure: String?
+                    var value: String?
+                    switch result {
+                    case .success(let any): value = any as? String
+                    case .failure(let error): failure = error.localizedDescription
+                    }
                     Task { @MainActor [weak self, weak webView] in
+                        if let failure { self?.note("completion script error: \(failure)") }
+                        else if let text = value {
+                            let summary = text.data(using: .utf8).flatMap(AccountLoginValidation.sanitizeMetadata)
+                            self?.note("completion probe: \(text.isEmpty ? "no marker" : "\(text.utf8.count) bytes") decision=\(summary.map { LoginCompletionDecision.from($0) == .wait ? "wait" : "accept" } ?? "wait")")
+                        }
                         guard let self, let webView, !self.closing,
                               token == self.navigationToken,
                               AccountLoginValidation.isExactCompletionOrigin(webView.url),
-                              let value = value as? String, let data = value.data(using: .utf8),
+                              let value, let data = value.data(using: .utf8),
                               let accountId = self.accountId, let profileId = self.profileId,
                               let summary = AccountLoginValidation.sanitizeMetadata(data),
                               AccountLoginPollingDecision.decide(token: token, activeToken: self.navigationToken,
@@ -158,6 +183,7 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                 try? await Task.sleep(for: .milliseconds(250))
             }
             if !Task.isCancelled, token == self.navigationToken, !self.closing {
+                self.note("timed out after \(Int(AccountLoginValidation.completionTimeout))s at \(self.webView?.url?.host ?? "?")")
                 self.cancel()
             }
         }
