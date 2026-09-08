@@ -58,14 +58,14 @@ struct ScreenHeader: View {
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.largeTitle)
+                .font(.system(size: 30, weight: .bold))
             Text(subtitle)
-                .font(.subheadline)
-                .foregroundColor(.gray)
+                .font(.system(size: 13))
+                .foregroundColor(Palette.secondaryText)
         }
-        .padding(.bottom, 12)
+        .padding(.bottom, 14)
     }
 }
 
@@ -346,6 +346,8 @@ struct PlaybackLabSection: View {
                 Button("Stop") { model.stopOfficialVideo() }
                     .frame(minWidth: 72)
                     .disabled(model.accountOperationInProgress)
+                // The lab distinguishes stopping the renderer from releasing Rust's lease, so it
+                // keeps the precise name the transport bar does not need.
                 Button("Release") { model.releasePlayback() }
                     .frame(minWidth: 72)
                     .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
