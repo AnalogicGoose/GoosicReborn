@@ -251,6 +251,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// Every catalog page this session has requested, keyed so a late response cannot land on
     /// the wrong screen.
     @SwiftCrossUI.Published private(set) var pages: [CatalogKey: CatalogLoadState] = [:]
+    @SwiftCrossUI.Published private(set) var catalogContinuationsLoading: Set<CatalogKey> = []
 
     private var client: GoosicServiceClient?
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
@@ -268,6 +269,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private var preferenceSaveToken: UInt64 = 0
     let officialPlaybackHost: OfficialPlaybackHost
     let localPlaybackHost: LocalPlaybackHost
+    let personalCatalogHost: PersonalCatalogHost
     private var systemMediaControls: SystemMediaControls?
     private var accountLoginHost: AccountLoginHost?
     private var accountTransitionToken: UInt64 = 0
@@ -308,6 +310,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     init() {
         officialPlaybackHost = OfficialPlaybackHost()
         localPlaybackHost = LocalPlaybackHost()
+        personalCatalogHost = PersonalCatalogHost()
         artwork.onArtworkLoaded = { [weak self] in
             self?.artworkVersion &+= 1
         }
@@ -400,6 +403,15 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         accounts = snapshot.accounts
         activeAccountId = snapshot.activeAccountId
         accountSnapshotEpoch = snapshot.epoch
+        let personalProfile = activeAccount.flatMap { UUID(uuidString: $0.webkitProfileId) }
+        personalCatalogHost.bind(profileIdentifier: personalProfile)
+        pages = pages.filter { key, _ in
+            if case .library = key { return false }
+            return true
+        }
+        if route == .library, activeAccount != nil {
+            loadLibrary(section: PersonalLibrarySection(rawValue: libraryTab) ?? .playlists)
+        }
         guard initial else { return }
         // A persisted active account is startup state, not a user transition. Bind its profile
         // directly after accounts.get and do not manufacture a playback lease transition.
@@ -1017,6 +1029,14 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func loadRoute(_ route: GoosicRoute, force: Bool = false) {
+        if route == .library {
+            loadLibrary(section: PersonalLibrarySection(rawValue: libraryTab) ?? .playlists, force: force)
+            return
+        }
+        if route == .home, activeAccount != nil {
+            loadPersonalHome(force: force)
+            return
+        }
         guard let catalogRoute = route.catalogRoute else { return }
         loadCatalog(
             key: .route(route),
@@ -1091,6 +1111,120 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             loadEntity(.artist(id), force: true)
         case .playlist(let id):
             loadEntity(.playlist(id), force: true)
+        case .library(let raw):
+            loadLibrary(section: PersonalLibrarySection(rawValue: raw) ?? .playlists, force: true)
+        }
+    }
+
+    func selectLibrarySection(_ section: PersonalLibrarySection) {
+        libraryTab = section.rawValue
+        loadLibrary(section: section)
+    }
+
+    func loadLibrary(section: PersonalLibrarySection, force: Bool = false) {
+        let key = section.key
+        guard activeAccount != nil else {
+            pages[key] = .idle
+            return
+        }
+        if !force {
+            switch state(for: key) {
+            case .loading, .loaded: return
+            case .idle, .failed: break
+            }
+        }
+        pages[key] = .loading
+        personalCatalogHost.load(section: section) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let page):
+                self.pages[key] = .loaded(CatalogPageView(wire: page))
+            case .failure(let error):
+                self.pages[key] = .failed(code: "personalCatalog", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func loadMore(_ key: CatalogKey) {
+        guard case .loaded(let existing) = state(for: key),
+              let cursor = existing.nextCursor,
+              !cursor.isEmpty,
+              !catalogContinuationsLoading.contains(key),
+              (client != nil || isPersonalLibraryKey(key)) else { return }
+        catalogContinuationsLoading.insert(key)
+        if key == .route(.home), activeAccount != nil {
+            personalCatalogHost.loadBrowse(
+                browseID: "FEmusic_home",
+                title: "Home",
+                continuation: cursor
+            ) { [weak self] result in
+                guard let self else { return }
+                self.finishPersonalContinuation(result, key: key, cursor: cursor, subject: "home")
+            }
+            return
+        }
+        if case .library(let raw) = key {
+            let section = PersonalLibrarySection(rawValue: raw) ?? .playlists
+            personalCatalogHost.load(section: section, continuation: cursor) { [weak self] result in
+                guard let self else { return }
+                self.finishPersonalContinuation(result, key: key, cursor: cursor, subject: "library")
+            }
+            return
+        }
+        send(
+            command: "catalog.continue",
+            payload: GoosicRequestPayload(continuation: cursor)
+        ) { [weak self] response in
+            guard let self else { return }
+            self.catalogContinuationsLoading.remove(key)
+            guard case .loaded(let current) = self.state(for: key),
+                  current.nextCursor == cursor,
+                  let wire = response.payload?.catalog else { return }
+            self.pages[key] = .loaded(current.appending(CatalogPageView(wire: wire)))
+        } failure: { [weak self] error in
+            self?.catalogContinuationsLoading.remove(key)
+            self?.status = "Could not load more content: \(Self.describe(error).message)"
+        }
+    }
+
+    private func isPersonalLibraryKey(_ key: CatalogKey) -> Bool {
+        if case .library = key { return true }
+        return false
+    }
+
+    private func finishPersonalContinuation(
+        _ result: Result<GoosicCatalogPage, Error>,
+        key: CatalogKey,
+        cursor: String,
+        subject: String
+    ) {
+        catalogContinuationsLoading.remove(key)
+        guard case .loaded(let current) = state(for: key), current.nextCursor == cursor else { return }
+        switch result {
+        case .success(let wire):
+            pages[key] = .loaded(current.appending(CatalogPageView(wire: wire)))
+        case .failure(let error):
+            status = "Could not load more \(subject) content: \(error.localizedDescription)"
+        }
+    }
+
+    private func loadPersonalHome(force: Bool) {
+        let key = CatalogKey.route(.home)
+        if !force {
+            switch state(for: key) {
+            case .loading, .loaded: return
+            case .idle, .failed: break
+            }
+        }
+        pages[key] = .loading
+        personalCatalogHost.loadBrowse(browseID: "FEmusic_home", title: "Home") { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let page):
+                self.pages[key] = .loaded(CatalogPageView(wire: page))
+            case .failure(let error):
+                self.pages[key] = .failed(code: "personalCatalog", message: error.localizedDescription)
+            }
         }
     }
 

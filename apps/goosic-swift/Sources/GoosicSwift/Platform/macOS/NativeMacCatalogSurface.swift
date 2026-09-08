@@ -133,6 +133,19 @@ struct NativeMacCatalogPage: SwiftUI.View {
                 SwiftUI.ForEach(page.shelves) { shelf in
                     NativeMacShelf(shelf: shelf, model: model)
                 }
+                if let cursor = page.nextCursor {
+                    SwiftUI.HStack {
+                        SwiftUI.Spacer()
+                        SwiftUI.ProgressView().controlSize(.small)
+                        SwiftUI.Text("Loading more…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        SwiftUI.Spacer()
+                    }
+                    .padding(.vertical, 20)
+                    .id(cursor)
+                    .onAppear { model.loadMore(key) }
+                }
                 if page.truncated {
                     SwiftUI.Text("This page was long, so only the first part is shown.")
                         .font(.caption)
@@ -146,6 +159,49 @@ struct NativeMacCatalogPage: SwiftUI.View {
                 SwiftUI.Button("Load \(title.lowercased())") { model.retry(key) }
             }
             .padding(.leading, leadingInset + 24)
+        }
+    }
+}
+
+struct NativeMacLibraryPage: SwiftUI.View {
+    let model: GoosicAppModel
+
+    private var section: PersonalLibrarySection {
+        PersonalLibrarySection(rawValue: model.libraryTab) ?? .playlists
+    }
+
+    var body: some SwiftUI.View {
+        if model.activeAccount == nil {
+            NativeMacEmptyPage(
+                title: "Library",
+                icon: "music.note.list",
+                message: "Sign in from Settings to load your playlists, liked songs, albums, and artists."
+            )
+        } else {
+            SwiftUI.VStack(spacing: 0) {
+                SwiftUI.Picker(
+                    "Library section",
+                    selection: SwiftUI.Binding(
+                        get: { section },
+                        set: { model.selectLibrarySection($0) }
+                    )
+                ) {
+                    SwiftUI.ForEach(PersonalLibrarySection.allCases) { item in
+                        SwiftUI.Text(item.rawValue).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 24)
+                .padding(.top, 18)
+
+                NativeMacCatalogPage(
+                    key: section.key,
+                    title: section.rawValue,
+                    subtitle: "Your saved YouTube Music collection",
+                    state: model.state(for: section.key),
+                    model: model
+                )
+            }
         }
     }
 }

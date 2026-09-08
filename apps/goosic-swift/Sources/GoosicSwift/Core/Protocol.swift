@@ -18,6 +18,7 @@ struct GoosicRequestPayload: Codable {
     var query: String?
     var filter: String?
     var catalogId: String?
+    var continuation: String?
     var limit: UInt32?
     var preferences: GoosicPreferencesPatch?
     var lyrics: GoosicLyricsQuery?
@@ -32,6 +33,7 @@ struct GoosicRequestPayload: Codable {
         query: String? = nil,
         filter: String? = nil,
         catalogId: String? = nil,
+        continuation: String? = nil,
         limit: UInt32? = nil,
         preferences: GoosicPreferencesPatch? = nil,
         lyrics: GoosicLyricsQuery? = nil
@@ -45,6 +47,7 @@ struct GoosicRequestPayload: Codable {
         self.query = query
         self.filter = filter
         self.catalogId = catalogId
+        self.continuation = continuation
         self.limit = limit
         self.preferences = preferences
         self.lyrics = lyrics
@@ -214,6 +217,7 @@ struct GoosicCatalogPage: Codable {
     var shelves: [GoosicCatalogShelf]?
     var tracks: [GoosicCatalogItem]?
     var thumbnail: String?
+    var nextCursor: String?
     /// True when the service clamped the upstream page to fit one protocol frame.
     var truncated: Bool?
 }

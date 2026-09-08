@@ -138,6 +138,25 @@ final class CatalogConversionTests: XCTestCase {
         )
         XCTAssertEqual(CatalogPageView(wire: page).playableTracks.map(\.id), ["a", "b"])
     }
+
+    func testContinuationPagesAppendWithoutLosingTheNextCursor() {
+        let first = CatalogPageView(wire: GoosicCatalogPage(
+            id: "home", title: "Home", subtitle: nil,
+            shelves: [GoosicCatalogShelf(id: "shelf", title: "First", items: [
+                item(kind: .album, id: "a", title: "A")
+            ])], tracks: nil, thumbnail: nil, nextCursor: "page-2", truncated: nil
+        ))
+        let second = CatalogPageView(wire: GoosicCatalogPage(
+            id: "continuation", title: "", subtitle: nil,
+            shelves: [GoosicCatalogShelf(id: "shelf", title: "Second", items: [
+                item(kind: .album, id: "b", title: "B")
+            ])], tracks: nil, thumbnail: nil, nextCursor: "page-3", truncated: nil
+        ))
+        let merged = first.appending(second)
+        XCTAssertEqual(merged.shelves.map(\.title), ["First", "Second"])
+        XCTAssertNotEqual(merged.shelves[0].id, merged.shelves[1].id)
+        XCTAssertEqual(merged.nextCursor, "page-3")
+    }
 }
 
 final class TrackPresentationTests: XCTestCase {

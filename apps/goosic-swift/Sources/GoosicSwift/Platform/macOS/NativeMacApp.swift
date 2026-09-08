@@ -149,14 +149,7 @@ private struct NativeMacRootView: SwiftUI.View {
             case .search:
                 NativeMacSearchView(store: store)
             case .library:
-                NativeMacEmptyPage(
-                    title: "Library",
-                    icon: "music.note.list",
-                    message: model.activeAccount == nil
-                        ? "Sign in to load your saved music."
-                        : "Your personal library connection is the next data step."
-                )
-                .padding(.leading, leadingInset)
+                NativeMacLibraryPage(model: model)
             case .downloads:
                 NativeMacDownloadsView(store: store)
                     .padding(.leading, leadingInset)
@@ -304,10 +297,10 @@ private struct NativeMacSidebar: SwiftUI.View {
     private var footer: some SwiftUI.View {
         SwiftUI.Button { model.navigate(to: .settings) } label: {
             SwiftUI.HStack(spacing: 10) {
-                SwiftUI.Text(String(model.activeAccountLabel.prefix(1)).uppercased())
-                    .font(.headline)
-                    .frame(width: 34, height: 34)
-                    .background(SwiftUI.Color.goosicPink, in: Circle())
+                NativeMacAccountAvatar(
+                    url: model.activeAccount?.avatarUrl,
+                    fallback: String(model.activeAccountLabel.prefix(1)).uppercased()
+                )
                 SwiftUI.VStack(alignment: .leading, spacing: 1) {
                     SwiftUI.Text(model.activeAccountLabel).font(.subheadline.weight(.semibold)).lineLimit(1)
                     SwiftUI.Text(model.serviceConnected ? "Connected" : "Offline")
@@ -325,6 +318,27 @@ private struct NativeMacSidebar: SwiftUI.View {
         .padding(.bottom, 8)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Account: \(model.activeAccountLabel)")
+    }
+}
+
+private struct NativeMacAccountAvatar: SwiftUI.View {
+    let url: String?
+    let fallback: String
+
+    var body: some SwiftUI.View {
+        SwiftUI.AsyncImage(url: url.flatMap(URL.init(string:))) { phase in
+            if case .success(let image) = phase {
+                image.resizable().scaledToFill()
+            } else {
+                SwiftUI.Text(fallback)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(SwiftUI.Color.goosicPink)
+            }
+        }
+        .frame(width: 34, height: 34)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 1))
     }
 }
 
@@ -824,7 +838,7 @@ private struct NativeMacSettingsView: SwiftUI.View {
     }
 }
 
-private struct NativeMacEmptyPage: SwiftUI.View {
+struct NativeMacEmptyPage: SwiftUI.View {
     let title: String
     let icon: String
     let message: String

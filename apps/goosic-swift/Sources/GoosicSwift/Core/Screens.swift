@@ -114,6 +114,14 @@ struct CatalogPageBody: View {
                         }
                         .font(.caption)
                     }
+                    if page.nextCursor != nil {
+                        Button(model.catalogContinuationsLoading.contains(key) ? "Loading more…" : "Load more") {
+                            model.loadMore(key)
+                        }
+                        .disabled(model.catalogContinuationsLoading.contains(key))
+                        .font(.caption)
+                        .padding(.top, 8)
+                    }
                     if page.truncated {
                         Text("This page was long, so only the first part is shown.")
                             .font(.caption2)
@@ -153,7 +161,9 @@ struct CatalogRouteScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ScreenHeader(title: title, subtitle: subtitle)
-                GuestCatalogNotice()
+                if model.activeAccount == nil {
+                    GuestCatalogNotice()
+                }
                 CatalogPageBody(
                     key: .route(route),
                     state: model.state(for: .route(route)),
@@ -213,16 +223,28 @@ struct LibraryScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                ScreenHeader(title: "Library", subtitle: "Your saved collection will live here")
-                EmptyState(
-                    title: model.activeAccount == nil ? "Not connected to an account" : "Personal library is next",
-                    message: model.activeAccount == nil
-                        ? "The catalog is browsed as a guest, so there is no personal library to read. Sign in from Settings to create an isolated account profile."
-                        : "This account is signed in, but personal library reads are intentionally left as the next authenticated-data step."
-                )
-                Text("What works today: Home, Explore, Charts, Moods & genres, New releases, and Search all read the live catalog, and songs play through the official player.")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                ScreenHeader(title: "Library", subtitle: "Your saved YouTube Music collection")
+                if model.activeAccount == nil {
+                    EmptyState(
+                        title: "Not connected to an account",
+                        message: "Sign in from Settings to load your playlists, liked songs, albums, and artists."
+                    )
+                } else {
+                    HStack(spacing: 8) {
+                        ForEach(PersonalLibrarySection.allCases) { section in
+                            Button(section.rawValue) { model.selectLibrarySection(section) }
+                                .font(.caption)
+                                .background(model.libraryTab == section.rawValue ? Color.blue.opacity(0.18) : Color.clear)
+                        }
+                    }
+                    let section = PersonalLibrarySection(rawValue: model.libraryTab) ?? .playlists
+                    CatalogPageBody(
+                        key: section.key,
+                        state: model.state(for: section.key),
+                        subject: section.rawValue.lowercased(),
+                        model: model
+                    )
+                }
             }
             .padding(24)
         }
