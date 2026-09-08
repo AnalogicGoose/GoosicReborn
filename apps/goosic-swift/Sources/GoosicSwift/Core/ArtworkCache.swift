@@ -142,9 +142,15 @@ final class ArtworkCache {
             }
             // Written beside the destination and renamed, so a half-written file can never be
             // picked up as a valid cache entry by a later layout pass.
+            //
+            // The rename is a remove-then-move rather than `replaceItemAt`, which is unimplemented
+            // off Darwin and traps instead of throwing -- `try?` cannot absorb that. What the
+            // comment above promises still holds either way: the bytes are complete before the
+            // destination name is created, so a reader either finds the whole file or nothing.
             let partial = destination.appendingPathExtension("partial")
             try data.write(to: partial, options: .atomic)
-            _ = try? FileManager.default.replaceItemAt(destination, withItemAt: partial)
+            try? FileManager.default.removeItem(at: destination)
+            try? FileManager.default.moveItem(at: partial, to: destination)
             if FileManager.default.fileExists(atPath: destination.path) {
                 ready[remote] = destination
                 onArtworkLoaded?()
