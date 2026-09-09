@@ -266,11 +266,18 @@ A hotfix is the single exception to "nothing is cut from `main`": cut `hotfix/<s
 
 ## What this looks like in practice
 
-Porting the macOS playback hosts to Linux is Linux-only work: the WebKitGTK host and the
-local renderer exist to satisfy one platform's API. It is cut from `platform/linux` as
-`feature/linux/playback-hosts` and merges back there. When the Linux shell can actually play
-sound, `platform/linux` merges into `development`, and the README stops saying audio is
-macOS-only.
+Porting the macOS hosts to Linux was Linux-only work: WebKitGTK, GStreamer, MPRIS and
+per-account network sessions all exist to satisfy one platform's API. Each was cut from
+`platform/linux` as its own `feature/linux/<slug>` and merged back there, and `platform/linux`
+now holds the port as one coherent slice waiting to land on `development`.
+
+Two things in that port were not Linux-only, and telling them apart is the whole skill. The
+script that decides a sign-in finished and the list of hosts a login window may reach were
+private to the macOS file; Linux needed the same answers, and copying them would have
+produced two versions of a security rule. Both were cut from `development` instead, landed
+there, and synced down before the Linux work continued. The test for the second one lost its
+`#if os(macOS)` in the process and now runs everywhere, which is the sort of thing that only
+shows up once a second platform asks the same question.
 
 Authenticated catalog reads are the opposite: `goosic-catalog` is shared and every platform
 needs them. That is `feature/authenticated-catalog` off `development`, and the platform
