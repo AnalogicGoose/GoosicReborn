@@ -20,6 +20,13 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     var onCompleted: ((AccountLoginResult, AccountLoginHost) -> Void)?
     var onCancelled: (() -> Void)?
 
+    /// Diagnostics for the staged sign-in go to stderr, never to the protocol. Nothing here is
+    /// a credential: origins, decisions, and the length of the metadata projection only. A
+    /// sign-in URL in particular is never logged whole — see `Diagnostics`.
+    private func note(_ event: String, _ fields: [String: String] = [:]) {
+        Diagnostics.note(.accountLogin, event, fields)
+    }
+
     func start() {
         guard window == nil else { return }
         // Both UUIDs are generated before the login surface opens and are never derived from
@@ -110,16 +117,30 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        guard navigationAction.targetFrame?.isMainFrame == true else { return decisionHandler(.cancel) }
-        decisionHandler(AccountLoginValidation.isAllowedLoginURL(navigationAction.request.url) ? .allow : .cancel)
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        let decision = LoginNavigationPolicy.decide(
+            url: navigationAction.request.url,
+            frame: NavigationFrame(navigationAction.targetFrame)
+        )
+        if decision == .cancel {
+            note("navigation-refused", ["origin": Diagnostics.origin(of: navigationAction.request.url), "frame": "\(NavigationFrame(navigationAction.targetFrame))"])
+        }
+        decisionHandler(decision == .allow ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        note("navigation-finished", ["origin": Diagnostics.origin(of: webView.url), "atCompletionOrigin": "\(AccountLoginValidation.isExactCompletionOrigin(webView.url))"])
         startCompletionPolling(for: webView)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let failure = error as NSError
+        // A load superseded by the next redirect in Google's sign-in chain is not a failure.
+        if failure.domain == NSURLErrorDomain, failure.code == NSURLErrorCancelled {
+            note("navigation-superseded", ["origin": Diagnostics.origin(of: webView.url)])
+            return
+        }
+        note("navigation-failed", ["domain": failure.domain, "code": "\(failure.code)", "origin": Diagnostics.origin(of: webView.url)])
         cancel()
     }
 
@@ -136,12 +157,23 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                     try? await Task.sleep(for: .milliseconds(250))
                     continue
                 }
-                webView.evaluateJavaScript(AccountLoginValidation.completionScript) { [weak self, weak webView] value, _ in
+                webView.callAsyncJavaScript(AccountLoginValidation.completionScript, arguments: [:], in: nil, in: .page) { [weak self, weak webView] result in
+                    var failure: String?
+                    var value: String?
+                    switch result {
+                    case .success(let any): value = any as? String
+                    case .failure(let error): failure = error.localizedDescription
+                    }
                     Task { @MainActor [weak self, weak webView] in
+                        if let failure { self?.note("completion-script-failed", ["reason": failure]) }
+                        else if let text = value {
+                            let summary = text.data(using: .utf8).flatMap(AccountLoginValidation.sanitizeMetadata)
+                            self?.note("completion-probe", ["marker": text.isEmpty ? "absent" : "\(text.utf8.count) bytes", "decision": summary.map { LoginCompletionDecision.from($0) == .wait ? "wait" : "accept" } ?? "wait"])
+                        }
                         guard let self, let webView, !self.closing,
                               token == self.navigationToken,
                               AccountLoginValidation.isExactCompletionOrigin(webView.url),
-                              let value = value as? String, let data = value.data(using: .utf8),
+                              let value, let data = value.data(using: .utf8),
                               let accountId = self.accountId, let profileId = self.profileId,
                               let summary = AccountLoginValidation.sanitizeMetadata(data),
                               AccountLoginPollingDecision.decide(token: token, activeToken: self.navigationToken,
@@ -158,6 +190,7 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                 try? await Task.sleep(for: .milliseconds(250))
             }
             if !Task.isCancelled, token == self.navigationToken, !self.closing {
+                self.note("timeout", ["after": "\(Int(AccountLoginValidation.completionTimeout))s", "origin": Diagnostics.origin(of: self.webView?.url)])
                 self.cancel()
             }
         }

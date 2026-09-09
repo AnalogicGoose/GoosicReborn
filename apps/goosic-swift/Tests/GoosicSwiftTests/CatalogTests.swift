@@ -99,8 +99,8 @@ final class CatalogConversionTests: XCTestCase {
         let album = item(kind: .album, id: "MPRE1", title: "Album")
         let songs = GoosicShelf(id: "s", title: "Songs", cards: [song, other].map(GoosicCard.init(catalog:)))
         let mixed = GoosicShelf(id: "m", title: "Mixed", cards: [song, album].map(GoosicCard.init(catalog:)))
-        XCTAssertEqual(songs.trackList?.count, 2)
-        XCTAssertNil(mixed.trackList)
+        XCTAssertEqual(songs.playableRows?.count, 2)
+        XCTAssertNil(mixed.playableRows)
     }
 
     func testPageViewKeepsOnlyPlayableTracks() {
@@ -137,6 +137,25 @@ final class CatalogConversionTests: XCTestCase {
             truncated: nil
         )
         XCTAssertEqual(CatalogPageView(wire: page).playableTracks.map(\.id), ["a", "b"])
+    }
+
+    func testContinuationPagesAppendWithoutLosingTheNextCursor() {
+        let first = CatalogPageView(wire: GoosicCatalogPage(
+            id: "home", title: "Home", subtitle: nil,
+            shelves: [GoosicCatalogShelf(id: "shelf", title: "First", items: [
+                item(kind: .album, id: "a", title: "A")
+            ])], tracks: nil, thumbnail: nil, nextCursor: "page-2", truncated: nil
+        ))
+        let second = CatalogPageView(wire: GoosicCatalogPage(
+            id: "continuation", title: "", subtitle: nil,
+            shelves: [GoosicCatalogShelf(id: "shelf", title: "Second", items: [
+                item(kind: .album, id: "b", title: "B")
+            ])], tracks: nil, thumbnail: nil, nextCursor: "page-3", truncated: nil
+        ))
+        let merged = first.appending(second)
+        XCTAssertEqual(merged.shelves.map(\.title), ["First", "Second"])
+        XCTAssertNotEqual(merged.shelves[0].id, merged.shelves[1].id)
+        XCTAssertEqual(merged.nextCursor, "page-3")
     }
 }
 
@@ -228,7 +247,7 @@ final class ProtocolDecodingTests: XCTestCase {
         let page = try XCTUnwrap(response.payload?.catalog)
         let view = CatalogPageView(wire: page)
         XCTAssertEqual(view.shelves.first?.title, "Songs")
-        let track = try XCTUnwrap(view.shelves.first?.trackList?.first)
+        let track = try XCTUnwrap(view.shelves.first?.playableRows?.first)
         XCTAssertEqual(track.videoID, "abc")
         XCTAssertTrue(track.explicit)
     }

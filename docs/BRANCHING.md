@@ -100,6 +100,15 @@ alike from the outside.
 `<os>` is exactly `macos`, `linux`, or `windows`: the same spelling as the platform branch,
 lowercase, no version numbers.
 
+## Local workspace
+
+`GoosicReborn` is the canonical local checkout. Day-to-day work happens in that directory, and
+the repository must not accumulate sibling `GoosicReborn-*` worktree folders merely to isolate a
+small task. A separate worktree is created only when the user explicitly asks for one or when a
+concurrent task cannot safely share the working tree. Before it is removed, its uncommitted work
+must be merged or deliberately discarded with the user's approval; once that is settled, remove
+the worktree so the canonical checkout is the only GoosicReborn folder left in the workspace.
+
 ## Merge direction
 
 Merges go two ways, and only these ways:
