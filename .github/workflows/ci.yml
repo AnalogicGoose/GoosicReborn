@@ -130,7 +130,9 @@ jobs:
                 run: |
                     sudo apt-get update
                     sudo apt-get install -y --no-install-recommends \
-                        libgtk-4-dev libwebkitgtk-6.0-dev pkg-config clang
+                        libgtk-4-dev libwebkitgtk-6.0-dev libglib2.0-dev \
+                        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+                        gstreamer1.0-plugins-good pkg-config clang
 
             -   uses: swift-actions/setup-swift@v2
                 with:
