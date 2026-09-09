@@ -319,7 +319,7 @@ final class OfficialPlaybackHost: NSObject {
         let revision = transport.revision
         transportInFlight = true
         webView.callAsyncJavaScript("""
-            const media = document.querySelector('audio,video');
+            const media = \(OfficialBridge.activeMediaElementScript);
             if (!media) return 'no-media';
             if (paused) media.pause();
             else await media.play();
@@ -352,7 +352,7 @@ final class OfficialPlaybackHost: NSObject {
         }
         let script = """
         (() => {
-          const media = document.querySelector('audio,video');
+          const media = \(OfficialBridge.activeMediaElementScript);
           if (!media) return 'no-media';
           return (\(functionBody))(media);
         })();

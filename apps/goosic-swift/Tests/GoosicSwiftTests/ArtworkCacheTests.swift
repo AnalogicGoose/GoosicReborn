@@ -156,6 +156,31 @@ final class RadioPageTests: XCTestCase {
         XCTAssertTrue(page.isEmpty)
         XCTAssertTrue(page.playableTracks.isEmpty)
     }
+
+    func testRadioRecommendationsKeepTheirOrderAndRemoveQueuedDuplicates() async {
+        await MainActor.run {
+            func track(_ videoID: String) -> GoosicTrack {
+                GoosicTrack(
+                    id: videoID,
+                    title: videoID,
+                    subtitle: "",
+                    artist: "",
+                    artistID: nil,
+                    album: "",
+                    albumID: nil,
+                    duration: "",
+                    videoID: videoID,
+                    explicit: false,
+                    thumbnail: nil
+                )
+            }
+
+            let recommendations = [track("already-queued"), track("first"), track("first"), track("last")]
+            let fresh = GoosicAppModel.freshRadioTracks(recommendations, excluding: [track("already-queued")])
+
+            XCTAssertEqual(fresh.map(\.videoID), ["first", "last"])
+        }
+    }
 }
 
 final class RepeatModeTests: XCTestCase {

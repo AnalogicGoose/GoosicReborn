@@ -48,6 +48,33 @@ final class VolumeSyncTests: XCTestCase {
         )
     }
 
+    func testAnAdvertisementHandOffReappliesTheSavedPreferenceToReplacementMedia() {
+        XCTAssertTrue(
+            VolumeSync.shouldReapplyPreference(wasAdvertisement: true, isAdvertisement: false)
+        )
+        XCTAssertFalse(
+            VolumeSync.shouldReapplyPreference(wasAdvertisement: false, isAdvertisement: false)
+        )
+        XCTAssertFalse(
+            VolumeSync.shouldReapplyPreference(wasAdvertisement: true, isAdvertisement: true)
+        )
+    }
+
+    func testAnUnexpectedOfficialPlayerVolumeReappliesRatherThanOverwritingThePreference() {
+        XCTAssertEqual(
+            VolumeSync.reconcileOfficialRenderer(reported: 1.0, preferred: 0.3, requested: nil),
+            .reapply(0.3)
+        )
+        XCTAssertEqual(
+            VolumeSync.reconcileOfficialRenderer(reported: 1.0, preferred: 0.3, requested: 0.3),
+            .waitingForEcho
+        )
+        XCTAssertEqual(
+            VolumeSync.reconcileOfficialRenderer(reported: 0.3, preferred: 0.3, requested: 0.3),
+            .settled
+        )
+    }
+
     /// The value is carried out rather than assigned inside, so the caller cannot adopt a volume
     /// without deciding whether to persist it — which is the half of this bug that made the
     /// preference on disk disagree with the volume in the app.

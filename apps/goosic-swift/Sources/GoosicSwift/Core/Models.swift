@@ -202,6 +202,14 @@ struct GoosicQueue: Hashable {
     }
 }
 
+/// A radio station is an ordered upstream queue, not a sequence of unrelated searches. Its
+/// continuation remains tied to the song that started the station, so recommendations stay in
+/// the listener's chosen context as the queue grows.
+private struct GoosicRadioStation: Hashable {
+    let seedVideoID: String
+    var continuation: String?
+}
+
 @MainActor
 final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     @SwiftCrossUI.Published var route: GoosicRoute = .home
@@ -310,9 +318,12 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// A radio request is outstanding. Guards against a burst of `ended` events each starting
     /// their own continuation.
     private var radioExtensionInFlight = false
-    /// The track the current radio was seeded from, so a radio that itself runs out does not
-    /// immediately reseed from the same song and loop.
-    private var radioSeedVideoID: String?
+    /// The station that owns autoplay recommendations. Clearing this is a deliberate new queue
+    /// context; preserving it lets `catalog.radio` page the same station instead of drifting.
+    private var radioStation: GoosicRadioStation?
+    /// Bumped whenever a new listening context supersedes an in-flight radio request. A late
+    /// response must never append its recommendations to the user's replacement queue.
+    private var radioRequestRevision: UInt64 = 0
     /// The track the loaded lyrics belong to, so a stale answer cannot land on a new song.
     private var lyricsVideoID: String?
     private var lyricsRequestInFlight = false
@@ -1590,7 +1601,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         subject: String
     ) {
         guard catalogRequests.accepts(ticket, for: key) else { return }
-        catalogRequests.retire(ticket, for: key)
         switch result {
         case .success(let wire):
             guard case .loaded(let current) = state(for: key), current.nextCursor == cursor else {
@@ -1918,9 +1928,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
         if !tracks.isEmpty {
             queue = GoosicQueue(tracks: tracks, currentIndex: tracks.firstIndex(of: track) ?? 0)
-            // A deliberately chosen list is a fresh listening context, so the radio seed guard
-            // is cleared and this queue may start its own radio when it runs out.
-            radioSeedVideoID = nil
+            // A deliberately chosen list is a fresh listening context, so its later autoplay
+            // must not inherit recommendations from the previous station.
+            radioExtensionInFlight = false
+            radioStation = nil
+            radioRequestRevision &+= 1
         } else {
             select(track)
         }
@@ -2421,6 +2433,18 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             presentationChanged = true
         }
         if isAdvertisement != event.isAdvertisement {
+            // YouTube Music can replace its media element when a pre-roll ends. That new content
+            // element reports the page default before it has received the user's preference;
+            // treating that report as a deliberate slider change is how a saved volume slowly
+            // drifted back to 100% after advertisements.
+            if VolumeSync.shouldReapplyPreference(
+                wasAdvertisement: isAdvertisement,
+                isAdvertisement: event.isAdvertisement
+            ) {
+                volumeAppliedForLoad = false
+                requestedVolume = nil
+                requestedMuted = nil
+            }
             isAdvertisement = event.isAdvertisement
             presentationChanged = true
         }
@@ -2436,27 +2460,25 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         if !event.isAdvertisement {
             if volumeAppliedForLoad {
-                switch VolumeSync.reconcile(
-                    reported: event.volume, current: volume, requested: requestedVolume
+                switch VolumeSync.reconcileOfficialRenderer(
+                    reported: event.volume, preferred: volume, requested: requestedVolume
                 ) {
-                case .ignore:
+                case .waitingForEcho:
                     break
                 case .settled:
                     requestedVolume = nil
-                case .adopt(let reported):
-                    // Somebody moved the slider inside the player. Follow it — and write it down,
-                    // which the old path did not, leaving the preference on disk disagreeing with
-                    // the volume in the app until something unrelated happened to save.
-                    volume = reported
-                    presentationChanged = true
-                    savePreferences(GoosicPreferencesPatch(volume: reported))
+                case .reapply(let preferred):
+                    // The official player is mounted off-screen, so this cannot be a direct user
+                    // action. A changed value means its media element was replaced or reset;
+                    // keep the native preference authoritative and send it to the new element.
+                    requestedVolume = preferred
+                    officialPlaybackHost.setVolume(preferred)
                 }
                 if let requestedMuted {
                     if requestedMuted == event.isMuted { self.requestedMuted = nil }
                 } else if isMuted != event.isMuted {
-                    isMuted = event.isMuted
-                    presentationChanged = true
-                    savePreferences(GoosicPreferencesPatch(muted: event.isMuted))
+                    requestedMuted = isMuted
+                    officialPlaybackHost.setMuted(isMuted)
                 }
             } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
                 // A fresh content page starts at its own volume. Push the stored preference once,
@@ -2614,21 +2636,39 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Queue finished."
             return
         }
-        guard !radioExtensionInFlight, radioSeedVideoID != seed.videoID else {
+        guard !radioExtensionInFlight else {
+            status = "Queue finished."
+            return
+        }
+        // A station with no next cursor is genuinely exhausted. Re-seeding from the last
+        // recommendation is what made long queues wander into unrelated music.
+        if let station = radioStation, station.continuation == nil {
             status = "Queue finished."
             return
         }
         radioExtensionInFlight = true
-        radioSeedVideoID = seed.videoID
-        status = "Queue finished. Starting radio from \(seed.title)…"
-        requestRadio(seed: seed) { [weak self] tracks in
+        let station = radioStation ?? GoosicRadioStation(seedVideoID: seed.videoID, continuation: nil)
+        let revision = radioRequestRevision
+        status = station.continuation == nil
+            ? "Queue finished. Starting radio from \(seed.title)…"
+            : "Queue finished. Loading more from this radio…"
+        requestRadio(seedVideoID: station.seedVideoID, continuation: station.continuation) { [weak self] page in
             guard let self else { return }
             self.radioExtensionInFlight = false
-            guard let first = tracks.first else {
+            guard revision == self.radioRequestRevision else { return }
+            guard let page else {
                 self.status = "Queue finished. Radio had nothing to continue with."
                 return
             }
-            self.queue = GoosicQueue(tracks: [seed] + tracks, currentIndex: 0)
+            let tracks = Self.freshRadioTracks(page.playableTracks, excluding: self.queue.tracks)
+            guard let first = tracks.first else {
+                self.status = "Queue finished. Radio had nothing new to continue with."
+                return
+            }
+            self.radioStation = GoosicRadioStation(
+                seedVideoID: station.seedVideoID, continuation: page.nextCursor
+            )
+            self.queue.tracks.append(contentsOf: tracks)
             self.play(first)
         }
     }
@@ -2638,28 +2678,49 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         guard allowPlaybackInteraction() else { return }
         guard !radioExtensionInFlight else { return }
         radioExtensionInFlight = true
-        radioSeedVideoID = track.videoID
+        radioRequestRevision &+= 1
+        let revision = radioRequestRevision
         status = "Starting radio from \(track.title)…"
-        requestRadio(seed: track) { [weak self] tracks in
+        requestRadio(seedVideoID: track.videoID, continuation: nil) { [weak self] page in
             guard let self else { return }
             self.radioExtensionInFlight = false
-            guard let first = tracks.first else {
+            guard revision == self.radioRequestRevision else { return }
+            guard let page else {
                 self.status = "Radio had nothing to play after \(track.title)."
                 return
             }
+            let tracks = Self.freshRadioTracks(page.playableTracks, excluding: [track])
+            guard let first = tracks.first else {
+                self.status = "Radio had nothing new to play after \(track.title)."
+                return
+            }
+            self.radioStation = GoosicRadioStation(
+                seedVideoID: track.videoID, continuation: page.nextCursor
+            )
             self.queue = GoosicQueue(tracks: [track] + tracks, currentIndex: 0)
             self.play(first)
         }
     }
 
-    private func requestRadio(seed: GoosicTrack, completion: @escaping ([GoosicTrack]) -> Void) {
+    /// Keeps only recommendations that do not already occur in this queue, while also removing
+    /// repeats inside one upstream page. Explicit user queues may contain duplicates; radio
+    /// recommendations may not, because a duplicate reads as a broken "up next" sequence.
+    static func freshRadioTracks(_ candidates: [GoosicTrack], excluding queue: [GoosicTrack]) -> [GoosicTrack] {
+        var seen = Set(queue.map(\.videoID))
+        return candidates.filter { seen.insert($0.videoID).inserted }
+    }
+
+    private func requestRadio(
+        seedVideoID: String,
+        continuation: String?,
+        completion: @escaping (CatalogPageView?) -> Void
+    ) {
         send(
             command: "catalog.radio",
-            payload: GoosicRequestPayload(catalogId: seed.videoID)
+            payload: GoosicRequestPayload(catalogId: seedVideoID, continuation: continuation)
         ) { [weak self] response in
             guard self != nil else { return }
-            let page = response.payload?.catalog.map(CatalogPageView.init(wire:))
-            completion(page?.tracks ?? [])
+            completion(response.payload?.catalog.map(CatalogPageView.init(wire:)))
         } failure: { [weak self] error in
             guard let self else { return }
             self.radioExtensionInFlight = false

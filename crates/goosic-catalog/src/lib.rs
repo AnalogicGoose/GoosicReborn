@@ -150,6 +150,22 @@ impl Catalog {
         Ok(page)
     }
 
+    /// Continues the same radio station rather than treating its last recommendation as a new
+    /// seed. The caller keeps the original seed for queue ownership; the service only needs the
+    /// opaque station cursor.
+    pub fn radio_continuation(
+        &self,
+        seed_video_id: &str,
+        continuation: &str,
+    ) -> Result<CatalogPage, CatalogError> {
+        let response = self.client.radio_continuation(continuation)?;
+        let page = parse::radio_page(seed_video_id, &response);
+        if page.tracks.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        Ok(page)
+    }
+
     pub fn artist(&self, browse_id: &str) -> Result<CatalogPage, CatalogError> {
         let response = self.client.browse(browse_id)?;
         let page = parse::artist_page(browse_id, &response);

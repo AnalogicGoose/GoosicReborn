@@ -71,6 +71,20 @@ final class CatalogRequestLedgerTests: XCTestCase {
         ledger.retire(first, for: .route(.home))
         XCTAssertTrue(ledger.accepts(second, for: .route(.home)))
     }
+
+    /// Continuation pages are converted off the main actor before they can be appended. The
+    /// ticket has to remain current across that hop; retiring it at the callback boundary makes
+    /// the append reject itself and leaves the visible footer loading forever.
+    func testAContinuationTicketRemainsAcceptableUntilItsAppendIsCommitted() {
+        var ledger = CatalogRequestLedger()
+        let ticket = ledger.issue(for: .route(.home))
+
+        XCTAssertTrue(ledger.accepts(ticket, for: .route(.home)))
+        XCTAssertTrue(ledger.accepts(ticket, for: .route(.home)), "the converted page may still append")
+
+        ledger.retire(ticket, for: .route(.home))
+        XCTAssertFalse(ledger.accepts(ticket, for: .route(.home)))
+    }
 }
 
 /// A continuation that failed used to be indistinguishable from one that had not started, so the

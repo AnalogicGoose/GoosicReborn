@@ -12,6 +12,7 @@ struct GoosicMacApp: SwiftUI.App {
         // `swift run` is not wrapped in an .app bundle, so explicitly opt into a foreground
         // activation policy during development. Packaged builds already receive this behavior.
         NSApplication.shared.setActivationPolicy(.regular)
+        NativeMacApplicationIcon.install()
     }
 
     var body: some SwiftUI.Scene {
@@ -25,6 +26,42 @@ struct GoosicMacApp: SwiftUI.App {
                 }
         }
         .defaultSize(width: 1_280, height: 800)
+    }
+}
+
+/// Installs the supplied Goosic artwork for both `swift run` and packaged macOS launches.
+/// SwiftPM executables do not have an Xcode asset catalog, so the icon must be loaded from the
+/// target resource bundle explicitly. The complete appearance set stays bundled for future
+/// packaging; the default artwork is the stable macOS Dock/application icon for now.
+@MainActor
+private enum NativeMacApplicationIcon {
+    static func install() {
+        guard let url = Bundle.module.url(
+            forResource: "Icon-iOS-Default-1024@1x", withExtension: "png", subdirectory: "AppIcons"
+        ), let image = NSImage(contentsOf: url) else {
+            return
+        }
+
+        // The supplied iOS artwork is edge-to-edge, while macOS Dock icons reserve a little
+        // transparent breathing room around their visible mark. Add that padding at runtime so
+        // Goosic occupies the same visual size as neighboring Dock icons without altering the
+        // source PNGs or their appearance in other platforms.
+        let inset = image.size.width * 0.10
+        let padded = NSImage(size: image.size)
+        padded.lockFocus()
+        image.draw(
+            in: NSRect(
+                x: inset,
+                y: inset,
+                width: image.size.width - (inset * 2),
+                height: image.size.height - (inset * 2)
+            ),
+            from: NSRect(origin: .zero, size: image.size),
+            operation: .sourceOver,
+            fraction: 1
+        )
+        padded.unlockFocus()
+        NSApplication.shared.applicationIconImage = padded
     }
 }
 
@@ -273,6 +310,25 @@ private struct NativeMacSidebarSurface: SwiftUI.View {
     }
 }
 
+/// SF Symbols have different intrinsic drawing bounds: a gear or theatre masks fills more of a
+/// point-sized box than a magnifying glass. Giving `Image` a frame only aligned those unequal
+/// drawings; it did not make them the same visual size. This resizes the artwork first, then
+/// gives it a consistent hit and alignment canvas.
+private struct NativeMacFixedSymbol: SwiftUI.View {
+    let name: String
+    let glyphSize: CGFloat
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some SwiftUI.View {
+        SwiftUI.Image(systemName: name)
+            .resizable()
+            .scaledToFit()
+            .frame(width: glyphSize, height: glyphSize)
+            .frame(width: width, height: height)
+    }
+}
+
 private struct NativeMacSidebar: SwiftUI.View {
     static let width: CGFloat = 210
 
@@ -281,7 +337,7 @@ private struct NativeMacSidebar: SwiftUI.View {
     private var model: GoosicAppModel { store.model }
 
     var body: some SwiftUI.View {
-        SwiftUI.List {
+        applyingSidebarFooter(to: SwiftUI.List {
             SwiftUI.Section {
                 row(.search, icon: "magnifyingglass")
                 row(.home, icon: "house.fill")
@@ -294,9 +350,18 @@ private struct NativeMacSidebar: SwiftUI.View {
                 row(.newReleases, icon: "sparkles")
             }
 
-            SwiftUI.Section("Collection") {
-                row(.library, icon: "music.note.list")
+            SwiftUI.Section("Library") {
+                libraryRow(.songs, title: "Favourite Songs", icon: "star.square.on.square")
+                libraryRow(.artists, title: "Artists", icon: "music.mic")
+                libraryRow(.albums, title: "Albums", icon: "square.stack")
                 row(.downloads, icon: "arrow.down.circle")
+            }
+
+            SwiftUI.Section("Playlists") {
+                libraryRow(.playlists, title: "All Playlists", icon: "square.grid.2x2")
+                SwiftUI.ForEach(model.userPlaylists) { playlist in
+                    playlistRow(playlist)
+                }
             }
 
             SwiftUI.Section("Goosic") {
@@ -305,11 +370,33 @@ private struct NativeMacSidebar: SwiftUI.View {
         }
         .listStyle(.sidebar)
         .environment(\.defaultMinListRowHeight, 30)
-        .scrollContentBackground(.hidden)
-        .safeAreaInset(edge: .bottom, spacing: 0) { footer }
+        .scrollContentBackground(.hidden))
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .background { NativeMacSidebarSurface().ignoresSafeArea() }
+        .onAppear { model.loadUserPlaylists() }
+        // The sidebar is created before the asynchronous account snapshot returns. Re-read when
+        // the account appears (or changes) so an initially empty sidebar is not mistaken for an
+        // account with no playlists.
+        .onChange(of: model.activeAccount?.id) { _, _ in
+            model.loadUserPlaylists(force: true)
+        }
+    }
+
+    /// macOS 26+ owns the scroll-edge blur used by source lists. Keeping the availability check
+    /// here lets older hosts retain the same pinned account control without depending on a newer
+    /// SDK at runtime.
+    @SwiftUI.ViewBuilder
+    private func applyingSidebarFooter<Content: SwiftUI.View>(
+        to content: Content
+    ) -> some SwiftUI.View {
+        if #available(macOS 26.0, *) {
+            content
+                .safeAreaBar(edge: .bottom, spacing: 0) { footer }
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
+        } else {
+            content.safeAreaInset(edge: .bottom, spacing: 0) { footer }
+        }
     }
 
     /// Rows are plain buttons on a native list, so they take the system row metrics while the
@@ -320,7 +407,8 @@ private struct NativeMacSidebar: SwiftUI.View {
             SwiftUI.Label {
                 SwiftUI.Text(route.title).fontWeight(selected ? .semibold : .regular)
             } icon: {
-                SwiftUI.Image(systemName: icon).foregroundStyle(SwiftUI.Color.blue)
+                NativeMacFixedSymbol(name: icon, glyphSize: 16, width: 22, height: 22)
+                    .foregroundStyle(SwiftUI.Color.blue)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -331,6 +419,62 @@ private struct NativeMacSidebar: SwiftUI.View {
                 .fill(selected ? SwiftUI.Color.primary.opacity(0.09) : SwiftUI.Color.clear)
                 .padding(.horizontal, 10)
         )
+    }
+
+    private func libraryRow(
+        _ section: PersonalLibrarySection, title: String, icon: String
+    ) -> some SwiftUI.View {
+        let selected = model.detail == nil
+            && model.route == .library
+            && model.libraryTab == section.rawValue
+        return SwiftUI.Button {
+            model.navigate(to: .library)
+            model.selectLibrarySection(section)
+        } label: {
+            SwiftUI.Label {
+                SwiftUI.Text(title).fontWeight(selected ? .semibold : .regular)
+            } icon: {
+                NativeMacFixedSymbol(name: icon, glyphSize: 16, width: 22, height: 22)
+                    .foregroundStyle(SwiftUI.Color.goosicPink)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(selected ? SwiftUI.Color.primary.opacity(0.09) : SwiftUI.Color.clear)
+                .padding(.horizontal, 10)
+        )
+    }
+
+    private func playlistRow(_ playlist: PersonalPlaylistSummary) -> some SwiftUI.View {
+        let selected = selectedPlaylistID == playlist.id
+        return SwiftUI.Button {
+            model.show(.playlist(playlist.id))
+        } label: {
+            SwiftUI.HStack(spacing: 6) {
+                NativeMacSidebarArtwork(url: playlist.thumbnail)
+                SwiftUI.Text(playlist.title)
+                    .fontWeight(selected ? .semibold : .regular)
+                    .lineLimit(1)
+                SwiftUI.Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(playlist.title)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(selected ? SwiftUI.Color.primary.opacity(0.09) : SwiftUI.Color.clear)
+                .padding(.horizontal, 10)
+        )
+    }
+
+    private var selectedPlaylistID: String? {
+        guard case .playlist(let id) = model.detail else { return nil }
+        return id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
     }
 
     private var footer: some SwiftUI.View {
@@ -381,6 +525,34 @@ private struct NativeMacAccountAvatar: SwiftUI.View {
     }
 }
 
+/// A playlist list is personal data, so its artwork comes from the authenticated library rather
+/// than from a hard-coded selection. The same URL allow-list used by catalog artwork prevents a
+/// malformed personal response from turning the sidebar into an arbitrary remote-image loader.
+private struct NativeMacSidebarArtwork: SwiftUI.View {
+    let url: String?
+
+    var body: some SwiftUI.View {
+        SwiftUI.AsyncImage(url: validatedURL) { phase in
+            if case .success(let image) = phase {
+                image.resizable().scaledToFill()
+            } else {
+                SwiftUI.Color.goosicPink.opacity(0.14)
+                    .overlay(
+                        NativeMacFixedSymbol(name: "music.note", glyphSize: 11, width: 18, height: 18)
+                            .foregroundStyle(SwiftUI.Color.goosicPink)
+                    )
+            }
+        }
+        .frame(width: 18, height: 18)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var validatedURL: URL? {
+        guard let url, let value = URL(string: url), ArtworkCache.isAllowed(value) else { return nil }
+        return value
+    }
+}
+
 /// The compact now-playing capsule, laid out like Music's: transport, the current song over a
 /// hairline progress bar, then More, Lyrics, Queue, and a volume slider that unfolds out of the
 /// speaker button in place of the two panel toggles. Every control is a plain glyph on the
@@ -393,33 +565,41 @@ private struct NativeMacPlayerBar: SwiftUI.View {
     @State private var statusVisible = false
     @State private var volumeExpanded = false
     @State private var progressHovered = false
+    @State private var playerHovered = false
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
     private var canAdjustVolume: Bool { !busy && !model.isAdvertisement }
-    private var showsTimes: Bool { progressHovered || isScrubbing }
+    /// Music's player grows into a transport surface once there is something to control. The
+    /// idle state remains a compact capsule, while a playing (or hovered) bar makes room for a
+    /// readable scrubber and elapsed/remaining time.
+    private var playerExpanded: Bool {
+        model.currentTrack != nil || playerHovered || isScrubbing || volumeExpanded
+    }
+    private var showsTimes: Bool { playerExpanded || progressHovered || isScrubbing }
 
     var body: some SwiftUI.View {
-        SwiftUI.HStack(spacing: 14) {
+        SwiftUI.HStack(spacing: 12) {
             transport
             nowPlaying
                 .frame(maxWidth: .infinity)
             trailingControls
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .frame(minWidth: 640, maxWidth: 960)
+        .padding(.horizontal, 14)
+        .padding(.vertical, playerExpanded ? 9 : 6)
+        .frame(minWidth: playerExpanded ? 720 : 640, maxWidth: 960)
         .modifier(NativeMacPlayerGlass())
         .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
-        .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.12), value: volumeExpanded)
+        .onHover { playerHovered = $0 }
+        .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.12), value: playerExpanded)
         .onChange(of: model.currentTrack?.id) { _, _ in isScrubbing = false }
         .onChange(of: model.isSeekable) { _, seekable in if !seekable { isScrubbing = false } }
     }
 
     private var transport: some SwiftUI.View {
         SwiftUI.HStack(spacing: 2) {
-            glyph("Shuffle", "shuffle", size: 13, active: model.shuffle, subtle: true, action: model.toggleShuffle)
+            glyph("Shuffle", "shuffle", size: 15, active: model.shuffle, subtle: true, action: model.toggleShuffle)
             glyph("Previous track", "backward.fill", size: 17, action: model.previous)
                 .disabled(!canControl || model.isAdvertisement)
             SwiftUI.Button(action: model.togglePause) {
@@ -427,11 +607,15 @@ private struct NativeMacPlayerBar: SwiftUI.View {
                     if busy {
                         SwiftUI.ProgressView().controlSize(.small)
                     } else {
-                        SwiftUI.Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
-                            .font(.system(size: 22, weight: .semibold))
+                        NativeMacFixedSymbol(
+                            name: model.isPaused ? "play.fill" : "pause.fill",
+                            glyphSize: 19,
+                            width: 34,
+                            height: 30
+                        )
                     }
                 }
-                .frame(width: 40, height: 40)
+                .frame(width: 34, height: 30)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -440,7 +624,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             .disabled(!canControl)
             glyph("Next track", "forward.fill", size: 17, action: model.next)
                 .disabled(!canControl || model.isAdvertisement)
-            glyph(model.repeatMode.label, model.repeatMode == .one ? "repeat.1" : "repeat", size: 13,
+            glyph(model.repeatMode.label, model.repeatMode == .one ? "repeat.1" : "repeat", size: 15,
                   active: model.repeatMode != .off, subtle: true, action: model.cycleRepeatMode)
         }
     }
@@ -448,7 +632,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
     private var nowPlaying: some SwiftUI.View {
         SwiftUI.VStack(spacing: 4) {
             SwiftUI.HStack(spacing: 10) {
-                NativeMacPanelArtwork(url: model.currentTrack?.thumbnail, size: 36)
+                NativeMacPanelArtwork(url: model.currentTrack?.thumbnail, size: playerExpanded ? 42 : 36)
                 SwiftUI.VStack(alignment: .leading, spacing: 2) {
                     SwiftUI.Text(model.currentTrack?.title ?? "Nothing playing")
                         .font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -495,7 +679,8 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             }
             .frame(height: 12)
             if showsTimes {
-                SwiftUI.Text(model.durationText).transition(.opacity)
+                SwiftUI.Text("−" + GoosicAppModel.timeText(max(total - position, 0)))
+                    .transition(.opacity)
             }
         }
         .font(.caption2.monospacedDigit())
@@ -512,9 +697,9 @@ private struct NativeMacPlayerBar: SwiftUI.View {
         SwiftUI.HStack(spacing: 2) {
             moreMenu
             if !volumeExpanded {
-                glyph("Lyrics", "quote.bubble", size: 14, active: model.lyricsVisible, action: model.toggleLyrics)
+                glyph("Lyrics", "quote.bubble", size: 15, active: model.lyricsVisible, action: model.toggleLyrics)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
-                glyph("Queue", "list.bullet", size: 14, active: model.queueVisible, action: model.toggleQueue)
+                glyph("Queue", "list.bullet", size: 15, active: model.queueVisible, action: model.toggleQueue)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
             SwiftUI.HStack(spacing: 6) {
@@ -527,7 +712,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
                         .transition(.scale(scale: 0.4, anchor: .trailing).combined(with: .opacity))
                 }
                 glyph(model.isMuted ? "Unmute" : "Mute",
-                      model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill", size: 14, action: model.toggleMuted)
+                      model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill", size: 15, action: model.toggleMuted)
                     .disabled(!canAdjustVolume)
             }
             .onHover { volumeExpanded = $0 }
@@ -542,10 +727,8 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             }
             SwiftUI.Button("Playback status…") { statusVisible = true }
         } label: {
-            SwiftUI.Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(SwiftUI.Color.primary)
-                .frame(width: 28, height: 32)
+                NativeMacFixedSymbol(name: "ellipsis", glyphSize: 15, width: 30, height: 30)
+                    .foregroundStyle(SwiftUI.Color.primary)
                 .contentShape(Rectangle())
         }
         .menuStyle(.button)
@@ -566,10 +749,8 @@ private struct NativeMacPlayerBar: SwiftUI.View {
     private func glyph(_ title: String, _ name: String, size: CGFloat, active: Bool = false,
                        subtle: Bool = false, action: @escaping () -> Void) -> some SwiftUI.View {
         SwiftUI.Button(action: action) {
-            SwiftUI.Image(systemName: name)
-                .font(.system(size: size, weight: .medium))
+            NativeMacFixedSymbol(name: name, glyphSize: size, width: 30, height: 30)
                 .foregroundStyle(active ? SwiftUI.Color.goosicPink : subtle ? SwiftUI.Color.secondary : SwiftUI.Color.primary)
-                .frame(width: 28, height: 32)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

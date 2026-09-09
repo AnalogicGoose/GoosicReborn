@@ -171,7 +171,12 @@ pub fn handle(
             Err(response) => response,
         },
         "catalog.radio" => match catalog_id(payload, request_id) {
-            Ok(video_id) => respond(id, catalog.radio(&video_id)),
+            Ok(video_id) => match payload.continuation.as_deref() {
+                Some(continuation) => {
+                    respond(id, catalog.radio_continuation(&video_id, continuation))
+                }
+                None => respond(id, catalog.radio(&video_id)),
+            },
             Err(response) => response,
         },
         "catalog.artist" => match catalog_id(payload, request_id) {

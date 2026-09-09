@@ -178,6 +178,21 @@ impl InnertubeClient {
             }),
         )
     }
+
+    /// Pages the same radio station returned by [`Self::radio`].
+    ///
+    /// A radio continuation belongs to the `next` endpoint, not `browse`: sending it through
+    /// the generic catalog continuation path silently starts a different result set. Keeping
+    /// this transport separate lets the queue stay anchored to the song the listener chose.
+    pub fn radio_continuation(&self, continuation: &str) -> Result<Value, CatalogError> {
+        let continuation = continuation.trim();
+        if continuation.is_empty() {
+            return Err(CatalogError::InvalidRequest(
+                "radio continuation is empty".into(),
+            ));
+        }
+        self.post("next", json!({"continuation": continuation}))
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +217,13 @@ mod tests {
     fn radio_requires_a_video_id_before_any_network_call() {
         let client = InnertubeClient::new();
         let error = client.radio("  ").map(|_| ()).unwrap_err();
+        assert!(matches!(error, CatalogError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn radio_continuation_requires_a_token_before_any_network_call() {
+        let client = InnertubeClient::new();
+        let error = client.radio_continuation("  ").map(|_| ()).unwrap_err();
         assert!(matches!(error, CatalogError::InvalidRequest(_)));
     }
 

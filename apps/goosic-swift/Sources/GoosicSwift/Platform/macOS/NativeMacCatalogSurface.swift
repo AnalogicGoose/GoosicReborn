@@ -135,37 +135,31 @@ struct NativeMacCatalogPage: SwiftUI.View {
                 if let cursor = page.nextCursor {
                     SwiftUI.HStack {
                         SwiftUI.Spacer()
-                        // A failed continuation must not keep saying "Loading more…" over a
-                        // request that gave up, and must not ask again on its own every time it
-                        // scrolls back into view.
-                        if case .failed(let message) = model.continuationState(for: key) {
-                            SwiftUI.VStack(spacing: 6) {
-                                SwiftUI.Text(message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                                SwiftUI.Button("Try again") { model.retryContinuation(key) }
-                                    .controlSize(.small)
-                            }
-                        } else {
+                        switch model.continuationState(for: key) {
+                        case .idle:
+                            SwiftUI.EmptyView()
+                        case .loading:
                             SwiftUI.ProgressView().controlSize(.small)
-                            SwiftUI.Text("Loading more…")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        case .failed:
+                            // An automatic continuation may fail for a transient network reason.
+                            // Keep a compact retry affordance without turning the end of the page
+                            // into a status message or restoring an explicit "Load more" button.
+                            SwiftUI.Button(action: { model.retryContinuation(key) }) {
+                                SwiftUI.Image(systemName: "arrow.clockwise")
+                            }
+                            .buttonStyle(.plain)
+                            .help("Retry loading more")
+                            .accessibilityLabel("Retry loading more")
                         }
                         SwiftUI.Spacer()
                     }
-                    .padding(.vertical, 20)
+                    .frame(height: 24)
                     .id(cursor)
-                    .onAppear { model.loadMore(key) }
-                } else if !page.shelves.isEmpty || !page.tracks.isEmpty {
-                    // Saying where the list ends is the difference between "that is everything"
-                    // and "something is still coming".
-                    SwiftUI.Text("That's everything.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 20)
+                    .onAppear {
+                        if model.continuationState(for: key) == .idle {
+                            model.loadMore(key)
+                        }
+                    }
                 }
                 if model.staleRefreshFailed.contains(key) {
                     // The page is still worth showing; it just should not imply it is current.
@@ -252,6 +246,15 @@ private struct NativeMacShelf: SwiftUI.View {
     let presentation: ShelfPresentation
 
     private var currentIndex: Int { shelf.cards.firstIndex { $0.id == leadingCard } ?? 0 }
+    /// Cards in one shelf are the listening context the catalog actually recommended. Keeping
+    /// them together means pressing play on a card creates a meaningful queue instead of a
+    /// one-track queue that immediately falls back to an unrelated radio result.
+    private var playbackContext: [GoosicTrack] {
+        shelf.cards.compactMap { card in
+            if case .play(let track) = card.action { return track }
+            return nil
+        }
+    }
 
     var body: some SwiftUI.View {
         SwiftUI.VStack(alignment: .leading, spacing: 10) {
@@ -275,7 +278,9 @@ private struct NativeMacShelf: SwiftUI.View {
                 SwiftUI.ScrollView(.horizontal, showsIndicators: false) {
                     SwiftUI.LazyHStack(alignment: .top, spacing: 16) {
                         SwiftUI.ForEach(shelf.cards) { card in
-                            NativeMacCatalogCard(card: card, model: model)
+                            NativeMacCatalogCard(
+                                card: card, model: model, playbackContext: playbackContext
+                            )
                         }
                     }
                     .scrollTargetLayout()
@@ -347,6 +352,7 @@ private struct NativeMacCatalogCard: SwiftUI.View {
     @State private var hovering = false
     let card: GoosicCard
     let model: GoosicAppModel
+    let playbackContext: [GoosicTrack]
 
     var body: some SwiftUI.View {
         SwiftUI.Button(action: activate) {
@@ -379,7 +385,7 @@ private struct NativeMacCatalogCard: SwiftUI.View {
         .contextMenu {
             switch card.action {
             case .play(let track):
-                NativeMacTrackMenuItems(track: track, model: model)
+                NativeMacTrackMenuItems(track: track, model: model, context: playbackContext)
             case .show(let entity):
                 SwiftUI.Button("Open", systemImage: "arrow.right.circle") { model.show(entity) }
                 SwiftUI.Divider()
@@ -402,7 +408,7 @@ private struct NativeMacCatalogCard: SwiftUI.View {
     private func activate() {
         switch card.action {
         case .show(let entity): model.show(entity)
-        case .play(let track): model.play(track)
+        case .play(let track): model.play(track, in: playbackContext)
         case .none: break
         }
     }

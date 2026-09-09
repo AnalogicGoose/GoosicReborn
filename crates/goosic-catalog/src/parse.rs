@@ -354,6 +354,25 @@ pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
     let mut seen = std::collections::HashSet::new();
     tracks.retain(|track| seen.insert(track.id.clone()));
 
+    // This cursor belongs to the watch queue itself. A whole-response continuation search can
+    // accidentally pick related content or lyrics, which is indistinguishable from a queue that
+    // starts recommending random music after its first page.
+    let next_cursor = json::first(response, "playlistPanelRenderer")
+        .or_else(|| json::first(response, "playlistPanelContinuation"))
+        .and_then(|panel| panel.get("continuations"))
+        .and_then(Value::as_array)
+        .and_then(|continuations| {
+            continuations.iter().find_map(|continuation| {
+                continuation
+                    .get("nextRadioContinuationData")
+                    .or_else(|| continuation.get("nextContinuationData"))
+                    .and_then(|data| data.get("continuation"))
+                    .and_then(Value::as_str)
+                    .filter(|token| !token.is_empty())
+                    .map(str::to_owned)
+            })
+        });
+
     CatalogPage {
         id: format!("radio:{seed_video_id}"),
         title: "Radio".to_owned(),
@@ -361,7 +380,7 @@ pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
         shelves: Vec::new(),
         tracks,
         thumbnail: None,
-        next_cursor: None,
+        next_cursor,
         truncated: false,
     }
 }
@@ -937,6 +956,21 @@ mod tests {
                 .map(|t| t.id.as_str())
                 .collect::<Vec<_>>(),
             ["aaaaaaaaaaa", "bbbbbbbbbbb"]
+        );
+    }
+
+    #[test]
+    fn radio_keeps_its_own_continuation_cursor() {
+        let response = json!({
+            "playlistPanelRenderer": {
+                "contents": [{"playlistPanelVideoRenderer": queue_row("nextvideoid", "The next one")}],
+                "continuations": [{"nextRadioContinuationData": {"continuation": "same-station"}}]
+            },
+            "unrelated": {"continuations": [{"nextContinuationData": {"continuation": "wrong"}}]}
+        });
+        assert_eq!(
+            radio_page("seedvideoid", &response).next_cursor.as_deref(),
+            Some("same-station")
         );
     }
 
