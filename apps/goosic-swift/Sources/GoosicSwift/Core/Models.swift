@@ -409,8 +409,17 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             if case .library = key { return false }
             return true
         }
-        if route == .library, activeAccount != nil {
-            loadLibrary(section: PersonalLibrarySection(rawValue: libraryTab) ?? .playlists)
+        if activeAccount != nil {
+            switch route {
+            case .library:
+                loadLibrary(section: PersonalLibrarySection(rawValue: libraryTab) ?? .playlists)
+            case .home:
+                // Home may already hold the guest feed from before the account was known; the
+                // signed-in feed replaces it rather than continuing it.
+                loadPersonalHome(force: true)
+            default:
+                break
+            }
         }
         guard initial else { return }
         // A persisted active account is startup state, not a user transition. Bind its profile

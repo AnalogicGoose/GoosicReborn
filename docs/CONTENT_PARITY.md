@@ -19,7 +19,9 @@ yet implement this host report that limitation rather than silently showing gues
 personalized.
 
 The personal Library has four initial surfaces: playlists, liked songs, albums, and artists.
-They use the same active-profile host and support their own continuation cursors. Playlist and
+They use the same active-profile host and support their own continuation cursors. The reader
+behind them is the previous Goosic's InnerTube client and shelf parsers, ported as
+`PersonalCatalog.js` with their GPL notice, rather than a second parser written from scratch. Playlist and
 album detail pages continue through the existing entity routes after a card is selected. This
 restores the content-reading half of the previous Library without moving credentials into Rust
 or weakening the service protocol.

@@ -164,7 +164,10 @@ struct NativeMacCatalogPage: SwiftUI.View {
 }
 
 struct NativeMacLibraryPage: SwiftUI.View {
-    let model: GoosicAppModel
+    @SwiftUI.Environment(\.nativeMacLeadingInset) private var leadingInset
+    @ObservedObject var store: NativeMacModelStore
+
+    private var model: GoosicAppModel { store.model }
 
     private var section: PersonalLibrarySection {
         PersonalLibrarySection(rawValue: model.libraryTab) ?? .playlists
@@ -177,6 +180,7 @@ struct NativeMacLibraryPage: SwiftUI.View {
                 icon: "music.note.list",
                 message: "Sign in from Settings to load your playlists, liked songs, albums, and artists."
             )
+            .padding(.leading, leadingInset)
         } else {
             SwiftUI.VStack(spacing: 0) {
                 SwiftUI.Picker(
@@ -191,7 +195,9 @@ struct NativeMacLibraryPage: SwiftUI.View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, 24)
+                .labelsHidden()
+                .padding(.leading, leadingInset + 24)
+                .padding(.trailing, 24)
                 .padding(.top, 18)
 
                 NativeMacCatalogPage(

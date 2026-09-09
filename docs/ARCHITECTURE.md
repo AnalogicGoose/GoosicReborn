@@ -134,7 +134,10 @@ Catalog reads are anonymous by construction: the client sends no cookies, no `Au
 Account-scoped catalog reads use `PersonalCatalogHost`, a separate native browser-profile seam.
 On macOS it creates an ephemeral view over the active account's persistent
 `WKWebsiteDataStore`, performs the browse from the trusted YouTube Music origin, and projects the
-answer directly into the small catalog shape the shell renders. The profile's cookies and request
+answer directly into the small catalog shape the shell renders. The program it runs,
+`Resources/PersonalCatalog.js`, is the InnerTube client and shelf parsers ported from the
+previous Goosic under GPL-3.0; it builds the request from the page's own `ytcfg` and hashes the
+session cookie in-document for authorization, so nothing about the session is exported. The profile's cookies and request
 context remain inside WebKit. Raw responses and credentials never cross the Rust service
 protocol. Binding another account cancels in-flight reads and clears account-scoped page state,
 so a late response cannot paint one user's Library under another user's identity. Unsupported

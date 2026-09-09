@@ -149,7 +149,7 @@ private struct NativeMacRootView: SwiftUI.View {
             case .search:
                 NativeMacSearchView(store: store)
             case .library:
-                NativeMacLibraryPage(model: model)
+                NativeMacLibraryPage(store: store)
             case .downloads:
                 NativeMacDownloadsView(store: store)
                     .padding(.leading, leadingInset)
