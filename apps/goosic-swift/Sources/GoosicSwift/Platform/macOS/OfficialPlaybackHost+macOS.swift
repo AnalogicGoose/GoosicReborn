@@ -479,10 +479,13 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
-        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
-        let allowed = Self.isAllowedNavigation(navigationAction.request.url)
-        decisionHandler(allowed ? .allow : .cancel)
+        let decision = OfficialNavigationPolicy.decide(
+            url: navigationAction.request.url,
+            frame: NavigationFrame(navigationAction.targetFrame)
+        )
+        decisionHandler(decision == .allow ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -505,11 +508,6 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
         nil
     }
 
-    nonisolated private static func isAllowedNavigation(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        if url.absoluteString == "about:blank" { return true }
-        return url.scheme == "https" && url.host == OfficialBridge.allowedHost
-    }
 }
 
 struct OfficialPlaybackSurface: NSViewRepresentable {

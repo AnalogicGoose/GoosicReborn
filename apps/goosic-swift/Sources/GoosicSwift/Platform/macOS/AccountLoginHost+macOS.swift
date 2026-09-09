@@ -116,9 +116,15 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        guard navigationAction.targetFrame?.isMainFrame == true else { return decisionHandler(.cancel) }
-        decisionHandler(AccountLoginValidation.isAllowedLoginURL(navigationAction.request.url) ? .allow : .cancel)
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        let decision = LoginNavigationPolicy.decide(
+            url: navigationAction.request.url,
+            frame: NavigationFrame(navigationAction.targetFrame)
+        )
+        if decision == .cancel {
+            note("refused \(navigationAction.request.url?.host ?? "?") in \(NavigationFrame(navigationAction.targetFrame))")
+        }
+        decisionHandler(decision == .allow ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
