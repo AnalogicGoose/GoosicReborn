@@ -476,8 +476,11 @@ mod tests {
             "the legacy directory is unchanged"
         );
         let index = std::fs::read_to_string(directory.path().join("downloads.json")).unwrap();
+        // The index stores the path as the platform spells it, so the expectation is built the
+        // same way rather than hard-coding `/`.
+        let referenced = serde_json::to_string(&media.join("abcdefghijk.webm")).unwrap();
         assert!(
-            index.contains("stream/abcdefghijk.webm"),
+            index.contains(referenced.trim_matches('"')),
             "files are referenced in place"
         );
     }
@@ -552,7 +555,12 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let media = legacy_media(directory.path());
         std::fs::write(media.join("a.b.webm"), b"not a video id").unwrap();
+        // `?` is not a legal filename character on Windows. A space makes the same point: the
+        // stem is not a video id, so the file is skipped.
+        #[cfg(unix)]
         std::fs::write(media.join("a?b.webm"), b"also not a video id").unwrap();
+        #[cfg(not(unix))]
+        std::fs::write(media.join("a b.webm"), b"also not a video id").unwrap();
         let mut opened = library(directory.path());
         opened.import_legacy(&media).unwrap();
         assert!(opened
