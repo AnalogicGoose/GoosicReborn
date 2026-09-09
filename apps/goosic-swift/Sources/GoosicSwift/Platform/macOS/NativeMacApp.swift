@@ -128,6 +128,30 @@ private struct NativeMacRootView: SwiftUI.View {
         } message: {
             SwiftUI.Text("The playlist is private until you change it.")
         }
+        .alert("Rename playlist", isPresented: SwiftUI.Binding(
+            get: { model.isRenamingPlaylist },
+            set: { if !$0 { model.cancelRename() } }
+        )) {
+            SwiftUI.TextField("Name", text: SwiftUI.Binding(
+                get: { model.renamedPlaylistName },
+                set: { model.renamedPlaylistName = $0 }
+            ))
+            SwiftUI.Button("Cancel", role: .cancel) { model.cancelRename() }
+            SwiftUI.Button("Rename") { model.confirmRename() }
+        }
+        // Confirmed rather than undoable: YouTube Music offers no way back from this.
+        .alert(
+            "Delete \(model.playlistPendingDeletion?.title ?? "playlist")?",
+            isPresented: SwiftUI.Binding(
+                get: { model.playlistPendingDeletion != nil },
+                set: { if !$0 { model.playlistPendingDeletion = nil } }
+            )
+        ) {
+            SwiftUI.Button("Cancel", role: .cancel) { model.playlistPendingDeletion = nil }
+            SwiftUI.Button("Delete", role: .destructive) { model.confirmDeletion() }
+        } message: {
+            SwiftUI.Text("This cannot be undone.")
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 SwiftUI.Button {
@@ -645,10 +669,35 @@ private struct NativeMacEntityView: SwiftUI.View {
             SwiftUI.HStack {
                 SwiftUI.Button("Back", systemImage: "chevron.left", action: model.closeDetail)
                 SwiftUI.Spacer()
+                // Only for a playlist this account owns. Following someone else's playlist puts
+                // it in this library while leaving every edit refused, so offering these on one
+                // would produce a failure after the user had already typed a new name.
+                if let playlist = model.ownedPlaylist(for: entity) {
+                    SwiftUI.Menu {
+                        SwiftUI.Button("Rename…", systemImage: "pencil") {
+                            model.beginRenaming(playlist)
+                        }
+                        SwiftUI.Menu("Who can see this") {
+                            SwiftUI.ForEach(PlaylistPrivacy.allCases) { privacy in
+                                SwiftUI.Button(privacy.label) {
+                                    model.setPlaylistPrivacy(playlist, to: privacy)
+                                }
+                            }
+                        }
+                        SwiftUI.Divider()
+                        SwiftUI.Button("Delete…", systemImage: "trash", role: .destructive) {
+                            model.playlistPendingDeletion = playlist
+                        }
+                    } label: {
+                        SwiftUI.Label("Manage", systemImage: "ellipsis.circle")
+                    }
+                    .disabled(model.libraryOperationInProgress)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.leading, leadingInset)
             .padding(.top, 12)
+            .onAppear { model.loadUserPlaylists() }
             NativeMacCatalogPage(
                 key: .entity(entity),
                 title: entity.kindLabel,

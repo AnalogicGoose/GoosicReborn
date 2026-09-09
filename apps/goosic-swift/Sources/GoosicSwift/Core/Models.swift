@@ -1342,6 +1342,39 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         newPlaylistTrack = nil
     }
 
+    /// The rename prompt, owned here for the same reason the create prompt is: the menu that
+    /// opens it is gone by the time its action runs.
+    @SwiftCrossUI.Published var isRenamingPlaylist = false
+    @SwiftCrossUI.Published var renamedPlaylistName = ""
+    private var renamingPlaylist: PersonalPlaylistSummary?
+
+    func beginRenaming(_ playlist: PersonalPlaylistSummary) {
+        renamingPlaylist = playlist
+        renamedPlaylistName = playlist.title
+        isRenamingPlaylist = true
+    }
+
+    func confirmRename() {
+        isRenamingPlaylist = false
+        guard let playlist = renamingPlaylist else { return }
+        renamingPlaylist = nil
+        renamePlaylist(playlist, to: renamedPlaylistName)
+    }
+
+    func cancelRename() {
+        isRenamingPlaylist = false
+        renamingPlaylist = nil
+    }
+
+    /// Deletion is confirmed rather than done, because upstream has no undo.
+    @SwiftCrossUI.Published var playlistPendingDeletion: PersonalPlaylistSummary?
+
+    func confirmDeletion() {
+        guard let playlist = playlistPendingDeletion else { return }
+        playlistPendingDeletion = nil
+        deletePlaylist(playlist)
+    }
+
     /// Reads the playlists a track could be added to.
     ///
     /// Refreshed rather than cached for the life of the session: the destinations are the point
@@ -1398,6 +1431,62 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             // would silently contradict.
             self?.loadUserPlaylists(force: true)
             self?.invalidatePersonalLibrary()
+        }
+    }
+
+    /// Whether the open playlist is one this account owns and may therefore edit.
+    ///
+    /// Answered from the account's own list of playlists rather than guessed from the id, because
+    /// a `PL…` id says nothing about who owns it: following someone else's playlist puts it in
+    /// this library while leaving every edit refused. Offering Rename on it would produce a
+    /// failure only after the user had typed a new name.
+    func ownedPlaylist(for entity: GoosicEntityReference) -> PersonalPlaylistSummary? {
+        guard case .playlist(let id) = entity, activeAccount != nil else { return nil }
+        let bare = id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
+        return userPlaylists.first { $0.id == bare }
+    }
+
+    func renamePlaylist(_ playlist: PersonalPlaylistSummary, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            status = "A playlist needs a name."
+            return
+        }
+        apply(
+            .renamePlaylist(playlistID: playlist.id, title: trimmed),
+            describing: "Renamed to \(trimmed)",
+            failing: "Could not rename \(playlist.title)"
+        ) { [weak self] _ in self?.loadUserPlaylists(force: true) }
+    }
+
+    func setPlaylistDescription(_ playlist: PersonalPlaylistSummary, to description: String) {
+        apply(
+            .setPlaylistDescription(playlistID: playlist.id, description: description),
+            describing: description.isEmpty ? "Cleared the description" : "Updated the description",
+            failing: "Could not update \(playlist.title)"
+        )
+    }
+
+    func setPlaylistPrivacy(_ playlist: PersonalPlaylistSummary, to privacy: PlaylistPrivacy) {
+        apply(
+            .setPlaylistPrivacy(playlistID: playlist.id, privacy: privacy),
+            describing: "\(playlist.title) is now \(privacy.label.lowercased())",
+            failing: "Could not change who can see \(playlist.title)"
+        )
+    }
+
+    /// There is no undo upstream, so the caller confirms before reaching here.
+    func deletePlaylist(_ playlist: PersonalPlaylistSummary) {
+        apply(
+            .deletePlaylist(playlistID: playlist.id),
+            describing: "Deleted \(playlist.title)",
+            failing: "Could not delete \(playlist.title)"
+        ) { [weak self] _ in
+            guard let self else { return }
+            // The page the user is on no longer exists. Staying would leave them looking at a
+            // playlist that has been deleted, refreshing into an error.
+            if case .playlist = self.detail { self.closeDetail() }
+            self.loadUserPlaylists(force: true)
         }
     }
 

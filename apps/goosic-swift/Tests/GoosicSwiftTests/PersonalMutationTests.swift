@@ -185,3 +185,35 @@ final class PersonalMutationWireTests: XCTestCase {
         XCTAssertTrue(program.contains("return { browse, mutate };"))
     }
 }
+
+/// Ownership decides which edits are offered, and it cannot be read off an id. A `PL…` id says
+/// nothing about who owns the playlist: following someone else's puts it in this library while
+/// leaving every edit refused, so a menu built from the id shape offers Rename and Delete on
+/// playlists that will refuse both — after the user has typed a new name.
+final class PlaylistOwnershipTests: XCTestCase {
+    private let owned = [
+        PersonalPlaylistSummary(id: "PLmine", title: "Focus", subtitle: "", thumbnail: nil),
+    ]
+
+    /// Mirrors the model's lookup: the account's own list is the authority, and the id has to be
+    /// reduced to the spelling that list uses before it can be compared at all.
+    private func ownedPlaylist(for id: String) -> PersonalPlaylistSummary? {
+        let bare = id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
+        return owned.first { $0.id == bare }
+    }
+
+    func testAPlaylistTheAccountOwnsIsEditable() {
+        XCTAssertEqual(ownedPlaylist(for: "PLmine")?.title, "Focus")
+    }
+
+    /// A card opened from the library carries the browse spelling, so a comparison that skips
+    /// normalising finds nothing and silently offers no edits on the user's own playlist.
+    func testTheBrowseSpellingFindsTheSamePlaylist() {
+        XCTAssertEqual(ownedPlaylist(for: "VLPLmine")?.id, "PLmine")
+    }
+
+    func testAFollowedPlaylistIsNotEditable() {
+        XCTAssertNil(ownedPlaylist(for: "PLsomeoneElse"))
+        XCTAssertNil(ownedPlaylist(for: "VLPLsomeoneElse"))
+    }
+}
