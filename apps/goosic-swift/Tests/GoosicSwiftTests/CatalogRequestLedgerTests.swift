@@ -90,3 +90,57 @@ final class CatalogContinuationStateTests: XCTestCase {
         XCTAssertEqual(CatalogContinuationState.failed("no"), .failed("no"))
     }
 }
+
+/// A page used to be cached for the life of the process, so Home showed whatever it showed at
+/// launch until the app was restarted. Expiring it outright is the opposite mistake: it puts a
+/// spinner over content that was already good enough to show.
+final class CatalogFreshnessTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    func testNothingCachedMeansTheScreenWaits() {
+        XCTAssertEqual(CatalogFreshness.verdict(cachedAt: nil, now: now, lifetime: 60), .load)
+    }
+
+    func testARecentPageIsServedWithoutARequest() {
+        let cached = now.addingTimeInterval(-30)
+        XCTAssertEqual(CatalogFreshness.verdict(cachedAt: cached, now: now, lifetime: 60), .serve)
+    }
+
+    func testAnExpiredPageIsShownAndRefreshedBehindIt() {
+        let cached = now.addingTimeInterval(-61)
+        XCTAssertEqual(
+            CatalogFreshness.verdict(cachedAt: cached, now: now, lifetime: 60),
+            .serveAndRevalidate
+        )
+    }
+
+    /// The boundary belongs to the request: at exactly the lifetime the page has run out.
+    func testTheLifetimeBoundaryRefreshes() {
+        let cached = now.addingTimeInterval(-60)
+        XCTAssertEqual(
+            CatalogFreshness.verdict(cachedAt: cached, now: now, lifetime: 60),
+            .serveAndRevalidate
+        )
+    }
+
+    /// A timestamp in the future means the clock moved, not that the page is unusually fresh —
+    /// otherwise one clock correction pins a page as current until the app restarts.
+    func testAFutureTimestampRefreshesRatherThanTrustingItself() {
+        let cached = now.addingTimeInterval(3_600)
+        XCTAssertEqual(
+            CatalogFreshness.verdict(cachedAt: cached, now: now, lifetime: 60),
+            .serveAndRevalidate
+        )
+    }
+
+    /// Lifetimes are chosen by how fast the thing behind the page moves. The ordering is the
+    /// claim worth protecting: a library the user edits must not be staler than an album.
+    func testLifetimesFollowHowFastEachKindActuallyChanges() {
+        let library = CatalogFreshness.lifetime(for: .library("Playlists"))
+        let home = CatalogFreshness.lifetime(for: .route(.home))
+        let album = CatalogFreshness.lifetime(for: .album("a"))
+        XCTAssertLessThan(library, home)
+        XCTAssertLessThan(home, album)
+        XCTAssertGreaterThan(library, 0)
+    }
+}

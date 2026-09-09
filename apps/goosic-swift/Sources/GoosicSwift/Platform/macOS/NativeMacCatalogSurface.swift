@@ -168,6 +168,16 @@ struct NativeMacCatalogPage: SwiftUI.View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
                 }
+                if model.staleRefreshFailed.contains(key) {
+                    // The page is still worth showing; it just should not imply it is current.
+                    SwiftUI.Label(
+                        "Showing saved content — couldn't refresh.",
+                        systemImage: "wifi.exclamationmark"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, leadingInset + 24)
+                }
                 if page.truncated {
                     SwiftUI.Text("This page was long, so only the first part is shown.")
                         .font(.caption)

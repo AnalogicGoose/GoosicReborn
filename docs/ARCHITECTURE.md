@@ -141,6 +141,10 @@ Both policies judge the main frame and concede the subframes. The main frame is 
 
 Catalog reads are anonymous by construction: the client sends no cookies, no `Authorization`, and no account headers, and a test asserts its request context carries none. The anonymous `visitorData` token upstream returns is held in memory for the process lifetime to keep results stable; it is never persisted or written to stdout. A signed-in surface (a real library) is therefore not reachable through this client — it needs the official web view.
 
+A loaded page is cached under its key and served again without a request while it is still believable, then refreshed behind the user once it is not. Both halves are corrections. A page used to be cached for the life of the process, so Home showed whatever it showed at launch until the app was restarted, and the only way to see anything newer was a retry button on a screen that did not look broken. Simply expiring the cache is the opposite mistake: it puts a spinner over content that was already good enough to show, and makes returning to a screen feel slower than opening a new one. So a stale page stays on screen and is quietly replaced if a newer answer arrives.
+
+How long each kind stays believable follows how fast the thing behind it moves, not a single number: an album's track list is fixed once published, a personal library changed because the user changed it — often in another client, often seconds ago — and the editorial routes move upstream on the order of hours. When a refresh fails there is still a page worth looking at, so it stays, and the screen says it is showing saved content rather than replacing something usable with an error. Artwork is keyed by its remote URL and outlives the pages that reference it, so a refreshed page repaints from the same cached files rather than re-fetching every thumbnail.
+
 Account-scoped catalog reads use `PersonalCatalogHost`, a separate native browser-profile seam.
 On macOS it creates an ephemeral view over the active account's persistent
 `WKWebsiteDataStore`, performs the browse from the trusted YouTube Music origin, and projects the

@@ -263,6 +263,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         continuations[key] ?? .idle
     }
 
+    /// When each cached page was last confirmed fresh. See `CatalogFreshness`.
+    private var pageCachedAt: [CatalogKey: Date] = [:]
+
+    /// Pages being shown from cache whose refresh did not succeed. The page is still worth
+    /// showing; the screen just should not imply it is current.
+    @SwiftCrossUI.Published private(set) var staleRefreshFailed: Set<CatalogKey> = []
+
     private var client: GoosicServiceClient?
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
     /// snaps back to the live position between a drag and the next bridge event.
@@ -426,6 +433,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         // active account is not known yet, and the signed-in request below races the guest answer
         // that is already on its way. Without this the guest feed frequently wins, and reloading
         // does not help because the reload is not what was wrong.
+        pageCachedAt.removeAll()
+        staleRefreshFailed.removeAll()
         for waiting in catalogRequests.invalidateAll() {
             // A dropped answer leaves its screen on "Loading…" with nothing coming, so anything
             // that was waiting goes back to idle and is asked for again when it is next shown.
@@ -1170,17 +1179,12 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             pages[key] = .idle
             return
         }
-        if !force {
-            switch state(for: key) {
-            case .loading, .loaded: return
-            case .idle, .failed: break
-            }
-        }
-        pages[key] = .loading
+        guard let start = beginLoad(key, force: force) else { return }
+        if !start.revalidating { pages[key] = .loading }
         let ticket = catalogRequests.issue(for: key)
         personalCatalogHost.load(section: section) { [weak self] result in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
-            self.applyPersonalPage(result, key: key, ticket: ticket)
+            self.applyPersonalPage(result, key: key, ticket: ticket, revalidating: start.revalidating)
         }
     }
 
@@ -1230,7 +1234,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
                 self.catalogRequests.retire(ticket, for: key)
                 self.continuations[key] = .idle
-                self.pages[key] = .loaded(page)
+                self.finishLoad(key, page: page)
             }
         } failure: { [weak self] error in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
@@ -1276,7 +1280,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
                 self.catalogRequests.retire(ticket, for: key)
                 self.continuations[key] = .idle
-                self.pages[key] = .loaded(page)
+                self.finishLoad(key, page: page)
             }
         case .failure(let error):
             catalogRequests.retire(ticket, for: key)
@@ -1286,24 +1290,64 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     private func loadPersonalHome(force: Bool) {
         let key = CatalogKey.route(.home)
-        if !force {
-            switch state(for: key) {
-            case .loading, .loaded: return
-            case .idle, .failed: break
-            }
-        }
-        pages[key] = .loading
+        guard let start = beginLoad(key, force: force) else { return }
+        if !start.revalidating { pages[key] = .loading }
         let ticket = catalogRequests.issue(for: key)
         personalCatalogHost.loadBrowse(browseID: "FEmusic_home", title: "Home") { [weak self] result in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
-            self.applyPersonalPage(result, key: key, ticket: ticket)
+            self.applyPersonalPage(result, key: key, ticket: ticket, revalidating: start.revalidating)
         }
+    }
+
+    /// Whether a usable page is already on screen for the duration of a request.
+    private struct LoadStart {
+        let revalidating: Bool
+    }
+
+    /// Whether to request `key`, and whether the screen should wait for the answer.
+    ///
+    /// Returns `nil` when the cache is current and nothing needs to happen.
+    private func beginLoad(_ key: CatalogKey, force: Bool) -> LoadStart? {
+        if force { return LoadStart(revalidating: false) }
+        switch state(for: key) {
+        case .loading:
+            return nil
+        case .idle, .failed:
+            return LoadStart(revalidating: false)
+        case .loaded:
+            switch CatalogFreshness.verdict(for: key, cachedAt: pageCachedAt[key]) {
+            case .serve: return nil
+            // Deliberately not `.loading`: the cached page stays on screen and is replaced only
+            // if an answer arrives. Putting a spinner over content that is already good enough to
+            // show is what makes returning to a screen feel slower than opening a new one.
+            case .serveAndRevalidate, .load: return LoadStart(revalidating: true)
+            }
+        }
+    }
+
+    private func finishLoad(_ key: CatalogKey, page: CatalogPageView) {
+        pageCachedAt[key] = Date()
+        staleRefreshFailed.remove(key)
+        pages[key] = .loaded(page)
+    }
+
+    private func failLoad(_ key: CatalogKey, revalidating: Bool, code: String, message: String) {
+        if revalidating, case .loaded = state(for: key) {
+            // There is still a page worth looking at. Replacing it with an error would throw away
+            // content the user can use because the *refresh* failed, which is a worse answer than
+            // saying the content might be behind.
+            staleRefreshFailed.insert(key)
+            status = message
+            return
+        }
+        pages[key] = .failed(code: code, message: message)
     }
 
     private func applyPersonalPage(
         _ result: Result<GoosicCatalogPage, Error>,
         key: CatalogKey,
-        ticket: UInt64
+        ticket: UInt64,
+        revalidating: Bool
     ) {
         switch result {
         case .success(let wire):
@@ -1313,11 +1357,14 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 // can change or a reload can be issued while a page is still being built.
                 guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
                 self.catalogRequests.retire(ticket, for: key)
-                self.pages[key] = .loaded(page)
+                self.finishLoad(key, page: page)
             }
         case .failure(let error):
             catalogRequests.retire(ticket, for: key)
-            pages[key] = .failed(code: "personalCatalog", message: error.localizedDescription)
+            failLoad(
+                key, revalidating: revalidating,
+                code: "personalCatalog", message: error.localizedDescription
+            )
         }
     }
 
@@ -1327,29 +1374,22 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         payload: GoosicRequestPayload,
         force: Bool
     ) {
-        if !force {
-            switch state(for: key) {
-            case .loading, .loaded:
-                return
-            case .idle, .failed:
-                break
-            }
-        }
+        guard let start = beginLoad(key, force: force) else { return }
         guard client != nil else {
-            pages[key] = .failed(
-                code: "offline",
+            failLoad(
+                key, revalidating: start.revalidating, code: "offline",
                 message: "Connect to the Rust service to load the catalog."
             )
             return
         }
-        pages[key] = .loading
+        if !start.revalidating { pages[key] = .loading }
         let ticket = catalogRequests.issue(for: key)
         send(command: command, payload: payload) { [weak self] response in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
             guard let wirePage = response.payload?.catalog else {
                 self.catalogRequests.retire(ticket, for: key)
-                self.pages[key] = .failed(
-                    code: "invalidResponse",
+                self.failLoad(
+                    key, revalidating: start.revalidating, code: "invalidResponse",
                     message: "The service answered without a catalog page."
                 )
                 return
@@ -1360,13 +1400,16 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 // switch or a reload can happen while a page is still being built.
                 guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
                 self.catalogRequests.retire(ticket, for: key)
-                self.pages[key] = .loaded(page)
+                self.finishLoad(key, page: page)
             }
         } failure: { [weak self] error in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
             self.catalogRequests.retire(ticket, for: key)
             let described = Self.describe(error)
-            self.pages[key] = .failed(code: described.code, message: described.message)
+            self.failLoad(
+                key, revalidating: start.revalidating,
+                code: described.code, message: described.message
+            )
         }
     }
 
