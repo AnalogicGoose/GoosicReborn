@@ -162,6 +162,51 @@ keep the check — it has other callers, and a rule that is only enforced one la
 waiting to be bypassed — but no conversation can produce that code today, so no fixture claims
 one can.
 
+## Which rules may move first
+
+The rule above — that nothing moves before it has tests where it currently sits — turns step two
+into an audit before it is a port. Running that audit produced a cleaner answer than expected,
+and one that decides the order of the work.
+
+**Being testable and being movable turn out to be the same property.** Every rule that has
+already been lifted out of an object and into a namespace has tests, and every rule still living
+inside `GoosicAppModel` does not. That is not a coincidence or an oversight by whoever wrote the
+tests: a rule reachable only by constructing a 1,978-line `@MainActor` observable object is a
+rule nobody can write a cheap test for, so nobody did. The same property that makes it hard to
+test is the one that makes it hard to move.
+
+Ready to move, because the Swift suite already holds them to their behaviour: `isAllowedLoginURL`
+and `sanitizeMetadata` and the polling decision in `AccountLoginValidation`; the now-playing
+projection and the command availability in `SystemMediaPlayback`; `OfficialBridge.rejectionReason`;
+the artwork host allow-list and the FNV-1a cache key; and the catalog DTO conversion, which carries
+thirty tests of its own.
+
+The exception proves the rule and is worth naming, because it is the template for everything
+still trapped. `indexAfter(_:wrapping:)` lives on the model and is nonetheless a pure function of
+its arguments plus shuffle and repeat, so it can be called without driving anything — and it has
+five tests, covering the deliberate-next wrap, repeat-all, repeat-one, shuffle never picking the
+track it is already on, and a single-track queue. It is a rule that happens to sit in the wrong
+file, and it can move as it stands.
+
+Not ready, and each for a different reason. `isValidVideoID` is three lines and has no test that
+names it; it is exercised only through the hosts, which is not the same thing. Seek and volume
+clamping are trivial arithmetic tangled up with status strings and host dispatch in the same
+method, so there is nothing to move until the clamp is separated from what it does afterwards.
+And `receive(_:)` is the largest: it decides whether a renderer's report is believable and then
+acts on it in one body, so its rule half cannot be tested without its effect half running.
+
+`next()`, `previous()` and `advanceAfterEnd()` are not in either list because they are not pure
+rules at all. They orchestrate: choose an index, claim a lease, tell a host. Under the plan's own
+restructuring rule they stay native, and the part of them that is a rule — the index choice — is
+`indexAfter`, which is already covered.
+
+One thing found during the audit that should not be "fixed" by whoever reads the code next. The
+model's `receive(_:)` guards look like a weaker duplicate of `rejectionReason`: they check the
+owner, generation, video id and finiteness, but not the bridge version, the token, the sequence
+or the volume range. They are not a hole. Both platform hosts apply the full `rejectionReason`
+before forwarding anything to the model, so the model's guards are a second, deliberately cheaper
+layer behind a complete one. Deleting either copy would remove a layer that is doing work.
+
 ## What comes next
 
 Which protocol version each shell speaks, and what happens when it meets a service that speaks
