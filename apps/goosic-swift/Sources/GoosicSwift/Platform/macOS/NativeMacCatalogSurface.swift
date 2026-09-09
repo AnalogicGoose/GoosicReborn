@@ -460,8 +460,45 @@ struct NativeMacTrackMenuItems: SwiftUI.View {
         if let id = track.albumID {
             SwiftUI.Button("Go to album", systemImage: "square.stack") { model.show(.album(id)) }
         }
+        if model.activeAccount != nil {
+            SwiftUI.Divider()
+            NativeMacAddToPlaylistMenu(track: track, model: model)
+        }
         SwiftUI.Divider()
         SwiftUI.Button("Copy link", systemImage: "link") { NativeMacLinks.copy(NativeMacLinks.url(for: track)) }
+    }
+}
+
+/// The destinations a track can be added to.
+///
+/// The list is read when the submenu opens rather than kept for the session: the destinations are
+/// the entire point of the menu, and a playlist made in another client — or here, a moment ago —
+/// missing from it is indistinguishable from that playlist not existing.
+private struct NativeMacAddToPlaylistMenu: SwiftUI.View {
+    let track: GoosicTrack
+    let model: GoosicAppModel
+
+    var body: some SwiftUI.View {
+        SwiftUI.Menu("Add to playlist") {
+            SwiftUI.Button("New playlist…", systemImage: "plus") {
+                model.beginNewPlaylist(for: track)
+            }
+            switch model.userPlaylistsState {
+            case .loading:
+                SwiftUI.Text("Loading your playlists…")
+            case .failed(let message):
+                SwiftUI.Text(message)
+                SwiftUI.Button("Try again") { model.loadUserPlaylists(force: true) }
+            case .idle:
+                if !model.userPlaylists.isEmpty { SwiftUI.Divider() }
+                SwiftUI.ForEach(model.userPlaylists) { playlist in
+                    SwiftUI.Button(playlist.title) {
+                        model.addTrackToPlaylist(track, playlist: playlist)
+                    }
+                }
+            }
+        }
+        .onAppear { model.loadUserPlaylists() }
     }
 }
 

@@ -22,6 +22,16 @@ final class PersonalCatalogHost {
     ) {
         completion(.failure(PersonalCatalogUnavailable()))
     }
+
+    /// A stub reports the limitation rather than succeeding quietly. Reporting a change as
+    /// applied when nothing was sent would leave the screen showing a library the account does
+    /// not have.
+    func mutate(
+        _ mutation: PersonalMutation,
+        completion: @escaping (Result<PersonalMutationResult, Error>) -> Void
+    ) {
+        completion(.failure(PersonalCatalogUnavailable()))
+    }
 }
 
 private struct PersonalCatalogUnavailable: LocalizedError {

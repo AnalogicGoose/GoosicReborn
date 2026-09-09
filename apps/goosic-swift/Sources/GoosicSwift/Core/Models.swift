@@ -270,6 +270,14 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// `CatalogPageSource`.
     private var pageSources: [CatalogKey: CatalogPageSource] = [:]
 
+    /// The playlists this account owns, for the "Add to playlist" destinations. Loaded on
+    /// demand, because most sessions never open the menu.
+    @SwiftCrossUI.Published private(set) var userPlaylists: [PersonalPlaylistSummary] = []
+    @SwiftCrossUI.Published private(set) var userPlaylistsState: CatalogContinuationState = .idle
+    /// A change the account has been asked to make and has not yet confirmed. The menu closes
+    /// immediately, so this is what lets a failure be reported after the fact.
+    @SwiftCrossUI.Published private(set) var libraryOperationInProgress = false
+
     /// Pages being shown from cache whose refresh did not succeed. The page is still worth
     /// showing; the screen just should not imply it is current.
     @SwiftCrossUI.Published private(set) var staleRefreshFailed: Set<CatalogKey> = []
@@ -1305,6 +1313,147 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             // the row is what decides whether to ask again.
             self.continuations[key] = .failed(Self.describe(error).message)
         }
+    }
+
+    // MARK: - Library mutations
+
+    /// State for the "New playlist" prompt. It lives on the model rather than in the menu that
+    /// opens it because a context menu is gone by the time its action runs, and an alert owned by
+    /// a view that no longer exists never appears.
+    @SwiftCrossUI.Published var isNamingNewPlaylist = false
+    @SwiftCrossUI.Published var newPlaylistName = ""
+    private var newPlaylistTrack: GoosicTrack?
+
+    func beginNewPlaylist(for track: GoosicTrack?) {
+        newPlaylistTrack = track
+        newPlaylistName = ""
+        isNamingNewPlaylist = true
+    }
+
+    func confirmNewPlaylist() {
+        isNamingNewPlaylist = false
+        let track = newPlaylistTrack
+        newPlaylistTrack = nil
+        createPlaylist(named: newPlaylistName, with: track)
+    }
+
+    func cancelNewPlaylist() {
+        isNamingNewPlaylist = false
+        newPlaylistTrack = nil
+    }
+
+    /// Reads the playlists a track could be added to.
+    ///
+    /// Refreshed rather than cached for the life of the session: the destinations are the point
+    /// of the menu, and a playlist created in another client — or by this one a moment ago —
+    /// missing from the list looks exactly like the playlist not existing.
+    func loadUserPlaylists(force: Bool = false) {
+        guard activeAccount != nil else {
+            userPlaylists = []
+            userPlaylistsState = .idle
+            return
+        }
+        if userPlaylistsState == .loading { return }
+        if !force, !userPlaylists.isEmpty { return }
+        userPlaylistsState = .loading
+        personalCatalogHost.mutate(.listUserPlaylists) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let answer):
+                self.userPlaylists = answer.playlists
+                self.userPlaylistsState = .idle
+            case .failure(let error):
+                self.userPlaylistsState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func addTrackToPlaylist(_ track: GoosicTrack, playlist: PersonalPlaylistSummary) {
+        apply(
+            .addToPlaylist(playlistID: playlist.id, videoID: track.id),
+            describing: "Added \(track.title) to \(playlist.title)",
+            failing: "Could not add \(track.title) to \(playlist.title)"
+        )
+    }
+
+    /// Creates a playlist and puts `track` in it, which is one upstream call rather than a
+    /// create followed by an add — so there is no state where the playlist exists and the track
+    /// the user was adding is not in it.
+    func createPlaylist(named title: String, with track: GoosicTrack?) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            status = "A playlist needs a name."
+            return
+        }
+        apply(
+            .createPlaylist(
+                title: trimmed, description: nil, privacy: .private,
+                videoIDs: track.map { [$0.id] } ?? []
+            ),
+            describing: track == nil ? "Created \(trimmed)" : "Created \(trimmed)",
+            failing: "Could not create \(trimmed)"
+        ) { [weak self] _ in
+            // The new playlist has to appear in the destinations, and the library index upstream
+            // lags a create — so ask again rather than inserting a guess that a later refresh
+            // would silently contradict.
+            self?.loadUserPlaylists(force: true)
+            self?.invalidatePersonalLibrary()
+        }
+    }
+
+    /// Runs a mutation and says what happened.
+    ///
+    /// Nothing here is applied optimistically. Upstream answers HTTP 200 for edits it refuses —
+    /// not the owner, stale cookies — so "the request was sent" is not evidence the change
+    /// happened, and a screen updated on that basis would show a library the account does not
+    /// have. The reader checks the envelope status and fails loudly; this waits for that. What is
+    /// rolled back, therefore, is the cache: anything the account's own view would now answer
+    /// differently is dropped rather than left to look current.
+    private func apply(
+        _ mutation: PersonalMutation,
+        describing success: String,
+        failing failure: String,
+        then finish: ((PersonalMutationResult) -> Void)? = nil
+    ) {
+        guard activeAccount != nil else {
+            status = "Sign in to change your library."
+            return
+        }
+        libraryOperationInProgress = true
+        personalCatalogHost.mutate(mutation) { [weak self] result in
+            guard let self else { return }
+            self.libraryOperationInProgress = false
+            switch result {
+            case .success(let answer):
+                self.status = success
+                if mutation.changesLibrary { self.invalidatePersonalLibrary() }
+                finish?(answer)
+            case .failure(let error):
+                self.status = "\(failure): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Drops what is cached about the account's own content after a change to it.
+    ///
+    /// Only the personally-read pages: the anonymous ones say nothing about this library and
+    /// re-fetching them would spend requests to learn nothing. Cached pages are marked stale
+    /// rather than cleared, so a screen keeps what it is showing and refreshes behind the user
+    /// instead of blanking under them.
+    private func invalidatePersonalLibrary() {
+        for (key, source) in pageSources where source != .service {
+            pageCachedAt.removeValue(forKey: key)
+        }
+        if case .personal = pageSources[currentPageKey] { loadRoute(route, force: false) }
+    }
+
+    /// The page the user is looking at, which is the one worth refreshing first.
+    private var currentPageKey: CatalogKey {
+        if let detail { return .entity(detail) }
+        if route == .library {
+            return (PersonalLibrarySection(rawValue: libraryTab) ?? .playlists).key
+        }
+        return .route(route)
     }
 
     /// Clears a refusal so `loadMore` will try again. Only a person calls this: leaving the

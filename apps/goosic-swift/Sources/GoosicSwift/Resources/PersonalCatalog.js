@@ -3,8 +3,8 @@
  * WebKit profile by PersonalCatalogHost.
  *
  * Ported from the previous Goosic application, src/lib/innertube/{shared,home,library,
- * library-pagination,types}.ts, and adapted to run as a page program: the request context
- * and API key come from the page's own `ytcfg`, the session cookie never leaves the
+ * library-pagination,mutations,types}.ts, and adapted to run as a page program: the request
+ * context and API key come from the page's own `ytcfg`, the session cookie never leaves the
  * document, and the result is projected into the small catalog shape the shell renders.
  *
  * Copyright (C) Oscar Mantilla, George Shyshov, and Goosic contributors.
@@ -324,6 +324,19 @@ const GoosicPersonalCatalog = (() => {
     return out;
   }
 
+  // The raw renderers behind a shelf. `mapShelfWrapper` projects them into the shell's item
+  // shape, which drops the menu and navigation endpoints needed to tell an owned playlist from
+  // a followed one, so this takes the nodes as they arrived.
+  function shelfRendererItems(wrapper) {
+    const music =
+      wrapper.musicCarouselShelfRenderer ??
+      wrapper.musicShelfRenderer ??
+      wrapper.musicCardShelfRenderer;
+    return (music?.contents ?? music?.items ?? [])
+      .map((c) => c.musicTwoRowItemRenderer ?? c.musicResponsiveListItemRenderer)
+      .filter(Boolean);
+  }
+
   function mapShelfWrapper(wrapper) {
     const card = wrapper.musicCardShelfRenderer;
     const music = wrapper.musicCarouselShelfRenderer ?? wrapper.musicShelfRenderer ?? card;
@@ -536,5 +549,175 @@ const GoosicPersonalCatalog = (() => {
     });
   }
 
-  return { browse };
+
+  // ---------------------------------------------------------------------------------------
+  // Mutations (mutations.ts). Every one of these needs the authenticated cookie jar; an
+  // anonymous call succeeds HTTP-wise and persists nowhere, which is the failure mode these
+  // status checks exist to catch.
+  // ---------------------------------------------------------------------------------------
+
+  // Browse ids arrive VL-prefixed (`VLPL…`) while every mutating endpoint wants the bare
+  // `PL…`. Normalizing here keeps callers from having to know which shape they hold.
+  function barePlaylistId(playlistId) {
+    const bare = playlistId?.startsWith("VL") ? playlistId.slice(2) : playlistId;
+    if (!bare) throw new Error("Missing playlist id");
+    return bare;
+  }
+
+  // `edit_playlist` answers HTTP 200 even when it refuses the edit — not the owner, stale
+  // cookies, an unsupported action. A caller that does not read the envelope status reports
+  // success for an edit that did not happen.
+  function assertSucceeded(json, what) {
+    const status = json?.status;
+    if (status && status !== "STATUS_SUCCEEDED") throw new Error(`${what} failed: ${status}`);
+  }
+
+  async function editPlaylist(playlistId, actions) {
+    const json = await innertubePost("browse/edit_playlist", {
+      playlistId: barePlaylistId(playlistId),
+      actions,
+    });
+    assertSucceeded(json, "edit_playlist");
+  }
+
+  // The playlists this account created, as opposed to ones it follows. Only real user
+  // playlists have browse ids beginning `VLPL`; the auto-generated pseudo-entries ("New
+  // playlist", "Episodes for later", liked songs as `LM`) either lack that or cannot be
+  // edited by their owner, and offering them as destinations produces a failure at the point
+  // the user has already chosen one.
+  async function listUserPlaylists() {
+    const json = await rawBrowse("FEmusic_liked_playlists");
+    const page = parseInitialPage(json);
+    const out = [];
+    const seen = new Set();
+    for (const raw of collectShelfNodes(page.sections).flatMap(shelfRendererItems)) {
+      const browseId =
+        raw?.navigationEndpoint?.browseEndpoint?.browseId ??
+        raw?.menu?.menuRenderer?.items?.[0]?.menuNavigationItemRenderer?.navigationEndpoint
+          ?.browseEndpoint?.browseId;
+      if (!browseId?.startsWith("VLPL")) continue;
+      const id = browseId.slice(2);
+      if (seen.has(id)) continue;
+      const title =
+        readRuns(raw.title) ||
+        readRuns(raw.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text) ||
+        "";
+      if (!title) continue;
+      seen.add(id);
+      const thumbnails = readThumbnails(
+        raw.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail ??
+          raw.thumbnail?.musicThumbnailRenderer?.thumbnail ??
+          raw.thumbnail,
+      );
+      out.push({
+        id,
+        title,
+        subtitle:
+          readRuns(raw.subtitle) ||
+          readRuns(raw.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text) ||
+          "",
+        thumbnail: largestUrl(thumbnails),
+      });
+    }
+    return out;
+  }
+
+  async function createPlaylist({ title, description, privacy, videoIds }) {
+    const name = (title ?? "").trim();
+    if (!name) throw new Error("Playlist name cannot be empty");
+    const body = { title: name, privacyStatus: privacy || "PRIVATE" };
+    if (description) body.description = description;
+    if (videoIds?.length) body.videoIds = videoIds;
+    const json = await innertubePost("playlist/create", body);
+    const id = json?.playlistId ?? json?.response?.playlistId;
+    if (!id) throw new Error("Could not read new playlistId from response");
+    return { playlistId: id };
+  }
+
+  const MUTATIONS = {
+    // Ratings. YouTube Music models saving a playlist or an album as a rating on it rather
+    // than as a library edit, which is why both reuse the track endpoints.
+    rateTrack: ({ videoId, status }) => {
+      const endpoint =
+        status === "LIKE" ? "like/like" : status === "DISLIKE" ? "like/dislike" : "like/removelike";
+      if (!videoId) throw new Error("Missing video id");
+      return innertubePost(endpoint, { target: { videoId } });
+    },
+    ratePlaylist: ({ playlistId, saved }) =>
+      innertubePost(saved ? "like/like" : "like/removelike", {
+        target: { playlistId: barePlaylistId(playlistId) },
+      }),
+    setSubscription: ({ channelId, subscribed }) => {
+      if (!channelId) throw new Error("Missing channel id");
+      return innertubePost(
+        subscribed ? "subscription/subscribe" : "subscription/unsubscribe",
+        { channelIds: [channelId] },
+      );
+    },
+
+    // Playlist contents.
+    addToPlaylist: ({ playlistId, videoId }) => {
+      if (!videoId) throw new Error("Missing video id");
+      return editPlaylist(playlistId, [{ action: "ACTION_ADD_VIDEO", addedVideoId: videoId }]);
+    },
+    // `setVideoId` is an opaque per-entry identifier from a playlist browse. A bare video id
+    // would be ambiguous in a playlist that contains the same track twice.
+    removeFromPlaylist: ({ playlistId, videoId, setVideoId }) => {
+      if (!videoId || !setVideoId) throw new Error("Cannot remove a playlist entry without exact identifiers");
+      return editPlaylist(playlistId, [
+        { action: "ACTION_REMOVE_VIDEO", removedVideoId: videoId, setVideoId },
+      ]);
+    },
+    movePlaylistItem: ({ playlistId, setVideoId, predecessorSetVideoId }) => {
+      if (!setVideoId) throw new Error("Cannot move a playlist entry without its entry id");
+      const action = { action: "ACTION_MOVE_VIDEO_BEFORE", setVideoId };
+      // Omitted entirely to move an entry to the front; an empty predecessor is not the same
+      // request as no predecessor.
+      if (predecessorSetVideoId) action.movedSetVideoIdPredecessor = predecessorSetVideoId;
+      return editPlaylist(playlistId, [action]);
+    },
+    addPlaylistToPlaylist: ({ playlistId, sourcePlaylistId }) =>
+      editPlaylist(playlistId, [
+        { action: "ACTION_ADD_PLAYLIST", addedFullListId: barePlaylistId(sourcePlaylistId) },
+      ]),
+
+    // Playlist itself.
+    createPlaylist,
+    renamePlaylist: ({ playlistId, title }) => {
+      const trimmed = (title ?? "").trim();
+      if (!trimmed) throw new Error("Playlist name cannot be empty");
+      return editPlaylist(playlistId, [
+        { action: "ACTION_SET_PLAYLIST_NAME", playlistName: trimmed },
+      ]);
+    },
+    setPlaylistDescription: ({ playlistId, description }) =>
+      editPlaylist(playlistId, [
+        { action: "ACTION_SET_PLAYLIST_DESCRIPTION", playlistDescription: description ?? "" },
+      ]),
+    setPlaylistPrivacy: ({ playlistId, privacy }) =>
+      editPlaylist(playlistId, [
+        { action: "ACTION_SET_PLAYLIST_PRIVACY", playlistPrivacy: privacy },
+      ]),
+    // No undo exists upstream, so the caller confirms before reaching here.
+    deletePlaylist: async ({ playlistId }) => {
+      const json = await innertubePost("playlist/delete", { playlistId: barePlaylistId(playlistId) });
+      assertSucceeded(json, "playlist/delete");
+    },
+
+    listUserPlaylists: () => listUserPlaylists(),
+  };
+
+  // One entry point, so the host has one shape to call and one shape to decode. The result is
+  // always an object: an operation with nothing to report answers `{}` rather than undefined,
+  // because "no value" and "no answer" have to look different to the decoder.
+  async function mutate(operation, args) {
+    const run = MUTATIONS[operation];
+    if (!run) throw new Error(`Unknown mutation ${operation}`);
+    const value = await run(args ?? {});
+    return JSON.stringify(value && typeof value === "object" && !Array.isArray(value)
+      ? value
+      : { value: value ?? null });
+  }
+
+  return { browse, mutate };
 })();

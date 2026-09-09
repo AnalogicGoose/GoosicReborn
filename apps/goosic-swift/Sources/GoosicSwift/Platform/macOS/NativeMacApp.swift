@@ -113,6 +113,21 @@ private struct NativeMacRootView: SwiftUI.View {
                     .transition(.move(edge: .leading))
             }
         }
+        // Owned here rather than by the menu that opens it: a context menu is gone by the time
+        // its action runs, and an alert presented from a view that no longer exists never appears.
+        .alert("New playlist", isPresented: SwiftUI.Binding(
+            get: { model.isNamingNewPlaylist },
+            set: { if !$0 { model.cancelNewPlaylist() } }
+        )) {
+            SwiftUI.TextField("Name", text: SwiftUI.Binding(
+                get: { model.newPlaylistName },
+                set: { model.newPlaylistName = $0 }
+            ))
+            SwiftUI.Button("Cancel", role: .cancel) { model.cancelNewPlaylist() }
+            SwiftUI.Button("Create") { model.confirmNewPlaylist() }
+        } message: {
+            SwiftUI.Text("The playlist is private until you change it.")
+        }
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 SwiftUI.Button {

@@ -41,6 +41,10 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
     private var pageReady = false
     private var waiting: [Request] = []
     private var running: [UUID: Request] = [:]
+    /// Mutations in flight, by coalescing key, each with everyone waiting on that same change.
+    private var coalescing: [String: [(Result<PersonalMutationResult, Error>) -> Void]] = [:]
+    /// Callers holding for the page rather than for a read of their own.
+    private var pageWaiters: [(Result<WKWebView, Error>) -> Void] = []
 
     /// Diagnostics go to stderr, never to the protocol: browse ids, origins, byte counts. See
     /// `Diagnostics` for why a URL never appears whole.
@@ -112,6 +116,108 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         }
     }
 
+    // MARK: - Mutations
+
+    /// Applies a change to the signed-in account.
+    ///
+    /// Runs on the same warmed page as a read, for the same reason: the credentials it needs are
+    /// the page's own, and nothing about the session leaves the document. The program is the
+    /// ported mutation layer, reached through one named operation rather than an endpoint and a
+    /// body — the shell asks for a change, it does not compose an authenticated request.
+    func mutate(
+        _ mutation: PersonalMutation,
+        completion: @escaping (Result<PersonalMutationResult, Error>) -> Void
+    ) {
+        guard profileIdentifier != nil else {
+            completion(.failure(PersonalCatalogError.signedOut))
+            return
+        }
+        // An identical change already on its way is joined rather than repeated. See
+        // `PersonalMutation.coalescingKey` for what this does and does not claim.
+        let key = mutation.coalescingKey
+        if coalescing[key] != nil {
+            note("mutation-joined", ["operation": mutation.operation])
+            coalescing[key]?.append(completion)
+            return
+        }
+        coalescing[key] = [completion]
+
+        let submitted = Date()
+        note("mutation", ["operation": mutation.operation])
+        withReadyPage { [weak self] result in
+            guard let self else { return }
+            guard case .success(let webView) = result else {
+                if case .failure(let error) = result { self.finishMutation(key, .failure(error)) }
+                return
+            }
+            guard let program = Self.program else {
+                self.finishMutation(key, .failure(PersonalCatalogError.programMissing))
+                return
+            }
+            let script = program + "\nreturn await GoosicPersonalCatalog.mutate(operation, args);"
+            webView.callAsyncJavaScript(
+                script,
+                arguments: ["operation": mutation.operation, "args": mutation.arguments],
+                in: nil,
+                in: .page
+            ) { [weak self] outcome in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let elapsed = Int(Date().timeIntervalSince(submitted) * 1_000)
+                    switch outcome {
+                    case .failure(let error):
+                        self.note("mutation-failed", [
+                            "operation": mutation.operation, "elapsed": "\(elapsed)ms",
+                            "reason": error.localizedDescription,
+                        ])
+                        self.finishMutation(
+                            key, .failure(PersonalCatalogError.scriptFailed(error.localizedDescription))
+                        )
+                    case .success(let value):
+                        guard let json = value as? String, let data = json.data(using: .utf8),
+                              let decoded = try? JSONDecoder().decode(PersonalMutationResult.self, from: data)
+                        else {
+                            self.note("mutation-unreadable", [
+                                "operation": mutation.operation, "elapsed": "\(elapsed)ms",
+                            ])
+                            self.finishMutation(key, .failure(PersonalCatalogError.invalidResponse))
+                            return
+                        }
+                        self.note("mutation-applied", [
+                            "operation": mutation.operation, "elapsed": "\(elapsed)ms",
+                        ])
+                        self.finishMutation(key, .success(decoded))
+                    }
+                }
+            }
+        }
+    }
+
+    private func finishMutation(_ key: String, _ result: Result<PersonalMutationResult, Error>) {
+        guard let waiting = coalescing.removeValue(forKey: key) else { return }
+        for completion in waiting { completion(result) }
+    }
+
+    /// Hands back the account's page once it is usable, loading it if it is not.
+    ///
+    /// Reads have their own path into this because they carry a request that has to be queued;
+    /// a mutation only needs the page itself.
+    private func withReadyPage(_ body: @escaping (Result<WKWebView, Error>) -> Void) {
+        if pageReady, let webView {
+            body(.success(webView))
+            return
+        }
+        pageWaiters.append(body)
+        ensurePage()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.requestTimeout))
+            guard let self, !self.pageWaiters.isEmpty else { return }
+            let waiting = self.pageWaiters
+            self.pageWaiters.removeAll()
+            for waiter in waiting { waiter(.failure(PersonalCatalogError.timedOut)) }
+        }
+    }
+
     // MARK: - Page lifecycle
 
     private func ensurePage() {
@@ -140,6 +246,14 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         waiting.removeAll()
         running.removeAll()
         for request in pending { request.completion(.failure(error)) }
+        // A mutation in flight was addressed to the account that was active when it was sent.
+        // Letting it report success after a switch would credit one account's change to another.
+        let mutations = coalescing.values.flatMap { $0 }
+        coalescing.removeAll()
+        for completion in mutations { completion(.failure(error)) }
+        let waiters = pageWaiters
+        pageWaiters.removeAll()
+        for waiter in waiters { waiter(.failure(error)) }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -149,6 +263,9 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         let queued = waiting
         waiting.removeAll()
         for request in queued { run(request, in: webView) }
+        let readyWaiters = pageWaiters
+        pageWaiters.removeAll()
+        for waiter in readyWaiters { waiter(.success(webView)) }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -164,6 +281,9 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
         note("page-failed", ["domain": nsError.domain, "code": "\(nsError.code)"])
+        let readyWaiters = pageWaiters
+        pageWaiters.removeAll()
+        for waiter in readyWaiters { waiter(.failure(error)) }
         failAll(with: error)
         destroyPage()
     }
