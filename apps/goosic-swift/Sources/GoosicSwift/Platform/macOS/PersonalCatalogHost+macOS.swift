@@ -22,6 +22,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         let browseID: String
         let title: String
         let continuation: String?
+        let shape: CatalogPageShape
         let submittedAt: Date
         let completion: (Result<GoosicCatalogPage, Error>) -> Void
     }
@@ -67,6 +68,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
             browseID: section.browseID,
             title: section.rawValue,
             continuation: continuation,
+            shape: .auto,
             completion: completion
         )
     }
@@ -75,6 +77,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         browseID: String,
         title: String,
         continuation: String? = nil,
+        shape: CatalogPageShape = .auto,
         completion: @escaping (Result<GoosicCatalogPage, Error>) -> Void
     ) {
         guard profileIdentifier != nil else {
@@ -83,7 +86,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         }
         let request = Request(
             id: UUID(), browseID: browseID, title: title, continuation: continuation,
-            submittedAt: Date(), completion: completion
+            shape: shape, submittedAt: Date(), completion: completion
         )
         note("request", ["browse": browseID, "continuation": "\(continuation != nil)", "pageReady": "\(pageReady)"])
         Task { @MainActor [weak self] in
@@ -173,11 +176,12 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
             return
         }
         running[request.id] = request
-        let script = program + "\nreturn await GoosicPersonalCatalog.browse(browseId, title, continuation);"
+        let script = program + "\nreturn await GoosicPersonalCatalog.browse(browseId, title, continuation, shape);"
         let arguments: [String: Any] = [
             "browseId": request.browseID,
             "title": request.title,
             "continuation": request.continuation ?? NSNull(),
+            "shape": request.shape.rawValue,
         ]
         let id = request.id
         webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page) { [weak self] result in

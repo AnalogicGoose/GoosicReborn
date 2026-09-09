@@ -88,7 +88,7 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 
 ## Current limitations
 
-- **Personal content is read-only and macOS-only.** A signed-in Home and the Library's playlists, liked songs, albums, and artists load inside the account's WebKit profile through `PersonalCatalog.js`. The first read after launch waits for YouTube Music's application to load in that profile (about ten seconds); later reads are single requests. Opening a private playlist still goes through the anonymous entity route, which cannot see it, and nothing writes to the account yet: no likes, playlist edits, or channel switching.
+- **Personal content is read-only and macOS-only.** A signed-in Home and the Library's playlists, liked songs, albums, and artists load inside the account's WebKit profile through `PersonalCatalog.js`. The first read after launch waits for YouTube Music's application to load in that profile (about ten seconds); later reads are single requests. Private playlists and albums now open through the account too, continuations included. Nothing writes to the account yet: no likes, playlist edits, or channel switching.
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
 - **Audio is macOS only.** The shell itself builds and runs on Linux — navigation, the live catalog, search, and the transport UI all work there — but both playback hosts are macOS-only. On every other platform `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs that report the limitation rather than producing sound, so no renderer can bypass Rust's authority. A Linux host would mean WebKitGTK for the official player and a local renderer for decoded files, both claiming the same Rust leases.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
@@ -107,7 +107,8 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 6. **Done (macOS)** — account profiles with isolated WebKit stores, system media controls, and native platform material.
 7. **Done** — catalog artwork.
 8. **Done (macOS)** — authenticated catalog reads for a signed-in Home and Library, ported from the previous Goosic.
-9. **Next** — private playlist pages and library mutations, then theming and production packaging.
+9. **Done (macOS)** — private playlist and album pages, read through the account that can see them.
+10. **Next** — library mutations, then theming and production packaging.
 
 ## Licensing
 

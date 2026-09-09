@@ -507,14 +507,18 @@ const GoosicPersonalCatalog = (() => {
     return shelves;
   }
 
-  async function browse(browseId, title, continuation) {
+  // `shape` says how the caller intends to render the answer, because the response alone does
+  // not settle it: an album and an artist page are both shelves of responsive rows to a parser,
+  // but one is a track list to a person and the other is a set of sections. "auto" keeps the
+  // original heuristic — a VL-prefixed browse is a playlist and therefore rows.
+  async function browse(browseId, title, continuation, shape) {
     const json = continuation ? await rawBrowseContinuation(continuation) : await rawBrowse(browseId);
     const page = continuation ? parseContinuationPage(json) : parseInitialPage(json);
     if (!page.recognized) throw new Error(`Unrecognized YouTube Music response for ${browseId}`);
     const tag = continuation ? hashToken(continuation) : "init";
 
-    // Playlist-shaped browses (liked songs) are a flat list of rows, not shelves.
-    const rowsOnly = browseId.startsWith("VL");
+    const rowsOnly =
+      shape === "tracks" ? true : shape === "shelves" ? false : browseId.startsWith("VL");
     const shelves = rowsOnly ? [] : shelvesFrom(page.sections, tag, title);
     const tracks = rowsOnly
       ? collectResponsiveRows(page.sections).map(mapResponsiveListItem).map(toWireItem).filter((item) => item && item.videoId)

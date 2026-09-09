@@ -22,7 +22,11 @@ The personal Library has four initial surfaces: playlists, liked songs, albums, 
 They use the same active-profile host and support their own continuation cursors. The reader
 behind them is the previous Goosic's InnerTube client and shelf parsers, ported as
 `PersonalCatalog.js` with their GPL notice, rather than a second parser written from scratch. Playlist and
-album detail pages continue through the existing entity routes after a card is selected. This
+album detail pages are read through the same account when one is active, because the anonymous
+client cannot see a private one and does not report that it cannot: upstream answers a private
+browse with an empty page, so a user's own playlist opened looking as though it had no tracks. If
+the account cannot answer — the entity may simply be public and not in this library — the anonymous
+route still runs, so nothing that used to work stops working. This
 restores the content-reading half of the previous Library without moving credentials into Rust
 or weakening the service protocol.
 

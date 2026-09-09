@@ -266,6 +266,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// When each cached page was last confirmed fresh. See `CatalogFreshness`.
     private var pageCachedAt: [CatalogKey: Date] = [:]
 
+    /// Which reader produced each page, so its continuation goes back to the same one. See
+    /// `CatalogPageSource`.
+    private var pageSources: [CatalogKey: CatalogPageSource] = [:]
+
     /// Pages being shown from cache whose refresh did not succeed. The page is still worth
     /// showing; the screen just should not imply it is current.
     @SwiftCrossUI.Published private(set) var staleRefreshFailed: Set<CatalogKey> = []
@@ -434,6 +438,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         // that is already on its way. Without this the guest feed frequently wins, and reloading
         // does not help because the reload is not what was wrong.
         pageCachedAt.removeAll()
+        pageSources.removeAll()
         staleRefreshFailed.removeAll()
         for waiting in catalogRequests.invalidateAll() {
             // A dropped answer leaves its screen on "Loading…" with nothing coming, so anything
@@ -1099,18 +1104,75 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func loadEntity(_ entity: GoosicEntityReference, force: Bool = false) {
+        // A signed-in user's own playlists and albums are invisible to the anonymous client, and
+        // that is not an error it can report — upstream answers a private browse with an empty
+        // page, so tapping your own playlist opened something that looked like it had no tracks.
+        // When there is an account, its own view of an entity is the only correct one.
+        if activeAccount != nil, let personal = Self.personalEntityBrowse(for: entity) {
+            loadPersonalEntity(entity, browse: personal, force: force)
+            return
+        }
+        loadCatalogForEntity(entity, force: force)
+    }
+
+    /// How an entity is browsed inside the account's profile, or `nil` for kinds the personal
+    /// reader has nothing better to say about than the anonymous one.
+    private static func personalEntityBrowse(
+        for entity: GoosicEntityReference
+    ) -> (browseID: String, title: String, shape: CatalogPageShape)? {
+        switch entity {
+        case .playlist(let id):
+            return (PersonalBrowseID.playlist(id), "Playlist", .tracks)
+        case .album(let id):
+            return (id, "Album", .tracks)
+        // An artist page is public, and the anonymous reader already renders it with the shelf
+        // structure the screen expects. Routing it through the account would trade a better
+        // answer for a slower one.
+        case .artist:
+            return nil
+        }
+    }
+
+    private func loadPersonalEntity(
+        _ entity: GoosicEntityReference,
+        browse: (browseID: String, title: String, shape: CatalogPageShape),
+        force: Bool
+    ) {
+        let key = CatalogKey.entity(entity)
+        guard let start = beginLoad(key, force: force) else { return }
+        if !start.revalidating { pages[key] = .loading }
+        let ticket = catalogRequests.issue(for: key)
+        personalCatalogHost.loadBrowse(
+            browseID: browse.browseID,
+            title: browse.title,
+            shape: browse.shape
+        ) { [weak self] result in
+            guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+            if case .failure = result {
+                // The account could not answer — the entity may simply be public and not in this
+                // library, or the profile's page may be unhealthy. The anonymous route can still
+                // answer for anything public, so a failure here is a reason to ask it rather than
+                // a reason to show the user an error.
+                self.catalogRequests.retire(ticket, for: key)
+                self.loadCatalogForEntity(entity, force: true)
+                return
+            }
+            self.pageSources[key] = .personal(
+                browseID: browse.browseID, title: browse.title, shape: browse.shape
+            )
+            self.applyPersonalPage(result, key: key, ticket: ticket, revalidating: start.revalidating)
+        }
+    }
+
+    /// The anonymous route for an entity, used directly when signed out and as the fallback when
+    /// the account cannot answer.
+    private func loadCatalogForEntity(_ entity: GoosicEntityReference, force: Bool) {
         let command: String
         let id: String
         switch entity {
-        case .album(let value):
-            command = "catalog.album"
-            id = value
-        case .artist(let value):
-            command = "catalog.artist"
-            id = value
-        case .playlist(let value):
-            command = "catalog.playlist"
-            id = value
+        case .album(let value): (command, id) = ("catalog.album", value)
+        case .artist(let value): (command, id) = ("catalog.artist", value)
+        case .playlist(let value): (command, id) = ("catalog.playlist", value)
         }
         loadCatalog(
             key: .entity(entity),
@@ -1182,6 +1244,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         guard let start = beginLoad(key, force: force) else { return }
         if !start.revalidating { pages[key] = .loading }
         let ticket = catalogRequests.issue(for: key)
+        pageSources[key] = .personal(
+            browseID: section.browseID, title: section.rawValue, shape: .auto
+        )
         personalCatalogHost.load(section: section) { [weak self] result in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
             self.applyPersonalPage(result, key: key, ticket: ticket, revalidating: start.revalidating)
@@ -1193,27 +1258,24 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
               let cursor = existing.nextCursor,
               !cursor.isEmpty,
               continuationState(for: key) == .idle,
-              (client != nil || isPersonalLibraryKey(key)) else { return }
+              (client != nil || isPersonalPage(key)) else { return }
         continuations[key] = .loading
         // A continuation shares the page's ticket space: a reload issued while one is in flight
         // replaces the page it was going to be appended to, so the append must not happen.
         let ticket = catalogRequests.issue(for: key)
-        if key == .route(.home), activeAccount != nil {
+        // A cursor is only meaningful to the reader that issued it, so it goes back to whichever
+        // one produced the page rather than to whichever one the key looks like it belongs to.
+        if case .personal(let browseID, let title, let shape) = pageSources[key] {
             personalCatalogHost.loadBrowse(
-                browseID: "FEmusic_home",
-                title: "Home",
-                continuation: cursor
+                browseID: browseID,
+                title: title,
+                continuation: cursor,
+                shape: shape
             ) { [weak self] result in
                 guard let self else { return }
-                self.finishPersonalContinuation(result, key: key, cursor: cursor, ticket: ticket, subject: "home")
-            }
-            return
-        }
-        if case .library(let raw) = key {
-            let section = PersonalLibrarySection(rawValue: raw) ?? .playlists
-            personalCatalogHost.load(section: section, continuation: cursor) { [weak self] result in
-                guard let self else { return }
-                self.finishPersonalContinuation(result, key: key, cursor: cursor, ticket: ticket, subject: "library")
+                self.finishPersonalContinuation(
+                    result, key: key, cursor: cursor, ticket: ticket, subject: title.lowercased()
+                )
             }
             return
         }
@@ -1254,8 +1316,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         loadMore(key)
     }
 
-    private func isPersonalLibraryKey(_ key: CatalogKey) -> Bool {
-        if case .library = key { return true }
+    /// A page the account's own reader produced can be continued without the service, which is
+    /// why this asks about the page rather than about the key.
+    private func isPersonalPage(_ key: CatalogKey) -> Bool {
+        if case .personal = pageSources[key] { return true }
         return false
     }
 
@@ -1293,7 +1357,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         guard let start = beginLoad(key, force: force) else { return }
         if !start.revalidating { pages[key] = .loading }
         let ticket = catalogRequests.issue(for: key)
-        personalCatalogHost.loadBrowse(browseID: "FEmusic_home", title: "Home") { [weak self] result in
+        pageSources[key] = .personal(browseID: "FEmusic_home", title: "Home", shape: .shelves)
+        personalCatalogHost.loadBrowse(
+            browseID: "FEmusic_home", title: "Home", shape: .shelves
+        ) { [weak self] result in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
             self.applyPersonalPage(result, key: key, ticket: ticket, revalidating: start.revalidating)
         }
@@ -1383,6 +1450,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         if !start.revalidating { pages[key] = .loading }
+        pageSources[key] = .service
         let ticket = catalogRequests.issue(for: key)
         send(command: command, payload: payload) { [weak self] response in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }

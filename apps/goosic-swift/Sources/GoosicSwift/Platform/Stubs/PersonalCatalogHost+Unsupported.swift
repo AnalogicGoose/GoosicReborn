@@ -17,6 +17,7 @@ final class PersonalCatalogHost {
         browseID: String,
         title: String,
         continuation: String? = nil,
+        shape: CatalogPageShape = .auto,
         completion: @escaping (Result<GoosicCatalogPage, Error>) -> Void
     ) {
         completion(.failure(PersonalCatalogUnavailable()))
