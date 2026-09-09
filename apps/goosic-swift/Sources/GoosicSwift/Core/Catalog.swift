@@ -4,6 +4,10 @@ import Foundation
 ///
 /// Pages are cached under this key, so a slow response can never land on the screen the user
 /// has since navigated away from — it lands on its own key and is simply not displayed.
+///
+/// That is the only staleness the key itself decides. Whether an answer is still the current
+/// answer *for its own key* — after a reload, or after the account it was asked for stopped being
+/// the active one — is `CatalogRequestLedger`'s question.
 enum CatalogKey: Hashable {
     case route(GoosicRoute)
     case search(query: String, filter: String)

@@ -205,6 +205,9 @@ struct GoosicQueue: Hashable {
 @MainActor
 final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     @SwiftCrossUI.Published var route: GoosicRoute = .home
+    /// Whether the user has chosen a screen since launch. Restoring the last route is startup
+    /// state, and startup stops being true the moment somebody navigates.
+    private var hasNavigatedSinceLaunch = false
     @SwiftCrossUI.Published var detail: GoosicEntityReference?
     @SwiftCrossUI.Published var query = ""
     @SwiftCrossUI.Published var submittedQuery = ""
@@ -251,6 +254,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// Every catalog page this session has requested, keyed so a late response cannot land on
     /// the wrong screen.
     @SwiftCrossUI.Published private(set) var pages: [CatalogKey: CatalogLoadState] = [:]
+    /// Which catalog answers may still be applied. See `CatalogRequestLedger`: a key says which
+    /// screen an answer belongs to, and this says whether it is still that screen's answer.
+    private var catalogRequests = CatalogRequestLedger()
     @SwiftCrossUI.Published private(set) var catalogContinuationsLoading: Set<CatalogKey> = []
 
     private var client: GoosicServiceClient?
@@ -349,6 +355,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         // catalog tree, write preferences, and refresh Downloads. On a dense page that was
         // enough to trigger macOS's beach ball even though nothing had changed.
         guard self.route != route || detail != nil else { return }
+        hasNavigatedSinceLaunch = true
         self.route = route
         detail = nil
         loadRoute(route)
@@ -357,6 +364,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func show(_ entity: GoosicEntityReference) {
+        hasNavigatedSinceLaunch = true
         detail = entity
         loadEntity(entity)
     }
@@ -409,6 +417,17 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             if case .library = key { return false }
             return true
         }
+        // Every catalog answer still in flight was asked for as whoever was signed in a moment
+        // ago. Home is the one that bites: it is requested anonymously at launch because the
+        // active account is not known yet, and the signed-in request below races the guest answer
+        // that is already on its way. Without this the guest feed frequently wins, and reloading
+        // does not help because the reload is not what was wrong.
+        for waiting in catalogRequests.invalidateAll() {
+            // A dropped answer leaves its screen on "Loading…" with nothing coming, so anything
+            // that was waiting goes back to idle and is asked for again when it is next shown.
+            catalogContinuationsLoading.remove(waiting)
+            if case .loading = state(for: waiting) { pages[waiting] = .idle }
+        }
         if activeAccount != nil {
             switch route {
             case .library:
@@ -420,6 +439,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             default:
                 break
             }
+        } else {
+            // Signing out is the same problem in reverse: what is on screen belongs to an account
+            // that is no longer active, so the visible route is asked for again anonymously.
+            loadRoute(route, force: true)
         }
         guard initial else { return }
         // A persisted active account is startup state, not a user transition. Bind its profile
@@ -857,6 +880,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             if let settings = response.payload?.settings {
                 self.apply(settings, restoringRoute: true)
             }
+            // `self.route` deliberately, not the restored value: if the user navigated while this
+            // was in flight, the screen to load is the one they are looking at.
             self.loadRoute(self.route)
             if self.route == .downloads { self.loadDownloads() }
         } failure: { [weak self] _ in
@@ -876,7 +901,12 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
-        if restoringRoute, let restored = GoosicRoute(rawValue: settings.lastRoute) {
+        // Preferences are read at launch and the answer can take seconds. Somebody who has
+        // already picked a screen in that time has said where they want to be more recently than
+        // the stored preference did, and yanking them back to last session's route is the kind of
+        // bug that reads as the app fighting the user.
+        if restoringRoute, !hasNavigatedSinceLaunch,
+           let restored = GoosicRoute(rawValue: settings.lastRoute) {
             route = restored
         }
     }
@@ -1143,8 +1173,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             }
         }
         pages[key] = .loading
+        let ticket = catalogRequests.issue(for: key)
         personalCatalogHost.load(section: section) { [weak self] result in
-            guard let self else { return }
+            guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+            self.catalogRequests.retire(ticket, for: key)
             switch result {
             case .success(let page):
                 self.pages[key] = .loaded(CatalogPageView(wire: page))
@@ -1161,6 +1193,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
               !catalogContinuationsLoading.contains(key),
               (client != nil || isPersonalLibraryKey(key)) else { return }
         catalogContinuationsLoading.insert(key)
+        // A continuation shares the page's ticket space: a reload issued while one is in flight
+        // replaces the page it was going to be appended to, so the append must not happen.
+        let ticket = catalogRequests.issue(for: key)
         if key == .route(.home), activeAccount != nil {
             personalCatalogHost.loadBrowse(
                 browseID: "FEmusic_home",
@@ -1168,7 +1203,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 continuation: cursor
             ) { [weak self] result in
                 guard let self else { return }
-                self.finishPersonalContinuation(result, key: key, cursor: cursor, subject: "home")
+                self.finishPersonalContinuation(result, key: key, cursor: cursor, ticket: ticket, subject: "home")
             }
             return
         }
@@ -1176,7 +1211,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             let section = PersonalLibrarySection(rawValue: raw) ?? .playlists
             personalCatalogHost.load(section: section, continuation: cursor) { [weak self] result in
                 guard let self else { return }
-                self.finishPersonalContinuation(result, key: key, cursor: cursor, subject: "library")
+                self.finishPersonalContinuation(result, key: key, cursor: cursor, ticket: ticket, subject: "library")
             }
             return
         }
@@ -1184,15 +1219,18 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             command: "catalog.continue",
             payload: GoosicRequestPayload(continuation: cursor)
         ) { [weak self] response in
-            guard let self else { return }
+            guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+            self.catalogRequests.retire(ticket, for: key)
             self.catalogContinuationsLoading.remove(key)
             guard case .loaded(let current) = self.state(for: key),
                   current.nextCursor == cursor,
                   let wire = response.payload?.catalog else { return }
             self.pages[key] = .loaded(current.appending(CatalogPageView(wire: wire)))
         } failure: { [weak self] error in
-            self?.catalogContinuationsLoading.remove(key)
-            self?.status = "Could not load more content: \(Self.describe(error).message)"
+            guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+            self.catalogRequests.retire(ticket, for: key)
+            self.catalogContinuationsLoading.remove(key)
+            self.status = "Could not load more content: \(Self.describe(error).message)"
         }
     }
 
@@ -1205,8 +1243,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         _ result: Result<GoosicCatalogPage, Error>,
         key: CatalogKey,
         cursor: String,
+        ticket: UInt64,
         subject: String
     ) {
+        guard catalogRequests.accepts(ticket, for: key) else { return }
+        catalogRequests.retire(ticket, for: key)
         catalogContinuationsLoading.remove(key)
         guard case .loaded(let current) = state(for: key), current.nextCursor == cursor else { return }
         switch result {
@@ -1226,8 +1267,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             }
         }
         pages[key] = .loading
+        let ticket = catalogRequests.issue(for: key)
         personalCatalogHost.loadBrowse(browseID: "FEmusic_home", title: "Home") { [weak self] result in
-            guard let self else { return }
+            guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+            self.catalogRequests.retire(ticket, for: key)
             switch result {
             case .success(let page):
                 self.pages[key] = .loaded(CatalogPageView(wire: page))
@@ -1259,9 +1302,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         pages[key] = .loading
+        let ticket = catalogRequests.issue(for: key)
         send(command: command, payload: payload) { [weak self] response in
-            guard let self else { return }
+            guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
             guard let wirePage = response.payload?.catalog else {
+                self.catalogRequests.retire(ticket, for: key)
                 self.pages[key] = .failed(
                     code: "invalidResponse",
                     message: "The service answered without a catalog page."
@@ -1275,11 +1320,15 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 let page = await Task.detached(priority: .userInitiated) {
                     CatalogPageView(wire: wirePage)
                 }.value
-                guard let self else { return }
+                // Checked again after the hop: conversion is off the main actor, so an account
+                // switch or a reload can happen while a page is still being built.
+                guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+                self.catalogRequests.retire(ticket, for: key)
                 self.pages[key] = .loaded(page)
             }
         } failure: { [weak self] error in
-            guard let self else { return }
+            guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+            self.catalogRequests.retire(ticket, for: key)
             let described = Self.describe(error)
             self.pages[key] = .failed(code: described.code, message: described.message)
         }
