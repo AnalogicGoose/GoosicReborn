@@ -72,3 +72,21 @@ final class CatalogRequestLedgerTests: XCTestCase {
         XCTAssertTrue(ledger.accepts(second, for: .route(.home)))
     }
 }
+
+/// A continuation that failed used to be indistinguishable from one that had not started, so the
+/// row kept promising it was loading and asked again every time it scrolled back into view.
+final class CatalogContinuationStateTests: XCTestCase {
+    func testTheLabelSaysWhatActuallyHappened() {
+        XCTAssertEqual(CatalogContinuationLabel.text(for: .idle), "Load more")
+        XCTAssertEqual(CatalogContinuationLabel.text(for: .loading), "Loading more…")
+        XCTAssertEqual(CatalogContinuationLabel.text(for: .failed("upstream said no")), "Try again")
+    }
+
+    /// The states must not compare equal across kinds, because "refused" being mistaken for
+    /// "ready to ask" is exactly the retry loop.
+    func testAFailureIsNotIdle() {
+        XCTAssertNotEqual(CatalogContinuationState.failed("no"), .idle)
+        XCTAssertNotEqual(CatalogContinuationState.failed("no"), .loading)
+        XCTAssertEqual(CatalogContinuationState.failed("no"), .failed("no"))
+    }
+}

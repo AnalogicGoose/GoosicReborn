@@ -115,10 +115,11 @@ struct CatalogPageBody: View {
                         .font(.caption)
                     }
                     if page.nextCursor != nil {
-                        Button(model.catalogContinuationsLoading.contains(key) ? "Loading more…" : "Load more") {
+                        Button(CatalogContinuationLabel.text(for: model.continuationState(for: key))) {
+                            model.retryContinuation(key)
                             model.loadMore(key)
                         }
-                        .disabled(model.catalogContinuationsLoading.contains(key))
+                        .disabled(model.continuationState(for: key) == .loading)
                         .font(.caption)
                         .padding(.top, 8)
                     }

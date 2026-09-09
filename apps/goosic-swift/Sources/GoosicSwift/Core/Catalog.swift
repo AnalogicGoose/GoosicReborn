@@ -268,3 +268,33 @@ func catalogFailureText(code: String, message: String, subject: String) -> (titl
         return ("Could not load", message)
     }
 }
+
+/// Where a page's continuation stands.
+///
+/// The screen used to infer this from two facts that cannot express it: a cursor exists, and a
+/// key is or is not in a "loading" set. A continuation that failed looks exactly like one that has
+/// not started, so the row kept saying "Loading more…" over a request that had already given up,
+/// and every time it came back on screen it asked again — a spinner that never resolves in front
+/// of a retry loop nobody asked for. Failure has to be a state you can be in.
+enum CatalogContinuationState: Equatable {
+    /// There is more to fetch and nothing is fetching it.
+    case idle
+    case loading
+    /// Asked and refused. Nothing retries this but the user; the row says so and offers to.
+    case failed(String)
+}
+
+/// What a "load more" control says in each state.
+///
+/// Pure because the wrong answer here is the whole defect: the control read a boolean and so had
+/// no word for "this was refused", which is how a failed continuation came to sit under a label
+/// promising it was still loading.
+enum CatalogContinuationLabel {
+    static func text(for state: CatalogContinuationState) -> String {
+        switch state {
+        case .idle: return "Load more"
+        case .loading: return "Loading more…"
+        case .failed: return "Try again"
+        }
+    }
+}

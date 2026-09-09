@@ -257,7 +257,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// Which catalog answers may still be applied. See `CatalogRequestLedger`: a key says which
     /// screen an answer belongs to, and this says whether it is still that screen's answer.
     private var catalogRequests = CatalogRequestLedger()
-    @SwiftCrossUI.Published private(set) var catalogContinuationsLoading: Set<CatalogKey> = []
+    @SwiftCrossUI.Published private(set) var continuations: [CatalogKey: CatalogContinuationState] = [:]
+
+    func continuationState(for key: CatalogKey) -> CatalogContinuationState {
+        continuations[key] ?? .idle
+    }
 
     private var client: GoosicServiceClient?
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
@@ -425,7 +429,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         for waiting in catalogRequests.invalidateAll() {
             // A dropped answer leaves its screen on "Loading…" with nothing coming, so anything
             // that was waiting goes back to idle and is asked for again when it is next shown.
-            catalogContinuationsLoading.remove(waiting)
+            continuations.removeValue(forKey: waiting)
             if case .loading = state(for: waiting) { pages[waiting] = .idle }
         }
         if activeAccount != nil {
@@ -1190,9 +1194,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         guard case .loaded(let existing) = state(for: key),
               let cursor = existing.nextCursor,
               !cursor.isEmpty,
-              !catalogContinuationsLoading.contains(key),
+              continuationState(for: key) == .idle,
               (client != nil || isPersonalLibraryKey(key)) else { return }
-        catalogContinuationsLoading.insert(key)
+        continuations[key] = .loading
         // A continuation shares the page's ticket space: a reload issued while one is in flight
         // replaces the page it was going to be appended to, so the append must not happen.
         let ticket = catalogRequests.issue(for: key)
@@ -1221,7 +1225,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         ) { [weak self] response in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
             self.catalogRequests.retire(ticket, for: key)
-            self.catalogContinuationsLoading.remove(key)
+            self.continuations[key] = .idle
             guard case .loaded(let current) = self.state(for: key),
                   current.nextCursor == cursor,
                   let wire = response.payload?.catalog else { return }
@@ -1229,9 +1233,19 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         } failure: { [weak self] error in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
             self.catalogRequests.retire(ticket, for: key)
-            self.catalogContinuationsLoading.remove(key)
-            self.status = "Could not load more content: \(Self.describe(error).message)"
+            // Failure is recorded on the row itself rather than only in the status line, because
+            // the row is what decides whether to ask again.
+            self.continuations[key] = .failed(Self.describe(error).message)
         }
+    }
+
+    /// Clears a refusal so `loadMore` will try again. Only a person calls this: leaving the
+    /// failure in place is what stops the row from retrying on its own every time it scrolls back
+    /// into view.
+    func retryContinuation(_ key: CatalogKey) {
+        guard case .failed = continuationState(for: key) else { return }
+        continuations[key] = .idle
+        loadMore(key)
     }
 
     private func isPersonalLibraryKey(_ key: CatalogKey) -> Bool {
@@ -1248,13 +1262,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     ) {
         guard catalogRequests.accepts(ticket, for: key) else { return }
         catalogRequests.retire(ticket, for: key)
-        catalogContinuationsLoading.remove(key)
-        guard case .loaded(let current) = state(for: key), current.nextCursor == cursor else { return }
         switch result {
         case .success(let wire):
+            continuations[key] = .idle
+            guard case .loaded(let current) = state(for: key), current.nextCursor == cursor else { return }
             pages[key] = .loaded(current.appending(CatalogPageView(wire: wire)))
         case .failure(let error):
-            status = "Could not load more \(subject) content: \(error.localizedDescription)"
+            continuations[key] = .failed("Could not load more \(subject) content: \(error.localizedDescription)")
         }
     }
 

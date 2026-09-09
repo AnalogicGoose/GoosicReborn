@@ -136,15 +136,37 @@ struct NativeMacCatalogPage: SwiftUI.View {
                 if let cursor = page.nextCursor {
                     SwiftUI.HStack {
                         SwiftUI.Spacer()
-                        SwiftUI.ProgressView().controlSize(.small)
-                        SwiftUI.Text("Loading more…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        // A failed continuation must not keep saying "Loading more…" over a
+                        // request that gave up, and must not ask again on its own every time it
+                        // scrolls back into view.
+                        if case .failed(let message) = model.continuationState(for: key) {
+                            SwiftUI.VStack(spacing: 6) {
+                                SwiftUI.Text(message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                SwiftUI.Button("Try again") { model.retryContinuation(key) }
+                                    .controlSize(.small)
+                            }
+                        } else {
+                            SwiftUI.ProgressView().controlSize(.small)
+                            SwiftUI.Text("Loading more…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         SwiftUI.Spacer()
                     }
                     .padding(.vertical, 20)
                     .id(cursor)
                     .onAppear { model.loadMore(key) }
+                } else if !page.shelves.isEmpty || !page.tracks.isEmpty {
+                    // Saying where the list ends is the difference between "that is everything"
+                    // and "something is still coming".
+                    SwiftUI.Text("That's everything.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
                 }
                 if page.truncated {
                     SwiftUI.Text("This page was long, so only the first part is shown.")
