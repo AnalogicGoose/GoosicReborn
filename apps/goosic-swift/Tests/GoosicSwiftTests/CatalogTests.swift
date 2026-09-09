@@ -99,8 +99,8 @@ final class CatalogConversionTests: XCTestCase {
         let album = item(kind: .album, id: "MPRE1", title: "Album")
         let songs = GoosicShelf(id: "s", title: "Songs", cards: [song, other].map(GoosicCard.init(catalog:)))
         let mixed = GoosicShelf(id: "m", title: "Mixed", cards: [song, album].map(GoosicCard.init(catalog:)))
-        XCTAssertEqual(songs.trackList?.count, 2)
-        XCTAssertNil(mixed.trackList)
+        XCTAssertEqual(songs.playableRows?.count, 2)
+        XCTAssertNil(mixed.playableRows)
     }
 
     func testPageViewKeepsOnlyPlayableTracks() {
@@ -247,7 +247,7 @@ final class ProtocolDecodingTests: XCTestCase {
         let page = try XCTUnwrap(response.payload?.catalog)
         let view = CatalogPageView(wire: page)
         XCTAssertEqual(view.shelves.first?.title, "Songs")
-        let track = try XCTUnwrap(view.shelves.first?.trackList?.first)
+        let track = try XCTUnwrap(view.shelves.first?.playableRows?.first)
         XCTAssertEqual(track.videoID, "abc")
         XCTAssertTrue(track.explicit)
     }

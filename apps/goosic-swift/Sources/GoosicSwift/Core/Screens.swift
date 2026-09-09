@@ -106,7 +106,7 @@ struct CatalogPageBody: View {
                         }
                     }
                     ForEach(Array(page.shelves.prefix(visibleShelfCount))) { shelf in
-                        ShelfView(shelf: shelf, model: model)
+                        ShelfView(presentation: .preferred(for: key, shelf: shelf), shelf: shelf, model: model)
                     }
                     if visibleShelfCount < page.shelves.count {
                         Button("Show more sections") {

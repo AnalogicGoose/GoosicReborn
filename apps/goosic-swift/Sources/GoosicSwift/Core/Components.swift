@@ -83,6 +83,7 @@ struct GoosicSidebar: View {
 }
 
 struct ShelfView: View {
+    let presentation: ShelfPresentation
     let shelf: GoosicShelf
     let model: GoosicAppModel
     // SwiftCrossUI currently lays out every ForEach child eagerly. Keep the first batch tiny;
@@ -93,7 +94,7 @@ struct ShelfView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(shelf.title)
                 .font(.headline)
-            if let tracks = shelf.trackList {
+            if case .rows(let tracks) = presentation {
                 ForEach(Array(tracks.prefix(visibleItemCount))) { track in
                     TrackRow(track: track, context: tracks, model: model)
                 }

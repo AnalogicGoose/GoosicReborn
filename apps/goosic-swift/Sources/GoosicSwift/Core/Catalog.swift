@@ -45,6 +45,18 @@ enum PersonalLibrarySection: String, CaseIterable, Identifiable {
     var key: CatalogKey { .library(rawValue) }
 }
 
+extension CatalogKey {
+    /// Whether this page is a flat track list rather than shelves of cards. Used to draw the
+    /// right placeholder before the answer arrives — a shelf skeleton in front of a playlist
+    /// would be a second layout jump rather than a stand-in for the first.
+    var expectsTrackList: Bool {
+        switch self {
+        case .album, .playlist: return true
+        case .route, .search, .artist, .library: return false
+        }
+    }
+}
+
 enum CatalogLoadState {
     case idle
     case loading
@@ -178,12 +190,27 @@ extension CatalogPageView {
     }
 }
 
+/// Whether a shelf is drawn as a row of artwork or as a list of tracks.
+///
+/// This depends on the page, which is why the shelf cannot decide it alone. The rule began as
+/// "every card is playable, so draw rows", written for search, where songs and albums come back
+/// in one page shape and songs read far better as a list. On Home the same test is true of any
+/// all-songs shelf — and there it is wrong: Home is a wall of artwork, and a shelf of songs
+/// collapsing into a text list is the one thing on the page that does not look like the rest of
+/// it. The context the rule always depended on was simply not available where it was written.
+enum ShelfPresentation: Equatable {
+    case cards
+    case rows([GoosicTrack])
+
+    static func preferred(for key: CatalogKey, shelf: GoosicShelf) -> ShelfPresentation {
+        guard case .search = key, let tracks = shelf.playableRows else { return .cards }
+        return .rows(tracks)
+    }
+}
+
 extension GoosicShelf {
     /// The shelf as an ordered track list, when every row in it is playable.
-    ///
-    /// Search returns songs and albums in the same page shape; songs read far better as rows
-    /// than as artwork cards, so the shelf decides its own presentation.
-    var trackList: [GoosicTrack]? {
+    var playableRows: [GoosicTrack]? {
         let tracks = cards.compactMap { card -> GoosicTrack? in
             if case .play(let track) = card.action { return track }
             return nil

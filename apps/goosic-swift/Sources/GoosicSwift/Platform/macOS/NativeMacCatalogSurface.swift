@@ -99,10 +99,9 @@ struct NativeMacCatalogPage: SwiftUI.View {
     @SwiftUI.ViewBuilder
     private var content: some SwiftUI.View {
         if state.isLoading {
-            SwiftUI.ProgressView("Loading \(title.lowercased())…")
-                .controlSize(.small)
-                .padding(.vertical, 18)
+            NativeMacCatalogSkeleton(rows: key.expectsTrackList ? .tracks : .shelves)
                 .padding(.leading, leadingInset + 24)
+                .padding(.trailing, 24)
         } else if let failure = state.failure {
             let text = catalogFailureText(
                 code: failure.code,
@@ -131,7 +130,7 @@ struct NativeMacCatalogPage: SwiftUI.View {
                         .padding(.trailing, 24)
                 }
                 SwiftUI.ForEach(page.shelves) { shelf in
-                    NativeMacShelf(shelf: shelf, model: model)
+                    NativeMacShelf(shelf: shelf, model: model, presentation: .preferred(for: key, shelf: shelf))
                 }
                 if let cursor = page.nextCursor {
                     SwiftUI.HStack {
@@ -250,6 +249,7 @@ private struct NativeMacShelf: SwiftUI.View {
     @State private var leadingCard: String?
     let shelf: GoosicShelf
     let model: GoosicAppModel
+    let presentation: ShelfPresentation
 
     private var currentIndex: Int { shelf.cards.firstIndex { $0.id == leadingCard } ?? 0 }
 
@@ -258,7 +258,7 @@ private struct NativeMacShelf: SwiftUI.View {
             SwiftUI.HStack {
                 SwiftUI.Text(shelf.title).font(.title3.weight(.semibold))
                 SwiftUI.Spacer()
-                if shelf.trackList == nil && shelf.cards.count > 1 {
+                if presentation == .cards && shelf.cards.count > 1 {
                     shelfArrow("Previous items", icon: "chevron.left", offset: -3)
                         .disabled(currentIndex == 0)
                     shelfArrow("More items", icon: "chevron.right", offset: 3)
@@ -267,7 +267,7 @@ private struct NativeMacShelf: SwiftUI.View {
             }
             .padding(.leading, leadingInset + 24)
             .padding(.trailing, 24)
-            if let tracks = shelf.trackList {
+            if case .rows(let tracks) = presentation {
                 NativeMacTrackList(tracks: tracks, model: model)
                     .padding(.leading, leadingInset + 24)
                     .padding(.trailing, 24)
@@ -531,3 +531,78 @@ enum NativeMacLinks {
     }
 }
 #endif
+
+
+/// The shape of a page, drawn before its content arrives.
+///
+/// A spinner on a blank page says only that something is happening. It gives the eye nothing to
+/// settle on, and when the content lands it lands all at once, in a layout that shares nothing
+/// with what was there a moment ago — so every load reads as a jump. Blocks in the positions the
+/// real rows and cards will occupy answer the question the spinner does not: what is coming, and
+/// roughly how much of it.
+///
+/// Deliberately still. A shimmer here would animate several dozen layers behind whatever the user
+/// is actually listening to, and `accessibilityReduceMotion` would have to turn it off again for
+/// the people most likely to be bothered by it — so the placeholder simply holds its place.
+struct NativeMacCatalogSkeleton: SwiftUI.View {
+    enum Shape {
+        /// A playlist or album: one column of rows.
+        case tracks
+        /// Home, Explore, a library section: titled shelves of artwork.
+        case shelves
+    }
+
+    let rows: Shape
+
+    var body: some SwiftUI.View {
+        SwiftUI.VStack(alignment: .leading, spacing: rows == .tracks ? 10 : 26) {
+            switch rows {
+            case .tracks:
+                SwiftUI.ForEach(0..<8, id: \.self) { _ in trackRow }
+            case .shelves:
+                SwiftUI.ForEach(0..<2, id: \.self) { _ in shelf }
+            }
+        }
+        .padding(.top, 6)
+        // One label for the whole placeholder: a screen reader announcing forty blocks
+        // individually is worse than the spinner this replaces.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading")
+    }
+
+    private var trackRow: some SwiftUI.View {
+        SwiftUI.HStack(spacing: 10) {
+            block(width: 38, height: 38, radius: 6)
+            SwiftUI.VStack(alignment: .leading, spacing: 6) {
+                block(width: 220, height: 11, radius: 3)
+                block(width: 140, height: 9, radius: 3)
+            }
+            SwiftUI.Spacer()
+        }
+    }
+
+    private var shelf: some SwiftUI.View {
+        SwiftUI.VStack(alignment: .leading, spacing: 12) {
+            block(width: 170, height: 15, radius: 4)
+            SwiftUI.HStack(alignment: .top, spacing: 16) {
+                SwiftUI.ForEach(0..<6, id: \.self) { _ in
+                    SwiftUI.VStack(alignment: .leading, spacing: 8) {
+                        block(width: 150, height: 150, radius: 10)
+                        block(width: 120, height: 11, radius: 3)
+                        block(width: 80, height: 9, radius: 3)
+                    }
+                }
+            }
+            // The real shelf scrolls sideways off the page; clipping keeps the placeholder from
+            // widening the window it is standing in for.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
+        }
+    }
+
+    private func block(width: CGFloat, height: CGFloat, radius: CGFloat) -> some SwiftUI.View {
+        SwiftUI.RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(.quaternary)
+            .frame(width: width, height: height)
+    }
+}

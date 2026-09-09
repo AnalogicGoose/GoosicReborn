@@ -292,6 +292,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// The preferred volume has not been pushed to this load's player yet. The page reports its
     /// own volume, so the preference is applied once per load rather than fought over.
     private var volumeAppliedForLoad = false
+    /// A volume pushed into the renderer that it has not echoed back yet. While this is set, the
+    /// volume the renderer reports describes the past. See `VolumeSync`.
+    private var requestedVolume: Double?
+    private var requestedMuted: Bool?
     /// Coalesces preference writes: a volume drag would otherwise queue a file write and a
     /// service round trip per step, on a transport that is strictly serial.
     private var pendingPreferenceSave: GoosicPreferencesPatch?
@@ -1156,11 +1160,17 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             shape: browse.shape
         ) { [weak self] result in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
-            if case .failure = result {
-                // The account could not answer — the entity may simply be public and not in this
-                // library, or the profile's page may be unhealthy. The anonymous route can still
-                // answer for anything public, so a failure here is a reason to ask it rather than
-                // a reason to show the user an error.
+            // A failure is not the only way the account can decline to answer, and it is not the
+            // common one. Upstream replies to a browse it will not serve with a perfectly valid,
+            // entirely empty page — so "shows nothing" is what a refusal looks like from here,
+            // and treating only the error case as a fallback leaves the user staring at "came
+            // back empty" on an album that the anonymous route could have loaded.
+            let unusable: Bool
+            switch result {
+            case .failure: unusable = true
+            case .success(let page): unusable = (page.tracks?.isEmpty ?? true) && (page.shelves?.isEmpty ?? true)
+            }
+            if unusable {
                 self.catalogRequests.retire(ticket, for: key)
                 self.loadCatalogForEntity(entity, force: true)
                 return
@@ -1856,6 +1866,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         let clamped = min(max(newVolume, 0), 1)
         volume = clamped
+        requestedVolume = clamped
         isMuted = false
         volumeAppliedForLoad = true
         if playbackState.owner == .localDownloadedFile {
@@ -2364,6 +2375,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         lastLocalEventState = nil
         hasConfirmedPlaybackSample = false
         volumeAppliedForLoad = false
+        requestedVolume = nil
+        requestedMuted = nil
         updateSystemMediaControls()
     }
 
@@ -2423,18 +2436,34 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         if !event.isAdvertisement {
             if volumeAppliedForLoad {
-                if abs(volume - event.volume) > 0.01 {
-                    volume = event.volume
+                switch VolumeSync.reconcile(
+                    reported: event.volume, current: volume, requested: requestedVolume
+                ) {
+                case .ignore:
+                    break
+                case .settled:
+                    requestedVolume = nil
+                case .adopt(let reported):
+                    // Somebody moved the slider inside the player. Follow it — and write it down,
+                    // which the old path did not, leaving the preference on disk disagreeing with
+                    // the volume in the app until something unrelated happened to save.
+                    volume = reported
                     presentationChanged = true
+                    savePreferences(GoosicPreferencesPatch(volume: reported))
                 }
-                if isMuted != event.isMuted {
+                if let requestedMuted {
+                    if requestedMuted == event.isMuted { self.requestedMuted = nil }
+                } else if isMuted != event.isMuted {
                     isMuted = event.isMuted
                     presentationChanged = true
+                    savePreferences(GoosicPreferencesPatch(muted: event.isMuted))
                 }
             } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
                 // A fresh content page starts at its own volume. Push the stored preference once,
                 // then follow what the player reports. Advertisements never enter this path.
                 volumeAppliedForLoad = true
+                requestedVolume = volume
+                requestedMuted = isMuted
                 officialPlaybackHost.setVolume(volume)
                 officialPlaybackHost.setMuted(isMuted)
             } else {
@@ -2509,9 +2538,12 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         if abs(duration - event.duration) >= 0.1 { duration = event.duration; presentationChanged = true }
         if isMuted != event.isMuted { isMuted = event.isMuted; presentationChanged = true }
-        if !event.isMuted, abs(volume - event.volume) > 0.01 {
-            volume = event.volume
+        if !event.isMuted, case .adopt(let reported) = VolumeSync.reconcile(
+            reported: event.volume, current: volume, requested: requestedVolume
+        ) {
+            volume = reported
             presentationChanged = true
+            savePreferences(GoosicPreferencesPatch(volume: reported))
         }
         if lastLocalEventState != event.state {
             let nextStatus = event.state == "ended"

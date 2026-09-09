@@ -3,7 +3,7 @@
  * WebKit profile by PersonalCatalogHost.
  *
  * Ported from the previous Goosic application, src/lib/innertube/{shared,home,library,
- * library-pagination,mutations,types}.ts, and adapted to run as a page program: the request
+ * library-pagination,playlist,album,mutations,types}.ts, and adapted to run as a page program: the request
  * context and API key come from the page's own `ytcfg`, the session cookie never leaves the
  * document, and the result is projected into the small catalog shape the shell renders.
  *
@@ -524,25 +524,161 @@ const GoosicPersonalCatalog = (() => {
   // not settle it: an album and an artist page are both shelves of responsive rows to a parser,
   // but one is a track list to a person and the other is a set of sections. "auto" keeps the
   // original heuristic — a VL-prefixed browse is a playlist and therefore rows.
+
+  // ---------------------------------------------------------------------------------------
+  // Track-shaped pages: playlists and albums (playlist.ts, album.ts).
+  //
+  // These do not go through `parseInitialPage`. A playlist or album arrives in a two-column
+  // layout whose selected tab is the header column, so taking the tab's section list — which is
+  // what the shelf pages want — finds the artwork and title and none of the tracks. Both of
+  // these parsers instead work from the raw response: album layouts vary between single and two
+  // column and between shelf wrappers, but the row renderer is the same in all of them, so a
+  // tree walk is what holds up.
+  // ---------------------------------------------------------------------------------------
+
+  // The header hides under different renderer keys depending on whether the playlist is owned
+  // (editable) or community, and in different places in the tree. Walk for the first match
+  // rather than enumerating paths.
+  function findByKeys(root, keys) {
+    const seen = new WeakSet();
+    let result;
+    const walk = (node) => {
+      if (result || !node || typeof node !== "object") return;
+      if (seen.has(node)) return;
+      seen.add(node);
+      if (Array.isArray(node)) { for (const c of node) walk(c); return; }
+      for (const key of keys) {
+        if (node[key] && typeof node[key] === "object") { result = node[key]; return; }
+      }
+      for (const k of Object.keys(node)) walk(node[k]);
+    };
+    walk(root);
+    return result;
+  }
+
+  const findTrackPageHeader = (json) =>
+    findByKeys(json, ["musicDetailHeaderRenderer", "musicResponsiveHeaderRenderer"]) ?? {};
+
+  function findAppendedContinuationItems(json) {
+    for (const actions of [
+      json?.onResponseReceivedActions ?? [],
+      json?.onResponseReceivedEndpoints ?? [],
+      json?.onResponseReceivedCommands ?? [],
+    ]) {
+      for (const action of actions) {
+        const items =
+          action?.appendContinuationItemsAction?.continuationItems ??
+          action?.reloadContinuationItemsCommand?.continuationItems;
+        if (Array.isArray(items)) return { contents: items, continuationSource: items };
+      }
+    }
+    return undefined;
+  }
+
+  // Only the container the playlist itself owns. A playlist browse also carries recommendation
+  // shelves, and a plain walk of the response silently appends those suggestions to the
+  // playlist as though the user had added them.
+  function findTrackContainer(json) {
+    const continuation = json?.continuationContents?.musicPlaylistShelfContinuation
+      ?? json?.continuationContents?.musicShelfContinuation;
+    if (continuation) {
+      return {
+        contents: Array.isArray(continuation.contents) ? continuation.contents : [],
+        continuationSource: continuation,
+      };
+    }
+    const shelf = findByKeys(json, ["musicPlaylistShelfRenderer"]);
+    if (shelf) {
+      return {
+        contents: Array.isArray(shelf.contents) ? shelf.contents : [],
+        continuationSource: shelf,
+      };
+    }
+    return findAppendedContinuationItems(json);
+  }
+
+  // The opaque id for this exact occurrence of a track in this playlist. A playlist may hold the
+  // same video twice, so removing or moving one needs this rather than the video id.
+  function readEntryId(raw) {
+    const direct = raw?.playlistItemData?.playlistSetVideoId;
+    if (typeof direct === "string" && direct.trim()) return direct;
+    for (const item of raw?.menu?.menuRenderer?.items ?? []) {
+      const endpoint =
+        item?.menuServiceItemRenderer?.serviceEndpoint?.playlistEditEndpoint ??
+        item?.menuNavigationItemRenderer?.navigationEndpoint?.playlistEditEndpoint;
+      for (const action of endpoint?.actions ?? []) {
+        if (typeof action?.setVideoId === "string" && action.setVideoId.trim()) {
+          return action.setVideoId;
+        }
+      }
+    }
+    return null;
+  }
+
+  function trackPage(json, browseId, title, isContinuation) {
+    const container = findTrackContainer(json);
+    // The fallback is what makes albums work: they use a plain shelf rather than a playlist
+    // shelf, so no dedicated container exists and the rows have to be found by walking. A
+    // recognized-but-empty playlist container stays empty rather than falling through to this
+    // and filling itself with the page's recommendations.
+    const rows = container
+      ? container.contents
+          .map((c) => c.musicResponsiveListItemRenderer)
+          .filter(Boolean)
+      : collectResponsiveRows(json);
+
+    const seen = new Set();
+    const tracks = [];
+    for (const row of rows) {
+      const mapped = mapResponsiveListItem(row);
+      const wire = toWireItem(mapped);
+      if (!wire || !wire.videoId) continue;
+      const entryId = readEntryId(row);
+      const key = entryId ? `set:${entryId}` : `video:${wire.videoId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tracks.push({ ...wire, entryId });
+    }
+
+    const header = isContinuation ? {} : findTrackPageHeader(json);
+    const headerTitle = readRuns(header.title);
+    const thumbnails = readThumbnails(
+      header.thumbnail?.musicThumbnailRenderer?.thumbnail ??
+        header.thumbnail?.croppedSquareThumbnailRenderer?.thumbnail ??
+        header.thumbnail?.musicThumbnailRenderer ??
+        header.thumbnail,
+    );
+    return {
+      id: `personal:${browseId}`,
+      title: headerTitle || title,
+      subtitle: readRuns(header.subtitle) || readRuns(header.straplineTextOne) || "",
+      shelves: [],
+      tracks,
+      thumbnail: largestUrl(thumbnails),
+      // From the container that produced the rows, not from anywhere in the response: a token
+      // picked up off a neighbouring recommendation shelf paginates that shelf instead, which
+      // reads as a playlist that loads one page and then stops.
+      nextCursor: findContinuationToken(container?.continuationSource ?? json) ?? null,
+      truncated: false,
+    };
+  }
+
   async function browse(browseId, title, continuation, shape) {
     const json = continuation ? await rawBrowseContinuation(continuation) : await rawBrowse(browseId);
-    const page = continuation ? parseContinuationPage(json) : parseInitialPage(json);
-    if (!page.recognized) throw new Error(`Unrecognized YouTube Music response for ${browseId}`);
-    const tag = continuation ? hashToken(continuation) : "init";
 
     const rowsOnly =
       shape === "tracks" ? true : shape === "shelves" ? false : browseId.startsWith("VL");
-    const shelves = rowsOnly ? [] : shelvesFrom(page.sections, tag, title);
-    const tracks = rowsOnly
-      ? collectResponsiveRows(page.sections).map(mapResponsiveListItem).map(toWireItem).filter((item) => item && item.videoId)
-      : [];
+    if (rowsOnly) return JSON.stringify(trackPage(json, browseId, title, !!continuation));
 
+    const page = continuation ? parseContinuationPage(json) : parseInitialPage(json);
+    if (!page.recognized) throw new Error(`Unrecognized YouTube Music response for ${browseId}`);
+    const tag = continuation ? hashToken(continuation) : "init";
     return JSON.stringify({
       id: `personal:${browseId}`,
       title,
       subtitle: "",
-      shelves,
-      tracks,
+      shelves: shelvesFrom(page.sections, tag, title),
+      tracks: [],
       thumbnail: null,
       nextCursor: page.nextCursor ?? null,
       truncated: false,
