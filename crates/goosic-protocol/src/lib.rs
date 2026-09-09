@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod conformance;
+
 pub const PROTOCOL_VERSION: &str = "0.3.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

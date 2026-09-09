@@ -1,0 +1,35 @@
+{
+  "$comment": "Lines a conforming client must accept even though they are not canonical. These exist because the protocol evolves additively: a shell built against an older service has to keep working when a newer one adds a field, and refusing what it does not recognise is the failure mode that turns an additive change into a breaking one.",
+  "cases": [
+    {
+      "name": "unknown-field-in-envelope",
+      "envelope": "response",
+      "why": "A field added by a newer service. It is ignored, not refused.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":null,\"error\":null,\"servedBy\":\"goosic-service/9.9.9\"}"
+    },
+    {
+      "name": "unknown-field-in-payload",
+      "envelope": "response",
+      "why": "The same, one level down. Payload growth is the common case.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{\"message\":\"ok\",\"elapsedMs\":12},\"error\":null}"
+    },
+    {
+      "name": "absent-optional-payload-fields",
+      "envelope": "response",
+      "why": "Everything optional omitted at once, which is what a minimal acknowledgement looks like.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{},\"error\":null}"
+    },
+    {
+      "name": "request-payload-omitted-entirely",
+      "envelope": "request",
+      "why": "`payload` carries a serde default, so a sender may leave it out even though this crate always writes it.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"command\":\"playback.release\"}"
+    },
+    {
+      "name": "future-protocol-version",
+      "envelope": "response",
+      "why": "A version string is data, not a gate at the parsing layer. Deciding whether 0.4.0 is acceptable belongs to the compatibility check, which can only run once the frame has been read.",
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":null,\"error\":null}"
+    }
+  ]
+}
