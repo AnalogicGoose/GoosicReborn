@@ -1,4 +1,6 @@
-#if !os(macOS)
+// Linux decodes through GStreamer from Platform/Linux. What remains here is the stub for
+// platforms with no local renderer yet.
+#if !os(macOS) && !os(Linux)
 import Foundation
 
 
