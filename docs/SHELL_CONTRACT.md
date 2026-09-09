@@ -74,11 +74,11 @@ projection and the Linux hosts each carry a handful.
 
 Two gaps matter more than the rest.
 
-**The transport has no tests at all.** Nothing exercises framing, request correlation, a
+**The transport had no tests at all.** Nothing exercised framing, request correlation, a
 timeout, a partial frame arriving across two reads, or the death of the child process. Three
-shells are about to depend on that behaviour and the only description of it is one Swift file.
+shells were about to depend on that behaviour and the only description of it was one Swift file.
 
-**`goosic-protocol` has two tests**: one wire snapshot and one error round trip. It is the
+**`goosic-protocol` had two tests**: one wire snapshot and one error round trip. It is the
 declared source of truth for a contract that three independently written clients will encode
 and decode, and two tests do not describe it. The Swift DTOs are unverified against it.
 
@@ -86,13 +86,44 @@ Everything the migration plan lists as a required fixture — request, response,
 timeout, owner conflict, stale generation, non-monotonic sample — falls into one of those two
 gaps. That is not a coincidence; it is why the plan puts them first.
 
-## What comes next
+## How those two gaps were closed
 
 Fixtures belong in Rust beside `goosic-protocol`, and as data rather than as assertions written
 into one language's test framework: a shell in any language must be able to read the same case
-and prove it handles it. The Swift shell then becomes the first client to run against them,
-which turns it from the specification into the first conformance reference — which is what the
-plan needs it to be before it can be deleted.
+and prove it handles it. `crates/goosic-protocol/fixtures/` holds twenty-two of them across
+three files — lines that must round-trip byte for byte, lines that must be refused, and lines
+that are not canonical but must still be accepted — with `conformance.rs` exposing them to any
+Rust test and a fourth test asserting that no case is listed as both required and refused.
+
+The canonical bytes were generated from the Rust types rather than written by hand, which is
+the only reason they are trustworthy, and doing it that way immediately surfaced three details
+a second implementation would have got wrong: an empty payload is `"payload":{}` and not an
+omitted key, while `payload`, `error` and `accountId` are written as explicit nulls where a
+hand-written client would leave them out.
+
+`goosic-shell-support` now holds the language-neutral half of the transport. `FrameReader`
+finds one NDJSON frame in a stream that arrives in whatever sizes the pipe felt like — split
+across two reads, three frames in one read, a byte at a time — and refuses a stream that grows
+past the limit without ever terminating, which is the shape a desynchronised pipe actually has.
+`accept_response` decides whether a frame is the answer to the question that was asked, and
+`timeout_for` is the per-command deadline table lifted out of `ServiceClient.swift`.
+
+The distinction that no test anywhere covered before is now a method with a name:
+`TransportError::invalidates_connection`. A remote error is the authority answering correctly —
+refusing a stale generation is a *response*, and the channel is fine. Everything else means the
+stream is out of step, and a client that keeps reading will pair the following answer with the
+wrong question. The Swift client already behaved this way; nothing said so.
+
+Porting it also pinned a boundary that was a comment in one file: the newline counts towards
+the frame limit, so the largest accepted frame is one byte shorter than the maximum. That is
+exactly the kind of arbitrary edge a second implementation lands on by one, and it now fails a
+test instead of a user's session.
+
+## What comes next
+
+The Swift shell becomes the first client to run against the fixtures, which turns it from the
+specification into the first conformance reference — which is what the plan needs it to be
+before it can be deleted.
 
 The rules named above move to `goosic-shell-support` only after they have tests where they
 currently sit. Moving an untested rule and testing it afterwards proves the new copy is

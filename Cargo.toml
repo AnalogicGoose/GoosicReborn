@@ -9,6 +9,7 @@ members = [
     "crates/goosic-lyrics",
     "crates/goosic-accounts",
     "crates/goosic-service",
+    "crates/goosic-shell-support",
 ]
 
 [workspace.package]
