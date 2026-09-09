@@ -57,6 +57,46 @@ pub fn tolerance_cases() -> Vec<Case> {
     parse(include_str!("../fixtures/tolerance.json"))
 }
 
+/// One scripted conversation with the service, replayed from a freshly started state.
+///
+/// A single response line pins a shape. It cannot pin what the service answers *given what was
+/// asked before*, and owner conflict, stale generation and a non-monotonic sample only exist as
+/// the second half of a conversation. A client that never tracked the lease would pass a fixture
+/// holding one of those responses on its own.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Exchange {
+    pub name: String,
+    pub why: String,
+    pub steps: Vec<Step>,
+}
+
+/// One request and the exact response it must produce at that point in the conversation.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Step {
+    pub why: String,
+    pub request: String,
+    pub response: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Exchanges {
+    exchanges: Vec<Exchange>,
+}
+
+/// Conversations a conforming service must hold, and a conforming shell must expect.
+///
+/// These are exposed here rather than beside the service because they are contract data: the
+/// crate that owns the wire owns the description of it, and a shell in any language reads the
+/// same file. The test that drives the real service against them lives in `goosic-service`,
+/// which is the only side that can.
+pub fn exchange_cases() -> Vec<Exchange> {
+    serde_json::from_str::<Exchanges>(include_str!("../fixtures/exchanges.json"))
+        .expect("exchange fixture file is not valid JSON")
+        .exchanges
+}
+
 /// Decodes `wire` as `envelope` and encodes it again, which is the whole conformance check in
 /// one step: it proves the fields were understood and that writing them back produces the same
 /// frame another implementation would.
@@ -130,6 +170,57 @@ mod tests {
                 "{} appears in the rejection fixtures as well",
                 case.name
             );
+        }
+    }
+
+    /// The exchange file is checked here for shape even though only the service can check it
+    /// for behaviour. A fixture whose recorded lines stopped being valid envelopes would
+    /// otherwise fail far away, inside a service test, looking like a service bug.
+    #[test]
+    fn every_line_in_an_exchange_is_a_valid_envelope() {
+        let exchanges = exchange_cases();
+        assert!(!exchanges.is_empty(), "the exchange fixtures are empty");
+        for exchange in exchanges {
+            assert!(
+                !exchange.steps.is_empty(),
+                "{}: an exchange with no steps proves nothing",
+                exchange.name
+            );
+            for step in exchange.steps {
+                assert!(
+                    decodes(Envelope::Request, &step.request),
+                    "{}: request did not decode.\n{}",
+                    exchange.name,
+                    step.why
+                );
+                assert!(
+                    decodes(Envelope::Response, &step.response),
+                    "{}: response did not decode.\n{}",
+                    exchange.name,
+                    step.why
+                );
+            }
+        }
+    }
+
+    /// Every step must be answerable by request id alone, which is what lets a shell correlate
+    /// a response without tracking position in the stream. A fixture that reused an id across
+    /// two steps would quietly describe a protocol nobody can implement that way.
+    #[test]
+    fn request_ids_are_unique_across_every_exchange() {
+        let mut seen: Vec<String> = Vec::new();
+        for exchange in exchange_cases() {
+            for step in exchange.steps {
+                let envelope: crate::RequestEnvelope =
+                    serde_json::from_str(&step.request).expect("request did not decode");
+                assert!(
+                    !seen.contains(&envelope.request_id),
+                    "{}: request id {} appears twice",
+                    exchange.name,
+                    envelope.request_id
+                );
+                seen.push(envelope.request_id);
+            }
         }
     }
 }
