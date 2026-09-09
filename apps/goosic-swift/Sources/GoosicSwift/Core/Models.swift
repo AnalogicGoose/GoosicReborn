@@ -1222,19 +1222,25 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     func retry(_ key: CatalogKey) {
+        load(key, force: true)
+    }
+
+    /// Asks for whatever `key` names. Every screen's loader has a different name and a different
+    /// argument, and this is the one place that knows which is which.
+    private func load(_ key: CatalogKey, force: Bool) {
         switch key {
         case .route(let route):
-            loadRoute(route, force: true)
+            loadRoute(route, force: force)
         case .search:
-            search(force: true)
+            search(force: force)
         case .album(let id):
-            loadEntity(.album(id), force: true)
+            loadEntity(.album(id), force: force)
         case .artist(let id):
-            loadEntity(.artist(id), force: true)
+            loadEntity(.artist(id), force: force)
         case .playlist(let id):
-            loadEntity(.playlist(id), force: true)
+            loadEntity(.playlist(id), force: force)
         case .library(let raw):
-            loadLibrary(section: PersonalLibrarySection(rawValue: raw) ?? .playlists, force: true)
+            loadLibrary(section: PersonalLibrarySection(rawValue: raw) ?? .playlists, force: force)
         }
     }
 
@@ -1533,7 +1539,12 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         for (key, source) in pageSources where source != .service {
             pageCachedAt.removeValue(forKey: key)
         }
-        if case .personal = pageSources[currentPageKey] { loadRoute(route, force: false) }
+        // The page in front of the user, which on a detail page is the entity rather than the
+        // route behind it — adding a track to the playlist being viewed has to refresh that
+        // playlist. Not forced: the timestamp above is already gone, so this revalidates behind
+        // the user rather than blanking the page they are reading.
+        let visible = currentPageKey
+        if case .personal = pageSources[visible] { load(visible, force: false) }
     }
 
     /// The page the user is looking at, which is the one worth refreshing first.
