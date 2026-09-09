@@ -164,6 +164,11 @@ one can.
 
 ## What comes next
 
+Which protocol version each shell speaks, and what happens when it meets a service that speaks
+another, is declared in [COMPATIBILITY.md](COMPATIBILITY.md). It records one thing this document
+implies without saying: the Swift shell keeps its own hand-copied copy of the version constant,
+and nothing verifies it against `goosic-protocol`.
+
 The Swift shell becomes the first client to run against the fixtures, which turns it from the
 specification into the first conformance reference — which is what the plan needs it to be
 before it can be deleted.

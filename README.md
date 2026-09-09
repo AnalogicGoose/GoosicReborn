@@ -32,7 +32,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and wire contracts, and [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md) for the migration, storage, and licensing boundaries.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and wire contracts, and [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md) for the migration, storage, and licensing boundaries. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) declares which protocol version each shell speaks and which service it is paired with — today, exactly one version, demanded exactly by both sides.
 
 ## Working in this repository
 
