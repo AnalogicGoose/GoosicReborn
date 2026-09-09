@@ -1180,13 +1180,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         let ticket = catalogRequests.issue(for: key)
         personalCatalogHost.load(section: section) { [weak self] result in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
-            self.catalogRequests.retire(ticket, for: key)
-            switch result {
-            case .success(let page):
-                self.pages[key] = .loaded(CatalogPageView(wire: page))
-            case .failure(let error):
-                self.pages[key] = .failed(code: "personalCatalog", message: error.localizedDescription)
-            }
+            self.applyPersonalPage(result, key: key, ticket: ticket)
         }
     }
 
@@ -1224,12 +1218,20 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             payload: GoosicRequestPayload(continuation: cursor)
         ) { [weak self] response in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
-            self.catalogRequests.retire(ticket, for: key)
-            self.continuations[key] = .idle
             guard case .loaded(let current) = self.state(for: key),
                   current.nextCursor == cursor,
-                  let wire = response.payload?.catalog else { return }
-            self.pages[key] = .loaded(current.appending(CatalogPageView(wire: wire)))
+                  let wire = response.payload?.catalog else {
+                self.catalogRequests.retire(ticket, for: key)
+                self.continuations[key] = .idle
+                return
+            }
+            Task { [weak self] in
+                let page = await Self.appendPage(current, wire)
+                guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+                self.catalogRequests.retire(ticket, for: key)
+                self.continuations[key] = .idle
+                self.pages[key] = .loaded(page)
+            }
         } failure: { [weak self] error in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
             self.catalogRequests.retire(ticket, for: key)
@@ -1264,10 +1266,20 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         catalogRequests.retire(ticket, for: key)
         switch result {
         case .success(let wire):
-            continuations[key] = .idle
-            guard case .loaded(let current) = state(for: key), current.nextCursor == cursor else { return }
-            pages[key] = .loaded(current.appending(CatalogPageView(wire: wire)))
+            guard case .loaded(let current) = state(for: key), current.nextCursor == cursor else {
+                catalogRequests.retire(ticket, for: key)
+                continuations[key] = .idle
+                return
+            }
+            Task { [weak self] in
+                let page = await Self.appendPage(current, wire)
+                guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+                self.catalogRequests.retire(ticket, for: key)
+                self.continuations[key] = .idle
+                self.pages[key] = .loaded(page)
+            }
         case .failure(let error):
+            catalogRequests.retire(ticket, for: key)
             continuations[key] = .failed("Could not load more \(subject) content: \(error.localizedDescription)")
         }
     }
@@ -1284,13 +1296,28 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         let ticket = catalogRequests.issue(for: key)
         personalCatalogHost.loadBrowse(browseID: "FEmusic_home", title: "Home") { [weak self] result in
             guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
-            self.catalogRequests.retire(ticket, for: key)
-            switch result {
-            case .success(let page):
-                self.pages[key] = .loaded(CatalogPageView(wire: page))
-            case .failure(let error):
-                self.pages[key] = .failed(code: "personalCatalog", message: error.localizedDescription)
+            self.applyPersonalPage(result, key: key, ticket: ticket)
+        }
+    }
+
+    private func applyPersonalPage(
+        _ result: Result<GoosicCatalogPage, Error>,
+        key: CatalogKey,
+        ticket: UInt64
+    ) {
+        switch result {
+        case .success(let wire):
+            Task { [weak self] in
+                let page = await Self.buildPage(wire)
+                // Re-checked after the hop: conversion runs off the main actor, and an account
+                // can change or a reload can be issued while a page is still being built.
+                guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+                self.catalogRequests.retire(ticket, for: key)
+                self.pages[key] = .loaded(page)
             }
+        case .failure(let error):
+            catalogRequests.retire(ticket, for: key)
+            pages[key] = .failed(code: "personalCatalog", message: error.localizedDescription)
         }
     }
 
@@ -1327,13 +1354,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 )
                 return
             }
-            // A Home/Explore response can contain hundreds of rows. Converting, deduplicating,
-            // and constructing them on the main actor made the app beach-ball exactly when the
-            // loading label disappeared.
             Task { [weak self] in
-                let page = await Task.detached(priority: .userInitiated) {
-                    CatalogPageView(wire: wirePage)
-                }.value
+                let page = await Self.buildPage(wirePage)
                 // Checked again after the hop: conversion is off the main actor, so an account
                 // switch or a reload can happen while a page is still being built.
                 guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
@@ -1346,6 +1368,28 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             let described = Self.describe(error)
             self.pages[key] = .failed(code: described.code, message: described.message)
         }
+    }
+
+    /// Builds a page off the main actor.
+    ///
+    /// A Home or Library response can carry hundreds of rows, and converting, deduplicating, and
+    /// constructing them where the UI runs made the app beach-ball at exactly the moment the
+    /// loading label disappeared — the frame the user is most likely to be looking at. Every path
+    /// that turns a wire page into a rendered one goes through here, because the expensive part is
+    /// the conversion and it does not become cheap for being reached from the personal host.
+    private static func buildPage(_ wire: GoosicCatalogPage) async -> CatalogPageView {
+        await Task.detached(priority: .userInitiated) { CatalogPageView(wire: wire) }.value
+    }
+
+    /// Appending is the more expensive half: it deduplicates shelf identifiers across the pages
+    /// already shown, so it grows with everything scrolled past rather than with the new page.
+    private static func appendPage(
+        _ current: CatalogPageView,
+        _ wire: GoosicCatalogPage
+    ) async -> CatalogPageView {
+        await Task.detached(priority: .userInitiated) {
+            current.appending(CatalogPageView(wire: wire))
+        }.value
     }
 
     /// Splits a remote protocol rejection from a transport failure so the UI can say which.
