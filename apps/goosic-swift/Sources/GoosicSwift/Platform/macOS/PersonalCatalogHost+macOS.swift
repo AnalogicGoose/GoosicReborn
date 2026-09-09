@@ -41,14 +41,15 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
     private var waiting: [Request] = []
     private var running: [UUID: Request] = [:]
 
-    /// Diagnostics go to stderr, never to the protocol: browse ids, hosts, byte counts.
-    private func note(_ message: String) {
-        FileHandle.standardError.write(("[personal-catalog] " + message + "\n").data(using: .utf8) ?? Data())
+    /// Diagnostics go to stderr, never to the protocol: browse ids, origins, byte counts. See
+    /// `Diagnostics` for why a URL never appears whole.
+    private func note(_ event: String, _ fields: [String: String] = [:]) {
+        Diagnostics.note(.personalCatalog, event, fields)
     }
 
     func bind(profileIdentifier: UUID?) {
         guard self.profileIdentifier != profileIdentifier else { return }
-        note("bind profile=\(profileIdentifier != nil)")
+        note("bind", ["signedIn": "\(profileIdentifier != nil)"])
         self.profileIdentifier = profileIdentifier
         failAll(with: PersonalCatalogError.accountChanged)
         destroyPage()
@@ -84,19 +85,19 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
             id: UUID(), browseID: browseID, title: title, continuation: continuation,
             submittedAt: Date(), completion: completion
         )
-        note("request \(browseID) continuation=\(continuation != nil) ready=\(pageReady)")
+        note("request", ["browse": browseID, "continuation": "\(continuation != nil)", "pageReady": "\(pageReady)"])
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(Self.requestTimeout))
             guard let self else { return }
             if let index = self.waiting.firstIndex(where: { $0.id == request.id }) {
                 let stale = self.waiting.remove(at: index)
-                self.note("timed out waiting for the page for \(stale.browseID)")
+                self.note("timeout", ["browse": stale.browseID, "phase": "waiting-for-page"])
                 stale.completion(.failure(PersonalCatalogError.timedOut))
                 // A page that has not become ready in this long is not going to; start over.
                 self.destroyPage()
                 if !self.waiting.isEmpty { self.ensurePage() }
             } else if let stale = self.running.removeValue(forKey: request.id) {
-                self.note("timed out running \(stale.browseID)")
+                self.note("timeout", ["browse": stale.browseID, "phase": "running"])
                 stale.completion(.failure(PersonalCatalogError.timedOut))
             }
         }
@@ -120,7 +121,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         webView.navigationDelegate = self
         self.webView = webView
         pageReady = false
-        note("loading page")
+        note("page-loading")
         webView.load(URLRequest(url: URL(string: "https://music.youtube.com/")!))
     }
 
@@ -140,7 +141,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard webView === self.webView else { return }
-        note("page ready at \(webView.url?.host ?? "?")\(webView.url?.path ?? "") waiting=\(waiting.count)")
+        note("page-ready", ["origin": Diagnostics.origin(of: webView.url), "queued": "\(waiting.count)"])
         pageReady = true
         let queued = waiting
         waiting.removeAll()
@@ -159,7 +160,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         guard webView === self.webView else { return }
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
-        note("page failed: \(nsError.domain) \(nsError.code)")
+        note("page-failed", ["domain": nsError.domain, "code": "\(nsError.code)"])
         failAll(with: error)
         destroyPage()
     }
@@ -194,16 +195,16 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
                 guard let self, let request = self.running.removeValue(forKey: id) else { return }
                 let elapsed = Int(Date().timeIntervalSince(request.submittedAt) * 1000)
                 if let failure {
-                    self.note("\(request.browseID) failed after \(elapsed)ms: \(failure)")
+                    self.note("failed", ["browse": request.browseID, "elapsed": "\(elapsed)ms", "reason": failure])
                     request.completion(.failure(PersonalCatalogError.scriptFailed(failure)))
                     return
                 }
                 guard let json, let data = json.data(using: .utf8) else {
-                    self.note("\(request.browseID) returned no text after \(elapsed)ms")
+                    self.note("empty-answer", ["browse": request.browseID, "elapsed": "\(elapsed)ms"])
                     request.completion(.failure(PersonalCatalogError.invalidResponse))
                     return
                 }
-                self.note("\(request.browseID) \(data.count) bytes in \(elapsed)ms")
+                self.note("answered", ["browse": request.browseID, "bytes": "\(data.count)", "elapsed": "\(elapsed)ms"])
                 do {
                     request.completion(.success(try JSONDecoder().decode(GoosicCatalogPage.self, from: data)))
                 } catch {

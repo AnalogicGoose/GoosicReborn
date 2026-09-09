@@ -441,7 +441,18 @@ final class OfficialPlaybackHost: NSObject {
         ) {
             // An opaque rejection is unactionable, and every one of these has a different fix.
             onStatus?("Rejected an official-player bridge event: \(reason).")
+            Diagnostics.note(.officialPlayback, "event-rejected", ["reason": reason])
             return
+        }
+        // "Requested", "ready", and "confirmed" are three different things, and only this one
+        // means the renderer is actually producing the track Goosic asked for. Without the
+        // distinction a load that silently never started looks identical to one that did.
+        if isLoading {
+            Diagnostics.note(.officialPlayback, "playback-confirmed", [
+                "generation": "\(event.generation)",
+                "sequence": "\(event.sequence)",
+                "advertisement": "\(event.isAdvertisement)",
+            ])
         }
         lastSequence = event.sequence
         advertisementActive = event.isAdvertisement
@@ -492,6 +503,9 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
         Task { @MainActor [weak self] in
             self?.isLoading = false
             self?.onStatus?("Official host is ready; waiting for a validated player event.")
+            Diagnostics.note(.officialPlayback, "page-ready", [
+                "origin": Diagnostics.origin(of: webView.url),
+            ])
             self?.probePage()
         }
     }

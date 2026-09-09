@@ -129,7 +129,23 @@ final class GoosicServiceClient: @unchecked Sendable {
         }
         requestNumber += 1
         requestID = "swift-\(requestNumber)"
-        pending[requestID] = completion
+        let started = Date()
+        // Wrapped rather than logged at the call sites: how long a command took is a property of
+        // the request, and there is exactly one place that knows both ends of it.
+        pending[requestID] = { result in
+            switch result {
+            case .success:
+                Diagnostics.note(.service, "answered", [
+                    "command": command, "elapsed": Diagnostics.milliseconds(since: started),
+                ])
+            case .failure(let error):
+                Diagnostics.note(.service, "failed", [
+                    "command": command, "elapsed": Diagnostics.milliseconds(since: started),
+                    "reason": Diagnostics.reason(error),
+                ])
+            }
+            completion(result)
+        }
         lock.unlock()
 
         timerQueue.asyncAfter(deadline: .now() + Self.timeout(for: command)) { [weak self] in

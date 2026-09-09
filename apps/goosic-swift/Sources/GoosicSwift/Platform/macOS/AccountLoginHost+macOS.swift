@@ -21,9 +21,10 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     var onCancelled: (() -> Void)?
 
     /// Diagnostics for the staged sign-in go to stderr, never to the protocol. Nothing here is
-    /// a credential: hosts, decisions, and the length of the metadata projection only.
-    private func note(_ message: String) {
-        FileHandle.standardError.write(("[account-login] " + message + "\n").data(using: .utf8) ?? Data())
+    /// a credential: origins, decisions, and the length of the metadata projection only. A
+    /// sign-in URL in particular is never logged whole — see `Diagnostics`.
+    private func note(_ event: String, _ fields: [String: String] = [:]) {
+        Diagnostics.note(.accountLogin, event, fields)
     }
 
     func start() {
@@ -122,13 +123,13 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             frame: NavigationFrame(navigationAction.targetFrame)
         )
         if decision == .cancel {
-            note("refused \(navigationAction.request.url?.host ?? "?") in \(NavigationFrame(navigationAction.targetFrame))")
+            note("navigation-refused", ["origin": Diagnostics.origin(of: navigationAction.request.url), "frame": "\(NavigationFrame(navigationAction.targetFrame))"])
         }
         decisionHandler(decision == .allow ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        note("finished \(webView.url?.host ?? "?")\(webView.url?.path ?? "") exactOrigin=\(AccountLoginValidation.isExactCompletionOrigin(webView.url))")
+        note("navigation-finished", ["origin": Diagnostics.origin(of: webView.url), "atCompletionOrigin": "\(AccountLoginValidation.isExactCompletionOrigin(webView.url))"])
         startCompletionPolling(for: webView)
     }
 
@@ -136,10 +137,10 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         let failure = error as NSError
         // A load superseded by the next redirect in Google's sign-in chain is not a failure.
         if failure.domain == NSURLErrorDomain, failure.code == NSURLErrorCancelled {
-            note("navigation superseded at \(webView.url?.host ?? "?")")
+            note("navigation-superseded", ["origin": Diagnostics.origin(of: webView.url)])
             return
         }
-        note("navigation failed: \(failure.domain) \(failure.code) at \(webView.url?.host ?? "?")")
+        note("navigation-failed", ["domain": failure.domain, "code": "\(failure.code)", "origin": Diagnostics.origin(of: webView.url)])
         cancel()
     }
 
@@ -164,10 +165,10 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                     case .failure(let error): failure = error.localizedDescription
                     }
                     Task { @MainActor [weak self, weak webView] in
-                        if let failure { self?.note("completion script error: \(failure)") }
+                        if let failure { self?.note("completion-script-failed", ["reason": failure]) }
                         else if let text = value {
                             let summary = text.data(using: .utf8).flatMap(AccountLoginValidation.sanitizeMetadata)
-                            self?.note("completion probe: \(text.isEmpty ? "no marker" : "\(text.utf8.count) bytes") decision=\(summary.map { LoginCompletionDecision.from($0) == .wait ? "wait" : "accept" } ?? "wait")")
+                            self?.note("completion-probe", ["marker": text.isEmpty ? "absent" : "\(text.utf8.count) bytes", "decision": summary.map { LoginCompletionDecision.from($0) == .wait ? "wait" : "accept" } ?? "wait"])
                         }
                         guard let self, let webView, !self.closing,
                               token == self.navigationToken,
@@ -189,7 +190,7 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                 try? await Task.sleep(for: .milliseconds(250))
             }
             if !Task.isCancelled, token == self.navigationToken, !self.closing {
-                self.note("timed out after \(Int(AccountLoginValidation.completionTimeout))s at \(self.webView?.url?.host ?? "?")")
+                self.note("timeout", ["after": "\(Int(AccountLoginValidation.completionTimeout))s", "origin": Diagnostics.origin(of: self.webView?.url)])
                 self.cancel()
             }
         }
