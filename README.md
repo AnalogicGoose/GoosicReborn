@@ -1,6 +1,6 @@
 # GoosicReborn
 
-GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCrossUI shell. Rust owns the versioned playback authority and the read-only catalog; the shell talks to it over newline-delimited JSON on a private stdio channel. No legacy GPL source is copied here.
+GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCrossUI shell. Rust owns the versioned playback authority and the read-only catalog; the shell talks to it over newline-delimited JSON on a private stdio channel. No legacy GPL source is copied here. The planned transition to one native shell per supported operating system, without rewriting that Rust authority, is documented in [the native-shell migration plan](docs/NATIVE_SHELL_MIGRATION.md).
 
 ## What works today
 
