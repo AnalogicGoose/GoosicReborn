@@ -190,9 +190,10 @@ Goosic's directory, for the legacy import. There is no access to the home direct
 host filesystem.
 
 Local playback plays WAV and needs no codec. The official player gets whatever the runtime's
-GStreamer can decode. YouTube Music serves Opus in WebM, which the base plugins decode, but whether
-the page ever negotiates a format that needs the runtime's FFmpeg extension has to be checked against
-the real page before the manifest is final.
+GStreamer can decode, so the GNOME 50 runtime was inspected rather than assumed: it carries GTK
+4.22, WebKitGTK 6.0 and GStreamer 1.26, with the Opus, Matroska, VP9, AV1, MP4 and `libav`
+plugins. That covers both the Opus-in-WebM and the AAC-in-MP4 streams YouTube Music serves,
+without an extension.
 
 The manifest builds the service from the root workspace and the shell from its own, installs both
 into `/app/bin` with the desktop file, metainfo and icons, and builds offline from vendored crate
@@ -205,7 +206,8 @@ The shell is its own Cargo workspace, with its own `Cargo.toml`, `Cargo.lock` an
 directory. It is not a member of the root workspace, because CI runs `cargo test --workspace` on
 macOS and Windows, and a member that needs GTK would fail there; the Swift package is separate for
 the same reason. It depends on `crates/goosic-shell-support` and `crates/goosic-protocol` by path,
-and on nothing else under `crates/`.
+and on nothing else under `crates/`. It declares Rust 1.92, which `gtk4` 0.11 requires; the root
+workspace's 1.88 floor does not apply to it.
 
 ```
 apps/goosic-linux/
@@ -229,8 +231,12 @@ The shell lives on `platform/linux`, and each slice of it is a `feature/linux/<s
 needs from `goosic-shell-support` or the protocol is not Linux work: it lands on `development`
 first and reaches `platform/linux` through the cascade.
 
-Make targets arrive with the first code — `build-linux`, `test-linux` and `run-linux`, the last
-building the service and pointing `GOOSIC_SERVICE_PATH` at it the way `run-swift` does. CI builds the
+Make targets — `build-linux`, `test-linux` and `run-linux`, the last building the service and
+pointing `GOOSIC_SERVICE_PATH` at it the way `run-swift` does — land on `development`, because the
+Makefile is shared. Until they do, a development build runs from `apps/goosic-linux` after
+`cargo build -p goosic-service` at the repository root, with
+`GOOSIC_SERVICE_PATH=../../target/debug/goosic-service cargo run`; its tests find the service in
+the same place without the variable. CI builds the
 shell inside the Flatpak builder on the GNOME runtime rather than against the runner's own GTK:
 `ubuntu-latest` ships a GTK older than 4.20, and building the package users install is the better
 test in any case. That job runs when the shell, `goosic-shell-support` or the protocol changes.
