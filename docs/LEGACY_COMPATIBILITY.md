@@ -1,16 +1,16 @@
 # Legacy compatibility and migration boundary
 
-GoosicReborn is an MIT repository. Legacy GPL implementation files are not copied here and must not be linked into these crates or the Swift package. The migration preserves behavior and compatibility contracts through documented identifiers and an explicit, reversible adapter instead of source reuse.
+GoosicReborn is an MIT repository. Legacy GPL implementation files are not copied here and must not be linked into these crates or into any shell. The migration preserves behavior and compatibility contracts through documented identifiers and an explicit, reversible adapter instead of source reuse.
 
 This applies to the catalog too. `goosic-catalog` is written against the public YouTube Music web-client request contract — endpoint, client identity, and the stable filter page parameters — not against legacy source. Its parser deliberately does not mirror the legacy traversal: it collects renderer nodes by key anywhere in the response rather than following fixed paths, which is both an independent implementation and more resilient to upstream layout changes.
 
 ## Retained identifiers and storage keys
 
-The app identity remains `goosic`; the historical preference keys remain unchanged: `ytm-theme`, `ytm-settings`, `ytm-layout`, and `ytm-track-source`. Playback bridge/session identifiers that existing clients may emit remain `goosic_generation`, `goosic_autoplay`, `goosic_volume`, `goosic_muted`, `goosic-player-generation`, `goosic-player-video-id`, `goosic-player-sequence`, `goosic-player-autoplay`, `goosic-player-volume`, and `goosic-player-muted`. The authority's new wire names (`accountId`, `owner`, `generation`, and `sampleSequence`) are additive and versioned; they do not silently rename those legacy keys.
+The app identity remains `goosic`: storage directories and the media-player bus name use it. The reverse-DNS application ID a desktop requires — `io.github.analogicgoose.Goosic` on Linux — only names the program to the desktop and renames no storage. The historical preference keys remain unchanged: `ytm-theme`, `ytm-settings`, `ytm-layout`, and `ytm-track-source`. Playback bridge/session identifiers that existing clients may emit remain `goosic_generation`, `goosic_autoplay`, `goosic_volume`, `goosic_muted`, `goosic-player-generation`, `goosic-player-video-id`, `goosic-player-sequence`, `goosic-player-autoplay`, `goosic-player-volume`, and `goosic-player-muted`. The authority's new wire names (`accountId`, `owner`, `generation`, and `sampleSequence`) are additive and versioned; they do not silently rename those legacy keys.
 
 ## What the import actually does
 
-The Downloads screen can also import finalized `.webm` files from the legacy `offline-media/stream` directory. It references those files in place, skips empty or explicitly invalid entries, and never deletes or copies the previous media. A request to play one must first hold Rust's `localDownloadedFile` lease; Rust decodes the WebM/Opus source into its own WAV cache, and macOS AVFoundation opens only the returned decoded path. This build does not implement new downloads, yt-dlp, or cookie-backed extraction.
+The Downloads screen can also import finalized `.webm` files from the legacy `offline-media/stream` directory. It references those files in place, skips empty or explicitly invalid entries, and never deletes or copies the previous media. A request to play one must first hold Rust's `localDownloadedFile` lease; Rust decodes the WebM/Opus source into its own WAV cache, and the local host — AVFoundation on macOS, GStreamer on Linux — opens only the returned decoded path. This build does not implement new downloads, yt-dlp, or cookie-backed extraction.
 
 The previous app kept its preferences in the web view's `localStorage`, which on macOS and Linux is a WebKit SQLite database. `goosic-settings` reads it as follows:
 
@@ -29,7 +29,7 @@ Migration reads legacy state without deleting it, writes the new representation 
 
 ## Contract summary
 
-- Online playback is the official YouTube Music web player (future WKWebView/WebView2/WebKitGTK host), including ordinary advertisements and restrictions.
+- Online playback is the official YouTube Music web player (a WKWebView host on macOS and a WebKitGTK host on Linux; WebView2 on Windows once that shell exists), including ordinary advertisements and restrictions.
 - Playback has exactly one owner at a time; owner transitions are generation-scoped.
 - Samples are strictly increasing within each generation; stale generations cannot control playback.
 - Advertisement markers are normal metadata and never errors or teardown.

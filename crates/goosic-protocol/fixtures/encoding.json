@@ -1,0 +1,60 @@
+{
+  "$comment": "Canonical wire lines. Each must decode into the named envelope and re-encode to these exact bytes: that is what pins field names, camel casing, which absent fields are omitted and which are written as null. Generated from the Rust types, never by hand.",
+  "protocolVersion": "0.3.0",
+  "cases": [
+    {
+      "name": "request/claim",
+      "envelope": "request",
+      "why": "The shape every shell sends to take the lease. Absent payload fields are omitted, never sent as null.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\",\"payload\":{\"owner\":\"officialWebView\",\"generation\":4}}"
+    },
+    {
+      "name": "request/sample",
+      "envelope": "request",
+      "why": "A confirmed sample. `sequence` and `marker` ride in the same payload object as the owner.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-2\",\"command\":\"playback.sample\",\"payload\":{\"owner\":\"localDownloadedFile\",\"generation\":4,\"sequence\":12,\"marker\":\"audio\"}}"
+    },
+    {
+      "name": "request/no-payload",
+      "envelope": "request",
+      "why": "A command with nothing to say still sends `payload` as an empty object rather than omitting it.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-3\",\"command\":\"playback.release\",\"payload\":{}}"
+    },
+    {
+      "name": "response/state",
+      "envelope": "response",
+      "why": "A success carries `error` as an explicit null, and `accountId` inside the state is explicitly null when absent. A client that expects those keys to be missing will not parse this.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{\"state\":{\"accountId\":null,\"owner\":\"officialWebView\",\"generation\":4,\"sampleSequence\":0}},\"error\":null}"
+    },
+    {
+      "name": "response/sample-accepted",
+      "envelope": "response",
+      "why": "The acknowledgement of a sample. `payload` holds only what the command answers.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-2\",\"ok\":true,\"payload\":{\"sequence\":12,\"markerAccepted\":true},\"error\":null}"
+    },
+    {
+      "name": "response/owner-conflict",
+      "envelope": "response",
+      "why": "A second owner asking for a lease somebody else holds.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-9\",\"ok\":false,\"payload\":null,\"error\":{\"code\":\"ownerConflict\",\"message\":\"another owner holds the lease\"}}"
+    },
+    {
+      "name": "response/stale-generation",
+      "envelope": "response",
+      "why": "A request scoped to a generation the authority has moved past.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-9\",\"ok\":false,\"payload\":null,\"error\":{\"code\":\"generationMismatch\",\"message\":\"stale lease\"}}"
+    },
+    {
+      "name": "response/non-monotonic-sample",
+      "envelope": "response",
+      "why": "A sample whose sequence did not advance. Rust refuses it; a shell must not treat the refusal as a transport failure.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-9\",\"ok\":false,\"payload\":null,\"error\":{\"code\":\"sampleOutOfOrder\",\"message\":\"sequence did not advance\"}}"
+    },
+    {
+      "name": "event/sample",
+      "envelope": "event",
+      "why": "The notification envelope. It shares the version and state fields with a response on purpose.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"event\":\"playback.sample\",\"state\":{\"accountId\":\"acct-1\",\"owner\":\"officialWebView\",\"generation\":4,\"sampleSequence\":12},\"marker\":\"advertisement\"}"
+    }
+  ]
+}
