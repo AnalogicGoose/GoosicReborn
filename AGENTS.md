@@ -122,6 +122,12 @@ talks to an operating system. Rules, wire shapes, and validation belong in `Core
 the parts a test can reach on any machine, and splitting them out is what makes `may this
 play` have one answer rather than one per platform.
 
+Those platform-neutral rules now also live in Rust, in `goosic-shell-support` — login
+navigation policy, bridge event validation, media projection, catalog conversion, queue
+selection and the rest; the crate documentation has the table. Until the Swift shell consumes
+that crate, the two copies are held to the same test cases and nothing else keeps them in step,
+so a change to one of those rules is a change to both, in the same commit.
+
 A stub reports the limitation. It must never produce sound or silently succeed, because that
 would let a renderer escape Rust's authority. When you implement one for a platform, keep the
 others' behaviour unchanged.

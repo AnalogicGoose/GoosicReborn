@@ -267,6 +267,14 @@ pub enum CatalogItemKind {
     Album,
     Artist,
     Playlist,
+    /// A kind a newer service knows and this build does not.
+    ///
+    /// A client decodes it rather than refusing the frame, because refusing it would fail the
+    /// whole page — and, since an undecodable frame means the stream can no longer be trusted,
+    /// the whole connection — over one row the shell could simply have shown inert. The service
+    /// itself never produces it.
+    #[serde(other)]
+    Unknown,
 }
 
 /// One normalized catalog row.

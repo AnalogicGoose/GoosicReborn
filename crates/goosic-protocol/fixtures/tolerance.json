@@ -30,6 +30,12 @@
       "envelope": "response",
       "why": "A version string is data, not a gate at the parsing layer. Deciding whether 0.4.0 is acceptable belongs to the compatibility check, which can only run once the frame has been read.",
       "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":null,\"error\":null}"
+    },
+    {
+      "name": "unknown-catalog-item-kind",
+      "envelope": "response",
+      "why": "A catalog row of a kind a newer service knows and this build does not. It decodes as unknown and the shell shows it inert. Refusing it would fail the whole page, and an undecodable frame ends the connection, so one podcast row would take playback down with it.",
+      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{\"catalog\":{\"id\":\"search:x\",\"title\":\"x\",\"shelves\":[{\"id\":\"s\",\"title\":\"Shows\",\"items\":[{\"kind\":\"podcast\",\"id\":\"p\",\"title\":\"A show\",\"subtitle\":\"Podcast\"}]}]}},\"error\":null}"
     }
   ]
 }

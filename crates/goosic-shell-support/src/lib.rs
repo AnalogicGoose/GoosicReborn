@@ -1,21 +1,43 @@
 //! The half of a shell that is the same on every platform.
 //!
 //! A shell owns its window, its renderer and its secure storage, and none of that belongs here.
-//! What does belong here is the conversation with `goosic-service`: how a frame is found in a
-//! byte stream, how an answer finds the question it belongs to, how long a command is allowed to
-//! take, and which failures are the service disagreeing with you rather than the channel breaking.
-//! That is identical for macOS, Linux and Windows, and writing it three times would produce three
-//! subtly different clients of one authority.
+//! What does belong here is everything a shell decides that has no machine in it: the conversation
+//! with `goosic-service`, and the rules the Swift shell used to keep inside its `Core` directory —
+//! where a sign-in window may navigate, whether a renderer's report is believable, what the system
+//! media controls may offer, which catalog row is playable, what plays next. Three shells writing
+//! those separately would produce three subtly different clients of one authority.
 //!
-//! This crate talks to the service. It does not link `goosic-core`, and it takes no UI, WebView,
-//! cookie, audio or secure-storage dependency — a shell that needs one of those is holding a
-//! platform concern, which stays in the shell.
+//! This crate does not link `goosic-core`, and it takes no UI, WebView, cookie, audio or
+//! secure-storage dependency — a shell that needs one of those is holding a platform concern,
+//! which stays in the shell. Labels, glyphs and layout are not here either: how a thing is shown
+//! is presentation, and presentation stays native.
+//!
+//! | Module | Moved from | What it decides |
+//! | --- | --- | --- |
+//! | [`client`], [`framing`], [`response`] | `ServiceClient.swift` | the transport |
+//! | [`login`] | `AccountLoginModel.swift` | where sign-in may go, when it is complete |
+//! | [`bridge`] | `OfficialBridge.swift` | whether a web player's report is trustworthy |
+//! | [`media`] | `SystemMediaPlayback.swift` | what the system media controls show and allow |
+//! | [`catalog`] | `Catalog.swift` | which rows are playable and how a page is shaped |
+//! | [`playback`] | `Models.swift` | what plays next, clamps, seek settling, preference saves |
+//! | [`lyrics`] | `Models.swift` | which line is current |
+//! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key |
+//! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
 
 use std::time::Duration;
 
+pub mod artwork;
+pub mod bridge;
+pub mod catalog;
 pub mod client;
 pub mod framing;
+pub mod login;
+pub mod lyrics;
+pub mod media;
+pub mod navigation;
+pub mod playback;
 pub mod response;
+mod text;
 
 pub use client::{ServiceClient, ServiceClientBuilder};
 pub use framing::FrameReader;
@@ -80,6 +102,18 @@ impl TransportError {
     pub fn invalidates_connection(&self) -> bool {
         !matches!(self, Self::Remote { .. } | Self::TimedOut)
     }
+
+    /// The code and message a shell shows for this failure.
+    ///
+    /// A refusal carries the service's own code, so a screen can react to `catalogEmpty`
+    /// differently from `catalogUnavailable`. Everything else is reported under `transport`, so
+    /// the person reading it can tell the authority said no from the channel breaking.
+    pub fn describe(&self) -> (String, String) {
+        match self {
+            Self::Remote { code, message } => (code.clone(), message.clone()),
+            other => ("transport".to_owned(), other.to_string()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -117,5 +151,14 @@ mod tests {
         ] {
             assert!(error.invalidates_connection(), "{error} should end the channel");
         }
+    }
+
+    #[test]
+    fn a_refusal_is_described_by_the_service_and_anything_else_as_transport() {
+        let refusal = TransportError::Remote { code: "catalogEmpty".into(), message: "none".into() };
+        assert_eq!(refusal.describe(), ("catalogEmpty".to_owned(), "none".to_owned()));
+        let (code, message) = TransportError::TimedOut.describe();
+        assert_eq!(code, "transport");
+        assert_eq!(message, "the service did not respond before the timeout");
     }
 }

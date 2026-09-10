@@ -90,7 +90,7 @@ gaps. That is not a coincidence; it is why the plan puts them first.
 
 Fixtures belong in Rust beside `goosic-protocol`, and as data rather than as assertions written
 into one language's test framework: a shell in any language must be able to read the same case
-and prove it handles it. `crates/goosic-protocol/fixtures/` holds twenty-two of them across
+and prove it handles it. `crates/goosic-protocol/fixtures/` holds twenty-three of them across
 three files — lines that must round-trip byte for byte, lines that must be refused, and lines
 that are not canonical but must still be accepted — with `conformance.rs` exposing them to any
 Rust test and a fourth test asserting that no case is listed as both required and refused.
@@ -221,6 +221,69 @@ owner, generation, video id and finiteness, but not the bridge version, the toke
 or the volume range. They are not a hole. Both platform hosts apply the full `rejectionReason`
 before forwarding anything to the model, so the model's guards are a second, deliberately cheaper
 layer behind a complete one. Deleting either copy would remove a layer that is doing work.
+
+## What moved, and where the port deliberately differs
+
+Every rule the audit called ready now lives in `goosic-shell-support`, held by the same cases the
+Swift suite holds its original to — ported test by test, with each Swift test's name kept
+recognisable so the two can be read side by side. That covers the sign-in navigation policy,
+including the country-domain shape check a Nicaraguan sign-in forced; the official bridge's event
+shape, its rejection rules and the scripts it injects; the system media projection and command
+availability; the catalog conversions; the artwork host allow-list and cache key; the lyric
+highlight; and route, filter, repeat and theme identity. `indexAfter` moved as the template said it
+could.
+
+The rules the audit called not ready moved as well, because extracting them was the point of the
+audit rather than a reason to stop at it. The seek and volume clamps, the model's cheap sample
+guard, the end-of-track decision and the fresh-page volume reconciliation each became a function
+with a name and tests, where before each was a few lines inside a method that also changed state
+and talked to a host.
+
+What did not move is presentation, and it stays out on purpose: route titles and glyphs, repeat and
+theme labels, the colour scheme a theme maps to, the material a window draws. Those are how a thing
+is shown, and each shell localises and draws its own. `MaterialSurfaceKind` stays in the Swift shell
+for the same reason — it chooses between AppKit materials, and no other shell has anything to
+choose between.
+
+A faithful port is the default, so the places this one is not faithful are recorded, each being a
+decision somebody should be able to find later.
+
+The Swift model coalesces preference saves made within a second of each other through a `merge`
+that copies six of the eight fields. Toggling shuffle or cycling repeat within a second of a volume
+drag is therefore never saved. The Rust version carries every field and has a test named for the
+case. The bug is still present in the Swift shell, on `development` and on the macOS branch alike.
+
+`isValidVideoID` used Unicode `isLetter` and `isNumber`, so eleven accented letters passed. A video
+id is URL-safe base64, and a guard in front of a URL the host builds should not be more generous
+than the thing it guards, so the Rust version accepts ASCII only. The seek and volume clamps used
+`min(max(…))`, which lets a NaN through to the player; the Rust versions refuse a non-finite request
+instead. `durationSeconds("1::2")` returned 62, because Foundation's `split` drops empty fields;
+the Rust version refuses it, which is what the Swift comment says the function does. Shuffle drew
+random positions until it missed the current one; the Rust version draws from the other positions
+directly, which is the same distribution and cannot spin.
+
+One difference runs the other way, and the port had to work to keep it. Foundation's
+control-character set includes Unicode format characters — zero-width spaces, and the
+bidirectional overrides that can make a display name read as something it is not — while Rust's
+`char::is_control` does not. The port spells that category out rather than approximating it, so a
+name carrying a right-to-left override is refused in Rust exactly as it is in Swift.
+
+One change reached the protocol. The Swift DTOs decode a catalog row of a kind they do not
+recognise as `unknown` and show it inert. The Rust `CatalogItemKind` refused it, and under the
+transport above an undecodable frame closes the connection — so a newer service that started
+returning podcasts would have taken playback down in any Rust shell over a single row.
+`CatalogItemKind` now has an `Unknown` variant that the service never produces, and the tolerance
+fixtures carry the case, so every future shell is held to it.
+
+Three of the ported pieces have newer versions on the macOS branch. They were ported from
+`development` because that is what ships and what the Swift tests describe: the sign-in completion
+timeout, which that branch raises to three minutes; the completion script, which it rewrites around
+the page's own signed-in flag; and the observer's choice of media element. The same branch adds
+rules that do not exist on `development` at all — volume synchronisation, navigation policy,
+catalog freshness and request ledgering. When it lands, each of those is a change to this crate as
+well. Until the Swift shell consumes the crate instead of its own copies, every change to one of
+these rules has to be made in both places, because the shared test cases are the only thing keeping
+the two in step.
 
 ## What comes next
 
