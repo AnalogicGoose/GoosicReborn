@@ -59,7 +59,7 @@ to work on the day it is first needed.
 
 When that day comes the change is small and it is named here so nobody has to rediscover it: the
 comparison in `goosic-service`'s `handle_request`, the one in `goosic-shell-support`'s
-`accept_response`, and this table. The [exchange fixtures](../crates/goosic-protocol/fixtures/exchanges.json)
+`decode_response`, and this table. The [exchange fixtures](../crates/goosic-protocol/fixtures/exchanges.json)
 already contain an `unsupported-protocol-version` conversation, so a change from equality to a
 range has to update a recorded answer rather than pass silently.
 

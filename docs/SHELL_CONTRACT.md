@@ -105,14 +105,29 @@ hand-written client would leave them out.
 finds one NDJSON frame in a stream that arrives in whatever sizes the pipe felt like — split
 across two reads, three frames in one read, a byte at a time — and refuses a stream that grows
 past the limit without ever terminating, which is the shape a desynchronised pipe actually has.
-`accept_response` decides whether a frame is the answer to the question that was asked, and
-`timeout_for` is the per-command deadline table lifted out of `ServiceClient.swift`.
+`decode_response` decides whether a frame is a response worth routing at all — it parses and it
+speaks this shell's protocol version — and `timeout_for` is the per-command deadline table lifted
+out of `ServiceClient.swift`. `ServiceClient` puts them together: a private child process, a
+writer thread so a full pipe can never stall a UI thread, a reader that routes each answer to
+its request by id, and one deadline per request.
+
+Routing by id is not a detail. The first version of this crate compared each frame against the
+request most recently sent and treated a mismatch as a stream that had lost its place. That was
+a faithful port of the Swift client as it then stood, and it was already wrong for where the
+service was going: the macOS branch moved catalog and lyrics reads off the service's main loop,
+so answers now arrive in the order their work finished, and a slow browse no longer holds a pause
+behind it. A client that insisted on order would rebuild the queue the service had just taken
+apart. The Swift client was rewritten the same way on that branch, and the Rust client mirrors
+its concurrency tests one for one so the two are held to the same behaviour.
 
 The distinction that no test anywhere covered before is now a method with a name:
-`TransportError::invalidates_connection`. A remote error is the authority answering correctly —
-refusing a stale generation is a *response*, and the channel is fine. Everything else means the
-stream is out of step, and a client that keeps reading will pair the following answer with the
-wrong question. The Swift client already behaved this way; nothing said so.
+`TransportError::invalidates_connection`. Two failures leave the connection usable. A remote
+error is the authority answering correctly — refusing a stale generation is a *response*. A
+timeout is one request giving up, and its late answer, arriving for an id nobody is waiting on,
+is dropped rather than treated as corruption; tearing the service down for it is how one
+unanswered catalog read used to stop playback. Everything else — an undecodable line, a foreign
+protocol version, an oversized frame, end of file — means the stream is gone, and every request
+still waiting gets that same answer instead of waiting for a service that no longer exists.
 
 Porting it also pinned a boundary that was a comment in one file: the newline counts towards
 the frame limit, so the largest accepted frame is one byte shorter than the maximum. That is

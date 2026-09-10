@@ -1,53 +1,44 @@
-//! Deciding whether a frame is the answer to the question that was asked.
+//! Deciding whether a frame is a response worth routing, and what it says.
 //!
-//! A response arriving on the pipe is not yet an answer. It has to parse, it has to speak the
-//! protocol version this shell was built against, and it has to carry the request id that was
-//! sent — a frame that fails any of those means the stream is no longer in step, and pairing the
-//! next answer with the following question would be worse than failing here. Only the last check,
-//! `ok`, is the service disagreeing rather than the channel breaking.
+//! A line arriving on the pipe is not yet an answer. It has to parse and it has to speak the
+//! protocol version this shell was built against; a frame that fails either means the stream can
+//! no longer be trusted. What it does *not* have to do is answer the most recent question. The
+//! service answers catalog and lyrics reads off its main loop, so responses arrive in whatever
+//! order their work finished, and matching them to requests is the client's job, by id.
 
 use goosic_protocol::{ErrorObject, ResponseEnvelope, PROTOCOL_VERSION};
 
 use crate::TransportError;
 
-/// Turns one received frame into a response the caller may believe, or into the reason it cannot.
+/// Decodes one frame into a response, or into the reason the stream is unusable.
 ///
-/// The order of the checks is load-bearing. Version is compared before the request id so that a
-/// service from a different build reports the mismatch it actually has rather than an id
-/// confusion, and both are compared before `ok` so that an error object belonging to another
-/// conversation is never surfaced as this call's failure.
-pub fn accept_response(
-    expected_request_id: &str,
-    frame: &[u8],
-) -> Result<ResponseEnvelope, TransportError> {
+/// A response reporting `ok: false` is a well-formed frame and is returned, not refused: whether
+/// the service agreed is a question about one request, and this function answers a question about
+/// the stream. [`into_result`] is the step that turns a refusal into an error.
+pub fn decode_response(frame: &[u8]) -> Result<ResponseEnvelope, TransportError> {
     let response: ResponseEnvelope =
         serde_json::from_slice(frame).map_err(|_| TransportError::InvalidResponse)?;
-
     if response.protocol_version != PROTOCOL_VERSION {
         return Err(TransportError::ProtocolVersionMismatch {
             expected: PROTOCOL_VERSION.to_owned(),
             actual: response.protocol_version,
         });
     }
-
-    if response.request_id != expected_request_id {
-        return Err(TransportError::RequestIdMismatch {
-            expected: expected_request_id.to_owned(),
-            actual: response.request_id,
-        });
-    }
-
-    if !response.ok {
-        // A refusal is required to say why, but a client that trusts that has nothing to report
-        // when the service is itself the broken thing. Naming the gap beats unwrapping into it.
-        let error = response.error.unwrap_or_else(|| ErrorObject {
-            code: "serviceFailure".to_owned(),
-            message: "unknown service error".to_owned(),
-        });
-        return Err(TransportError::Remote { code: error.code, message: error.message });
-    }
-
     Ok(response)
+}
+
+/// The answer to one request: the response itself, or the service's refusal as an error.
+pub fn into_result(response: ResponseEnvelope) -> Result<ResponseEnvelope, TransportError> {
+    if response.ok {
+        return Ok(response);
+    }
+    // A refusal is required to say why, but a client that trusts that has nothing to report when
+    // the service is itself the broken thing. Naming the gap beats unwrapping into it.
+    let error = response.error.unwrap_or_else(|| ErrorObject {
+        code: "serviceFailure".to_owned(),
+        message: "unknown service error".to_owned(),
+    });
+    Err(TransportError::Remote { code: error.code, message: error.message })
 }
 
 #[cfg(test)]
@@ -64,17 +55,19 @@ mod tests {
     }
 
     #[test]
-    fn a_matching_success_is_accepted() {
+    fn a_success_decodes_and_is_the_answer() {
         let wire = response_fixture("response/state");
-        let response = accept_response("r-1", wire.as_bytes()).expect("fixture was refused");
-        assert!(response.ok);
+        let response = decode_response(wire.as_bytes()).expect("fixture was refused");
         assert_eq!(response.request_id, "r-1");
+        assert!(into_result(response).is_ok());
     }
 
     #[test]
-    fn a_refusal_becomes_a_remote_error_that_keeps_the_channel() {
+    fn a_refusal_is_a_frame_rather_than_a_broken_stream() {
         let wire = response_fixture("response/owner-conflict");
-        let error = accept_response("r-9", wire.as_bytes()).expect_err("a refusal is not success");
+        let response = decode_response(wire.as_bytes()).expect("a refusal is a valid frame");
+        assert!(!response.ok);
+        let error = into_result(response).expect_err("a refusal is not success");
         assert_eq!(
             error,
             TransportError::Remote {
@@ -91,30 +84,30 @@ mod tests {
             r#"{"protocolVersion":"0.3.0","requestId":"r-4","#,
             r#""ok":false,"payload":null,"error":null}"#
         );
-        let error = accept_response("r-4", wire.as_bytes()).expect_err("ok:false is not success");
+        let response = decode_response(wire.as_bytes()).expect("still a valid frame");
         assert_eq!(
-            error,
-            TransportError::Remote {
+            into_result(response),
+            Err(TransportError::Remote {
                 code: "serviceFailure".into(),
                 message: "unknown service error".into(),
-            }
+            })
         );
     }
 
     #[test]
-    fn a_frame_that_is_not_json_is_refused_without_reading_further() {
-        let error = accept_response("r-1", b"not json").expect_err("garbage is not a response");
+    fn a_frame_that_is_not_json_ends_the_stream() {
+        let error = decode_response(b"not json").expect_err("garbage is not a response");
         assert_eq!(error, TransportError::InvalidResponse);
         assert!(error.invalidates_connection());
     }
 
     #[test]
-    fn a_response_from_a_different_protocol_version_is_refused() {
+    fn a_response_from_a_different_protocol_version_ends_the_stream() {
         let wire = concat!(
             r#"{"protocolVersion":"0.4.0","requestId":"r-1","#,
             r#""ok":true,"payload":{},"error":null}"#
         );
-        let error = accept_response("r-1", wire.as_bytes()).expect_err("a newer wire is not ours");
+        let error = decode_response(wire.as_bytes()).expect_err("a newer wire is not ours");
         assert_eq!(
             error,
             TransportError::ProtocolVersionMismatch {
@@ -125,24 +118,23 @@ mod tests {
         assert!(error.invalidates_connection());
     }
 
+    /// The version is checked before `ok` is looked at, so a foreign service's refusal is reported
+    /// as the incompatibility it is rather than as this request's failure.
     #[test]
-    fn a_response_to_somebody_elses_request_is_refused() {
-        let wire = response_fixture("response/state");
-        let error = accept_response("r-77", wire.as_bytes()).expect_err("that is another answer");
-        assert_eq!(
-            error,
-            TransportError::RequestIdMismatch { expected: "r-77".into(), actual: "r-1".into() }
+    fn a_refusal_in_a_foreign_version_is_an_incompatibility_not_a_refusal() {
+        let wire = concat!(
+            r#"{"protocolVersion":"0.4.0","requestId":"r-9","ok":false,"payload":null,"#,
+            r#""error":{"code":"ownerConflict","message":"another owner holds the lease"}}"#
         );
-        assert!(error.invalidates_connection());
+        let error = decode_response(wire.as_bytes()).expect_err("wrong version");
+        assert!(matches!(error, TransportError::ProtocolVersionMismatch { .. }));
     }
 
-    /// A stale conversation whose refusal would otherwise look like this call's own failure. The
-    /// version and id checks run first precisely so this reports the desynchronisation instead.
+    /// Request ids are the client's business, not the decoder's: a response to a question asked
+    /// earlier is exactly what an out-of-order service produces.
     #[test]
-    fn a_refusal_carrying_the_wrong_id_is_a_desynchronised_stream_not_a_remote_error() {
-        let wire = response_fixture("response/owner-conflict");
-        let error = accept_response("r-10", wire.as_bytes()).expect_err("wrong conversation");
-        assert!(matches!(error, TransportError::RequestIdMismatch { .. }));
-        assert!(error.invalidates_connection());
+    fn any_request_id_decodes() {
+        let wire = response_fixture("response/state");
+        assert!(decode_response(wire.as_bytes()).is_ok());
     }
 }

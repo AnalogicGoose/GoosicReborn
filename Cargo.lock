@@ -306,6 +306,7 @@ dependencies = [
  "goosic-lyrics",
  "goosic-protocol",
  "goosic-settings",
+ "goosic-shell-support",
  "serde",
  "serde_json",
  "tempfile",
