@@ -1,6 +1,6 @@
 # GoosicReborn
 
-GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCrossUI shell. Rust owns the versioned playback authority and the read-only catalog; the shell talks to it over newline-delimited JSON on a private stdio channel. No legacy GPL source is copied here. The planned transition to one native shell per supported operating system, without rewriting that Rust authority, is documented in [the native-shell migration plan](docs/NATIVE_SHELL_MIGRATION.md).
+GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCrossUI shell. Rust owns the versioned playback authority and the read-only catalog; the shell talks to it over newline-delimited JSON on a private stdio channel. No legacy GPL source is copied here. The planned transition to one native shell per supported operating system, without rewriting that Rust authority, is documented in [the native-shell migration plan](docs/NATIVE_SHELL_MIGRATION.md); on Linux that shell is a GTK 4 application written in Rust, designed in [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) and not yet written.
 
 ## What works today
 
@@ -19,7 +19,7 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 
 ## Crates and apps
 
-- `goosic-protocol` — the Codable/serde-compatible 0.3.0 request, response, catalog, settings, downloads, accounts, and event envelopes.
+- `goosic-protocol` — the Codable/serde-compatible 0.3.0 request, response, catalog, settings, downloads, accounts, and event envelopes, and the conformance fixtures every shell is held to: canonical lines, lines that must be refused, lines that must be tolerated, and whole conversations with the service.
 - `goosic-core` — the playback authority: one owner, lease generations, increasing sample sequences, account-change resets, harmless advertisement markers.
 - `goosic-catalog` — read-only YouTube Music access, split into a pure parser and a guest-only HTTP client. It answers what exists, never who may play.
 - `goosic-settings` — durable preferences, and the reversible, credential-free import from a previous Goosic install.
@@ -27,12 +27,12 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 - `goosic-lyrics` — LRCLIB lookups and LRC parsing; no account, no key, no credentials.
 - `goosic-downloads` — read-only legacy media indexing plus WebM/Opus-to-WAV decode caching; it contains no downloader or account-cookie path.
 - `goosic-service` — one request per stdin line, one response per stdout line, with no diagnostics on stdout.
-- `goosic-shell-support` — everything a shell decides that has no machine in it: the NDJSON client, with requests routed by id and a deadline per command, and the rules the Swift shell kept in its `Core` directory — sign-in navigation policy, official-bridge event validation, system media projection, catalog conversion, queue selection. It links no UI, WebView, cookie, audio, or secure-storage dependency. No shell consumes it yet; the Swift shell keeps its own copies, held to the same test cases.
-- `apps/goosic-swift` — the shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host. It builds on macOS against AppKit and on Linux against GTK 4. Every platform seam now has a real Linux implementation behind it: WebKitGTK for official playback, GStreamer for decoded local files, MPRIS for the system media controls, and per-account network sessions for sign-in. Windows keeps the stubs.
+- `goosic-shell-support` — everything a shell decides that has no machine in it: the NDJSON client, with requests routed by id and a deadline per command, and the rules the Swift shell kept in its `Core` directory — sign-in navigation policy, official-bridge event validation, system media projection, catalog conversion, queue selection. It links no UI, WebView, cookie, audio, or secure-storage dependency. No shell consumes it yet; the Swift shell keeps its own copies, held to the same test cases, and the GTK shell will be its first consumer.
+- `apps/goosic-swift` — the shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, and the official playback host. It builds on macOS against AppKit and on Linux against GTK 4. Every platform seam has a real Linux implementation behind it: WebKitGTK for official playback, GStreamer for decoded local files, MPRIS for the system media controls, and per-account network sessions for sign-in. Windows keeps the stubs.
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and wire contracts, and [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md) for the migration, storage, and licensing boundaries. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) declares which protocol version each shell speaks and which service it is paired with — today, exactly one version, demanded exactly by both sides.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and wire contracts, and [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md) for the migration, storage, and licensing boundaries. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) declares which protocol version each shell speaks and which service it is paired with — today, exactly one version, demanded exactly by both sides. [docs/SHELL_CONTRACT.md](docs/SHELL_CONTRACT.md) records what the Swift shell's `Core` held and what of it moved to Rust, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) is the design of the GTK shell that replaces the Swift build on Linux.
 
 ## Working in this repository
 
@@ -91,6 +91,8 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 - **No signed-in library.** Sign-in and per-account WebKit profiles work, but catalog reads are still anonymous, so Library has nothing personal to show. Authenticated catalog reads are the next slice.
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
 - **Linux audio is written but unheard.** Both playback hosts now exist there — WebKitGTK for the official player, GStreamer for decoded files — and both claim the same Rust leases as their macOS counterparts. What is missing is a person confirming that sound comes out. The local host is the only one with runtime evidence: its tests open a real WAV and read the duration back, which they can do silently because a paused pipeline decodes without touching the audio device. The official host has never been past compiling. Treat a report that Linux does not play as a bug to investigate, not as an expected limitation.
+- **A shuffle or repeat change can be lost.** The Swift shell coalesces preference saves made within a second of each other, and its merge drops `shuffle` and `repeatMode`, so toggling either within a second of a volume change is never saved. `goosic-shell-support` carries the corrected merge; the Swift shell has not adopted it yet.
+- **Decoded audio is stored as data, not cache.** Rust's WAV cache sits in the per-user data directory rather than the cache directory, so it is swept into backups and ignored by tools that free cache space. The move is planned for every platform in one change; see [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
 - **Windows has no audio at all.** `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs there. A stub reports the limitation rather than producing sound, so no renderer can bypass Rust's authority.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
 - **Two download tests fail on Windows.** `goosic-downloads` builds and 13 of its 15 tests pass there, but path handling assumes Unix syntax and the legacy import returns `InvalidFilename`. CI reports it without blocking, because it is a real bug in shared code rather than an accepted platform limit.
@@ -100,11 +102,22 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 
 ## Migration phases
 
+The rewrite from the previous Goosic:
+
 1. **Done** — protocol/core/service authority and the native shell.
-2. **Done (macOS)** — the official WebView host and its origin-checked bridge; Windows and Linux remain stubs.
+2. **Done** — the official WebView host and its origin-checked bridge: WKWebView on macOS, WebKitGTK on Linux (written, not yet heard). Windows remains a stub.
 3. **Done** — the live catalog, search, and real playback from the catalog.
 4. **Done** — durable preferences and the legacy preference import.
-5. **Done (macOS)** — read-only legacy downloaded-media import, Rust decode cache, and AVFoundation local-file playback.
-6. **Done (macOS)** — account profiles with isolated WebKit stores, system media controls, and native platform material.
+5. **Done** — read-only legacy downloaded-media import, Rust decode cache, and local-file playback: AVFoundation on macOS, GStreamer on Linux.
+6. **Done (macOS and Linux)** — account profiles with isolated WebKit stores and system media controls; native platform material on macOS.
 7. **Done** — catalog artwork.
-8. **Next** — authenticated catalog reads for a signed-in library, then theming and production packaging.
+8. **Next** — authenticated catalog reads for a signed-in library.
+
+The move to native shells, from [the migration plan](docs/NATIVE_SHELL_MIGRATION.md):
+
+1. **Done** — the contract frozen: classification, conformance fixtures, and the compatibility manifest.
+2. **Done** — `goosic-shell-support`: the transport and the platform-neutral rules in Rust.
+3. **In progress** — the native macOS shell.
+4. **Designed** — the GTK 4 shell for Linux, packaged as a Flatpak.
+5. **Deferred** — the WinUI 3 shell for Windows.
+6. **Waiting** — removing SwiftCrossUI, once every replacement shell passes conformance and packaging.

@@ -17,7 +17,7 @@ is worse than none, because it is believed.
 | `apps/goosic-swift` (macOS) | unreleased, in-tree | `0.3.0` exactly | none bundled; resolved at launch |
 | `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.3.0` exactly | none bundled; resolved at launch |
 | `apps/goosic-swift` (Windows) | stubs only | `0.3.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-linux` (GTK 4) | not started | — | — |
+| `apps/goosic-linux` (GTK 4) | designed, not started | `0.3.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
 | `apps/goosic-windows` (WinUI 3) | not started | — | — |
 
 Product version is `0.1.0`, from the Cargo workspace. There are no packages, so there are no
@@ -93,6 +93,11 @@ services with the same protocol version and different behaviour are indistinguis
 That is tolerable while the service is built from the same commit as the shell, and it stops
 being tolerable the moment packages exist — which is why the plan puts a bundled private service
 inside every package, and why this section will be replaced rather than amended when they do.
+
+Linux is where it closes first. The GTK shell finds its service by path — `GOOSIC_SERVICE_PATH`
+as a developer's override, otherwise the `goosic-service` installed beside its own executable —
+and never searches `PATH`, so the Flatpak always runs the service it was built with. See
+[LINUX_SHELL.md](LINUX_SHELL.md).
 
 ## What a released shell will have to declare
 

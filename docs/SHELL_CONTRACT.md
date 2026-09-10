@@ -292,10 +292,13 @@ another, is declared in [COMPATIBILITY.md](COMPATIBILITY.md). It records one thi
 implies without saying: the Swift shell keeps its own hand-copied copy of the version constant,
 and nothing verifies it against `goosic-protocol`.
 
-The Swift shell becomes the first client to run against the fixtures, which turns it from the
-specification into the first conformance reference — which is what the plan needs it to be
-before it can be deleted.
+The first consumer of `goosic-shell-support` will be the Linux GTK shell, which links it
+directly because both are Rust; [LINUX_SHELL.md](LINUX_SHELL.md) is its design. The Swift
+shell keeps its own copies until a real use proves an FFI boundary worth having. Meanwhile it
+becomes the first client to run against the fixtures, which turns it from the specification
+into the first conformance reference.
 
-The rules named above move to `goosic-shell-support` only after they have tests where they
-currently sit. Moving an untested rule and testing it afterwards proves the new copy is
-self-consistent, not that it still does what the shipped shell does.
+The discipline this document applied still holds for anything that moves later: a rule moves
+only once it has tests where it currently sits. Moving an untested rule and testing it
+afterwards proves the new copy is self-consistent, not that it still does what the shipped
+shell does.

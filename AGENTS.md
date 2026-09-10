@@ -5,7 +5,10 @@ change; it is short because everything in it is load-bearing.
 
 GoosicReborn is a native rewrite of Goosic: a Rust playback authority plus a SwiftCrossUI
 shell, built for macOS, Linux, and Windows out of one repository. Rust decides what is
-allowed; the shell renders and asks.
+allowed; the shell renders and asks. The SwiftCrossUI shell is being replaced by one native
+shell per platform — see [docs/NATIVE_SHELL_MIGRATION.md](docs/NATIVE_SHELL_MIGRATION.md) —
+and on Linux that is a GTK 4 application written in Rust, designed in
+[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
 
 ## 1. Check what branch you are on first
 
@@ -165,6 +168,26 @@ note got wrong. The failure is `Could not cast value of type '... -> @Swift.Main
 Leave the method unisolated and put the work in a `MainActor.run` body, which then has to be
 `async` — and remember the other half of the rule: that body must not touch `self`, so a
 fixture becomes `static`.
+
+### The GTK shell on Linux
+
+`apps/goosic-linux` is designed but not yet written, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md)
+holds the decisions. When you work on it, these are settled and not yours to reopen without
+asking:
+
+- It is its own Cargo workspace, not a member of the root one. CI runs
+  `cargo test --workspace` on macOS and Windows, and a member that needs GTK would fail there.
+- It links `goosic-shell-support` and `goosic-protocol` and nothing else from `crates/`. It
+  runs the `goosic-service` binary installed beside it, found by path and never on `PATH`;
+  it never links `goosic-core`.
+- It uses GTK 4 without libadwaita, so it takes each desktop's theme rather than GNOME's.
+- Its application ID is `io.github.analogicgoose.Goosic`. Storage stays under `goosic`, and
+  the media-player bus name stays `org.mpris.MediaPlayer2.goosic`.
+- Closing the window keeps the process and the music running; quitting is explicit.
+- It ships as a Flatpak on the GNOME runtime, which is what makes GTK 4.20 its floor.
+
+It lives on `platform/linux`. Anything it needs from `goosic-shell-support` or the protocol
+lands on `development` first.
 
 ## 5. Keep the working copy tidy
 
