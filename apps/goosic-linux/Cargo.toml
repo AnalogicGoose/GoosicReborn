@@ -1,0 +1,18 @@
+[package]
+name = "goosic-linux"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+# gtk4 0.11 needs 1.92. The root workspace's 1.88 floor does not apply to this one.
+rust-version = "1.92"
+publish = false
+
+# Its own workspace on purpose: the root workspace is tested on macOS and Windows, where a member
+# that needs GTK would fail to build.
+[workspace]
+
+[dependencies]
+async-channel = "2"
+goosic-protocol = { path = "../../crates/goosic-protocol" }
+goosic-shell-support = { path = "../../crates/goosic-shell-support" }
+gtk = { package = "gtk4", version = "0.11" }
