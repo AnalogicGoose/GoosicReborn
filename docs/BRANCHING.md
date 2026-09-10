@@ -80,6 +80,13 @@ ask whether that hunk belongs on `development` instead. It usually does. Files u
 `crates/` that are genuinely platform-gated (a `#[cfg(target_os = ...)]` block) are the
 exception, not the pattern.
 
+The native shells follow the same line. `apps/goosic-linux` exists only for Linux, so it lives
+on `platform/linux` and each slice of it is a `feature/linux/<slug>`; the crates it links are
+shared and change on `development`. A Windows shell will stand in the same relation to
+`platform/windows`. The Swift package is the case worth knowing about: it is one package
+compiled for more than one platform, so its `Core/` directory is shared work even though it
+sits under `apps/`.
+
 ## Work-branch names
 
 Long-lived branches are the five above. Everything else is short-lived, named for what it
@@ -127,8 +134,11 @@ free. The Swift 6 language mode landed that way — two errors that only a Mac c
 costing a round trip through a colleague.
 
 Three jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
-portable by construction and there is no excuse for it to break anywhere. The GTK 4 shell
-builds and tests on Linux. The AppKit shell builds and tests on macOS.
+portable by construction and there is no excuse for it to break anywhere. The Swift shell
+builds and tests on Linux against GTK 4 and on macOS against AppKit. When `apps/goosic-linux`
+exists it adds a fourth job, which builds inside the Flatpak builder on the GNOME runtime rather
+than against the runner's own GTK: `ubuntu-latest` ships a GTK older than the 4.20 that shell
+requires, and building the package users install is the better test anyway.
 
 Windows is marked `continue-on-error`. The shell has never been built there and the hosts are
 stubs, so the job reports the state without blocking a merge on work nobody has started. When
