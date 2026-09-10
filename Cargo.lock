@@ -306,6 +306,7 @@ dependencies = [
  "goosic-lyrics",
  "goosic-protocol",
  "goosic-settings",
+ "goosic-shell-support",
  "serde",
  "serde_json",
  "tempfile",
@@ -321,6 +322,18 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "goosic-shell-support"
+version = "0.1.0"
+dependencies = [
+ "goosic-protocol",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "url",
+ "uuid",
 ]
 
 [[package]]
