@@ -2,7 +2,9 @@
 
 ## Data flow
 
-`SwiftCrossUI shell -> GoosicServiceClient -> goosic-service (NDJSON) -> goosic-core | goosic-catalog | goosic-lyrics | goosic-settings | goosic-downloads | goosic-accounts -> goosic-protocol`
+`shell -> client (GoosicServiceClient in Swift, goosic-shell-support in Rust) -> goosic-service (NDJSON) -> goosic-core | goosic-catalog | goosic-lyrics | goosic-settings | goosic-downloads | goosic-accounts -> goosic-protocol`
+
+The shell is SwiftCrossUI today, on macOS and Linux. The [native-shell migration](NATIVE_SHELL_MIGRATION.md) replaces it with one native shell per platform — on Linux a GTK 4 application written in Rust, designed in [LINUX_SHELL.md](LINUX_SHELL.md) — and changes nothing to the right of the first arrow.
 
 The shell requests transitions; it never decides whether a playback transition is valid. `goosic-core` is the single authority and has no UI, WebView, network, cookie, or audio dependencies. The service owns one authority instance for its process lifetime.
 
@@ -12,7 +14,9 @@ The shell requests transitions; it never decides whether a playback transition i
 
 `goosic-settings` owns durable preferences for the same reason: the shell is a renderer, and persistence should not be reimplemented per platform. `goosic-downloads` indexes and decodes local media, and `goosic-accounts` stores account metadata only — it has no WebKit, cookie, or credential integration, because the platform UI owns the actual profile data. All three are dispatched before the authority and cannot change who owns playback.
 
-`goosic-service` is private to one app process and one client: the Swift shell launches it as a child and communicates over inherited stdin/stdout. It is not a daemon or socket endpoint, and those streams must never be shared or multiplexed. Generation provides freshness authorization within this single-client boundary. If a future design multiplexes clients, it must first add an unforgeable per-client capability and require active-owner authorization before allowing account resets.
+`goosic-shell-support` sits on the other side of that pipe, and it is the only crate a shell links rather than talks to. It holds the part of being a client that has no platform in it: finding one NDJSON frame in a byte stream that arrives in whatever sizes the pipe felt like, how long each command may take, and the distinction between the service disagreeing with you and the channel no longer being trustworthy. Answers are routed to their requests by id, because the service does not promise to answer in order and a client that insisted on it would hold a pause behind a slow catalog read. A remote error is the authority answering — refusing a stale generation is a correct response and the connection survives it — and a timeout fails only the request that ran out of time, whereas an unparseable frame or one in a foreign protocol version means there is no longer any way to know where the next frame begins. Three shells writing that separately would produce three subtly different clients of one authority, so it is written once and each shell keeps only its window, its renderer, and its secure storage. The crate takes no UI, WebView, cookie, audio, or secure-storage dependency, and it does not link `goosic-core`: it is a client of the service like any shell, not a second route into the authority. It also holds the shell rules that have no platform in them — where a sign-in window may navigate, whether a web player's report is believable, what the system media controls may offer, which catalog row may play — so that a rule about where credentials may be typed, or about what may sound, has one answer rather than one per shell.
+
+`goosic-service` is private to one app process and one client: each shell launches its own as a child and communicates over inherited stdin/stdout. It is not a daemon or socket endpoint, and those streams must never be shared or multiplexed. Generation provides freshness authorization within this single-client boundary. If a future design multiplexes clients, it must first add an unforgeable per-client capability and require active-owner authorization before allowing account resets.
 
 ## Wire contract (protocol 0.3.0)
 
@@ -34,7 +38,7 @@ Downloads commands are `downloads.list`, `downloads.importLegacy`, and `download
 
 ### Frame budget
 
-Requests are capped at 64 KB. A catalog page is clamped by the service to 192 KB serialized — first by structural caps, then by dropping rows — and sets `truncated` when anything was removed, so a partial list is never presented as complete. The shell accepts responses up to 256 KB and gives `catalog.*` commands a longer wait than playback commands, because they reach a third-party service.
+Requests are capped at 64 KB. A catalog page is clamped by the service to 192 KB serialized — first by structural caps, then by dropping rows — and sets `truncated` when anything was removed, so a partial list is never presented as complete. A shell accepts responses up to 256 KB and gives the commands that reach a third-party service a longer wait than playback commands.
 
 ## Playback authority contracts
 
