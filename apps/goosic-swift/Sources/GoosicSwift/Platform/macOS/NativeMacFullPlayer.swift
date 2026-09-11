@@ -453,7 +453,6 @@ struct NativeMacFullPlayerVolume: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .disabled(busy || model.isAdvertisement)
-        .modifier(NativeMacVolumeGlass())
     }
 
     private var shownVolume: Double { model.isMuted ? 0 : model.volume }
@@ -468,18 +467,6 @@ struct NativeMacFullPlayerVolume: View {
             Slider(value: Binding(get: { shownVolume }, set: model.setVolume), in: 0...1)
                 .controlSize(.small)
                 .accessibilityLabel("Volume")
-        }
-    }
-}
-
-/// Liquid Glass behind the volume control on macOS 26, where the system has it.
-private struct NativeMacVolumeGlass: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: .capsule)
-        } else {
-            content
         }
     }
 }

@@ -96,6 +96,7 @@ private struct NativeMacRootView: SwiftUI.View {
 
     private var model: GoosicAppModel { store.model }
     private var leadingInset: CGFloat { sidebarVisible ? NativeMacSidebar.width : 0 }
+    private var nowPlayingPanelVisible: Bool { model.queueVisible || model.lyricsVisible }
 
     var body: some SwiftUI.View {
         ZStack(alignment: .topLeading) {
@@ -112,6 +113,8 @@ private struct NativeMacRootView: SwiftUI.View {
                 NativeMacPlayerBar(store: store)
                     .padding(.leading, leadingInset)
                     .padding(.horizontal, 20)
+                    // This is a persistent content rail, so keep the capsule out from under it.
+                    .padding(.trailing, nowPlayingPanelVisible ? 300 : 0)
                     .padding(.bottom, 12)
 
                 NativeMacOfficialPlaybackSurface(model: model)
@@ -124,25 +127,25 @@ private struct NativeMacRootView: SwiftUI.View {
                 if model.queueVisible {
                     NativeMacQueuePanel(store: store)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
-                        .padding(.trailing, 20)
-                        .padding(.bottom, 112)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 } else if model.lyricsVisible {
                     NativeMacLyricsPanel(store: store)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
-                        .padding(.trailing, 20)
-                        .padding(.bottom, 112)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if !model.serviceConnected || (model.currentTrack != nil && !model.hasConfirmedPlaybackSample) {
+                // The official player is mounted off screen. Its bridge diagnostics are useful
+                // when debugging, but a normal listener should not see implementation chatter
+                // such as an event from a superseded document. Keep this space for a real service
+                // outage, where Reconnect is an actionable control.
+                if !model.serviceConnected {
                     SwiftUI.HStack(spacing: 8) {
-                        SwiftUI.Image(systemName: model.serviceConnected ? "info.circle" : "wifi.slash")
-                        SwiftUI.Text(model.serviceConnected ? model.hostStatus : model.status)
-                            .lineLimit(2).font(.caption)
                         SwiftUI.Spacer()
-                        if !model.serviceConnected { SwiftUI.Button("Reconnect", action: model.connect) }
+                        SwiftUI.Image(systemName: "wifi.slash")
+                        SwiftUI.Text(model.status).lineLimit(2).font(.caption)
+                        SwiftUI.Button("Reconnect", action: model.connect)
+                        SwiftUI.Spacer()
                     }
                     .padding(10)
                     .padding(.leading, leadingInset)
@@ -160,7 +163,10 @@ private struct NativeMacRootView: SwiftUI.View {
             // surface in particular must outlive opening and closing this.
             if model.fullPlayerOpen && model.currentTrack != nil {
                 NativeMacFullPlayer(store: store)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    // Scaling a view that ignores the safe area briefly exposes the content
+                    // underneath around the title bar. Music keeps the surface full-size and
+                    // cross-fades it instead, so the transition cannot look clipped.
+                    .transition(.opacity)
                     .zIndex(10)
             }
         }
@@ -214,6 +220,27 @@ private struct NativeMacRootView: SwiftUI.View {
                 }
                 .help(sidebarVisible ? "Hide sidebar" : "Show sidebar")
                 .keyboardShortcut("s", modifiers: [.command, .control])
+            }
+            // The library's section picker, centred in the title bar as Music does. It lives in
+            // the toolbar because macOS 26 draws the Liquid Glass capsule only for toolbar
+            // controls; the same picker inside the page keeps the older flat look.
+            ToolbarItem(placement: .principal) {
+                if model.route == .library, model.detail == nil, model.activeAccount != nil,
+                   !model.fullPlayerOpen {
+                    SwiftUI.Picker(
+                        "Library section",
+                        selection: SwiftUI.Binding(
+                            get: { PersonalLibrarySection(rawValue: model.libraryTab) ?? .playlists },
+                            set: { model.selectLibrarySection($0) }
+                        )
+                    ) {
+                        SwiftUI.ForEach(PersonalLibrarySection.allCases) { item in
+                            SwiftUI.Text(item.rawValue).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
             }
             // The full-screen player's title-bar controls. They are toolbar items rather than
             // part of that player's view because only a toolbar item keeps its drag in the title
@@ -639,19 +666,19 @@ private struct NativeMacPlayerBar: SwiftUI.View {
     @State private var statusVisible = false
     @State private var volumeExpanded = false
     @State private var progressHovered = false
-    @State private var playerHovered = false
+    @State private var progressHoverGeneration = 0
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
     private var canAdjustVolume: Bool { !busy && !model.isAdvertisement }
-    /// Music's player grows into a transport surface once there is something to control. The
-    /// idle state remains a compact capsule, while a playing (or hovered) bar makes room for a
-    /// readable scrubber and elapsed/remaining time.
+    /// Keep the player compact while listening. The timeline is the one interaction that needs
+    /// additional space, so it alone reveals the full scrubber and elapsed/remaining times.
+    /// This prevents a newly selected song from making the whole chrome jump in height.
     private var playerExpanded: Bool {
-        model.currentTrack != nil || playerHovered || isScrubbing || volumeExpanded
+        progressHovered || isScrubbing
     }
-    private var showsTimes: Bool { playerExpanded || progressHovered || isScrubbing }
+    private var showsTimes: Bool { playerExpanded }
 
     var body: some SwiftUI.View {
         SwiftUI.HStack(spacing: 12) {
@@ -662,10 +689,9 @@ private struct NativeMacPlayerBar: SwiftUI.View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, playerExpanded ? 9 : 6)
-        .frame(minWidth: playerExpanded ? 720 : 640, maxWidth: 960)
+        .frame(minWidth: 640, maxWidth: 960)
         .modifier(NativeMacPlayerGlass())
         .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
-        .onHover { playerHovered = $0 }
         .animation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.12), value: playerExpanded)
         .onChange(of: model.currentTrack?.id) { _, _ in isScrubbing = false }
         .onChange(of: model.isSeekable) { _, seekable in if !seekable { isScrubbing = false } }
@@ -708,7 +734,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             SwiftUI.HStack(spacing: 10) {
                 NativeMacExpandableArtwork(
                     url: model.currentTrack?.thumbnail,
-                    size: playerExpanded ? 42 : 36,
+                    size: 36,
                     enabled: model.currentTrack != nil
                 ) { model.setFullPlayerOpen(true) }
                 SwiftUI.VStack(alignment: .leading, spacing: 2) {
@@ -729,9 +755,11 @@ private struct NativeMacPlayerBar: SwiftUI.View {
         let total = max(model.duration, 1)
         let position = isScrubbing ? scrubPosition : min(model.displayedPosition, total)
         return SwiftUI.HStack(spacing: 6) {
-            if showsTimes {
-                SwiftUI.Text(GoosicAppModel.timeText(position)).transition(.opacity)
-            }
+            // Reserve both labels even while hidden. Revealing the time must not shove the
+            // artwork and controls sideways while the pointer is still over the scrubber.
+            SwiftUI.Text(GoosicAppModel.timeText(position))
+                .frame(width: 34, alignment: .trailing)
+                .opacity(showsTimes ? 1 : 0)
             SwiftUI.GeometryReader { proxy in
                 SwiftUI.ZStack(alignment: .leading) {
                     Capsule().fill(.primary.opacity(0.15))
@@ -756,19 +784,30 @@ private struct NativeMacPlayerBar: SwiftUI.View {
                 )
             }
             .frame(height: 12)
-            if showsTimes {
-                SwiftUI.Text("−" + GoosicAppModel.timeText(max(total - position, 0)))
-                    .transition(.opacity)
-            }
+            SwiftUI.Text("−" + GoosicAppModel.timeText(max(total - position, 0)))
+                .frame(width: 34, alignment: .leading)
+                .opacity(showsTimes ? 1 : 0)
         }
         .font(.caption2.monospacedDigit())
         .foregroundStyle(.secondary)
         .opacity(model.isSeekable ? 1 : 0.45)
-        .onHover { progressHovered = $0 }
+        .onHover(perform: scheduleProgressHover)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: showsTimes)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Playback position")
         .accessibilityValue("\(model.elapsedText) of \(model.durationText)")
+    }
+
+    /// Small enter/exit hysteresis prevents the scrubber's own expansion from producing a
+    /// leave-enter loop when the pointer sits on its edge.
+    private func scheduleProgressHover(_ hovering: Bool) {
+        progressHoverGeneration &+= 1
+        let generation = progressHoverGeneration
+        let delay = hovering ? 0.24 : 0.14
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard generation == progressHoverGeneration else { return }
+            progressHovered = hovering
+        }
     }
 
     private var trailingControls: some SwiftUI.View {
@@ -970,19 +1009,13 @@ private struct NativeMacEntityView: SwiftUI.View {
 
 private struct NativeMacQueuePanel: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
+    @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var model: GoosicAppModel { store.model }
 
     var body: some SwiftUI.View {
-        SwiftUI.VStack(alignment: .leading, spacing: 12) {
-            SwiftUI.HStack {
-                SwiftUI.Text("Queue").font(.title2.bold())
-                SwiftUI.Spacer()
-                SwiftUI.Button(action: model.toggleQueue) {
-                    SwiftUI.Image(systemName: "xmark")
-                }
-                .modifier(NativeMacGlassButtons())
-            }
+        SwiftUI.VStack(alignment: .leading, spacing: 0) {
+            panelHeader(title: "Queue", subtitle: queueSubtitle)
 
             if model.queue.tracks.isEmpty {
                 SwiftUI.ContentUnavailableView(
@@ -990,55 +1023,107 @@ private struct NativeMacQueuePanel: SwiftUI.View {
                     systemImage: "list.bullet",
                     description: SwiftUI.Text("Choose a song or video to start a queue.")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                SwiftUI.ScrollView {
-                    SwiftUI.LazyVStack(spacing: 4) {
-                        SwiftUI.ForEach(model.queue.tracks) { track in
-                            SwiftUI.Button {
-                                model.play(track, in: model.queue.tracks)
-                            } label: {
-                                SwiftUI.HStack(spacing: 10) {
-                                    NativeMacPanelArtwork(url: track.thumbnail)
-                                    SwiftUI.VStack(alignment: .leading, spacing: 2) {
-                                        SwiftUI.Text(track.title).lineLimit(1)
-                                        SwiftUI.Text(track.artist)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                    SwiftUI.Spacer()
-                                    if track.id == model.currentTrack?.id {
-                                        SwiftUI.Image(systemName: "speaker.wave.2.fill")
-                                            .foregroundStyle(SwiftUI.Color.goosicPink)
-                                    }
-                                }
-                                .padding(6)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu { NativeMacTrackMenuItems(track: track, model: model, context: model.queue.tracks) }
+                SwiftUI.ScrollView(showsIndicators: false) {
+                    SwiftUI.LazyVStack(alignment: .leading, spacing: 0) {
+                        SwiftUI.Text("Up next")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 18)
+                            .padding(.top, 12)
+                            .padding(.bottom, 6)
+
+                        SwiftUI.ForEach(Array(model.queue.tracks.enumerated()), id: \.offset) { index, track in
+                            queueRow(track, index: index)
                         }
                     }
+                    .padding(.bottom, 118)
                 }
             }
         }
-        .padding(18)
-        .frame(width: 370, height: 420, alignment: .top)
-        .modifier(NativeMacPanelGlass())
+        .frame(width: 300)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .modifier(NativeMacNowPlayingPanelSurface())
+        .ignoresSafeArea(edges: [.top, .bottom])
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.queue.currentIndex)
+    }
+
+    private var queueSubtitle: String {
+        let count = model.queue.tracks.count
+        return count == 1 ? "1 song" : "\(count) songs"
+    }
+
+    private func panelHeader(title: String, subtitle: String) -> some SwiftUI.View {
+        SwiftUI.HStack(alignment: .firstTextBaseline, spacing: 10) {
+            SwiftUI.VStack(alignment: .leading, spacing: 2) {
+                SwiftUI.Text(title).font(.title3.weight(.bold))
+                SwiftUI.Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            SwiftUI.Spacer()
+            SwiftUI.Button(action: model.toggleQueue) {
+                SwiftUI.Image(systemName: "xmark")
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain)
+            .help("Close queue")
+            .accessibilityLabel("Close queue")
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 58)
+        .padding(.bottom, 12)
+        .overlay(alignment: .bottom) { SwiftUI.Divider() }
+    }
+
+    private func queueRow(_ track: GoosicTrack, index: Int) -> some SwiftUI.View {
+        let isCurrent = index == model.queue.currentIndex
+        return SwiftUI.Button {
+            model.play(track, in: model.queue.tracks)
+        } label: {
+            SwiftUI.HStack(spacing: 10) {
+                NativeMacPanelArtwork(url: track.thumbnail, size: 40)
+                SwiftUI.VStack(alignment: .leading, spacing: 2) {
+                    SwiftUI.Text(track.title)
+                        .font(.subheadline.weight(isCurrent ? .semibold : .regular))
+                        .lineLimit(1)
+                    SwiftUI.Text(track.artist)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                SwiftUI.Spacer(minLength: 4)
+                if isCurrent {
+                    SwiftUI.Image(systemName: "speaker.wave.2.fill")
+                        .font(.caption)
+                        .foregroundStyle(SwiftUI.Color.goosicPink)
+                } else {
+                    SwiftUI.Text(track.duration)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isCurrent ? SwiftUI.Color.primary.opacity(0.08) : .clear)
+        .contextMenu { NativeMacTrackMenuItems(track: track, model: model, context: model.queue.tracks) }
     }
 }
 
 private struct NativeMacLyricsPanel: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
+    @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var model: GoosicAppModel { store.model }
 
     var body: some SwiftUI.View {
-        SwiftUI.VStack(alignment: .leading, spacing: 12) {
-            SwiftUI.HStack {
+        SwiftUI.VStack(alignment: .leading, spacing: 0) {
+            SwiftUI.HStack(alignment: .firstTextBaseline, spacing: 10) {
                 SwiftUI.VStack(alignment: .leading, spacing: 2) {
-                    SwiftUI.Text("Lyrics").font(.title2.bold())
-                    SwiftUI.Text(model.lyricsStatus)
+                    SwiftUI.Text("Lyrics").font(.title3.weight(.bold))
+                    SwiftUI.Text(model.currentTrack?.title ?? "Nothing playing")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -1046,32 +1131,87 @@ private struct NativeMacLyricsPanel: SwiftUI.View {
                 SwiftUI.Spacer()
                 SwiftUI.Button(action: model.toggleLyrics) {
                     SwiftUI.Image(systemName: "xmark")
+                        .frame(width: 26, height: 26)
                 }
-                .modifier(NativeMacGlassButtons())
+                .buttonStyle(.plain)
+                .help("Close lyrics")
+                .accessibilityLabel("Close lyrics")
             }
+            .padding(.horizontal, 18)
+            .padding(.top, 58)
+            .padding(.bottom, 12)
+            .overlay(alignment: .bottom) { SwiftUI.Divider() }
 
-            SwiftUI.ScrollView {
-                if let lyrics = model.lyrics {
-                    let active = model.activeLyricIndex
-                    SwiftUI.LazyVStack(alignment: .leading, spacing: 10) {
+            lyricsBody
+        }
+        .frame(width: 300)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .modifier(NativeMacNowPlayingPanelSurface())
+        .ignoresSafeArea(edges: [.top, .bottom])
+    }
+
+    @SwiftUI.ViewBuilder
+    private var lyricsBody: some SwiftUI.View {
+        if let lyrics = model.lyrics {
+            let active = model.activeLyricIndex
+            SwiftUI.ScrollViewReader { reader in
+                SwiftUI.ScrollView(showsIndicators: false) {
+                    SwiftUI.LazyVStack(alignment: .leading, spacing: 22) {
                         SwiftUI.ForEach(Array(lyrics.lines.enumerated()), id: \.element.id) { index, line in
-                            SwiftUI.Text(line.text.isEmpty ? "♪" : line.text)
-                                .font(index == active ? .headline : .body)
-                                .foregroundStyle(index == active ? SwiftUI.Color.primary : .secondary)
+                            lyricLine(line, isActive: index == active, synced: lyrics.synced)
+                                .id(index)
                         }
                     }
-                } else {
-                    SwiftUI.ContentUnavailableView(
-                        "No lyrics yet",
-                        systemImage: "quote.bubble",
-                        description: SwiftUI.Text(model.lyricsStatus)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 120)
+                }
+                .mask(
+                    SwiftUI.LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: 0.1),
+                            .init(color: .black, location: 0.86),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
+                )
+                .onAppear {
+                    if let active { reader.scrollTo(active, anchor: UnitPoint(x: 0, y: 0.36)) }
+                }
+                .onChange(of: active) { _, next in
+                    guard let next else { return }
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.65)) {
+                        reader.scrollTo(next, anchor: UnitPoint(x: 0, y: 0.36))
+                    }
                 }
             }
+        } else {
+            SwiftUI.ContentUnavailableView(
+                "No lyrics yet",
+                systemImage: "quote.bubble",
+                description: SwiftUI.Text(model.lyricsStatus)
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(18)
-        .frame(width: 370, height: 420, alignment: .top)
-        .modifier(NativeMacPanelGlass())
+    }
+
+    private func lyricLine(_ line: GoosicLyricsLine, isActive: Bool, synced: Bool) -> some SwiftUI.View {
+        let dimmed = synced && !isActive
+        return SwiftUI.Text(line.text.isEmpty ? "♪" : line.text)
+            .font(.system(size: 25, weight: .bold, design: .rounded))
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .foregroundStyle(isActive ? SwiftUI.Color.goosicPink : SwiftUI.Color.primary)
+            .opacity(dimmed ? 0.28 : (synced ? 1 : 0.84))
+            .blur(radius: dimmed ? 1.2 : 0)
+            .scaleEffect(isActive ? 1 : 0.97, anchor: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard synced, model.isSeekable else { return }
+                model.seek(to: Double(line.atMs) / 1_000)
+            }
     }
 }
 
@@ -1138,14 +1278,23 @@ private struct NativeMacExpandableArtwork: SwiftUI.View {
     }
 }
 
-private struct NativeMacPanelGlass: SwiftUI.ViewModifier {
-    @SwiftUI.ViewBuilder
+/// The queue and lyrics are a persistent edge column, not a floating popover. Keeping the
+/// leading separator while letting the material run to the window edge matches Music's browsing
+/// layout and leaves the player visually behind the panel instead of turning it into a card.
+private struct NativeMacNowPlayingPanelSurface: SwiftUI.ViewModifier {
     func body(content: Content) -> some SwiftUI.View {
-        if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
-        } else {
-            content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
-        }
+        // Liquid Glass works for compact controls, but over a tall scrolling rail it refracts
+        // catalog artwork into bright blobs that compete with every label. A system material
+        // plus an adaptive veil keeps the same depth while preserving legibility.
+        content
+            .background(SwiftUI.Color(nsColor: .windowBackgroundColor).opacity(0.76))
+            .background(.regularMaterial)
+            .overlay(alignment: .leading) {
+                SwiftUI.Rectangle()
+                    .fill(SwiftUI.Color.primary.opacity(0.12))
+                    .frame(width: 1)
+            }
+            .shadow(color: .black.opacity(0.16), radius: 18, x: -8)
     }
 }
 

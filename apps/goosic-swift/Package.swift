@@ -27,6 +27,18 @@ let package = Package(
             resources: [
                 .copy("Resources/PersonalCatalog.js"),
                 .copy("Resources/AppIcons"),
+            ],
+            // SwiftPM stamps the executable's build version with the deployment target as its
+            // SDK (`sdk 14.0`), and AppKit chooses its design from that stamp: the app ran with
+            // the pre-26 look everywhere, Liquid Glass included, despite being built against the
+            // current SDK. This states the SDK the app is designed for while keeping macOS 14 as
+            // the minimum it runs on.
+            linkerSettings: [
+                .unsafeFlags(
+                    ["-Xlinker", "-platform_version", "-Xlinker", "macos",
+                     "-Xlinker", "14.0", "-Xlinker", "26.0"],
+                    .when(platforms: [.macOS])
+                ),
             ]
         ),
         // WebKitGTK's GTK 4 binding. Only Linux depends on it; macOS keeps using WebKit.framework.

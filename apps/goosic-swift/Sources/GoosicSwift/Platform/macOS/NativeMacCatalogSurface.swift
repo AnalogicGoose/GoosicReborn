@@ -91,8 +91,20 @@ struct NativeMacCatalogPage: SwiftUI.View {
     }
 
     private var showsHeading: Bool {
-        if case .route = key { return false }
-        return true
+        switch key {
+        case .route, .album, .playlist:
+            return false
+        case .search, .artist, .library:
+            return true
+        }
+    }
+
+    private var collectionKind: String? {
+        switch key {
+        case .album: return "Album"
+        case .playlist: return "Playlist"
+        default: return nil
+        }
     }
 
     private var heading: String {
@@ -117,7 +129,9 @@ struct NativeMacCatalogPage: SwiftUI.View {
                 SwiftUI.Text(text.detail).foregroundStyle(.secondary)
                 SwiftUI.Button("Try again") { model.retry(key) }
             }
-            .padding(.leading, leadingInset + 24)
+            .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
+            .multilineTextAlignment(.center)
+            .padding(.leading, leadingInset)
             .padding(.trailing, 24)
         } else if let page = state.page {
             if page.isEmpty {
@@ -126,8 +140,20 @@ struct NativeMacCatalogPage: SwiftUI.View {
                     systemImage: "music.note",
                     description: SwiftUI.Text("\(title) came back empty.")
                 )
+                .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
+                .multilineTextAlignment(.center)
                 .padding(.leading, leadingInset)
+                .padding(.trailing, 24)
             } else {
+                if let collectionKind, !page.tracks.isEmpty {
+                    NativeMacCollectionHeader(
+                        page: page,
+                        kind: collectionKind,
+                        model: model
+                    )
+                    .padding(.leading, leadingInset + 24)
+                    .padding(.trailing, 48)
+                }
                 if !page.tracks.isEmpty {
                     NativeMacTrackList(tracks: page.tracks, model: model)
                         .padding(.leading, leadingInset + 24)
@@ -187,8 +213,75 @@ struct NativeMacCatalogPage: SwiftUI.View {
                 SwiftUI.Text("Not loaded yet.").foregroundStyle(.secondary)
                 SwiftUI.Button("Load \(title.lowercased())") { model.retry(key) }
             }
-            .padding(.leading, leadingInset + 24)
+            .frame(maxWidth: .infinity, minHeight: 360, alignment: .center)
+            .multilineTextAlignment(.center)
+            .padding(.leading, leadingInset)
+            .padding(.trailing, 24)
         }
+    }
+}
+
+/// The account catalog supplies an ordered collection but not the marketing artwork or copy that
+/// Apple Music owns. This header therefore only uses truthful data we already have: the first
+/// item’s cover, the upstream title/subtitle, and the real ordered Play action. It gives albums
+/// and playlists the same focused presentation without fabricating metadata.
+private struct NativeMacCollectionHeader: SwiftUI.View {
+    let page: CatalogPageView
+    let kind: String
+    let model: GoosicAppModel
+
+    private var cover: String? {
+        page.tracks.first?.thumbnail ?? page.shelves.first?.cards.first?.thumbnail
+    }
+
+    var body: some SwiftUI.View {
+        SwiftUI.HStack(alignment: .top, spacing: 30) {
+            NativeMacArtwork(url: cover, width: 220, height: 220)
+                .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+
+            SwiftUI.VStack(alignment: .leading, spacing: 8) {
+                SwiftUI.Text(page.title)
+                    .font(.system(size: 30, weight: .bold))
+                    .lineLimit(2)
+                SwiftUI.Text(detailSubtitle(kindLabel: kind, pageSubtitle: page.subtitle))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                SwiftUI.Text("\(page.tracks.count) \(page.tracks.count == 1 ? "song" : "songs")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                SwiftUI.HStack(spacing: 10) {
+                    SwiftUI.Button {
+                        guard let first = page.tracks.first else { return }
+                        model.launch(.ordered(first, page.tracks))
+                    } label: {
+                        SwiftUI.Label("Play", systemImage: "play.fill")
+                            .font(.headline)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 8)
+                            // The window supplies Goosic's pink through `.tint`, while this
+                            // file remains independent of the app file's private colour helper.
+                            .foregroundStyle(SwiftUI.Color.accentColor)
+                    }
+                    .modifier(NativeMacGlassButtons())
+                    .disabled(page.tracks.isEmpty)
+
+                    SwiftUI.Button(action: model.toggleShuffle) {
+                        SwiftUI.Image(systemName: "shuffle")
+                            .frame(width: 28, height: 28)
+                    }
+                    .modifier(NativeMacGlassButtons())
+                    .help("Shuffle")
+                }
+                .padding(.top, 12)
+            }
+            .frame(maxWidth: 640, alignment: .leading)
+            .padding(.top, 16)
+
+            SwiftUI.Spacer(minLength: 0)
+        }
+        .padding(.top, 16)
     }
 }
 
@@ -211,24 +304,9 @@ struct NativeMacLibraryPage: SwiftUI.View {
             )
             .padding(.leading, leadingInset)
         } else {
+            // The section picker is a window toolbar item (see `NativeMacRootView`): macOS 26
+            // draws the Liquid Glass capsule only for controls in the toolbar.
             SwiftUI.VStack(spacing: 0) {
-                SwiftUI.Picker(
-                    "Library section",
-                    selection: SwiftUI.Binding(
-                        get: { section },
-                        set: { model.selectLibrarySection($0) }
-                    )
-                ) {
-                    SwiftUI.ForEach(PersonalLibrarySection.allCases) { item in
-                        SwiftUI.Text(item.rawValue).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.leading, leadingInset + 24)
-                .padding(.trailing, 24)
-                .padding(.top, 18)
-
                 NativeMacCatalogPage(
                     key: section.key,
                     title: section.rawValue,

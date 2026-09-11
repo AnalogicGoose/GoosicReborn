@@ -1,5 +1,10 @@
 import XCTest
 
+#if os(macOS)
+import AppKit
+@preconcurrency import MediaPlayer
+#endif
+
 @testable import GoosicSwift
 
 final class SystemMediaProjectionTests: XCTestCase {
@@ -118,4 +123,19 @@ final class SystemMediaProjectionTests: XCTestCase {
         XCTAssertTrue(script.contains("Object.defineProperty(session, 'setActionHandler'"))
         XCTAssertTrue(script.contains("setActionHandler(action, null)"))
     }
+
+    #if os(macOS)
+    func testNowPlayingArtworkMayBeRequestedOffTheMainQueue() throws {
+        let png = try XCTUnwrap(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        ))
+        let artwork = try XCTUnwrap(SystemMediaControls.makeArtwork(from: png))
+
+        let rendered = DispatchQueue(label: "com.goosic.tests.now-playing-artwork").sync {
+            artwork.image(at: CGSize(width: 1, height: 1)) != nil
+        }
+
+        XCTAssertTrue(rendered)
+    }
+    #endif
 }
