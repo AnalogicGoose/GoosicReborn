@@ -4,6 +4,7 @@ import Combine
 import SwiftCrossUI
 import SwiftUI
 
+#if !GOOSIC_UI_TEST_HOST
 @main
 struct GoosicMacApp: SwiftUI.App {
     @StateObject private var store = NativeMacModelStore()
@@ -22,13 +23,15 @@ struct GoosicMacApp: SwiftUI.App {
                 .frame(minWidth: 1_020, minHeight: 680)
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
-                    store.model.connect()
+                    if !store.model.usesDebugSidebarFixture { store.model.connect() }
                 }
         }
         .defaultSize(width: 1_280, height: 800)
     }
 }
+#endif
 
+#if !GOOSIC_UI_TEST_HOST
 /// Installs the supplied Goosic artwork for both `swift run` and packaged macOS launches.
 /// SwiftPM executables do not have an Xcode asset catalog, so the icon must be loaded from the
 /// target resource bundle explicitly. The complete appearance set stays bundled for future
@@ -64,21 +67,43 @@ private enum NativeMacApplicationIcon {
         NSApplication.shared.applicationIconImage = padded
     }
 }
+#endif
 
 /// Bridges the existing shared application model into SwiftUI while the Rust/service contracts
 /// remain unchanged. macOS can therefore move to a fully native renderer without forking the
 /// playback and catalog behavior used by future WinUI and GTK shells.
 @MainActor
 final class NativeMacModelStore: Combine.ObservableObject {
-    let model = GoosicAppModel()
+    let model: GoosicAppModel
     private var observation: SwiftCrossUI.Cancellable?
 
     init() {
+        model = GoosicAppModel(
+            debugSidebarFixture: ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] == "sidebar"
+        )
         observation = model.didChange.observe { [weak self] in
             DispatchQueue.main.async {
                 self?.objectWillChange.send()
             }
         }
+    }
+}
+
+/// Public only for the dedicated Xcode UI-test host. It renders the production root with a
+/// launch-selected local fixture, rather than duplicating the sidebar in a test-only screen.
+public struct GoosicMacUITestHost: SwiftUI.View {
+    @StateObject private var store = NativeMacModelStore()
+
+    public init() {}
+
+    public var body: some SwiftUI.View {
+        NativeMacRootView(store: store)
+            .tint(.goosicPink)
+            .frame(minWidth: 1_020, minHeight: 680)
+            .onAppear {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                if !store.model.usesDebugSidebarFixture { store.model.connect() }
+            }
     }
 }
 
@@ -333,6 +358,7 @@ private struct NativeMacSidebar: SwiftUI.View {
     static let width: CGFloat = 210
 
     @ObservedObject var store: NativeMacModelStore
+    @SwiftUI.Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var model: GoosicAppModel { store.model }
 
@@ -374,12 +400,14 @@ private struct NativeMacSidebar: SwiftUI.View {
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .background { NativeMacSidebarSurface().ignoresSafeArea() }
-        .onAppear { model.loadUserPlaylists() }
+        .onAppear {
+            if !model.usesDebugSidebarFixture { model.loadUserPlaylists() }
+        }
         // The sidebar is created before the asynchronous account snapshot returns. Re-read when
         // the account appears (or changes) so an initially empty sidebar is not mistaken for an
         // account with no playlists.
         .onChange(of: model.activeAccount?.id) { _, _ in
-            model.loadUserPlaylists(force: true)
+            if !model.usesDebugSidebarFixture { model.loadUserPlaylists(force: true) }
         }
     }
 
@@ -390,7 +418,7 @@ private struct NativeMacSidebar: SwiftUI.View {
     private func applyingSidebarFooter<Content: SwiftUI.View>(
         to content: Content
     ) -> some SwiftUI.View {
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), !reduceTransparency {
             content
                 .safeAreaBar(edge: .bottom, spacing: 0) { footer }
                 .scrollEdgeEffectStyle(.soft, for: .bottom)
@@ -464,6 +492,7 @@ private struct NativeMacSidebar: SwiftUI.View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("sidebar.playlist.\(playlist.id)")
         .help(playlist.title)
         .listRowBackground(
             RoundedRectangle(cornerRadius: 6)
@@ -501,6 +530,7 @@ private struct NativeMacSidebar: SwiftUI.View {
         .padding(.bottom, 8)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Account: \(model.activeAccountLabel)")
+        .accessibilityIdentifier("sidebar.account")
     }
 }
 

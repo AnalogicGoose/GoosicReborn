@@ -212,6 +212,8 @@ private struct GoosicRadioStation: Hashable {
 
 @MainActor
 final class GoosicAppModel: SwiftCrossUI.ObservableObject {
+    /// Test-only fixture state is selected at launch and never travels over the service wire.
+    let usesDebugSidebarFixture: Bool
     @SwiftCrossUI.Published var route: GoosicRoute = .home
     /// Whether the user has chosen a screen since launch. Restoring the last route is startup
     /// state, and startup stops being true the moment somebody navigates.
@@ -351,7 +353,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         artwork.localFile(for: remote)
     }
 
-    init() {
+    init(debugSidebarFixture: Bool = false) {
+        usesDebugSidebarFixture = debugSidebarFixture
         officialPlaybackHost = OfficialPlaybackHost()
         localPlaybackHost = LocalPlaybackHost()
         personalCatalogHost = PersonalCatalogHost()
@@ -384,6 +387,31 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         systemMediaControls = SystemMediaControls(model: self)
         updateSystemMediaControls()
+        if debugSidebarFixture { installDebugSidebarFixture() }
+    }
+
+    /// A dense, local-only sidebar makes visual and accessibility regressions reproducible
+    /// without a YouTube request, account login, or Rust child process.
+    private func installDebugSidebarFixture() {
+        let accountID = "00000000-0000-0000-0000-000000000001"
+        accounts = [GoosicAccountSummary(
+            id: accountID,
+            webkitProfileId: "00000000-0000-0000-0000-000000000002",
+            displayName: "UI Test Account",
+            email: "ui-test@example.invalid"
+        )]
+        activeAccountId = accountID
+        serviceConnected = true
+        status = "UI test fixture"
+        userPlaylists = (1...40).map { index in
+            PersonalPlaylistSummary(
+                id: "ui-test-playlist-\(index)",
+                title: String(format: "Fixture playlist %02d", index),
+                subtitle: "UI test data",
+                thumbnail: nil
+            )
+        }
+        userPlaylistsState = .idle
     }
 
     // MARK: - Navigation
