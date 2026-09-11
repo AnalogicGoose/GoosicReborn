@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) && !GOOSIC_PREVIEW_NO_WEBKIT
 import AppKit
 import AppKitBackend
 import Foundation
@@ -24,7 +24,10 @@ final class OfficialPlaybackHost: NSObject {
     private var expectedToken: String?
     private var expectedGeneration: UInt64?
     private var expectedVideoID: String?
-    private var lastSequence: UInt64 = 0
+    /// Sequence from the current page document, used only to reject duplicate bridge events.
+    private var lastBridgeSequence: UInt64 = 0
+    /// Lease-wide sequence sent to Rust. Unlike the page sequence, it survives track reloads.
+    private var sampleSequence = OfficialSampleSequence()
     private var advertisementActive = false
     private var transport = MacMediaTransportRequest()
     private var transportInFlight = false
@@ -110,7 +113,7 @@ final class OfficialPlaybackHost: NSObject {
         if container != nil { _ = makeWebView(profile: profile) }
     }
 
-    func load(videoID: String, generation: UInt64) {
+    func load(videoID: String, generation: UInt64, volume: Double = 1, muted: Bool = false) {
         guard let webView else {
             onStatus?("Official host is not attached to the native view.")
             return
@@ -131,7 +134,8 @@ final class OfficialPlaybackHost: NSObject {
         expectedGeneration = generation
         expectedVideoID = videoID
         loadedVideoID = videoID
-        lastSequence = 0
+        lastBridgeSequence = 0
+        sampleSequence.begin(generation: generation)
         advertisementActive = false
         isLoading = true
 
@@ -149,6 +153,11 @@ final class OfficialPlaybackHost: NSObject {
         // previous load can never satisfy the checks in `handleMessage`.
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
+        controller.addUserScript(WKUserScript(
+            source: OfficialVolumeBootstrap.script(volume: volume, muted: muted),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
         // `removeAllUserScripts` also removes the configuration-time guard, so restore it for
         // every document before adding this load's identity-bound observer.
         controller.addUserScript(WKUserScript(
@@ -163,6 +172,9 @@ final class OfficialPlaybackHost: NSObject {
         ))
 
         webView.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy))
+        // A native card tap is the playback gesture. Queue the intent before navigation so the
+        // first observer event can start the media as soon as WebKit creates its element.
+        transport.request(paused: false)
         onStatus?("Official host loading \(videoID)…")
     }
 
@@ -219,7 +231,7 @@ final class OfficialPlaybackHost: NSObject {
             return
         }
         let target = Self.javaScriptNumber(min(max(volume, 0), 1))
-        evaluateMediaScript("media => { media.muted = false; media.volume = \(target); return 'volume-requested'; }")
+        evaluateMediaScript("media => { window.goosicSetVolumePreference?.(\(target), undefined); return 'volume-requested'; }")
     }
 
     func setMuted(_ muted: Bool) {
@@ -227,7 +239,7 @@ final class OfficialPlaybackHost: NSObject {
             onStatus?("Mute is unavailable while the official player is showing an advertisement.")
             return
         }
-        evaluateMediaScript("media => { media.muted = \(muted ? "true" : "false"); return 'mute-requested'; }")
+        evaluateMediaScript("media => { window.goosicSetVolumePreference?.(undefined, \(muted ? "true" : "false")); return 'mute-requested'; }")
     }
 
     /// Formats a validated, finite `Double` as a JavaScript numeric literal.
@@ -272,7 +284,8 @@ final class OfficialPlaybackHost: NSObject {
         expectedToken = nil
         expectedGeneration = nil
         expectedVideoID = nil
-        lastSequence = 0
+        lastBridgeSequence = 0
+        sampleSequence.reset()
         advertisementActive = false
         loadedVideoID = nil
         isLoading = false
@@ -437,7 +450,7 @@ final class OfficialPlaybackHost: NSObject {
             expectedToken: expectedToken,
             expectedGeneration: expectedGeneration,
             expectedVideoID: expectedVideoID,
-            lastSequence: lastSequence
+            lastSequence: lastBridgeSequence
         ) {
             // An opaque rejection is unactionable, and every one of these has a different fix.
             onStatus?("Rejected an official-player bridge event: \(reason).")
@@ -454,14 +467,18 @@ final class OfficialPlaybackHost: NSObject {
                 "advertisement": "\(event.isAdvertisement)",
             ])
         }
-        lastSequence = event.sequence
+        lastBridgeSequence = event.sequence
+        guard let leaseSequence = sampleSequence.issue(for: event.generation) else {
+            onStatus?("Rejected an official-player event with no active playback lease.")
+            return
+        }
         advertisementActive = event.isAdvertisement
         isLoading = false
         drainTransport()
         onEvent?(OfficialPlaybackEvent(
             generation: event.generation,
             videoID: event.videoID,
-            sequence: event.sequence,
+            sequence: leaseSequence,
             state: event.state,
             currentTime: event.currentTime,
             duration: event.duration,

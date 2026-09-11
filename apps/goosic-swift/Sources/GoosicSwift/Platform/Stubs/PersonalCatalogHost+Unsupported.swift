@@ -1,9 +1,16 @@
-#if !os(macOS)
+#if !os(macOS) || GOOSIC_PREVIEW_NO_WEBKIT
 import Foundation
 
 @MainActor
 final class PersonalCatalogHost {
     func bind(profileIdentifier: UUID?) {}
+
+    func loadRadio(
+        seedVideoID: String, continuation: String? = nil,
+        completion: @escaping (Result<GoosicCatalogPage, Error>) -> Void
+    ) {
+        completion(.failure(PersonalCatalogUnavailable()))
+    }
 
     func load(
         section: PersonalLibrarySection,

@@ -30,11 +30,22 @@ route still runs, so nothing that used to work stops working. This
 restores the content-reading half of the previous Library without moving credentials into Rust
 or weakening the service protocol.
 
-The following product areas from the previous Goosic remain separate follow-up work: library
-mutations such as liking, following, creating, editing, and deleting playlists; a dedicated
-user-playlist sidebar index; category sub-pages; saved queue creation; podcasts; and authenticated
-channel switching. None of those are represented as complete merely because their read-only
-content can now be displayed.
+Native discovery cards start the selected song and fetch its Up Next station through the
+account's personal reader. The reader calls `/next` and projects only the playlist panel;
+Listen again and other discovery shelves are never queue inputs. Guest playback uses the
+anonymous radio reader. A station keeps its original seed, reader/account identity, and
+continuation; request revisions reject replies from a replaced queue. Album and playlist
+track lists remain explicit ordered queues. The native sidebar also lists the account's
+playlists with their artwork. Library mutation support exists, but complete state derivation
+and UI coverage, category sub-pages, saved queues, podcasts, and channel switching remain
+follow-up work.
+
+The macOS official renderer receives the saved volume and mute preference with each load.
+A document-start media gate applies those values before content playback and guards later
+media resets. Advertisement-marked playback remains outside that gate. Native slider changes
+update the gate's preference; renderer reports only confirm or reapply it. Executable
+JavaScript fixtures cover the ordering and replacement behavior; they do not substitute for
+listening through real advertisement transitions in WebKit.
 
 The boundary is intentional. Anonymous catalog reads stay in Rust and are testable on every
 platform. Account-scoped reads stay in the native browser profile that already owns the login

@@ -124,6 +124,12 @@ private struct NativeMacRootView: SwiftUI.View {
 
     var body: some SwiftUI.View {
         ZStack(alignment: .topLeading) {
+            // Bottommost, so the detail column, the glass sidebar, and the player bar all sit on it.
+            if model.artworkBackground {
+                NativeMacArtworkBackdrop(file: model.artworkFile(for: model.currentTrack?.thumbnail))
+                    .transition(.opacity)
+            }
+
             ZStack(alignment: .bottom) {
                 detailContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -173,6 +179,14 @@ private struct NativeMacRootView: SwiftUI.View {
             if sidebarVisible {
                 NativeMacSidebar(store: store)
                     .transition(.move(edge: .leading))
+            }
+
+            // Above everything, but the layers beneath stay mounted: the official playback
+            // surface in particular must outlive opening and closing this.
+            if model.fullPlayerOpen && model.currentTrack != nil {
+                NativeMacFullPlayer(store: store)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(10)
             }
         }
         // Owned here rather than by the menu that opens it: a context menu is gone by the time
@@ -226,11 +240,29 @@ private struct NativeMacRootView: SwiftUI.View {
                 .help(sidebarVisible ? "Hide sidebar" : "Show sidebar")
                 .keyboardShortcut("s", modifiers: [.command, .control])
             }
+            // The full-screen player's title-bar controls. They are toolbar items rather than
+            // part of that player's view because only a toolbar item keeps its drag in the title
+            // bar; a slider drawn there by the content moves the window instead.
+            ToolbarItemGroup(placement: .primaryAction) {
+                if model.fullPlayerOpen && model.currentTrack != nil {
+                    NativeMacFullPlayerVolume(store: store)
+                    SwiftUI.Button {
+                        model.setFullPlayerOpen(false)
+                    } label: {
+                        SwiftUI.Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    }
+                    .keyboardShortcut(.cancelAction)
+                    .help("Exit full-screen player")
+                    .accessibilityLabel("Exit full-screen player")
+                }
+            }
         }
         .modifier(NativeMacTransparentToolbar())
         .background(NativeMacWindowChrome())
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: model.queueVisible)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: model.lyricsVisible)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: model.artworkBackground)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: model.fullPlayerOpen)
     }
 
     @SwiftUI.ViewBuilder
@@ -290,6 +322,38 @@ private struct NativeMacTransparentToolbar: SwiftUI.ViewModifier {
 
 /// Makes the hosting window edge-to-edge: content extends under the titlebar, so the system
 /// sidebar and toolbar glass have something to refract instead of sitting on window chrome.
+/// The playing track's artwork, blurred and tinted with the window colour, filling the window
+/// under the transparent title bar. Crossfades when the track changes.
+private struct NativeMacArtworkBackdrop: SwiftUI.View {
+    let file: URL?
+    @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some SwiftUI.View {
+        let image = file.flatMap { ArtworkBackdropRenderer.backdrop(for: $0) }
+        SwiftUI.Color.clear
+            .overlay {
+                if let file, let image {
+                    SwiftUI.Image(decorative: image, scale: 1)
+                        .resizable()
+                        .scaledToFill()
+                        .id(file)
+                        .transition(.opacity)
+                }
+            }
+            .overlay {
+                if image != nil {
+                    SwiftUI.Color(nsColor: .windowBackgroundColor)
+                        .opacity(ArtworkBackdropRenderer.tintOpacity)
+                }
+            }
+            .clipped()
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: file)
+    }
+}
+
 private struct NativeMacWindowChrome: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -363,40 +427,11 @@ private struct NativeMacSidebar: SwiftUI.View {
     private var model: GoosicAppModel { store.model }
 
     var body: some SwiftUI.View {
-        applyingSidebarFooter(to: SwiftUI.List {
-            SwiftUI.Section {
-                row(.search, icon: "magnifyingglass")
-                row(.home, icon: "house.fill")
-            }
-
-            SwiftUI.Section("Discover") {
-                row(.explore, icon: "globe")
-                row(.charts, icon: "chart.xyaxis.line")
-                row(.moodsAndGenres, icon: "theatermasks")
-                row(.newReleases, icon: "sparkles")
-            }
-
-            SwiftUI.Section("Library") {
-                libraryRow(.songs, title: "Favourite Songs", icon: "star.square.on.square")
-                libraryRow(.artists, title: "Artists", icon: "music.mic")
-                libraryRow(.albums, title: "Albums", icon: "square.stack")
-                row(.downloads, icon: "arrow.down.circle")
-            }
-
-            SwiftUI.Section("Playlists") {
-                libraryRow(.playlists, title: "All Playlists", icon: "square.grid.2x2")
-                SwiftUI.ForEach(model.userPlaylists) { playlist in
-                    playlistRow(playlist)
-                }
-            }
-
-            SwiftUI.Section("Goosic") {
-                row(.settings, icon: "gearshape")
-            }
+        SwiftUI.VStack(spacing: 0) {
+            sidebarList
+                .mask(sidebarScrollMask)
+            accountButton
         }
-        .listStyle(.sidebar)
-        .environment(\.defaultMinListRowHeight, 30)
-        .scrollContentBackground(.hidden))
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .background { NativeMacSidebarSurface().ignoresSafeArea() }
@@ -411,19 +446,57 @@ private struct NativeMacSidebar: SwiftUI.View {
         }
     }
 
-    /// macOS 26+ owns the scroll-edge blur used by source lists. Keeping the availability check
-    /// here lets older hosts retain the same pinned account control without depending on a newer
-    /// SDK at runtime.
+    private var sidebarList: some SwiftUI.View {
+        SwiftUI.List {
+            SwiftUI.Section {
+                row(.search, icon: "magnifyingglass")
+                row(.home, icon: "house.fill")
+            }
+            SwiftUI.Section("Discover") {
+                row(.explore, icon: "globe")
+                row(.charts, icon: "chart.xyaxis.line")
+                row(.moodsAndGenres, icon: "theatermasks")
+                row(.newReleases, icon: "sparkles")
+            }
+            SwiftUI.Section("Library") {
+                libraryRow(.songs, title: "Favourite Songs", icon: "star.square.on.square")
+                libraryRow(.artists, title: "Artists", icon: "music.mic")
+                libraryRow(.albums, title: "Albums", icon: "square.stack")
+                row(.downloads, icon: "arrow.down.circle")
+            }
+            SwiftUI.Section("Playlists") {
+                libraryRow(.playlists, title: "All Playlists", icon: "square.grid.2x2")
+                SwiftUI.ForEach(model.userPlaylists) { playlist in playlistRow(playlist) }
+            }
+            SwiftUI.Section("Goosic") { row(.settings, icon: "gearshape") }
+        }
+        .listStyle(.sidebar)
+        .environment(\.defaultMinListRowHeight, 30)
+        .scrollContentBackground(.hidden)
+    }
+
+    /// Fade the scrolling content, not the sidebar surface. The one continuous sidebar material
+    /// therefore shows through at both edges instead of producing a footer-colored rectangle.
     @SwiftUI.ViewBuilder
-    private func applyingSidebarFooter<Content: SwiftUI.View>(
-        to content: Content
-    ) -> some SwiftUI.View {
-        if #available(macOS 26.0, *), !reduceTransparency {
-            content
-                .safeAreaBar(edge: .bottom, spacing: 0) { footer }
-                .scrollEdgeEffectStyle(.soft, for: .bottom)
+    private var sidebarScrollMask: some SwiftUI.View {
+        if reduceTransparency {
+            SwiftUI.Rectangle().fill(SwiftUI.Color.black)
         } else {
-            content.safeAreaInset(edge: .bottom, spacing: 0) { footer }
+            SwiftUI.VStack(spacing: 0) {
+                SwiftUI.LinearGradient(
+                    colors: [SwiftUI.Color.clear, SwiftUI.Color.black],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                    .frame(height: 62)
+                SwiftUI.Rectangle().fill(SwiftUI.Color.black)
+                SwiftUI.LinearGradient(
+                    colors: [SwiftUI.Color.black, SwiftUI.Color.clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                    .frame(height: 58)
+            }
         }
     }
 
@@ -463,7 +536,7 @@ private struct NativeMacSidebar: SwiftUI.View {
                 SwiftUI.Text(title).fontWeight(selected ? .semibold : .regular)
             } icon: {
                 NativeMacFixedSymbol(name: icon, glyphSize: 16, width: 22, height: 22)
-                    .foregroundStyle(SwiftUI.Color.goosicPink)
+                    .foregroundStyle(SwiftUI.Color.blue)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -506,7 +579,7 @@ private struct NativeMacSidebar: SwiftUI.View {
         return id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
     }
 
-    private var footer: some SwiftUI.View {
+    private var accountButton: some SwiftUI.View {
         SwiftUI.Button { model.navigate(to: .settings) } label: {
             SwiftUI.HStack(spacing: 10) {
                 NativeMacAccountAvatar(
@@ -662,7 +735,11 @@ private struct NativeMacPlayerBar: SwiftUI.View {
     private var nowPlaying: some SwiftUI.View {
         SwiftUI.VStack(spacing: 4) {
             SwiftUI.HStack(spacing: 10) {
-                NativeMacPanelArtwork(url: model.currentTrack?.thumbnail, size: playerExpanded ? 42 : 36)
+                NativeMacExpandableArtwork(
+                    url: model.currentTrack?.thumbnail,
+                    size: playerExpanded ? 42 : 36,
+                    enabled: model.currentTrack != nil
+                ) { model.setFullPlayerOpen(true) }
                 SwiftUI.VStack(alignment: .leading, spacing: 2) {
                     SwiftUI.Text(model.currentTrack?.title ?? "Nothing playing")
                         .font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -1045,6 +1122,51 @@ private struct NativeMacPanelArtwork: SwiftUI.View {
     }
 }
 
+/// The player bar's cover, which opens the full-screen player. On hover the art dims and lifts
+/// slightly and an expand badge appears over it, as in Music, so it reads as a control.
+private struct NativeMacExpandableArtwork: SwiftUI.View {
+    let url: String?
+    let size: CGFloat
+    let enabled: Bool
+    let action: () -> Void
+    @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovered = false
+
+    private var highlighted: Bool { hovered && enabled }
+
+    var body: some SwiftUI.View {
+        SwiftUI.Button(action: action) {
+            NativeMacPanelArtwork(url: url, size: size)
+                .overlay {
+                    if highlighted {
+                        SwiftUI.ZStack {
+                            RoundedRectangle(cornerRadius: size / 6)
+                                .fill(SwiftUI.Color.black.opacity(0.38))
+                            SwiftUI.Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: size * 0.28, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: size * 0.56, height: size * 0.56)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: size * 0.14)
+                                        .stroke(.white.opacity(0.9), lineWidth: 1.5)
+                                )
+                        }
+                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
+                }
+                .scaleEffect(highlighted ? 1.06 : 1)
+                .shadow(color: .black.opacity(highlighted ? 0.28 : 0), radius: 6, y: 3)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .onHover { hovered = $0 }
+        .animation(reduceMotion ? nil : .spring(duration: 0.24, bounce: 0.3), value: highlighted)
+        .help("Open full-screen player")
+        .accessibilityLabel("Open full-screen player")
+    }
+}
+
 private struct NativeMacPanelGlass: SwiftUI.ViewModifier {
     @SwiftUI.ViewBuilder
     func body(content: Content) -> some SwiftUI.View {
@@ -1092,24 +1214,259 @@ private struct NativeMacSettingsView: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
 
     private var model: GoosicAppModel { store.model }
+    private var accountChangesDisabled: Bool {
+        !model.serviceConnected
+            || model.accountOperationInProgress
+            || model.playbackTransition != .idle
+            || model.isAdvertisement
+    }
 
     var body: some SwiftUI.View {
-        SwiftUI.Form {
-            SwiftUI.Section("Connection") {
-                SwiftUI.LabeledContent("Rust service", value: model.serviceConnected ? "Connected" : "Offline")
-                SwiftUI.Button("Connect", action: model.connect).disabled(model.serviceConnected)
+        SwiftUI.ScrollView {
+            SwiftUI.VStack(alignment: .leading, spacing: 22) {
+                SwiftUI.VStack(alignment: .leading, spacing: 4) {
+                    SwiftUI.Text("Settings")
+                        .font(.largeTitle.bold())
+                    SwiftUI.Text("Personalize playback and manage your Goosic account.")
+                        .foregroundStyle(.secondary)
+                }
+
+                settingsCard("Connection", systemImage: "bolt.horizontal.circle.fill") {
+                    settingsRow(
+                        title: "Goosic service",
+                        detail: model.serviceConnected ? "Connected and ready" : "The playback service is offline",
+                        systemImage: model.serviceConnected ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                        tint: model.serviceConnected ? .green : .orange
+                    ) {
+                        SwiftUI.Button(model.serviceConnected ? "Connected" : "Reconnect", action: model.connect)
+                            .disabled(model.serviceConnected)
+                            .modifier(NativeMacSettingsButtonStyle(prominent: !model.serviceConnected))
+                    }
+                }
+
+                settingsCard("Playback", systemImage: "play.circle.fill") {
+                    settingToggle(
+                        "Autoplay",
+                        detail: "Keep the music going with related recommendations.",
+                        systemImage: "infinity",
+                        isOn: SwiftUI.Binding(get: { model.autoplay }, set: model.setAutoplay)
+                    )
+                    SwiftUI.Divider().opacity(0.45)
+                    settingToggle(
+                        "Shuffle",
+                        detail: "Play the current queue in a randomized order.",
+                        systemImage: "shuffle",
+                        isOn: SwiftUI.Binding(
+                            get: { model.shuffle },
+                            set: { enabled in if enabled != model.shuffle { model.toggleShuffle() } }
+                        )
+                    )
+                    SwiftUI.Divider().opacity(0.45)
+                    settingToggle(
+                        "Album Art Background",
+                        detail: "Blur the playing track's artwork behind the window.",
+                        systemImage: "photo.fill",
+                        isOn: SwiftUI.Binding(
+                            get: { model.artworkBackground },
+                            set: model.setArtworkBackground
+                        )
+                    )
+                }
+
+                settingsCard("Accounts", systemImage: "person.crop.circle.fill") {
+                    SwiftUI.HStack(spacing: 14) {
+                        NativeMacAccountAvatar(
+                            url: model.activeAccount?.avatarUrl,
+                            fallback: String(model.activeAccountLabel.prefix(1)).uppercased()
+                        )
+                        .scaleEffect(1.2)
+                        .frame(width: 42, height: 42)
+
+                        SwiftUI.VStack(alignment: .leading, spacing: 2) {
+                            SwiftUI.Text(model.activeAccountLabel).font(.headline)
+                            SwiftUI.Text(model.activeAccount?.email ?? model.activeAccount?.channel ?? "Not signed in")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        SwiftUI.Spacer()
+                        SwiftUI.Button("Add Account", systemImage: "person.badge.plus", action: model.signIn)
+                            .disabled(accountChangesDisabled)
+                            .modifier(NativeMacSettingsButtonStyle(prominent: model.accounts.isEmpty))
+                    }
+
+                    if !model.accounts.isEmpty {
+                        SwiftUI.Divider().opacity(0.45)
+                        SwiftUI.VStack(spacing: 0) {
+                            SwiftUI.ForEach(Array(model.accounts.enumerated()), id: \.element.id) { index, account in
+                                accountRow(account)
+                                if index < model.accounts.count - 1 {
+                                    SwiftUI.Divider().padding(.leading, 46).opacity(0.45)
+                                }
+                            }
+                        }
+                    }
+
+                    SwiftUI.Text("Sign-in data remains inside each account's isolated WebKit profile and never enters the playback service.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            SwiftUI.Section("Playback") {
-                SwiftUI.Toggle("Autoplay", isOn: Binding(get: { model.autoplay }, set: model.setAutoplay))
-                SwiftUI.Toggle("Shuffle", isOn: Binding(get: { model.shuffle }, set: { _ in model.toggleShuffle() }))
+            .frame(maxWidth: 720, alignment: .leading)
+            .padding(.horizontal, 32)
+            .padding(.top, 28)
+            .padding(.bottom, 130)
+            .frame(maxWidth: .infinity)
+        }
+        .background(SwiftUI.Color(nsColor: .windowBackgroundColor).opacity(0.35))
+        .onAppear { model.loadAccounts() }
+    }
+
+    private func settingsCard<Content: SwiftUI.View>(
+        _ title: String,
+        systemImage: String,
+        @SwiftUI.ViewBuilder content: () -> Content
+    ) -> some SwiftUI.View {
+        SwiftUI.VStack(alignment: .leading, spacing: 16) {
+            SwiftUI.Label(title, systemImage: systemImage)
+                .font(.headline)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(SwiftUI.Color.goosicPink)
+            content()
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(NativeMacSettingsCardStyle())
+    }
+
+    private func settingToggle(
+        _ title: String,
+        detail: String,
+        systemImage: String,
+        isOn: SwiftUI.Binding<Bool>
+    ) -> some SwiftUI.View {
+        SwiftUI.HStack(spacing: 13) {
+            settingsIcon(systemImage, tint: .goosicPink)
+            SwiftUI.VStack(alignment: .leading, spacing: 2) {
+                SwiftUI.Text(title).font(.body.weight(.medium))
+                SwiftUI.Text(detail).font(.caption).foregroundStyle(.secondary)
             }
-            SwiftUI.Section("Account") {
-                SwiftUI.LabeledContent("Profile", value: model.activeAccountLabel)
-                SwiftUI.Button(model.activeAccount == nil ? "Add account" : "Manage accounts", action: model.signIn)
+            SwiftUI.Spacer()
+            SwiftUI.Toggle(title, isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(.goosicPink)
+                .controlSize(.large)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func settingsRow<Trailing: SwiftUI.View>(
+        title: String,
+        detail: String,
+        systemImage: String,
+        tint: SwiftUI.Color,
+        @SwiftUI.ViewBuilder trailing: () -> Trailing
+    ) -> some SwiftUI.View {
+        SwiftUI.HStack(spacing: 13) {
+            settingsIcon(systemImage, tint: tint)
+            SwiftUI.VStack(alignment: .leading, spacing: 2) {
+                SwiftUI.Text(title).font(.body.weight(.medium))
+                SwiftUI.Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            SwiftUI.Spacer()
+            trailing()
+        }
+    }
+
+    private func settingsIcon(_ systemImage: String, tint: SwiftUI.Color) -> some SwiftUI.View {
+        SwiftUI.Image(systemName: systemImage)
+            .symbolRenderingMode(.hierarchical)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: 32, height: 32)
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private func accountRow(_ account: GoosicAccountSummary) -> some SwiftUI.View {
+        let active = account.id == model.activeAccountId
+        return SwiftUI.HStack(spacing: 12) {
+            NativeMacAccountAvatar(
+                url: account.avatarUrl,
+                fallback: String(account.displayName.prefix(1)).uppercased()
+            )
+            SwiftUI.VStack(alignment: .leading, spacing: 1) {
+                SwiftUI.HStack(spacing: 6) {
+                    SwiftUI.Text(account.displayName).fontWeight(.medium)
+                    if active {
+                        SwiftUI.Text("ACTIVE")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.green)
+                    }
+                }
+                SwiftUI.Text(account.email ?? account.channel ?? "YouTube Music account")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            SwiftUI.Spacer()
+            if !active {
+                SwiftUI.Button("Use") { model.switchAccount(to: account.id) }
+                    .disabled(accountChangesDisabled)
+                    .modifier(NativeMacSettingsButtonStyle(prominent: false))
+            }
+            SwiftUI.Menu {
+                SwiftUI.Button(active ? "Sign Out" : "Remove Account", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
+                    if active { model.signOut() } else { model.removeAccount(account.id) }
+                }
+                .disabled(accountChangesDisabled)
+            } label: {
+                SwiftUI.Image(systemName: "ellipsis")
+                    .frame(width: 26, height: 26)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Account options")
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct NativeMacSettingsCardStyle: SwiftUI.ViewModifier {
+    @SwiftUI.ViewBuilder
+    func body(content: Content) -> some SwiftUI.View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular, in: .rect(cornerRadius: 20))
+        } else {
+            content
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(.primary.opacity(0.08), lineWidth: 1)
+                )
+        }
+    }
+}
+
+private struct NativeMacSettingsButtonStyle: SwiftUI.ViewModifier {
+    let prominent: Bool
+
+    @SwiftUI.ViewBuilder
+    func body(content: Content) -> some SwiftUI.View {
+        if #available(macOS 26.0, *) {
+            if prominent {
+                content.buttonStyle(.glassProminent).tint(.goosicPink)
+            } else {
+                content.buttonStyle(.glass).tint(Optional<SwiftUI.Color>.none)
+            }
+        } else {
+            if prominent {
+                content.buttonStyle(.borderedProminent).tint(.goosicPink)
+            } else {
+                content.buttonStyle(.bordered).tint(Optional<SwiftUI.Color>.none)
             }
         }
-        .formStyle(.grouped)
-        .padding(20)
     }
 }
 
@@ -1141,4 +1498,44 @@ private struct NativeMacOfficialPlaybackSurface: SwiftUI.NSViewRepresentable {
 private extension SwiftUI.Color {
     static let goosicPink = SwiftUI.Color(red: 1.0, green: 0.02, blue: 0.32)
 }
+
+#if DEBUG
+/// Canvas host for the complete native shell. It intentionally renders the model without
+/// calling `connect()`, so previews never start the Rust child or touch account WebKit state.
+@MainActor
+private struct NativeMacAppPreview: SwiftUI.View {
+    @StateObject private var store = NativeMacModelStore()
+    let colorScheme: SwiftUI.ColorScheme?
+    let height: CGFloat
+
+    var body: some SwiftUI.View {
+        NativeMacRootView(store: store)
+            .tint(.goosicPink)
+            .preferredColorScheme(colorScheme)
+            .frame(width: 1_280, height: height)
+    }
+}
+
+#Preview("Full App — System") {
+    NativeMacAppPreview(colorScheme: nil, height: 800)
+}
+
+#Preview("Full App — Light") {
+    NativeMacAppPreview(colorScheme: .light, height: 800)
+}
+
+#Preview("Full App — Dark") {
+    NativeMacAppPreview(colorScheme: .dark, height: 800)
+}
+
+#Preview("Full App — Compact Height") {
+    NativeMacAppPreview(colorScheme: nil, height: 680)
+}
+
+#Preview("Settings — macOS 26") {
+    NativeMacSettingsView(store: NativeMacModelStore())
+        .tint(.goosicPink)
+        .frame(width: 900, height: 760)
+}
+#endif
 #endif

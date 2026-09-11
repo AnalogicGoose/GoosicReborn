@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) && !GOOSIC_PREVIEW_NO_WEBKIT
 import Foundation
 import WebKit
 
@@ -23,6 +23,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         let title: String
         let continuation: String?
         let shape: CatalogPageShape
+        let radio: Bool
         let submittedAt: Date
         let completion: (Result<GoosicCatalogPage, Error>) -> Void
     }
@@ -82,6 +83,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         title: String,
         continuation: String? = nil,
         shape: CatalogPageShape = .auto,
+        radio: Bool = false,
         completion: @escaping (Result<GoosicCatalogPage, Error>) -> Void
     ) {
         guard profileIdentifier != nil else {
@@ -90,7 +92,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         }
         let request = Request(
             id: UUID(), browseID: browseID, title: title, continuation: continuation,
-            shape: shape, submittedAt: Date(), completion: completion
+            shape: shape, radio: radio, submittedAt: Date(), completion: completion
         )
         note("request", ["browse": browseID, "continuation": "\(continuation != nil)", "pageReady": "\(pageReady)"])
         Task { @MainActor [weak self] in
@@ -114,6 +116,14 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
             waiting.append(request)
             ensurePage()
         }
+    }
+
+    func loadRadio(
+        seedVideoID: String, continuation: String? = nil,
+        completion: @escaping (Result<GoosicCatalogPage, Error>) -> Void
+    ) {
+        loadBrowse(browseID: seedVideoID, title: "Up Next", continuation: continuation,
+                   shape: .tracks, radio: true, completion: completion)
     }
 
     // MARK: - Mutations
@@ -296,7 +306,9 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
             return
         }
         running[request.id] = request
-        let script = program + "\nreturn await GoosicPersonalCatalog.browse(browseId, title, continuation, shape);"
+        let script = program + (request.radio
+            ? "\nreturn await GoosicPersonalCatalog.radio(browseId, continuation);"
+            : "\nreturn await GoosicPersonalCatalog.browse(browseId, title, continuation, shape);")
         let arguments: [String: Any] = [
             "browseId": request.browseID,
             "title": request.title,

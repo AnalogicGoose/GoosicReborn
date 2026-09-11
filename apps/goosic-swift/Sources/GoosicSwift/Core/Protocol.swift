@@ -90,6 +90,7 @@ struct GoosicPreferencesPatch: Codable {
     var queueVisible: Bool?
     var shuffle: Bool?
     var repeatMode: String?
+    var artworkBackground: Bool?
 
     init(
         theme: String? = nil,
@@ -99,7 +100,8 @@ struct GoosicPreferencesPatch: Codable {
         lastRoute: String? = nil,
         queueVisible: Bool? = nil,
         shuffle: Bool? = nil,
-        repeatMode: String? = nil
+        repeatMode: String? = nil,
+        artworkBackground: Bool? = nil
     ) {
         self.theme = theme
         self.volume = volume
@@ -109,6 +111,7 @@ struct GoosicPreferencesPatch: Codable {
         self.queueVisible = queueVisible
         self.shuffle = shuffle
         self.repeatMode = repeatMode
+        self.artworkBackground = artworkBackground
     }
 }
 
@@ -264,6 +267,9 @@ struct GoosicSettings: Codable {
     var shuffle: Bool
     /// `off`, `all`, or `one`.
     var repeatMode: String
+    /// Optional on the wire so a service built before this preference existed still decodes;
+    /// absent means the default, which is on.
+    var artworkBackground: Bool?
     /// Whether preferences from a previous Goosic install have been imported.
     var importedFromLegacy: Bool
     /// Whether a previous Goosic install's preferences are present to import.

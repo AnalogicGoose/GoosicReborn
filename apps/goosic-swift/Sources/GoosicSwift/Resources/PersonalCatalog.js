@@ -855,5 +855,46 @@ const GoosicPersonalCatalog = (() => {
       : { value: value ?? null });
   }
 
-  return { browse, mutate };
+  // Read only the selected Up Next panel. Other tabs can contain unrelated recommendations
+  // and continuations, so a recursive search of the whole response is deliberately avoided.
+  function parseRadio(json, seedVideoId) {
+    const tabs = json?.contents?.singleColumnMusicWatchNextResultsRenderer
+      ?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs ?? [];
+    const panel = json?.continuationContents?.playlistPanelContinuation ?? tabs
+      .map(tab => tab.tabRenderer?.content?.musicQueueRenderer?.content?.playlistPanelRenderer)
+      .find(Boolean);
+    if (!panel) throw new Error("YouTube Music returned no Up Next panel");
+    const seen = new Set([seedVideoId]);
+    const tracks = [];
+    for (const item of panel.contents ?? []) {
+      const row = item.playlistPanelVideoRenderer ?? item.playlistPanelVideoWrapperRenderer
+        ?.primaryRenderer?.playlistPanelVideoRenderer;
+      if (!row || !/^[A-Za-z0-9_-]{11}$/.test(row.videoId ?? "") || seen.has(row.videoId)) continue;
+      seen.add(row.videoId);
+      tracks.push(toWireItem({
+        kind: "song", id: row.videoId, title: readRuns(row.title),
+        subtitle: readRuns(row.longBylineText),
+        artists: [{ name: readRuns(row.shortBylineText) }],
+        duration: readRuns(row.lengthText), thumbnails: readThumbnails(row.thumbnail),
+        explicit: readExplicit(row),
+      }));
+    }
+    return {
+      id: `personal:radio:${seedVideoId}`, title: "Up Next", subtitle: "",
+      shelves: [], tracks, thumbnail: null,
+      nextCursor: findContinuationToken(panel.continuations ?? []) ??
+        findContinuationToken((panel.contents ?? []).filter(item => item.continuationItemRenderer)) ?? null,
+      truncated: false,
+    };
+  }
+
+  async function radio(seedVideoId, continuation) {
+    if (!/^[A-Za-z0-9_-]{11}$/.test(seedVideoId ?? "")) throw new Error("Invalid station seed");
+    const body = continuation
+      ? { continuation }
+      : { videoId: seedVideoId, playlistId: `RDAMVM${seedVideoId}`, isAudioOnly: true };
+    return JSON.stringify(parseRadio(await innertubePost("next", body), seedVideoId));
+  }
+
+  return { browse, mutate, radio, parseRadio };
 })();
