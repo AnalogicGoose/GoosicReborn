@@ -348,6 +348,24 @@ final class PreferencesWireTests: XCTestCase {
         XCTAssertTrue(settings.importedFromLegacy)
         XCTAssertTrue(settings.shuffle)
         XCTAssertEqual(RepeatMode(rawValue: settings.repeatMode), .all)
+        XCTAssertNil(settings.artworkBackground, "a service from before the preference still decodes")
+    }
+
+    func testTheArtworkBackgroundDecodesWhenTheServiceSendsIt() throws {
+        let wire = """
+        {"theme":"dark","volume":0.4,"muted":false,"autoplay":true,"lastRoute":"charts",\
+        "queueVisible":false,"shuffle":true,"repeatMode":"all","artworkBackground":true,\
+        "importedFromLegacy":false,"legacyAvailable":false}
+        """
+        let settings = try JSONDecoder().decode(GoosicSettings.self, from: Data(wire.utf8))
+        XCTAssertEqual(settings.artworkBackground, true)
+    }
+
+    func testAnArtworkBackgroundPatchCarriesOnlyThatField() throws {
+        let encoded = try JSONEncoder().encode(GoosicPreferencesPatch(artworkBackground: true))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(object.count, 1)
+        XCTAssertEqual(object["artworkBackground"] as? Bool, true)
     }
 
     func testEveryRouteRawValueRoundTripsSoARestoredRouteIsNeverLost() {

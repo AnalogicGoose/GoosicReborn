@@ -182,7 +182,7 @@ final class PersonalMutationWireTests: XCTestCase {
     func testTheMutationEntryPointIsExposedToTheHost() throws {
         let program = try program()
         XCTAssertTrue(program.contains("async function mutate(operation, args)"))
-        XCTAssertTrue(program.contains("return { browse, mutate };"))
+        XCTAssertTrue(program.contains("return { browse, mutate, radio, parseRadio };"))
     }
 }
 

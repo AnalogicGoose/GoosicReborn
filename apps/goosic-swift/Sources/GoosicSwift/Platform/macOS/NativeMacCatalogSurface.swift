@@ -1,6 +1,8 @@
 #if os(macOS) && !GOOSIC_PORTABLE
 import AppKit
+#if !GOOSIC_PREVIEW_NO_WEBKIT
 import AppKitBackend
+#endif
 import SwiftCrossUI
 import SwiftUI
 
@@ -10,6 +12,7 @@ import SwiftUI
 /// `ScrollView`'s viewport. A YouTube Music page can contain hundreds of cards, which blocks
 /// AppKit's main run loop and produces the beach ball. Native SwiftUI's lazy stacks retain only
 /// the visible neighborhood, which is the same rendering strategy used by Kaset.
+#if !GOOSIC_PREVIEW_NO_WEBKIT
 struct NativeMacCatalogRouteSurfaceBackend: GoosicAppKitRepresentable {
     let route: GoosicRoute
     let title: String
@@ -57,6 +60,7 @@ struct NativeMacCatalogRouteSurface: SwiftCrossUI.View {
         )
     }
 }
+#endif
 
 struct NativeMacCatalogPage: SwiftUI.View {
     @SwiftUI.Environment(\.nativeMacLeadingInset) private var leadingInset
@@ -246,14 +250,9 @@ private struct NativeMacShelf: SwiftUI.View {
     let presentation: ShelfPresentation
 
     private var currentIndex: Int { shelf.cards.firstIndex { $0.id == leadingCard } ?? 0 }
-    /// Cards in one shelf are the listening context the catalog actually recommended. Keeping
-    /// them together means pressing play on a card creates a meaningful queue instead of a
-    /// one-track queue that immediately falls back to an unrelated radio result.
+    /// Discovery cards start a station. Only track lists provide an explicit ordered context.
     private var playbackContext: [GoosicTrack] {
-        shelf.cards.compactMap { card in
-            if case .play(let track) = card.action { return track }
-            return nil
-        }
+        []
     }
 
     var body: some SwiftUI.View {
@@ -317,7 +316,7 @@ private struct NativeMacTrackList: SwiftUI.View {
         SwiftUI.LazyVStack(spacing: 0) {
             SwiftUI.ForEach(tracks) { track in
                 SwiftUI.Button {
-                    model.play(track, in: tracks)
+                    model.launch(.ordered(track, tracks))
                 } label: {
                     SwiftUI.HStack(spacing: 10) {
                         NativeMacArtwork(url: track.thumbnail, width: 38, height: 38)
@@ -408,7 +407,7 @@ private struct NativeMacCatalogCard: SwiftUI.View {
     private func activate() {
         switch card.action {
         case .show(let entity): model.show(entity)
-        case .play(let track): model.play(track, in: playbackContext)
+        case .play(let track): model.launch(.resolve(track: track, explicitTracks: playbackContext))
         case .none: break
         }
     }
@@ -454,7 +453,9 @@ struct NativeMacTrackMenuItems: SwiftUI.View {
 
     var body: some SwiftUI.View {
         if includePlay {
-            SwiftUI.Button("Play", systemImage: "play.fill") { model.play(track, in: context) }
+            SwiftUI.Button("Play", systemImage: "play.fill") {
+                model.launch(.resolve(track: track, explicitTracks: context))
+            }
         }
         SwiftUI.Button("Start radio", systemImage: "dot.radiowaves.left.and.right") { model.startRadio(from: track) }
         if track.artistID != nil || track.albumID != nil {

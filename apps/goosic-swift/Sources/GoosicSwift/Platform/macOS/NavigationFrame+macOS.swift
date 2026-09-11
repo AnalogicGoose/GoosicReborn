@@ -1,4 +1,4 @@
-#if os(macOS)
+#if os(macOS) && !GOOSIC_PREVIEW_NO_WEBKIT
 import WebKit
 
 extension NavigationFrame {

@@ -193,10 +193,19 @@ pub struct SettingsSnapshot {
     pub shuffle: bool,
     /// `off`, `all`, or `one`.
     pub repeat_mode: String,
+    /// Whether the playing track's artwork is drawn, blurred, behind the content. On unless the
+    /// user turns it off. A shell with no way to draw it keeps the choice and ignores it.
+    #[serde(default = "artwork_background_default")]
+    pub artwork_background: bool,
     /// Whether preferences from a previous Goosic install have been imported.
     pub imported_from_legacy: bool,
     /// Whether a legacy store is present to import from. Never a credential store.
     pub legacy_available: bool,
+}
+
+/// A snapshot from a service that predates the preference means the default, which is on.
+fn artwork_background_default() -> bool {
+    true
 }
 
 /// A partial preference update. Absent fields are left as they are.
@@ -219,6 +228,8 @@ pub struct PreferencesPatch {
     pub shuffle: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repeat_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artwork_background: Option<bool>,
 }
 
 /// What to look lyrics up by.

@@ -208,6 +208,7 @@ struct GoosicQueue: Hashable {
 private struct GoosicRadioStation: Hashable {
     let seedVideoID: String
     var continuation: String?
+    let accountID: String?
 }
 
 @MainActor
@@ -240,7 +241,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     @SwiftCrossUI.Published private(set) var shuffle = false
     @SwiftCrossUI.Published private(set) var repeatMode: RepeatMode = .off
     @SwiftCrossUI.Published private(set) var theme: GoosicTheme = .system
+    /// Draw the playing track's artwork, blurred, behind the content. Only macOS can draw it;
+    /// elsewhere the choice is stored and has no effect.
+    @SwiftCrossUI.Published private(set) var artworkBackground = true
     @SwiftCrossUI.Published var lyricsVisible = false
+    /// The immersive full-screen player is showing. It displays lyrics, so it asks for them the
+    /// way the lyrics panel does.
+    @SwiftCrossUI.Published private(set) var fullPlayerOpen = false
     @SwiftCrossUI.Published private(set) var lyrics: GoosicLyrics?
     @SwiftCrossUI.Published private(set) var lyricsStatus = "Nothing playing."
     @SwiftCrossUI.Published private(set) var legacyImportAvailable = false
@@ -446,6 +453,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// a late accounts.get response from resurrecting an account after a switch.
     private func applyAccounts(_ snapshot: GoosicAccountsSnapshot, initial: Bool = false) {
         guard AccountSnapshotSelection.accepts(epoch: snapshot.epoch, currentEpoch: accountSnapshotEpoch, initial: initial) else { return }
+        if activeAccountId != snapshot.activeAccountId {
+            radioRequestRevision &+= 1
+            radioExtensionInFlight = false
+            radioStation = nil
+        }
         accounts = snapshot.accounts
         activeAccountId = snapshot.activeAccountId
         accountSnapshotEpoch = snapshot.epoch
@@ -756,6 +768,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     private func clearAccountScopedUI() {
+        radioRequestRevision &+= 1
+        radioExtensionInFlight = false
+        radioStation = nil
         queue = GoosicQueue(tracks: [], currentIndex: 0)
         currentTrack = nil
         detail = nil
@@ -844,9 +859,16 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
     }
 
+    /// Opens or closes the full-screen player. Only presentation changes; playback is untouched.
+    func setFullPlayerOpen(_ open: Bool) {
+        guard open != fullPlayerOpen else { return }
+        fullPlayerOpen = open
+        if open { loadLyricsIfNeeded() }
+    }
+
     /// Fetches lyrics for the current track, unless they are already loaded for it.
     func loadLyricsIfNeeded() {
-        guard lyricsVisible else { return }
+        guard lyricsVisible || fullPlayerOpen else { return }
         guard let track = currentTrack else {
             lyrics = nil
             lyricsVideoID = nil
@@ -939,6 +961,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         shuffle = settings.shuffle
         repeatMode = RepeatMode(rawValue: settings.repeatMode) ?? .off
         setTheme(GoosicTheme.named(settings.theme), persist: false)
+        artworkBackground = settings.artworkBackground ?? true
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
@@ -967,6 +990,14 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         if persist {
             savePreferences(GoosicPreferencesPatch(theme: theme.rawValue))
         }
+    }
+
+    /// Decoration, not playback, so unlike the controls around it this is never gated on a
+    /// playback transition.
+    func setArtworkBackground(_ enabled: Bool) {
+        guard enabled != artworkBackground else { return }
+        artworkBackground = enabled
+        savePreferences(GoosicPreferencesPatch(artworkBackground: enabled))
     }
 
     func toggleShuffle() {
@@ -1055,6 +1086,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         merged.autoplay = update.autoplay ?? merged.autoplay
         merged.lastRoute = update.lastRoute ?? merged.lastRoute
         merged.queueVisible = update.queueVisible ?? merged.queueVisible
+        merged.shuffle = update.shuffle ?? merged.shuffle
+        merged.repeatMode = update.repeatMode ?? merged.repeatMode
+        merged.artworkBackground = update.artworkBackground ?? merged.artworkBackground
         return merged
     }
 
@@ -1883,6 +1917,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             localPlaybackHost.setVolume(clamped)
         } else {
             officialPlaybackHost.setVolume(clamped)
+            officialPlaybackHost.setMuted(false)
         }
         savePreferences(GoosicPreferencesPatch(volume: clamped, muted: false))
     }
@@ -1940,7 +1975,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         if playbackState.owner == .officialWebView {
             currentTrack = track
             beginTrack()
-            officialPlaybackHost.load(videoID: track.videoID, generation: playbackState.generation)
+            officialPlaybackHost.load(videoID: track.videoID, generation: playbackState.generation, volume: volume, muted: isMuted)
             return
         }
 
@@ -1958,7 +1993,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             self.currentTrack = track
             self.beginTrack()
             self.finishPlaybackTransition(operationToken)
-            self.officialPlaybackHost.load(videoID: track.videoID, generation: self.playbackState.generation)
+            self.officialPlaybackHost.load(videoID: track.videoID, generation: self.playbackState.generation, volume: self.volume, muted: self.isMuted)
         } failure: { [weak self] _ in
             guard let self else { return }
             self.finishPlaybackTransition(operationToken)
@@ -2254,7 +2289,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         if playbackState.owner == .officialWebView {
             currentTrack = nil
             beginTrack()
-            officialPlaybackHost.load(videoID: videoID, generation: playbackState.generation)
+            officialPlaybackHost.load(videoID: videoID, generation: playbackState.generation, volume: volume, muted: isMuted)
             return
         }
         guard client != nil else {
@@ -2272,7 +2307,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 self.status = "Rust did not grant the officialWebView playback claim."
                 return
             }
-            self.officialPlaybackHost.load(videoID: videoID, generation: self.playbackState.generation)
+            self.officialPlaybackHost.load(videoID: videoID, generation: self.playbackState.generation, volume: self.volume, muted: self.isMuted)
             self.finishPlaybackTransition(operationToken)
         } failure: { [weak self] _ in
             guard let self else { return }
@@ -2647,58 +2682,69 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         radioExtensionInFlight = true
-        let station = radioStation ?? GoosicRadioStation(seedVideoID: seed.videoID, continuation: nil)
+        let station = radioStation ?? GoosicRadioStation(seedVideoID: seed.videoID, continuation: nil, accountID: activeAccountId)
         let revision = radioRequestRevision
         status = station.continuation == nil
             ? "Queue finished. Starting radio from \(seed.title)…"
             : "Queue finished. Loading more from this radio…"
-        requestRadio(seedVideoID: station.seedVideoID, continuation: station.continuation) { [weak self] page in
+        requestRadio(seedVideoID: station.seedVideoID, continuation: station.continuation, accountID: station.accountID) { [weak self] page in
             guard let self else { return }
-            self.radioExtensionInFlight = false
             guard revision == self.radioRequestRevision else { return }
+            self.radioExtensionInFlight = false
             guard let page else {
                 self.status = "Queue finished. Radio had nothing to continue with."
                 return
             }
             let tracks = Self.freshRadioTracks(page.playableTracks, excluding: self.queue.tracks)
+            self.radioStation = GoosicRadioStation(
+                seedVideoID: station.seedVideoID,
+                continuation: page.nextCursor == station.continuation ? nil : page.nextCursor,
+                accountID: station.accountID
+            )
             guard let first = tracks.first else {
                 self.status = "Queue finished. Radio had nothing new to continue with."
                 return
             }
-            self.radioStation = GoosicRadioStation(
-                seedVideoID: station.seedVideoID, continuation: page.nextCursor
-            )
             self.queue.tracks.append(contentsOf: tracks)
             self.play(first)
         }
     }
 
-    /// Replaces the queue with the radio that follows `track` and starts it.
+    /// Starts the seed song, then appends its personalized recommendations.
     func startRadio(from track: GoosicTrack) {
-        guard allowPlaybackInteraction() else { return }
-        guard !radioExtensionInFlight else { return }
+        launch(.station(track))
+    }
+
+    func launch(_ intent: PlaybackLaunchIntent) {
+        switch intent {
+        case .ordered(let track, let tracks):
+            play(track, in: tracks)
+        case .station(let track):
+            launchStation(track)
+        }
+    }
+
+    private func launchStation(_ track: GoosicTrack) {
+        guard allowPlaybackInteraction(), playbackTransition == .idle,
+              !isAdvertisement, playbackState.owner != .localDownloadedFile, client != nil else { return }
+        // Start the selected song immediately, while recommendations load independently.
+        play(track, in: [track])
         radioExtensionInFlight = true
-        radioRequestRevision &+= 1
         let revision = radioRequestRevision
-        status = "Starting radio from \(track.title)…"
-        requestRadio(seedVideoID: track.videoID, continuation: nil) { [weak self] page in
+        let accountID = activeAccountId
+        requestRadio(seedVideoID: track.videoID, continuation: nil, accountID: accountID) { [weak self] page in
             guard let self else { return }
+            guard revision == self.radioRequestRevision, accountID == self.activeAccountId else { return }
             self.radioExtensionInFlight = false
-            guard revision == self.radioRequestRevision else { return }
             guard let page else {
                 self.status = "Radio had nothing to play after \(track.title)."
                 return
             }
             let tracks = Self.freshRadioTracks(page.playableTracks, excluding: [track])
-            guard let first = tracks.first else {
-                self.status = "Radio had nothing new to play after \(track.title)."
-                return
-            }
             self.radioStation = GoosicRadioStation(
-                seedVideoID: track.videoID, continuation: page.nextCursor
+                seedVideoID: track.videoID, continuation: page.nextCursor, accountID: accountID
             )
-            self.queue = GoosicQueue(tracks: [track] + tracks, currentIndex: 0)
-            self.play(first)
+            self.queue.tracks.append(contentsOf: tracks)
         }
     }
 
@@ -2713,18 +2759,30 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private func requestRadio(
         seedVideoID: String,
         continuation: String?,
+        accountID: String?,
         completion: @escaping (CatalogPageView?) -> Void
     ) {
+        let identity = RadioRequestIdentity(revision: radioRequestRevision, accountID: accountID)
+        if let accountID {
+            guard accountID == activeAccountId else { completion(nil); return }
+            personalCatalogHost.loadRadio(seedVideoID: seedVideoID, continuation: continuation) { [weak self] result in
+                guard let self, identity.accepts(revision: self.radioRequestRevision, accountID: self.activeAccountId) else { return }
+                switch result {
+                case .success(let page): completion(CatalogPageView(wire: page))
+                case .failure: completion(nil)
+                }
+            }
+            return
+        }
         send(
             command: "catalog.radio",
             payload: GoosicRequestPayload(catalogId: seedVideoID, continuation: continuation)
         ) { [weak self] response in
-            guard self != nil else { return }
+            guard let self, identity.accepts(revision: self.radioRequestRevision, accountID: self.activeAccountId) else { return }
             completion(response.payload?.catalog.map(CatalogPageView.init(wire:)))
         } failure: { [weak self] error in
-            guard let self else { return }
-            self.radioExtensionInFlight = false
-            self.status = "Could not start radio: \(Self.describe(error).message)"
+            guard let self, identity.accepts(revision: self.radioRequestRevision, accountID: self.activeAccountId) else { return }
+            completion(nil)
         }
     }
 
