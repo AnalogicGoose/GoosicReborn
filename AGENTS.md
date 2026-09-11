@@ -171,8 +171,9 @@ fixture becomes `static`.
 
 ### The GTK shell on Linux
 
-`apps/goosic-linux` is designed but not yet written, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md)
-holds the decisions. When you work on it, these are settled and not yours to reopen without
+`apps/goosic-linux` is being written on `platform/linux`: it browses the catalog and plays through
+the official WebKitGTK host today, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) holds the
+decisions and what is done. When you work on it, these are settled and not yours to reopen without
 asking:
 
 - It is its own Cargo workspace, not a member of the root one. CI runs

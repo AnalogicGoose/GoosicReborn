@@ -5,8 +5,15 @@ SwiftCrossUI build on Linux. It is step four of [the native-shell migration](NAT
 The plan says *what* replaces what; this document records how the Linux shell is built and why
 each choice was made, so that the reasons survive the people who made them.
 
-It is designed and not yet written. Until it is, the Swift shell remains the Linux build, and
-everything below describes a destination, not a shipped feature.
+It is being written slice by slice on `platform/linux`. What exists browses and searches the
+catalog, opens albums, artists and playlists, and plays through the official WebKitGTK host under
+Rust's lease, with a queue, a now-playing bar, radio, and preferences that are saved and restored.
+That playback has been heard rather than only compiled: a scratch harness asked the shell to play a
+real track the way a Play button does, the advertisement in front of it was reported and not
+skipped, validated samples from the page moved the bar through the song, and PipeWire showed the
+WebKit process's uncorked stream. Until the remaining slices land — artwork, the lyrics and queue
+panels, downloads, accounts, the media-player interface and background mode — the Swift shell
+remains the Linux build, and the sections about those describe a destination.
 
 ## Why GTK 4, and why not the alternatives
 
@@ -209,23 +216,39 @@ the same reason. It depends on `crates/goosic-shell-support` and `crates/goosic-
 and on nothing else under `crates/`. It declares Rust 1.92, which `gtk4` 0.11 requires; the root
 workspace's 1.88 floor does not apply to it.
 
+It turns on `gtk4`'s `v4_20` feature, the floor the runtime guarantees. That is not a preference:
+without a version feature `gtk4` 0.11 hides the `Accessible` interface that `webkit6` implements,
+and `webkit6` does not compile. The feature also changes one signature the code depends on — since
+GTK 4.12 a list-item factory can build section headers, so its callbacks are handed a plain object
+that the page list casts to a `ListItem`.
+
 ```
 apps/goosic-linux/
     Cargo.toml             its own [workspace]
     src/
-        main.rs            GtkApplication, the application ID, launching the service
-        state/             presentation state; changed only on the main loop
-        ui/                windows, pages, list-item factories, player bar, queue
-        platform/
-            official_host.rs   WebKitGTK player: script world, bridge handler, per-account session
-            login_host.rs      sign-in window under the shared navigation policy
-            local_host.rs      GStreamer playbin for decoded files
-            mpris.rs           org.mpris.MediaPlayer2 over gio
-            status_icon.rs     StatusNotifierItem, where a watcher exists
-            portals.rs         Inhibit, Background, Notification, OpenURI
-    data/                  desktop file, metainfo, icons, named after the application ID
-    packaging/flatpak/     manifest and vendored crate sources
+        main.rs            GtkApplication and the application ID
+        lib.rs             the modules, public where tests and harnesses need to reach them
+        service.rs         finding and launching the goosic-service beside the executable
+        bridge.rs          carrying service answers onto the main loop
+        shell.rs           the window, and the orchestration that ties the rest together
+        pages.rs           navigation and catalog load state, decided without GTK
+        playback.rs        queue, lease and transport state, decided without GTK
+        ui.rs              page rows, sidebar, search bar
+        player_bar.rs      the now-playing bar
+        official_host.rs   WebKitGTK player: script world, bridge handler, per-account session
+        login_host.rs      planned: sign-in window under the shared navigation policy
+        local_host.rs      planned: GStreamer playbin for decoded files
+        mpris.rs           planned: org.mpris.MediaPlayer2 over gio
+        status_icon.rs     planned: StatusNotifierItem, where a watcher exists
+        portals.rs         planned: Inhibit, Background, Notification, OpenURI
+    data/                  planned: desktop file, metainfo, icons, named after the application ID
+    packaging/flatpak/     planned: manifest and vendored crate sources
 ```
+
+The modules are flat rather than grouped into `state/`, `ui/` and `platform/` as first sketched,
+because a dozen files did not need folders. What the grouping was meant to protect still holds:
+`pages` and `playback` import no GTK, so the decisions they make are tested without a display, and
+only `shell` joins them to widgets and hosts.
 
 The shell lives on `platform/linux`, and each slice of it is a `feature/linux/<slug>`. Anything it
 needs from `goosic-shell-support` or the protocol is not Linux work: it lands on `development`

@@ -6,6 +6,7 @@
 //! every shell turns a page into the same rows.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use goosic_protocol::{RequestPayload, ResponseEnvelope};
 use goosic_shell_support::catalog::{detail_subtitle, failure_text, Card, PageView, Track};
@@ -47,8 +48,13 @@ pub enum PageRow {
     NotLoaded {
         subject: String,
     },
-    /// Boxed because a track is several times the size of every other row.
-    Track(Box<Track>),
+    /// Plays a whole list from its first track.
+    PlayAll(Rc<[Track]>),
+    /// A track, and the list it belongs to: playing it queues its neighbours too.
+    Track {
+        track: Box<Track>,
+        context: Rc<[Track]>,
+    },
     ShelfTitle(String),
     Cards(Vec<Card>),
     /// The service clamped the page to fit one protocol frame, and the screen has to say so.
@@ -231,6 +237,11 @@ impl Browser {
             },
         };
         let mut rows = vec![PageRow::Back, header];
+        if let LoadState::Loaded(page) = state {
+            if !page.tracks.is_empty() {
+                rows.push(PageRow::PlayAll(page.tracks.clone().into()));
+            }
+        }
         rows.extend(body_rows(state, &format!("this {}", kind.to_lowercase())));
         rows
     }
@@ -323,19 +334,13 @@ fn body_rows(state: &LoadState, subject: &str) -> Vec<PageRow> {
             message: format!("{subject} came back empty."),
         }],
         LoadState::Loaded(page) => {
-            let mut rows: Vec<PageRow> = page
-                .tracks
-                .iter()
-                .map(|track| PageRow::Track(Box::new(track.clone())))
-                .collect();
+            let mut rows = track_rows(&page.tracks.clone().into());
             for shelf in &page.shelves {
                 rows.push(PageRow::ShelfTitle(shelf.title.clone()));
                 // Songs read far better as rows than as artwork cards, so a shelf that holds only
                 // songs is drawn as a track list.
                 match shelf.track_list() {
-                    Some(tracks) => {
-                        rows.extend(tracks.into_iter().map(|t| PageRow::Track(Box::new(t))))
-                    }
+                    Some(tracks) => rows.extend(track_rows(&tracks.into())),
                     None => rows.push(PageRow::Cards(shelf.cards.clone())),
                 }
             }
@@ -345,6 +350,16 @@ fn body_rows(state: &LoadState, subject: &str) -> Vec<PageRow> {
             rows
         }
     }
+}
+
+/// One row per track, each carrying the whole list so playing one queues the rest.
+fn track_rows(list: &Rc<[Track]>) -> Vec<PageRow> {
+    list.iter()
+        .map(|track| PageRow::Track {
+            track: Box::new(track.clone()),
+            context: list.clone(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -441,10 +456,41 @@ mod tests {
         assert_eq!(rows[1], PageRow::GuestNotice);
         assert_eq!(rows[2], PageRow::ShelfTitle("Quick picks".into()));
         // A shelf of songs is drawn as rows, and a shelf of albums as cards.
-        assert!(matches!(&rows[3], PageRow::Track(track) if track.video_id == "a"));
+        assert!(matches!(&rows[3], PageRow::Track { track, .. } if track.video_id == "a"));
         assert_eq!(rows[4], PageRow::ShelfTitle("Albums".into()));
         assert!(matches!(&rows[5], PageRow::Cards(cards) if cards.len() == 1));
         assert_eq!(rows.last(), Some(&PageRow::Truncated));
+    }
+
+    #[test]
+    fn a_track_row_carries_the_list_it_belongs_to_and_a_detail_page_can_play_all() {
+        let mut browser = Browser::new();
+        let entity = EntityReference::Album("MPRE1".into());
+        browser.open(entity.clone());
+        let key = browser.current_key().unwrap();
+        browser.begin(&key, false);
+        browser.finish(
+            key,
+            answer(CatalogPage {
+                id: "MPRE1".into(),
+                title: "Night Windows".into(),
+                tracks: vec![
+                    item(CatalogItemKind::Song, "a", Some("a")),
+                    item(CatalogItemKind::Song, "b", Some("b")),
+                ],
+                ..Default::default()
+            }),
+        );
+        let rows = browser.rows();
+        assert!(matches!(&rows[2], PageRow::PlayAll(tracks) if tracks.len() == 2));
+        match &rows[4] {
+            PageRow::Track { track, context } => {
+                assert_eq!(track.video_id, "b");
+                let ids: Vec<&str> = context.iter().map(|t| t.video_id.as_str()).collect();
+                assert_eq!(ids, ["a", "b"], "playing b queues the album around it");
+            }
+            other => panic!("expected a track row, got {other:?}"),
+        }
     }
 
     #[test]

@@ -13,12 +13,11 @@ use gtk::{gio, glib, pango};
 
 use crate::pages::{route_title, PageRow};
 
-const NO_PLAYER_YET: &str =
-    "Playback arrives with the player, in a later slice of the Linux shell.";
-
 /// What a row can ask the shell to do.
 pub struct Actions {
     pub open: Box<dyn Fn(EntityReference)>,
+    /// Plays a track; the list is what becomes the queue, and may be empty.
+    pub play: Box<dyn Fn(Track, Rc<[Track]>)>,
     pub retry: Box<dyn Fn()>,
     pub back: Box<dyn Fn()>,
 }
@@ -27,12 +26,15 @@ pub struct Actions {
 pub fn page_list(actions: Rc<Actions>) -> (gtk::ScrolledWindow, gio::ListStore) {
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let factory = gtk::SignalListItemFactory::new();
+    // Since GTK 4.12 a factory also builds section headers, so it is handed a plain object.
     factory.connect_setup(|_, item| {
+        let item = list_item(item);
         item.set_activatable(false);
         item.set_selectable(false);
         item.set_child(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
     });
     factory.connect_bind(move |_, item| {
+        let item = list_item(item);
         let container = item
             .child()
             .and_downcast::<gtk::Box>()
@@ -58,6 +60,12 @@ pub fn page_list(actions: Rc<Actions>) -> (gtk::ScrolledWindow, gio::ListStore) 
     (scroller, store)
 }
 
+fn list_item(object: &glib::Object) -> &gtk::ListItem {
+    object
+        .downcast_ref::<gtk::ListItem>()
+        .expect("the page list has no section headers")
+}
+
 /// Replaces what the list shows, in one change rather than one per row.
 pub fn set_rows(store: &gio::ListStore, rows: Vec<PageRow>) {
     let objects: Vec<glib::BoxedAnyObject> =
@@ -68,6 +76,7 @@ pub fn set_rows(store: &gio::ListStore, rows: Vec<PageRow>) {
 /// The sidebar: the routes, and below them whether the service is there.
 pub struct Sidebar {
     pub root: gtk::Box,
+    pub routes: gtk::ListBox,
     pub connection: gtk::Label,
     pub status: gtk::Label,
 }
@@ -85,7 +94,7 @@ pub fn sidebar(on_select: impl Fn(Route) + 'static) -> Sidebar {
         label.set_margin_start(6);
         routes.append(&label);
     }
-    routes.select_row(routes.row_at_index(0).as_ref());
+    select_route(&routes, Route::Home);
     // Activated rather than selected, so choosing the route already selected still leaves a detail
     // page and goes back to it.
     routes.connect_row_activated(move |_, row| {
@@ -112,9 +121,17 @@ pub fn sidebar(on_select: impl Fn(Route) + 'static) -> Sidebar {
     root.append(&status);
     Sidebar {
         root,
+        routes,
         connection,
         status,
     }
+}
+
+/// Marks `route` as the one on screen, for when the shell chose it rather than the user.
+pub fn select_route(routes: &gtk::ListBox, route: Route) {
+    let index = Route::ALL.iter().position(|candidate| *candidate == route);
+    let row = index.and_then(|index| routes.row_at_index(i32::try_from(index).ok()?));
+    routes.select_row(row.as_ref());
 }
 
 /// The search field and its filter tabs, shown only on the Search route.
@@ -234,7 +251,20 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
             idle.append(&retry_button(&format!("Load {subject}"), actions));
             padded(&idle, 18, 18)
         }
-        PageRow::Track(track) => padded(&track_row(track), 4, 4),
+        PageRow::PlayAll(tracks) => {
+            let play_all = gtk::Button::builder()
+                .label("Play all")
+                .halign(gtk::Align::Start)
+                .build();
+            let (actions, tracks) = (actions.clone(), tracks.clone());
+            play_all.connect_clicked(move |_| {
+                if let Some(first) = tracks.first() {
+                    (actions.play)(first.clone(), tracks.clone());
+                }
+            });
+            padded(&play_all, 4, 8)
+        }
+        PageRow::Track { track, context } => padded(&track_row(track, context, actions), 4, 4),
         PageRow::ShelfTitle(title) => padded(
             &markup(&format!(
                 "<span size='large' weight='bold'>{}</span>",
@@ -252,7 +282,7 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
     }
 }
 
-fn track_row(track: &Track) -> gtk::Box {
+fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::Box {
     let line = row(10);
     line.append(&artwork_placeholder("♪", 34, 34));
 
@@ -269,11 +299,12 @@ fn track_row(track: &Track) -> gtk::Box {
 
     line.append(&dim(&track.duration));
     let play = gtk::Button::builder()
-        .label("Play")
+        .icon_name("media-playback-start-symbolic")
+        .tooltip_text("Play")
         .valign(gtk::Align::Center)
-        .sensitive(false)
-        .tooltip_text(NO_PLAYER_YET)
         .build();
+    let (track, context, actions) = (track.clone(), context.clone(), actions.clone());
+    play.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
     line.append(&play);
     line
 }
@@ -316,9 +347,10 @@ fn card_widget(card: &Card, actions: &Rc<Actions>) -> gtk::Button {
             let actions = actions.clone();
             button.connect_clicked(move |_| (actions.open)(entity.clone()));
         }
-        Some(CardAction::Play(_)) => {
-            button.set_sensitive(false);
-            button.set_tooltip_text(Some(NO_PLAYER_YET));
+        Some(CardAction::Play(track)) => {
+            let track = track.as_ref().clone();
+            let actions = actions.clone();
+            button.connect_clicked(move |_| (actions.play)(track.clone(), Rc::from(Vec::new())));
         }
         // A row this build does not understand stays visible but inert.
         None => button.set_sensitive(false),

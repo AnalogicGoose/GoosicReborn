@@ -5,7 +5,10 @@
 //! here. See `docs/LINUX_SHELL.md` for why it is built this way.
 
 pub mod bridge;
+pub mod official_host;
 pub mod pages;
+pub mod playback;
+mod player_bar;
 pub mod service;
 pub mod shell;
 mod ui;
