@@ -224,7 +224,8 @@ pub fn volume_sync(
 
 /// Coalesces a preference change into one still waiting to be saved.
 ///
-/// Every field is carried. The Swift shell's version copied six of the eight and dropped
+/// Every field is carried. The Swift shell's earlier version copied six of the eight fields it
+/// had at the time and dropped
 /// `shuffle` and `repeatMode`, so toggling shuffle within a second of a volume drag was never
 /// saved. A newer value wins; a field the update does not set keeps the pending one.
 pub fn merge_preferences(
@@ -243,6 +244,7 @@ pub fn merge_preferences(
         queue_visible: update.queue_visible.or(pending.queue_visible),
         shuffle: update.shuffle.or(pending.shuffle),
         repeat_mode: update.repeat_mode.or(pending.repeat_mode),
+        artwork_background: update.artwork_background.or(pending.artwork_background),
     }
 }
 
@@ -433,6 +435,13 @@ mod tests {
         assert_eq!(merged.shuffle, Some(true));
         assert_eq!(merged.repeat_mode.as_deref(), Some("all"));
         assert_eq!(merged.volume, Some(0.5), "the newer value wins");
+
+        let merged = merge_preferences(
+            Some(merged),
+            PreferencesPatch { artwork_background: Some(false), ..Default::default() },
+        );
+        assert_eq!(merged.shuffle, Some(true));
+        assert_eq!(merged.artwork_background, Some(false));
     }
 
     #[test]
