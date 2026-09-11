@@ -1,10 +1,11 @@
 # GoosicReborn
 
-GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCrossUI shell. Rust owns the versioned playback authority and the read-only catalog; the shell talks to it over newline-delimited JSON on a private stdio channel. No legacy GPL source is copied here. The planned transition to one native shell per supported operating system, without rewriting that Rust authority, is documented in [the native-shell migration plan](docs/NATIVE_SHELL_MIGRATION.md); on Linux that shell is a GTK 4 application written in Rust, designed in [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) and not yet written.
+GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCrossUI shell. Rust owns the versioned playback authority and the read-only catalog; the shell talks to it over newline-delimited JSON on a private stdio channel. The account-scoped content reader is ported from the previous Goosic and keeps its GPL-3.0 notice; see Licensing below. The transition to one native shell per supported operating system, without rewriting that Rust authority, is documented in [the native-shell migration plan](docs/NATIVE_SHELL_MIGRATION.md); on Linux that replacement is a GTK 4 application written in Rust, designed in [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
 
 ## What works today
 
-- **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust, as an anonymous guest. Albums, playlists, and artists open to their real track lists.
+- **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
+- **Personal content (macOS).** A signed-in Home and the Library's playlists, liked songs, albums, and artists are read inside the active account's isolated WebKit profile. Cookies never leave WebKit; the shared shell receives normalized public music metadata only. See [the content parity map](docs/CONTENT_PARITY.md) for the full old-Goosic comparison.
 - **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single web host — WKWebView on macOS, WebKitGTK on Linux. Advertisements are reported as informational markers and are never bypassed. Only macOS has been heard to play; see the limitations below for what that means on Linux.
 - **A real transport.** Elapsed and total time, seeking, volume and mute, and autoplay to the next queued track — all reflecting what the player confirms, never what was requested. Goosic's queue overrides the official app's own "up next", so it never plays something you did not choose.
 - **Preferences that persist.** Volume, mute, autoplay, shuffle, repeat, the queue panel, and the screen you were on are stored by Rust and restored on launch. Preferences from a previous Goosic install can be imported; the old data is read, never changed, and credentials are never carried over.
@@ -88,10 +89,9 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 
 ## Current limitations
 
-- **No signed-in library.** Sign-in and per-account WebKit profiles work, but catalog reads are still anonymous, so Library has nothing personal to show. Authenticated catalog reads are the next slice.
+- **Personal content is read-only and macOS-only.** A signed-in Home and the Library's playlists, liked songs, albums, and artists load inside the account's WebKit profile through `PersonalCatalog.js`. The first read after launch waits for YouTube Music's application to load in that profile (about ten seconds); later reads are single requests. Private playlists and albums now open through the account too, continuations included. The account can be written to as well. A track's context menu adds it to one of your playlists or to a new one, and a playlist you own can be renamed, have its visibility changed, or be deleted from the Manage menu on its page — offered only on playlists you actually own, since following someone else's puts it in your library while leaving every edit refused. The ported mutation layer underneath covers likes, follows, saving playlists and albums, and the full set of playlist edits; channel switching is not implemented.
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
 - **Linux audio is written but unheard.** Both playback hosts now exist there — WebKitGTK for the official player, GStreamer for decoded files — and both claim the same Rust leases as their macOS counterparts. What is missing is a person confirming that sound comes out. The local host is the only one with runtime evidence: its tests open a real WAV and read the duration back, which they can do silently because a paused pipeline decodes without touching the audio device. The official host has never been past compiling. Treat a report that Linux does not play as a bug to investigate, not as an expected limitation.
-- **A shuffle or repeat change can be lost.** The Swift shell coalesces preference saves made within a second of each other, and its merge drops `shuffle` and `repeatMode`, so toggling either within a second of a volume change is never saved. `goosic-shell-support` carries the corrected merge; the Swift shell has not adopted it yet.
 - **Decoded audio is stored as data, not cache.** Rust's WAV cache sits in the per-user data directory rather than the cache directory, so it is swept into backups and ignored by tools that free cache space. The move is planned for every platform in one change; see [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
 - **Windows has no audio at all.** `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs there. A stub reports the limitation rather than producing sound, so no renderer can bypass Rust's authority.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
@@ -111,7 +111,10 @@ The rewrite from the previous Goosic:
 5. **Done** — read-only legacy downloaded-media import, Rust decode cache, and local-file playback: AVFoundation on macOS, GStreamer on Linux.
 6. **Done (macOS and Linux)** — account profiles with isolated WebKit stores and system media controls; native platform material on macOS.
 7. **Done** — catalog artwork.
-8. **Next** — authenticated catalog reads for a signed-in library.
+8. **Done (macOS)** — authenticated catalog reads for a signed-in Home and Library, ported from the previous Goosic.
+9. **Done (macOS)** — private playlist and album pages, read through the account that can see them.
+10. **In progress (macOS)** — library mutations: the ported mutation layer and add-to-playlist.
+11. **Next** — the rest of the mutation surface on screen, then theming and production packaging.
 
 The move to native shells, from [the migration plan](docs/NATIVE_SHELL_MIGRATION.md):
 
@@ -121,3 +124,12 @@ The move to native shells, from [the migration plan](docs/NATIVE_SHELL_MIGRATION
 4. **Designed** — the GTK 4 shell for Linux, packaged as a Flatpak.
 5. **Deferred** — the WinUI 3 shell for Windows.
 6. **Waiting** — removing SwiftCrossUI, once every replacement shell passes conformance and packaging.
+
+## Licensing
+
+The original GoosicReborn code is MIT (`LICENSE`). Files that carry a GNU General Public
+License header — currently `apps/goosic-swift/Sources/GoosicSwift/Resources/PersonalCatalog.js`,
+ported from the previous Goosic — are GPL-3.0-or-later, with their original authors' copyright
+preserved. Because the shell links that program in, the application as distributed is under
+GPL-3.0 (`LICENSE-GPL-3.0`); the MIT grant continues to apply to the files that do not carry
+the GPL header.

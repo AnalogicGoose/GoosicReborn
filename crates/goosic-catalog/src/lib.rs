@@ -10,8 +10,8 @@ mod parse;
 
 pub use client::{search_params, InnertubeClient};
 pub use parse::{
-    artist_page, browse_page, browse_shelves, queue_item, radio_page, search_page,
-    track_list_page,
+    artist_page, browse_continuation_page, browse_page, browse_shelves, continuation_token,
+    queue_item, radio_page, search_page, track_list_page,
 };
 
 use goosic_protocol::CatalogPage;
@@ -111,6 +111,15 @@ impl Catalog {
         Ok(page)
     }
 
+    pub fn browse_continuation(&self, cursor: &str) -> Result<CatalogPage, CatalogError> {
+        let response = self.client.browse_continuation(cursor)?;
+        let page = parse::browse_continuation_page(&response);
+        if page.shelves.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        Ok(page)
+    }
+
     pub fn album(&self, browse_id: &str) -> Result<CatalogPage, CatalogError> {
         let response = self.client.browse(browse_id)?;
         let page = parse::track_list_page(browse_id, &response);
@@ -135,6 +144,22 @@ impl Catalog {
     pub fn radio(&self, video_id: &str) -> Result<CatalogPage, CatalogError> {
         let response = self.client.radio(video_id)?;
         let page = parse::radio_page(video_id, &response);
+        if page.tracks.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        Ok(page)
+    }
+
+    /// Continues the same radio station rather than treating its last recommendation as a new
+    /// seed. The caller keeps the original seed for queue ownership; the service only needs the
+    /// opaque station cursor.
+    pub fn radio_continuation(
+        &self,
+        seed_video_id: &str,
+        continuation: &str,
+    ) -> Result<CatalogPage, CatalogError> {
+        let response = self.client.radio_continuation(continuation)?;
+        let page = parse::radio_page(seed_video_id, &response);
         if page.tracks.is_empty() {
             return Err(CatalogError::Empty);
         }
