@@ -6,7 +6,7 @@
 //! builds the service and this workspace builds the shell.
 
 use std::ffi::OsString;
-use std::fmt::{self, write};
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use goosic_shell_support::{ServiceClient, ServiceClientBuilder, TransportError};
@@ -53,7 +53,7 @@ impl fmt::Display for LaunchError {
             LaunchError::NoLocation => write!(
                 f,
                 "could not tell where this program is installed, so {SERVICE_BINARY} could not \
-                be found; set GOOSIC_SERVICE_PATH"
+                 be found; set GOOSIC_SERVICE_PATH"
             ),
             LaunchError::Spawn { path, error } => write!(
                 f,
@@ -65,7 +65,7 @@ impl fmt::Display for LaunchError {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
 
     #[test]

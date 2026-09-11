@@ -5,9 +5,11 @@
 //! here. See `docs/LINUX_SHELL.md` for why it is built this way.
 
 pub mod bridge;
+pub mod pages;
 pub mod service;
 pub mod shell;
+mod ui;
 
 /// The application ID. It makes a second launch activate the running instance instead of starting
-/// another, and it is how the desktop, its portals and the media pan
+/// another, and it is how the desktop, its portals and the media panel recognise this program.
 pub const APP_ID: &str = "io.github.analogicgoose.Goosic";
