@@ -940,7 +940,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
     }
 
-    private static func merge(
+    /// Coalesces independent preference changes without dropping a field from an earlier update.
+    ///
+    /// This stays visible to the test target because rapid UI changes are otherwise easy to
+    /// regress: a volume drag followed by Shuffle or Repeat must persist both values.
+    static func merge(
         _ existing: GoosicPreferencesPatch?,
         _ update: GoosicPreferencesPatch
     ) -> GoosicPreferencesPatch {
@@ -951,6 +955,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         merged.autoplay = update.autoplay ?? merged.autoplay
         merged.lastRoute = update.lastRoute ?? merged.lastRoute
         merged.queueVisible = update.queueVisible ?? merged.queueVisible
+        merged.shuffle = update.shuffle ?? merged.shuffle
+        merged.repeatMode = update.repeatMode ?? merged.repeatMode
         return merged
     }
 
