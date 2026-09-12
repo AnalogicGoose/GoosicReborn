@@ -117,7 +117,7 @@ public struct GoosicMacUITestHost: SwiftUI.View {
 private struct NativeMacRootView: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var sidebarVisible = true
+    @SwiftUI.State private var sidebarVisible = true
 
     private var model: GoosicAppModel { store.model }
     private var leadingInset: CGFloat { sidebarVisible ? NativeMacSidebar.width : 0 }
@@ -663,12 +663,12 @@ private struct NativeMacSidebarArtwork: SwiftUI.View {
 private struct NativeMacPlayerBar: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scrubPosition: Double = 0
-    @State private var isScrubbing = false
-    @State private var statusVisible = false
-    @State private var volumeExpanded = false
-    @State private var progressHovered = false
-    @State private var playerHovered = false
+    @SwiftUI.State private var scrubPosition: Double = 0
+    @SwiftUI.State private var isScrubbing = false
+    @SwiftUI.State private var statusVisible = false
+    @SwiftUI.State private var volumeExpanded = false
+    @SwiftUI.State private var progressHovered = false
+    @SwiftUI.State private var playerHovered = false
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
@@ -1130,7 +1130,7 @@ private struct NativeMacExpandableArtwork: SwiftUI.View {
     let enabled: Bool
     let action: () -> Void
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovered = false
+    @SwiftUI.State private var hovered = false
 
     private var highlighted: Bool { hovered && enabled }
 
