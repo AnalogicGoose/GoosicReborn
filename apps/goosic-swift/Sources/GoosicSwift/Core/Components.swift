@@ -3,148 +3,79 @@ import SwiftCrossUI
 /// Says plainly that the catalog is anonymous, so nobody reads a guest home shelf as "your" mix.
 struct GuestCatalogNotice: View {
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 8) {
             Text("GUEST")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(Palette.accent)
+                .font(.caption)
             Text("Live YouTube Music catalog, browsed without an account")
-                .font(.system(size: 12))
-                .foregroundColor(Palette.secondaryText)
+                .font(.caption)
+                .foregroundColor(.gray)
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .background(Palette.accentSoft)
-        .cornerRadius(8)
-    }
-}
-
-/// One navigation row. Selection is the accent at full strength with white on top, because a
-/// tinted wash reads as "hovered" rather than "you are here" once the rows are this large.
-struct SidebarRow: View {
-    let route: GoosicRoute
-    let isSelected: Bool
-    let model: GoosicAppModel
-
-    var body: some View {
-        Button(action: { model.navigate(to: route) }) {
-            HStack(spacing: 11) {
-                Text(route.symbol)
-                    .font(.system(size: 14))
-                    .frame(width: 18)
-                Text(route.title)
-                    .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
-                Spacer()
-            }
-            // Only the selected row states a colour: the accent is dark enough that white on top
-            // is right in either scheme, while an unselected row has to keep the toolkit's own
-            // label colour so light mode does not get white text on a light sidebar.
-            .if(isSelected) { $0.foregroundColor(.white) }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(isSelected ? Palette.accent : Color.clear)
-            .cornerRadius(8)
-        }
-        // The row draws its own selection, so the backend's button chrome would sit a second
-        // bordered rectangle behind every entry in the list.
-        .buttonStyle(.plain)
-    }
-}
-
-struct SidebarSection: View {
-    let section: GoosicRoute.Section
-    let model: GoosicAppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if let title = section.title {
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Palette.secondaryText)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 14)
-                    .padding(.bottom, 4)
-            }
-            ForEach(GoosicRoute.routes(in: section), id: \.self) { route in
-                SidebarRow(
-                    route: route,
-                    isSelected: model.route == route && model.detail == nil,
-                    model: model
-                )
-            }
-        }
+        .padding(8)
+        .background(Color.blue.opacity(0.12))
+        .cornerRadius(6)
     }
 }
 
 struct GoosicSidebar: View {
     let model: GoosicAppModel
 
-    /// The avatar letter. Taken from the label the footer already shows, so the circle and the
-    /// name can never disagree about who is signed in.
-    private var accountInitial: String {
-        String(model.activeAccountLabel.prefix(1)).uppercased()
-    }
-
-    private var accountDetail: String {
-        guard let account = model.activeAccount else { return "Browsing without an account" }
-        return account.email ?? account.channel ?? "Signed in"
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("GOOSIC")
-                .font(.system(size: 19, weight: .bold))
-                .foregroundColor(Palette.accent)
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
-                .padding(.bottom, 12)
-            SidebarSection(section: .primary, model: model)
-            SidebarSection(section: .discover, model: model)
-            SidebarSection(section: .collection, model: model)
-            Spacer()
-            SidebarSection(section: .utility, model: model)
-            // While the service is answering it is an implementation detail, so the footer says
-            // who you are browsing as instead of naming it. Losing it changes what you can do,
-            // and only then is it worth the reader's attention -- along with the way back.
-            Button(action: { model.navigate(to: .settings) }) {
-                HStack(spacing: 10) {
-                    Text(accountInitial)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 30, height: 30, alignment: .center)
-                        .background(Palette.accent)
-                        .cornerRadius(15)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(model.activeAccountLabel)
-                            .font(.system(size: 13, weight: .semibold))
-                            .lineLimit(1)
-                        Text(accountDetail)
-                            .font(.system(size: 11))
-                            .foregroundColor(Palette.secondaryText)
-                            .lineLimit(1)
+                .font(.title2)
+                .padding(.bottom, 8)
+            Text("Your music, in motion")
+                .font(.caption)
+                .foregroundColor(.gray)
+                .padding(.bottom, 8)
+            ForEach(GoosicRoute.allCases, id: \.self) { route in
+                Button(action: { model.navigate(to: route) }) {
+                    HStack(spacing: 8) {
+                        Text(route.symbol)
+                            .frame(width: 20)
+                        Text(route.title)
+                        Spacer()
                     }
-                    Spacer()
+                    .padding(7)
+                    .background(model.route == route && model.detail == nil ? Color.blue.opacity(0.18) : Color.clear)
+                    .cornerRadius(5)
                 }
-                .padding(8)
-                .background(Palette.raised)
-                .cornerRadius(10)
             }
-            .buttonStyle(.plain)
-            .padding(.top, 10)
-            if !model.serviceConnected {
-                HStack(spacing: 7) {
-                    Text("○")
-                        .foregroundColor(.orange)
-                    Text("Disconnected")
-                        .font(.system(size: 12))
-                    Spacer()
-                    Button("Reconnect") { model.connect() }
-                        .font(.system(size: 12))
+            Spacer()
+            Divider()
+            HStack(spacing: 7) {
+                Text(model.serviceConnected ? "●" : "○")
+                    .foregroundColor(model.serviceConnected ? .green : .gray)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.serviceConnected ? "Rust service connected" : "Service offline")
+                        .font(.caption)
+                    Text(model.activeAccountLabel)
+                        .font(.caption2)
+                        .foregroundColor(.gray)
                 }
-                .padding(.top, 7)
             }
+            if let account = model.activeAccount {
+                Text(account.email ?? account.channel ?? "Signed in")
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+                    .lineLimit(1)
+            }
+            Button(model.activeAccount == nil ? "Sign in" : "Manage accounts") {
+                model.navigate(to: .settings)
+            }
+            .font(.caption)
+            Button("Connect to Rust service") { model.connect() }
+                .font(.caption)
+                .padding(.top, 3)
+                .disabled(model.serviceConnected)
+            Text(model.status)
+                .font(.caption2)
+                .foregroundColor(.gray)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 3)
         }
-        .padding(14)
-        .frame(minWidth: 248)
+        .padding(16)
+        .frame(minWidth: 220)
         // Behind the controls, never wrapping them: the material is a background leaf, so
         // buttons and their accessibility stay native.
         .background(MaterialSurface(kind: .sidebar))
@@ -152,28 +83,43 @@ struct GoosicSidebar: View {
 }
 
 struct ShelfView: View {
+    let presentation: ShelfPresentation
     let shelf: GoosicShelf
     let model: GoosicAppModel
+    // SwiftCrossUI currently lays out every ForEach child eagerly. Keep the first batch tiny;
+    // more items remain available without ever mounting a 60-card shelf in one frame.
+    @State private var visibleItemCount = 8
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(shelf.title)
-                .font(.system(size: 19, weight: .bold))
-            if let tracks = shelf.trackList {
-                ForEach(tracks) { track in
+                .font(.headline)
+            if case .rows(let tracks) = presentation {
+                ForEach(Array(tracks.prefix(visibleItemCount))) { track in
                     TrackRow(track: track, context: tracks, model: model)
+                }
+                if visibleItemCount < tracks.count {
+                    Button("Show more tracks") {
+                        visibleItemCount = min(visibleItemCount + 8, tracks.count)
+                    }
+                    .font(.caption)
                 }
             } else {
                 ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        ForEach(shelf.cards) { card in
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(Array(shelf.cards.prefix(visibleItemCount))) { card in
                             CatalogCardView(card: card, model: model)
+                        }
+                        if visibleItemCount < shelf.cards.count {
+                            Button("Show more") {
+                                visibleItemCount = min(visibleItemCount + 8, shelf.cards.count)
+                            }
+                            .frame(width: 110, height: 82)
                         }
                     }
                 }
             }
         }
-        .padding(.bottom, 10)
     }
 }
 
@@ -189,12 +135,6 @@ struct ArtworkView: View {
     let height: Double
     let model: GoosicAppModel
 
-    /// Rounded in proportion to the artwork, so a 34pt row thumbnail and a 168pt card do not
-    /// share one radius and read as different shapes.
-    private var cornerRadius: Int {
-        max(4, Int((min(width, height) * 0.055).rounded()))
-    }
-
     var body: some View {
         // Reading the version participates this view in artwork updates.
         let _ = model.artworkVersion
@@ -203,14 +143,13 @@ struct ArtworkView: View {
             Image(file, useFileExtension: false)
                 .resizable()
                 .frame(width: width, height: height)
-                .cornerRadius(cornerRadius)
+                .cornerRadius(7)
         } else {
             Text(placeholder)
-                .font(.system(size: min(width, height) * 0.32))
-                .foregroundColor(Palette.secondaryText)
+                .font(.title)
                 .frame(width: width, height: height, alignment: .center)
-                .background(Palette.raised)
-                .cornerRadius(cornerRadius)
+                .background(Color.blue.opacity(0.16))
+                .cornerRadius(7)
         }
     }
 }
@@ -218,10 +157,6 @@ struct ArtworkView: View {
 struct CatalogCardView: View {
     let card: GoosicCard
     let model: GoosicAppModel
-
-    /// Wide enough for a cover to read as artwork rather than an icon, and narrow enough that a
-    /// shelf still shows there is more to scroll to.
-    static let artworkSize: Double = 168
 
     private var glyph: String {
         switch card.action {
@@ -241,29 +176,22 @@ struct CatalogCardView: View {
                 break
             }
         }) {
-            VStack(alignment: .leading, spacing: 7) {
-                // Square, like the covers themselves. The old 16:9 well letterboxed every piece
-                // of album art it was given.
+            VStack(alignment: .leading, spacing: 5) {
                 ArtworkView(
                     remote: card.thumbnail,
                     placeholder: glyph,
-                    width: Self.artworkSize,
-                    height: Self.artworkSize,
+                    width: 148,
+                    height: 82,
                     model: model
                 )
                 Text(card.title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
+                    .font(.subheadline)
                 Text(card.subtitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(Palette.secondaryText)
-                    .lineLimit(2)
+                    .font(.caption2)
+                    .foregroundColor(.gray)
             }
-            .frame(width: Self.artworkSize, alignment: .leading)
+            .frame(width: 148, alignment: .leading)
         }
-        // The artwork is the affordance. Chrome around it would box every cover in a shelf and
-        // turn a wall of album art into a wall of buttons.
-        .buttonStyle(.plain)
         .disabled(card.action == nil || model.accountOperationInProgress)
     }
 }
@@ -283,37 +211,31 @@ struct TrackRow: View {
     private var isCurrent: Bool { model.currentTrack?.id == track.id }
 
     var body: some View {
-        HStack(spacing: 11) {
+        HStack(spacing: 10) {
             ArtworkView(
                 remote: track.thumbnail,
                 placeholder: isCurrent ? "▶" : "♪",
-                width: 40,
-                height: 40,
+                width: 34,
+                height: 34,
                 model: model
             )
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    // The playing row is named in the accent, so it is findable in a long list
-                    // without the row itself becoming a coloured band.
                     Text(track.title)
-                        .font(.system(size: 14, weight: isCurrent ? .semibold : .regular))
-                        .if(isCurrent) { $0.foregroundColor(Palette.accent) }
-                        .lineLimit(1)
                     if track.explicit {
                         Text("E")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(Palette.secondaryText)
+                            .font(.caption2)
+                            .foregroundColor(.gray)
                     }
                 }
                 Text(track.secondaryText)
-                    .font(.system(size: 12))
-                    .foregroundColor(Palette.secondaryText)
-                    .lineLimit(1)
+                    .font(.caption)
+                    .foregroundColor(.gray)
             }
             Spacer()
             Text(track.duration)
-                .font(.system(size: 12))
-                .foregroundColor(Palette.secondaryText)
+                .font(.caption)
+                .foregroundColor(.gray)
             Button("Play") { model.play(track, in: context) }
                 .font(.caption)
                 .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.isAdvertisement)
@@ -328,50 +250,30 @@ struct NowPlayingBar: View {
     var body: some View {
         VStack(spacing: 5) {
             Divider()
-            HStack(spacing: 11) {
-                // The cover travels with the track, so the bar says what is playing without
-                // being read.
-                ArtworkView(
-                    remote: model.currentTrack?.thumbnail,
-                    placeholder: "♪",
-                    width: 42,
-                    height: 42,
-                    model: model
-                )
+            HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.currentTrack?.title ?? "Nothing playing")
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(1)
+                        .font(.subheadline)
                     Text(model.nowPlayingSubtitle)
-                        .font(.system(size: 12))
-                        .foregroundColor(Palette.secondaryText)
-                        .lineLimit(1)
+                        .font(.caption)
+                        .foregroundColor(.gray)
                 }
                 Spacer()
-                Button("⏮") { model.previous() }
-                    .font(.system(size: 15))
+                Button("Previous") { model.previous() }
                     .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.queue.tracks.isEmpty || model.isAdvertisement)
-                Button(model.isPaused ? "⏵" : "⏸") { model.togglePause() }
-                    .font(.system(size: 17))
+                Button(model.isPaused ? "Play" : "Pause") { model.togglePause() }
                     .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
-                Button("⏭") { model.next() }
-                    .font(.system(size: 15))
+                Button("Next") { model.next() }
                     .disabled(model.accountOperationInProgress || model.playbackTransition != .idle || model.queue.tracks.isEmpty || model.isAdvertisement)
-                // Secondary to the transport itself, so they are set smaller rather than
-                // competing with play at the same weight.
                 Button("Radio") {
                     if let track = model.currentTrack { model.startRadio(from: track) }
                 }
-                .font(.system(size: 12))
                 .disabled(model.currentTrack == nil || model.accountOperationInProgress || model.playbackTransition != .idle)
                 Button(model.lyricsVisible ? "Hide lyrics" : "Lyrics") { model.toggleLyrics() }
-                    .font(.system(size: 12))
                     .disabled(model.accountOperationInProgress)
                 Button(model.queueVisible ? "Hide queue" : "Show queue") { model.toggleQueue() }
-                    .font(.system(size: 12))
                     .disabled(model.accountOperationInProgress)
-                Button("Stop") { model.releasePlayback() }
-                    .font(.system(size: 12))
+                Button("Release") { model.releasePlayback() }
                     .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)
             }
             .padding(.horizontal, 14)

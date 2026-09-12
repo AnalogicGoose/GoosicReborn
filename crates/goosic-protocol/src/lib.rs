@@ -54,6 +54,9 @@ pub struct RequestPayload {
     /// Catalog entity identifier: a browse id, playlist id, or video id depending on command.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalog_id: Option<String>,
+    /// Opaque YouTube Music cursor returned by a preceding catalog page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<String>,
     /// Caller-requested result cap. The service clamps this to its own frame-safe maximum.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
@@ -192,10 +195,19 @@ pub struct SettingsSnapshot {
     pub shuffle: bool,
     /// `off`, `all`, or `one`.
     pub repeat_mode: String,
+    /// Whether the playing track's artwork is drawn, blurred, behind the content. On unless the
+    /// user turns it off. A shell with no way to draw it keeps the choice and ignores it.
+    #[serde(default = "artwork_background_default")]
+    pub artwork_background: bool,
     /// Whether preferences from a previous Goosic install have been imported.
     pub imported_from_legacy: bool,
     /// Whether a legacy store is present to import from. Never a credential store.
     pub legacy_available: bool,
+}
+
+/// A snapshot from a service that predates the preference means the default, which is on.
+fn artwork_background_default() -> bool {
+    true
 }
 
 /// A partial preference update. Absent fields are left as they are.
@@ -218,6 +230,8 @@ pub struct PreferencesPatch {
     pub shuffle: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repeat_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artwork_background: Option<bool>,
 }
 
 /// What to look lyrics up by.
@@ -334,6 +348,9 @@ pub struct CatalogPage {
     pub tracks: Vec<CatalogItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
+    /// Opaque cursor for the next page. The shell echoes it only to `catalog.continue`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
     /// True when the service clamped the upstream result set to stay inside the frame budget.
     #[serde(default, skip_serializing_if = "is_false")]
     pub truncated: bool,
@@ -411,6 +428,7 @@ mod tests {
                 query: None,
                 filter: None,
                 catalog_id: None,
+                continuation: None,
                 limit: None,
                 preferences: None,
                 lyrics: None,

@@ -1,4 +1,4 @@
-.PHONY: build-service test-rust test-rust-live build-swift test-swift run-service run-swift test
+.PHONY: build-service test-rust test-rust-live build-swift test-swift test-ui-macos debug-bundle-macos run-service run-swift test
 
 build-service:
 	cargo build -p goosic-service
@@ -32,6 +32,17 @@ build-swift:
 
 test-swift:
 	$(SWIFT_ENV) swift test $(SWIFT_FLAGS)
+
+# Runs the real macOS shell against local fixture data, including scroll and account-control UI
+# checks. XcodeGen is used only to materialize the disposable Xcode UI-test host.
+test-ui-macos:
+	@test "$(UNAME_S)" = Darwin || (echo "macOS UI tests require macOS" >&2; exit 2)
+	cd tools/macos-ui-tests && xcodegen generate
+	xcodebuild test -project tools/macos-ui-tests/GoosicMacUITests.xcodeproj -scheme GoosicDebugHost -destination 'platform=macOS'
+
+debug-bundle-macos:
+	@test "$(UNAME_S)" = Darwin || (echo "Debug bundles require macOS" >&2; exit 2)
+	sh tools/debug-bundle-macos.sh
 
 test: test-rust test-swift
 

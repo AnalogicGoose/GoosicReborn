@@ -58,14 +58,14 @@ struct ScreenHeader: View {
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 30, weight: .bold))
+                .font(.largeTitle)
             Text(subtitle)
-                .font(.system(size: 13))
-                .foregroundColor(Palette.secondaryText)
+                .font(.subheadline)
+                .foregroundColor(.gray)
         }
-        .padding(.bottom, 14)
+        .padding(.bottom, 12)
     }
 }
 
@@ -75,6 +75,8 @@ struct CatalogPageBody: View {
     let state: CatalogLoadState
     let subject: String
     let model: GoosicAppModel
+    @State private var visibleTrackCount = 15
+    @State private var visibleShelfCount = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -93,12 +95,33 @@ struct CatalogPageBody: View {
                     EmptyState(title: "Nothing to show", message: "\(subject) came back empty.")
                 } else {
                     if !page.tracks.isEmpty {
-                        ForEach(page.tracks) { track in
+                        ForEach(Array(page.tracks.prefix(visibleTrackCount))) { track in
                             TrackRow(track: track, context: page.tracks, model: model)
                         }
+                        if visibleTrackCount < page.tracks.count {
+                            Button("Show more tracks") {
+                                visibleTrackCount = min(visibleTrackCount + 15, page.tracks.count)
+                            }
+                            .font(.caption)
+                        }
                     }
-                    ForEach(page.shelves) { shelf in
-                        ShelfView(shelf: shelf, model: model)
+                    ForEach(Array(page.shelves.prefix(visibleShelfCount))) { shelf in
+                        ShelfView(presentation: .preferred(for: key, shelf: shelf), shelf: shelf, model: model)
+                    }
+                    if visibleShelfCount < page.shelves.count {
+                        Button("Show more sections") {
+                            visibleShelfCount = min(visibleShelfCount + 1, page.shelves.count)
+                        }
+                        .font(.caption)
+                    }
+                    if page.nextCursor != nil {
+                        Button(CatalogContinuationLabel.text(for: model.continuationState(for: key))) {
+                            model.retryContinuation(key)
+                            model.loadMore(key)
+                        }
+                        .disabled(model.continuationState(for: key) == .loading)
+                        .font(.caption)
+                        .padding(.top, 8)
                     }
                     if page.truncated {
                         Text("This page was long, so only the first part is shown.")
@@ -125,10 +148,23 @@ struct CatalogRouteScreen: View {
     let model: GoosicAppModel
 
     var body: some View {
+        #if os(macOS) && !GOOSIC_PORTABLE
+        // The macOS catalog uses SwiftUI's real lazy containers. SwiftCrossUI's current
+        // ScrollView eagerly lays out every ForEach child and beach-balls on large pages.
+        NativeMacCatalogRouteSurface(
+            route: route,
+            title: title,
+            subtitle: subtitle,
+            state: model.state(for: .route(route)),
+            model: model
+        )
+        #else
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ScreenHeader(title: title, subtitle: subtitle)
-                GuestCatalogNotice()
+                if model.activeAccount == nil {
+                    GuestCatalogNotice()
+                }
                 CatalogPageBody(
                     key: .route(route),
                     state: model.state(for: .route(route)),
@@ -138,6 +174,7 @@ struct CatalogRouteScreen: View {
             }
             .padding(24)
         }
+        #endif
     }
 }
 
@@ -187,16 +224,28 @@ struct LibraryScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                ScreenHeader(title: "Library", subtitle: "Your saved collection will live here")
-                EmptyState(
-                    title: model.activeAccount == nil ? "Not connected to an account" : "Personal library is next",
-                    message: model.activeAccount == nil
-                        ? "The catalog is browsed as a guest, so there is no personal library to read. Sign in from Settings to create an isolated account profile."
-                        : "This account is signed in, but personal library reads are intentionally left as the next authenticated-data step."
-                )
-                Text("What works today: Home, Explore, Charts, Moods & genres, New releases, and Search all read the live catalog, and songs play through the official player.")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                ScreenHeader(title: "Library", subtitle: "Your saved YouTube Music collection")
+                if model.activeAccount == nil {
+                    EmptyState(
+                        title: "Not connected to an account",
+                        message: "Sign in from Settings to load your playlists, liked songs, albums, and artists."
+                    )
+                } else {
+                    HStack(spacing: 8) {
+                        ForEach(PersonalLibrarySection.allCases) { section in
+                            Button(section.rawValue) { model.selectLibrarySection(section) }
+                                .font(.caption)
+                                .background(model.libraryTab == section.rawValue ? Color.blue.opacity(0.18) : Color.clear)
+                        }
+                    }
+                    let section = PersonalLibrarySection(rawValue: model.libraryTab) ?? .playlists
+                    CatalogPageBody(
+                        key: section.key,
+                        state: model.state(for: section.key),
+                        subject: section.rawValue.lowercased(),
+                        model: model
+                    )
+                }
             }
             .padding(24)
         }
@@ -346,8 +395,6 @@ struct PlaybackLabSection: View {
                 Button("Stop") { model.stopOfficialVideo() }
                     .frame(minWidth: 72)
                     .disabled(model.accountOperationInProgress)
-                // The lab distinguishes stopping the renderer from releasing Rust's lease, so it
-                // keeps the precise name the transport bar does not need.
                 Button("Release") { model.releasePlayback() }
                     .frame(minWidth: 72)
                     .disabled(model.accountOperationInProgress || model.playbackTransition != .idle)

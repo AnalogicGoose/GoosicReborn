@@ -1,0 +1,55 @@
+name: GoosicPreview
+
+options:
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+packages:
+  SwiftCrossUI:
+    url: https://github.com/moreSwift/swift-cross-ui.git
+    exactVersion: 0.9.0
+
+targets:
+  GoosicPreview:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/GoosicSwift
+        excludes:
+          - Resources
+          - Core/GoosicApp.swift
+          - Platform/macOS/AppKitRepresentableBridge.swift
+          - Platform/macOS/MaterialSurface+macOS.swift
+      - path: PreviewSupport
+    resources:
+      - path: Sources/GoosicSwift/Resources
+    dependencies:
+      - package: SwiftCrossUI
+        product: SwiftCrossUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goosic.preview
+        PRODUCT_NAME: Goosic
+        GENERATE_INFOPLIST_FILE: YES
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "6.0"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) GOOSIC_PREVIEW_NO_WEBKIT"
+      configs:
+        Debug:
+          ENABLE_DEBUG_DYLIB: YES
+          SWIFT_OPTIMIZATION_LEVEL: -Onone
+
+schemes:
+  GoosicPreview:
+    build:
+      targets:
+        GoosicPreview: all
+    run:
+      config: Debug
+      environmentVariables:
+        GOOSIC_SERVICE_PATH:
+          value: ../../target/debug/goosic-service
+          isEnabled: true
+    test:
+      config: Debug
