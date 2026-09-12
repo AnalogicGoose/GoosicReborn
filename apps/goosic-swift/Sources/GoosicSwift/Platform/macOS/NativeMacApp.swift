@@ -811,7 +811,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             }
             SwiftUI.HStack(spacing: 6) {
                 if volumeExpanded {
-                    SwiftUI.Slider(value: Binding(get: { model.isMuted ? 0 : model.volume }, set: model.setVolume), in: 0...1)
+                    SwiftUI.Slider(value: Binding(get: { model.isMuted ? 0 : model.volume }, set: { model.setVolume($0) }), in: 0...1)
                         .controlSize(.small)
                         .frame(width: 84)
                         .accessibilityLabel("Volume")
@@ -1249,7 +1249,7 @@ private struct NativeMacSettingsView: SwiftUI.View {
                         "Autoplay",
                         detail: "Keep the music going with related recommendations.",
                         systemImage: "infinity",
-                        isOn: SwiftUI.Binding(get: { model.autoplay }, set: model.setAutoplay)
+                        isOn: SwiftUI.Binding(get: { model.autoplay }, set: { model.setAutoplay($0) })
                     )
                     SwiftUI.Divider().opacity(0.45)
                     settingToggle(
@@ -1268,7 +1268,7 @@ private struct NativeMacSettingsView: SwiftUI.View {
                         systemImage: "photo.fill",
                         isOn: SwiftUI.Binding(
                             get: { model.artworkBackground },
-                            set: model.setArtworkBackground
+                            set: { model.setArtworkBackground($0) }
                         )
                     )
                 }
