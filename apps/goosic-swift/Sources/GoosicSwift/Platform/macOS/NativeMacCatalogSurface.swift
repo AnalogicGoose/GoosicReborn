@@ -537,7 +537,6 @@ enum NativeMacLinks {
         pasteboard.setString(url.absoluteString, forType: .string)
     }
 }
-#endif
 
 
 /// The shape of a page, drawn before its content arrives.
@@ -613,3 +612,4 @@ struct NativeMacCatalogSkeleton: SwiftUI.View {
             .frame(width: width, height: height)
     }
 }
+#endif
