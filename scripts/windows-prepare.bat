@@ -9,14 +9,20 @@ rem would read the placeholder files the repair exists to replace.
 swift package resolve --package-path "%GOOSIC_PACKAGE%" --scratch-path "%GOOSIC_SCRATCH%"
 if errorlevel 1 exit /b 1
 
-rem The repair is a shell script because it reads git's own index. Git for Windows
-rem ships the bash that runs it; if it is not on PATH there is nothing to repair
-rem with, and saying so beats compiling against placeholders and failing later with
-rem an error that names a missing symbol instead.
+rem The repair is a shell script, because it reads git's own index to find what each
+rem placeholder should have pointed at. Git for Windows ships the bash that runs it.
+rem
+rem It is located by path rather than by `where bash`, which finds Windows' own WSL
+rem launcher first on most machines: that stub is not a shell, and with no distro
+rem installed it fails with `execvpe(/bin/bash)` -- an error about a Linux path, from
+rem a program nobody meant to call.
 set "GOOSIC_BASH="
-for /f "delims=" %%B in ('where bash 2^>nul') do if not defined GOOSIC_BASH set "GOOSIC_BASH=%%B"
+if exist "%ProgramFiles%\Git\bin\bash.exe" set "GOOSIC_BASH=%ProgramFiles%\Git\bin\bash.exe"
+if not defined GOOSIC_BASH if exist "%ProgramFiles(x86)%\Git\bin\bash.exe" set "GOOSIC_BASH=%ProgramFiles(x86)%\Git\bin\bash.exe"
+if not defined GOOSIC_BASH if exist "%LOCALAPPDATA%\Programs\Git\bin\bash.exe" set "GOOSIC_BASH=%LOCALAPPDATA%\Programs\Git\bin\bash.exe"
 if not defined GOOSIC_BASH (
-    echo windows-prepare: bash was not found on PATH, so dependency symlinks cannot be repaired. >&2
+    echo windows-prepare: Git for Windows' bash was not found, so dependency symlinks >&2
+    echo cannot be repaired and the build would compile against placeholder files. >&2
     echo Install Git for Windows, or run scripts/windows-fix-symlinks.sh yourself. >&2
     exit /b 1
 )
