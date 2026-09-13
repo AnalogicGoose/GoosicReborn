@@ -1,0 +1,13 @@
+[package]
+name = "goosic-shell-support-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# A C ABI over `goosic-shell-support`, for shells that are not written in Rust. The Linux shell
+# links the crate directly and has no use for this; the Windows shell is C# and cannot.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+goosic-shell-support = { path = "../goosic-shell-support" }
