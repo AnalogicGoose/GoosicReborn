@@ -33,6 +33,7 @@ public sealed partial class MainWindow : Window
         }
 
         InitializeComponent();
+        WireSeekGestures();
         Title = "Goosic";
 
         // The transport strip is the caption area, so the window has to be told which element
@@ -44,6 +45,17 @@ public sealed partial class MainWindow : Window
         {
             _playback = new OfficialPlaybackHost(PlaybackView, _client);
             _playback.Status += message => Model.ReportStatus(message);
+            Model.CurrentLyricChanged += FollowLyricOnScreen;
+            Model.ConfirmedTrackChanged += async () =>
+            {
+                // Only fetched while the panel is open: lyrics are a third-party lookup, and a
+                // listener who never opens the panel should not send one per track.
+                if (LyricsButton.IsChecked == true)
+                {
+                    LyricsScroller.ChangeView(null, 0, null, disableAnimation: true);
+                    await Model.LoadLyricsAsync();
+                }
+            };
             _playback.Sampled += sample =>
             {
                 if (Model.ReportPlayback(sample))
@@ -232,7 +244,29 @@ public sealed partial class MainWindow : Window
         await _playback.TogglePauseAsync();
     }
 
-    private void OnSeekStarted(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) => _seeking = true;
+    /// <summary>
+    /// Wires the position slider's pointer events, including those the slider itself handles.
+    /// </summary>
+    /// <remarks>
+    /// A Slider marks pointer presses and releases on its thumb and track as handled, so handlers
+    /// attached in markup never run -- which is why seeking did nothing. Registering with
+    /// handledEventsToo is how a page observes a gesture a control has already consumed.
+    /// </remarks>
+    private void WireSeekGestures()
+    {
+        PlaybackProgress.AddHandler(UIElement.PointerPressedEvent,
+            new Microsoft.UI.Xaml.Input.PointerEventHandler(OnSeekStarted), handledEventsToo: true);
+        PlaybackProgress.AddHandler(UIElement.PointerReleasedEvent,
+            new Microsoft.UI.Xaml.Input.PointerEventHandler(OnSeekCompleted), handledEventsToo: true);
+        PlaybackProgress.AddHandler(UIElement.PointerCaptureLostEvent,
+            new Microsoft.UI.Xaml.Input.PointerEventHandler(OnSeekCompleted), handledEventsToo: true);
+    }
+
+    private void OnSeekStarted(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        _seeking = true;
+        Model.IsScrubbing = true;
+    }
 
     private async void OnSeekCompleted(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
@@ -242,18 +276,29 @@ public sealed partial class MainWindow : Window
         }
 
         _seeking = false;
+        Model.IsScrubbing = false;
         if (_playback is not null)
         {
             await _playback.SeekAsync(PlaybackProgress.Value);
         }
     }
 
-    private async void OnVolumeCompleted(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    /// <summary>
+    /// Sends a volume the listener chose, and ignores the ones the page reported.
+    /// </summary>
+    /// <remarks>
+    /// The slider is bound to the confirmed volume, so every sample also raises ValueChanged. A
+    /// value equal to what the page last confirmed is that echo, not a choice, and sending it
+    /// back would fight a listener mid-drag with their own previous position.
+    /// </remarks>
+    private async void OnVolumeChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (_playback is not null)
+        if (_playback is null || Math.Abs(e.NewValue - Model.VolumePercent) < 0.5)
         {
-            await _playback.SetVolumeAsync(VolumeSlider.Value);
+            return;
         }
+
+        await _playback.SetVolumeAsync(e.NewValue / 100.0);
     }
 
     private async void OnToggleMuted(object sender, RoutedEventArgs e)
@@ -269,6 +314,24 @@ public sealed partial class MainWindow : Window
         PlayAdjacent(forward: true, wrap: true);
     }
 
+    /// <summary>Keeps the line being sung in the upper part of the lyrics panel.</summary>
+    private void FollowLyricOnScreen(int index)
+    {
+        if (LyricsItems.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        if (LyricsItems.ContainerFromIndex(index) is FrameworkElement line)
+        {
+            line.StartBringIntoView(new BringIntoViewOptions
+            {
+                VerticalAlignmentRatio = 0.35,
+                AnimationDesired = true,
+            });
+        }
+    }
+
     private async void PlayAdjacent(bool forward, bool wrap)
     {
         if (_playback is null)
@@ -280,6 +343,9 @@ public sealed partial class MainWindow : Window
         var track = Model.AdjacentTrack(forward, wrap);
         if (track?.VideoId is { Length: > 0 } videoId)
         {
+            // The model has to know which track was asked for, or the samples that follow match
+            // nothing and the panel can only show the player's raw state.
+            Model.SelectTrack(track);
             await _playback.PlayAsync(videoId);
         }
     }

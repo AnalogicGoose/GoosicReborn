@@ -53,6 +53,8 @@ internal sealed class OfficialPlaybackHost
     private ulong _lastSequence;
     private bool _ready;
     private bool _observerPending;
+    private long _playRequest;
+    private readonly System.Threading.SemaphoreSlim _playGate = new(1, 1);
 
     internal OfficialPlaybackHost(WebView2 view, GoosicServiceClient client)
     {
@@ -85,6 +87,36 @@ internal sealed class OfficialPlaybackHost
             Status?.Invoke("That is not a playable track.");
             return;
         }
+
+        // Loads are serialised, and only the most recent request survives the wait. Two that ran
+        // together would each read the lease, each release it, and each claim it -- leaving one
+        // renderer holding a generation the other just released.
+        var request = System.Threading.Interlocked.Increment(ref _playRequest);
+        await _playGate.WaitAsync().ConfigureAwait(true);
+        try
+        {
+            if (request != _playRequest)
+            {
+                BridgeLog.Write("play superseded by a newer request");
+                return;
+            }
+
+            await LoadAsync(videoId).ConfigureAwait(true);
+        }
+        finally
+        {
+            _playGate.Release();
+        }
+    }
+
+    private async Task LoadAsync(string videoId)
+    {
+        // The page being replaced keeps posting until it unloads. Its reports are refused from
+        // this moment rather than after the new claim: between Rust releasing the old lease and
+        // granting the new one there is no owner at all, and a report forwarded in that window is
+        // rejected with "no playback owner is active".
+        _token = "";
+        _videoId = "";
 
         try
         {
@@ -203,6 +235,23 @@ internal sealed class OfficialPlaybackHost
         await core.AddScriptToExecuteOnDocumentCreatedAsync(WebView2BridgeShimScript());
 
         core.WebMessageReceived += OnWebMessage;
+
+        // While music plays the official page installs a beforeunload prompt. In a one-pixel
+        // renderer nobody can see or answer it, so the next navigation waits on it forever: the
+        // page freezes, NavigationStarting never fires, and Next appears to do nothing. The shell
+        // is the one asking to leave, so a leave prompt from the official origin is accepted.
+        // Every other dialog is left unanswered, which WebView2 treats as dismissed -- the page
+        // gets no way to ask the listener anything through this surface.
+        core.Settings.AreDefaultScriptDialogsEnabled = false;
+        core.ScriptDialogOpening += (_, args) =>
+        {
+            var leave = args.Kind == CoreWebView2ScriptDialogKind.Beforeunload && IsOfficialOrigin(args.Uri);
+            BridgeLog.Write($"script dialog {args.Kind} from {BridgeLog.Describe(args.Uri)} accepted={leave}");
+            if (leave)
+            {
+                args.Accept();
+            }
+        };
 
         // The click that selected a track has necessarily awaited Rust's lease claim before the
         // navigation starts, so Chromium no longer considers it a user gesture. Grant autoplay
@@ -400,7 +449,10 @@ internal sealed class OfficialPlaybackHost
                 (() => {
                   const media = document.querySelector('audio,video');
                   if (!media || !Number.isFinite(media.duration) || media.duration <= 0) return 'not-seekable';
-                  media.currentTime = Math.min(Math.max({{requested}}, 0), media.duration);
+                  const target = Math.min(Math.max({{requested}}, 0), media.duration);
+                  const player = document.getElementById('movie_player');
+                  if (player && typeof player.seekTo === 'function') { player.seekTo(target, true); return 'seek-requested'; }
+                  media.currentTime = target;
                   return 'seek-requested';
                 })();
                 """);
@@ -420,9 +472,16 @@ internal sealed class OfficialPlaybackHost
         {
             await _view.CoreWebView2.ExecuteScriptAsync($$"""
                 (() => {
+                  const level = {{requested}};
+                  const player = document.getElementById('movie_player');
+                  if (player && typeof player.setVolume === 'function') {
+                    player.setVolume(Math.round(level * 100));
+                    if (level > 0 && typeof player.unMute === 'function') player.unMute();
+                    return 'volume-requested';
+                  }
                   const media = document.querySelector('audio,video');
                   if (!media) return 'no-media';
-                  media.volume = {{requested}}; media.muted = false; return 'volume-requested';
+                  media.volume = level; if (level > 0) media.muted = false; return 'volume-requested';
                 })();
                 """);
         }
@@ -439,8 +498,15 @@ internal sealed class OfficialPlaybackHost
         try
         {
             await _view.CoreWebView2.ExecuteScriptAsync("""
-                (() => { const media = document.querySelector('audio,video');
-                  if (!media) return 'no-media'; media.muted = !media.muted; return 'mute-requested'; })();
+                (() => {
+                  const player = document.getElementById('movie_player');
+                  if (player && typeof player.isMuted === 'function') {
+                    if (player.isMuted()) player.unMute(); else player.mute();
+                    return 'mute-requested';
+                  }
+                  const media = document.querySelector('audio,video');
+                  if (!media) return 'no-media'; media.muted = !media.muted; return 'mute-requested';
+                })();
                 """);
         }
         catch (Exception error)

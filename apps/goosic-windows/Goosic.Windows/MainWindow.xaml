@@ -36,7 +36,10 @@
                 <Button x:Name="PreviousButton" Style="{StaticResource TransportGlyphStyle}"
                         Content="&#xE892;" ToolTipService.ToolTip="Previous" Click="OnPrevious" />
                 <Button x:Name="PlayButton" Style="{StaticResource TransportPlayStyle}"
-                        Content="&#xE768;" ToolTipService.ToolTip="Play" Click="OnPlayPause" />
+                        Content="{x:Bind Model.PlayPauseGlyph, Mode=OneWay}"
+                        ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
+                        AutomationProperties.Name="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
+                        Click="OnPlayPause" />
                 <Button x:Name="NextButton" Style="{StaticResource TransportGlyphStyle}"
                         Content="&#xE893;" ToolTipService.ToolTip="Next" Click="OnNext" />
                 <Button x:Name="RepeatButton" Style="{StaticResource TransportGlyphStyle}"
@@ -68,11 +71,11 @@
                         <TextBlock x:Name="NowPlayingSubtitle" Text="{x:Bind Model.NowPlayingSubtitle, Mode=OneWay}"
                                    FontSize="11" Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                    TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" />
-                        <Slider x:Name="PlaybackProgress" Minimum="0" Height="6"
+                        <Slider x:Name="PlaybackProgress" Minimum="0" Height="6" StepFrequency="1"
                                 Maximum="{x:Bind Model.PlaybackDuration, Mode=OneWay}"
                                 Value="{x:Bind Model.PlaybackPosition, Mode=OneWay}"
                                 IsEnabled="{x:Bind Model.IsSeekable, Mode=OneWay}"
-                                PointerPressed="OnSeekStarted" PointerReleased="OnSeekCompleted" />
+                                AutomationProperties.Name="Position" />
                     </StackPanel>
                 </Grid>
             </Border>
@@ -80,15 +83,24 @@
             <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center"
                         Spacing="2" Margin="0,0,8,0">
                 <Button x:Name="VolumeButton" Style="{StaticResource TransportGlyphStyle}"
-                        Content="&#xE767;" ToolTipService.ToolTip="Volume">
+                        Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume">
                     <Button.Flyout>
                         <Flyout Placement="Bottom">
-                            <StackPanel Width="200" Spacing="10" Padding="12">
-                                <TextBlock Text="Volume" FontWeight="SemiBold" />
-                                <Slider x:Name="VolumeSlider" Minimum="0" Maximum="1"
-                                        Value="{x:Bind Model.Volume, Mode=OneWay}"
-                                        PointerReleased="OnVolumeCompleted" />
-                                <Button Content="Mute" Click="OnToggleMuted" />
+                            <StackPanel Width="240" Spacing="8" Padding="4">
+                                <Grid>
+                                    <TextBlock Text="Volume" FontWeight="SemiBold" />
+                                    <TextBlock HorizontalAlignment="Right"
+                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                               Text="{x:Bind Model.VolumePercent, Mode=OneWay}" />
+                                </Grid>
+                                <!-- 0 to 100 in whole steps. On 0 to 1 the default step of 1 let
+                                     the thumb sit only at the two ends. -->
+                                <Slider x:Name="VolumeSlider" Minimum="0" Maximum="100" StepFrequency="1"
+                                        Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
+                                        ValueChanged="OnVolumeChanged"
+                                        AutomationProperties.Name="Volume" />
+                                <Button Content="{x:Bind Model.MuteLabel, Mode=OneWay}"
+                                        HorizontalAlignment="Stretch" Click="OnToggleMuted" />
                             </StackPanel>
                         </Flyout>
                     </Button.Flyout>
@@ -285,15 +297,18 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <ItemsControl x:Name="LyricsItems" Visibility="Collapsed"
-                                  ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:LyricLineViewModel">
-                                <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" FontSize="17"
-                                           Margin="0,0,0,14" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ScrollViewer x:Name="LyricsScroller" VerticalScrollBarVisibility="Hidden">
+                        <ItemsControl x:Name="LyricsItems" Visibility="Collapsed"
+                                      ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LyricLineViewModel">
+                                    <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" FontSize="20"
+                                               FontWeight="SemiBold" Margin="0,0,0,16"
+                                               Opacity="{x:Bind Emphasis, Mode=OneWay}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </Grid>
             </Border>
         </Grid>

@@ -185,7 +185,41 @@ public sealed class ShelfViewModel
 }
 
 /// <summary>One line shown in the lyrics panel, never synthesized by the shell.</summary>
-public sealed record LyricLineViewModel(string Text, long AtMilliseconds);
+/// <summary>One line of lyrics, and whether the music is on it.</summary>
+public sealed class LyricLineViewModel : INotifyPropertyChanged
+{
+    private bool _isCurrent;
+
+    internal LyricLineViewModel(string text, long atMilliseconds)
+    {
+        Text = text;
+        AtMilliseconds = atMilliseconds;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Text { get; }
+    public long AtMilliseconds { get; }
+
+    public bool IsCurrent
+    {
+        get => _isCurrent;
+        internal set
+        {
+            if (_isCurrent == value)
+            {
+                return;
+            }
+
+            _isCurrent = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Emphasis)));
+        }
+    }
+
+    /// <summary>The current line at full strength, the rest receding, as the reference does.</summary>
+    public double Emphasis => IsCurrent ? 1.0 : 0.45;
+}
 public sealed record AccountViewModel(string DisplayName, string Detail);
 
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
@@ -269,8 +303,52 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public double PlaybackPosition { get => _playbackPosition; private set => Set(ref _playbackPosition, value); }
     public double PlaybackDuration { get => _playbackDuration; private set => Set(ref _playbackDuration, value); }
     public bool IsSeekable => PlaybackDuration > 0;
-    public double Volume { get => _volume; private set => Set(ref _volume, value); }
-    public bool IsMuted { get => _isMuted; private set => Set(ref _isMuted, value); }
+    public double Volume
+    {
+        get => _volume;
+        private set
+        {
+            if (Set(ref _volume, value))
+            {
+                OnPropertyChanged(nameof(VolumePercent));
+                OnPropertyChanged(nameof(VolumeGlyph));
+            }
+        }
+    }
+
+    public bool IsMuted
+    {
+        get => _isMuted;
+        private set
+        {
+            if (Set(ref _isMuted, value))
+            {
+                OnPropertyChanged(nameof(VolumeGlyph));
+                OnPropertyChanged(nameof(MuteLabel));
+            }
+        }
+    }
+
+    /// <summary>The confirmed volume on the 0-100 scale the slider shows.</summary>
+    public double VolumePercent => Math.Round(Volume * 100);
+
+    /// <summary>Segoe Fluent Icons: muted, low, medium or high.</summary>
+    public string VolumeGlyph => IsMuted || Volume <= 0 ? "\uE74F"
+        : Volume < 0.34 ? "\uE993"
+        : Volume < 0.67 ? "\uE994"
+        : "\uE995";
+
+    public string MuteLabel => IsMuted ? "Unmute" : "Mute";
+
+    /// <summary>
+    /// Set while the listener drags the position slider.
+    /// </summary>
+    /// <remarks>
+    /// Samples arrive twice a second. Moving the slider under the listener's pointer to follow
+    /// them would pull the thumb back to where the music is while they are choosing where it
+    /// should go.
+    /// </remarks>
+    internal bool IsScrubbing { get; set; }
 
     /// <summary>
     /// Shows what the page confirmed.
@@ -281,18 +359,119 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// reported and never something to hide or skip past.
     /// </remarks>
     /// <returns>Whether this is the first confirmed natural end for the current queue item.</returns>
+    private bool _isPlaying;
+    private bool _lyricsSynced;
+    private int _currentLyric = -1;
+
+    /// <summary>
+    /// Raised when the page confirms a different track from the one it was confirming.
+    /// </summary>
+    /// <remarks>
+    /// Confirmation, not selection, is what makes lyrics stale: a skip that Rust refuses, or a
+    /// load that has not reached the page yet, must leave the lyrics of what is still playing.
+    /// </remarks>
+    internal event Action? ConfirmedTrackChanged;
+
+    /// <summary>Raised with the index of the lyric line the music has reached.</summary>
+    internal event Action<int>? CurrentLyricChanged;
+
+    /// <summary>
+    /// Whether the page last confirmed that it is playing.
+    /// </summary>
+    /// <remarks>
+    /// Taken from an accepted sample, never from the click. The transport button offers the
+    /// opposite of this, so it must not flip until the page has actually changed state -- a
+    /// button that flipped on request would show "pause" over a player that refused to start.
+    /// </remarks>
+    public bool IsPlaying
+    {
+        get => _isPlaying;
+        private set
+        {
+            if (Set(ref _isPlaying, value))
+            {
+                OnPropertyChanged(nameof(PlayPauseGlyph));
+                OnPropertyChanged(nameof(PlayPauseLabel));
+            }
+        }
+    }
+
+    /// <summary>Segoe Fluent Icons: Pause while playing, Play otherwise.</summary>
+    public string PlayPauseGlyph => IsPlaying ? "\uE769" : "\uE768";
+
+    public string PlayPauseLabel => IsPlaying ? "Pause" : "Play";
+
+    /// <summary>
+    /// Moves the highlight to the line the confirmed position has reached.
+    /// </summary>
+    /// <remarks>
+    /// Only for synced lyrics. Plain lyrics carry no times, and highlighting one of them would
+    /// claim a position the document never stated.
+    /// </remarks>
+    private void FollowLyrics(double seconds)
+    {
+        if (!_lyricsSynced || Lyrics.Count == 0)
+        {
+            return;
+        }
+
+        var at = (long)(seconds * 1000);
+        var index = -1;
+        for (var i = 0; i < Lyrics.Count; i++)
+        {
+            if (Lyrics[i].AtMilliseconds > at)
+            {
+                break;
+            }
+
+            index = i;
+        }
+
+        if (index == _currentLyric)
+        {
+            return;
+        }
+
+        if (_currentLyric >= 0 && _currentLyric < Lyrics.Count)
+        {
+            Lyrics[_currentLyric].IsCurrent = false;
+        }
+
+        _currentLyric = index;
+        if (index >= 0)
+        {
+            Lyrics[index].IsCurrent = true;
+            CurrentLyricChanged?.Invoke(index);
+        }
+    }
+
     internal bool ReportPlayback(BridgeEvent sample)
     {
         var position = TimeSpan.FromSeconds(Math.Max(0, sample.CurrentTime));
         var total = TimeSpan.FromSeconds(Math.Max(0, sample.Duration));
-        PlaybackPosition = Math.Max(0, sample.CurrentTime);
+        if (!IsScrubbing)
+        {
+            PlaybackPosition = Math.Max(0, sample.CurrentTime);
+        }
+
         PlaybackDuration = Math.Max(0, sample.Duration);
         Volume = Math.Clamp(sample.Volume, 0, 1);
         IsMuted = sample.Muted;
+        IsPlaying = sample.State == "playing";
         OnPropertyChanged(nameof(IsSeekable));
         if (!sample.IsAdvertisement && _pendingTrack is { } pending && pending.VideoId == sample.VideoId)
         {
+            var changed = !ReferenceEquals(_confirmedTrack, pending);
             _confirmedTrack = pending;
+            if (changed)
+            {
+                Lyrics.Clear();
+                _lyricsSynced = false;
+                _currentLyric = -1;
+                ConfirmedTrackChanged?.Invoke();
+            }
+
+            FollowLyrics(sample.CurrentTime);
             NowPlayingArtwork = pending.Artwork;
             NowPlayingTitle = pending.Title;
             NowPlayingSubtitle = pending.Subtitle + " · " + Clock(position)
@@ -300,8 +479,20 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             return MarkNaturalEnd(sample);
         }
 
-        NowPlayingTitle = sample.IsAdvertisement ? "Advertisement" : sample.State;
-        NowPlayingSubtitle = total > TimeSpan.Zero ? Clock(position) + " / " + Clock(total) : Clock(position);
+        // A sample for a track the model did not ask for: an advertisement, or the moments before
+        // the requested page takes over. Name the advertisement; otherwise say it is loading,
+        // never the player's raw state word.
+        if (sample.IsAdvertisement)
+        {
+            NowPlayingTitle = "Advertisement";
+            NowPlayingSubtitle = total > TimeSpan.Zero ? Clock(position) + " / " + Clock(total) : Clock(position);
+        }
+        else if (_pendingTrack is { } waiting)
+        {
+            NowPlayingTitle = waiting.Title;
+            NowPlayingSubtitle = "Loading\u2026";
+        }
+
         return MarkNaturalEnd(sample);
     }
 
@@ -389,6 +580,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         }
 
         Lyrics.Clear();
+        _lyricsSynced = false;
+        _currentLyric = -1;
         LyricsStatus = $"Looking up lyrics for {track.Title}…";
         try
         {
@@ -407,6 +600,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds));
             }
 
+            _lyricsSynced = document.Synced;
             LyricsStatus = document.Synced ? $"Synced lyrics from {document.Source}." : $"Lyrics from {document.Source}.";
             if (document.Truncated)
             {
