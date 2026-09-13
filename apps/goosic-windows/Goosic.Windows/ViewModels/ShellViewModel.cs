@@ -87,6 +87,58 @@ public sealed class CardViewModel : INotifyPropertyChanged
     }
 }
 
+/// <summary>One track row: a search result, or an ordered list on a detail page.</summary>
+public sealed class TrackViewModel : INotifyPropertyChanged
+{
+    internal TrackViewModel(CatalogItem item)
+    {
+        Title = item.Title;
+        Subtitle = string.IsNullOrWhiteSpace(item.Subtitle) ? item.Artist ?? "" : item.Subtitle;
+        Duration = item.Duration ?? "";
+        VideoId = item.VideoId;
+        Thumbnail = item.Thumbnail;
+        Explicit = item.Explicit;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Title { get; }
+    public string Subtitle { get; }
+    public string Duration { get; }
+    public bool Explicit { get; }
+    internal string? VideoId { get; }
+    internal string? Thumbnail { get; }
+
+    /// <summary>The id for the view to hand back, or empty when the row cannot be played.</summary>
+    public string VideoIdOrEmpty => VideoId ?? "";
+
+    public BitmapImage? Artwork
+    {
+        get => _artwork;
+        private set
+        {
+            _artwork = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Artwork)));
+        }
+    }
+
+    private BitmapImage? _artwork;
+
+    internal async Task LoadArtworkAsync(ArtworkLoader loader)
+    {
+        var file = await loader.LocalFileAsync(Thumbnail).ConfigureAwait(true);
+        if (file is null)
+        {
+            return;
+        }
+
+        var image = new BitmapImage();
+        using var stream = File.OpenRead(file);
+        await image.SetSourceAsync(stream.AsRandomAccessStream());
+        Artwork = image;
+    }
+}
+
 public sealed class ShelfViewModel
 {
     internal ShelfViewModel(CatalogShelf shelf)
@@ -118,6 +170,10 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     public IReadOnlyList<RouteEntry> Routes => RouteEntry.All;
     public ObservableCollection<ShelfViewModel> Shelves { get; } = [];
+    public ObservableCollection<TrackViewModel> Tracks { get; } = [];
+
+    /// <summary>The filters `catalog.search` accepts, in the order they are offered.</summary>
+    public IReadOnlyList<string> SearchFilters { get; } = ["all", "songs", "albums", "artists", "playlists"];
 
     public string PageTitle { get => _pageTitle; private set => Set(ref _pageTitle, value); }
     public string PageSubtitle { get => _pageSubtitle; private set => Set(ref _pageSubtitle, value); }
@@ -163,6 +219,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         var entry = RouteEntry.All.FirstOrDefault(candidate => candidate.Route == route);
         PageTitle = entry?.Title ?? route;
         Shelves.Clear();
+        Tracks.Clear();
         Status = $"Loading {PageTitle.ToLowerInvariant()}…";
 
         try
@@ -186,6 +243,13 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 ? "Live from YouTube Music, browsed as a guest"
                 : page.Subtitle;
 
+            foreach (var track in page.Tracks)
+            {
+                var row = new TrackViewModel(track);
+                Tracks.Add(row);
+                _ = row.LoadArtworkAsync(_artwork);
+            }
+
             foreach (var shelf in page.Shelves)
             {
                 var model = new ShelfViewModel(shelf);
@@ -202,6 +266,59 @@ public sealed class ShellViewModel : INotifyPropertyChanged
             Status = page.Truncated
                 ? "This page was long, so only the first part is shown."
                 : "";
+        }
+        catch (Exception error)
+        {
+            Status = Describe(error);
+        }
+    }
+
+    /// <summary>Searches the catalog, and shows what came back as rows.</summary>
+    internal async Task SearchAsync(string query, string filter)
+    {
+        var trimmed = query.Trim();
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+        PageTitle = $"Results for “{trimmed}”";
+        PageSubtitle = filter == "all" ? "Everything matching" : $"Matching {filter}";
+        Shelves.Clear();
+        Tracks.Clear();
+        Status = "Searching…";
+
+        try
+        {
+            var payload = new JsonObject { ["query"] = trimmed, ["filter"] = filter };
+            var answer = await _client.RequestAsync("catalog.search", payload).ConfigureAwait(true);
+            var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
+            if (page is null)
+            {
+                Status = "The service answered without a page.";
+                return;
+            }
+
+            foreach (var track in page.Tracks)
+            {
+                var row = new TrackViewModel(track);
+                Tracks.Add(row);
+                _ = row.LoadArtworkAsync(_artwork);
+            }
+
+            foreach (var shelf in page.Shelves)
+            {
+                var model = new ShelfViewModel(shelf);
+                Shelves.Add(model);
+                foreach (var card in model.Items)
+                {
+                    _ = card.LoadArtworkAsync(_artwork);
+                }
+            }
+
+            Status = Tracks.Count == 0 && Shelves.Count == 0
+                ? $"Nothing matched “{trimmed}”."
+                : page.Truncated ? "This page was long, so only the first part is shown." : "";
         }
         catch (Exception error)
         {

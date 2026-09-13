@@ -135,6 +135,38 @@
                              Message="{x:Bind Model.Status, Mode=OneWay}" IsClosable="False"
                              Severity="Informational" />
 
+                    <!-- Track rows: search results, and ordered lists on a detail page. -->
+                    <ItemsControl ItemsSource="{x:Bind Model.Tracks, Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TrackViewModel">
+                                <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
+                                        Click="OnPlayTrack">
+                                    <Grid ColumnSpacing="11">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Width="40" Height="40" CornerRadius="4"
+                                                Background="{ThemeResource GoosicRaisedBrush}">
+                                            <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{x:Bind Title}" FontSize="14"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{x:Bind Subtitle}" FontSize="12"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Duration}" FontSize="12"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
                     <ItemsControl ItemsSource="{x:Bind Model.Shelves, Mode=OneWay}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ShelfViewModel">

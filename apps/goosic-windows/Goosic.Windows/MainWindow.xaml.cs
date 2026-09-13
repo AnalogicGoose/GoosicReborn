@@ -95,13 +95,34 @@ public sealed partial class MainWindow : Window
     private void OnDismissSidebar(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e) =>
         SidebarOverlay.Visibility = Visibility.Collapsed;
 
-    private async void OnSearchRoute(object sender, RoutedEventArgs e) =>
-        await Model.LoadRouteAsync("explore");
-
-    private void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    private void OnSearchRoute(object sender, RoutedEventArgs e)
     {
-        // Search is the next screen to land; the box is present so the chrome is complete.
+        SidebarOverlay.Visibility = Visibility.Visible;
+        SidebarSearch.Focus(FocusState.Programmatic);
+    }
+
+    private async void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
         SidebarOverlay.Visibility = Visibility.Collapsed;
+        await Model.SearchAsync(args.QueryText, "all");
+    }
+
+    /// <summary>
+    /// Plays a row, once there is somewhere to play it.
+    /// </summary>
+    /// <remarks>
+    /// The lease is claimed before anything renders, because Rust decides whether a transition is
+    /// allowed and a renderer that started first would have escaped that. Until the WebView2 host
+    /// exists there is nothing to claim it for, so this says so rather than appearing to work.
+    /// </remarks>
+    private void OnPlayTrack(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string videoId } && videoId.Length > 0)
+        {
+            Model.ReportStatus(ShellSupport.IsValidVideoId(videoId)
+                ? "Playback is not implemented on Windows yet."
+                : "That row does not carry a playable track.");
+        }
     }
 
     private void OnBack(object sender, RoutedEventArgs e)
