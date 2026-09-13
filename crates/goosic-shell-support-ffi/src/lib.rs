@@ -191,8 +191,133 @@ pub unsafe extern "C" fn goosic_bridge_validate_event(
     );
 
     let verdict = match &reason {
-        Some(reason) => Verdict { accepted: false, reason: Some(reason.clone()), event: None },
-        None => Verdict { accepted: true, reason: None, event: Some(&event) },
+        Some(reason) => Verdict {
+            accepted: false,
+            reason: Some(reason.clone()),
+            event: None,
+        },
+        None => Verdict {
+            accepted: true,
+            reason: None,
+            event: Some(&event),
+        },
     };
     hand_over(serde_json::to_string(&verdict).unwrap_or_default())
+}
+
+/// Whether a sign-in window may navigate its main frame to `url`.
+///
+/// # Safety
+///
+/// `url` must be NUL-terminated or null.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_login_is_allowed_url(url: *const c_char) -> bool {
+    unsafe { borrow(url) }.is_some_and(goosic_shell_support::login::is_allowed_login_url)
+}
+
+/// Whether a page is on the one origin a completed sign-in lands on.
+///
+/// # Safety
+///
+/// `url` must be NUL-terminated or null.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_login_is_completion_origin(url: *const c_char) -> bool {
+    unsafe { borrow(url) }.is_some_and(goosic_shell_support::login::is_exact_completion_origin)
+}
+
+/// The cleaned account summary of a finished sign-in, as JSON, or null when the report is not
+/// enough to call the sign-in complete.
+///
+/// Every condition is Rust's: distinct canonical identities, the exact completion origin, bounded
+/// metadata, and a second account-specific field. The shell only forwards what the page said.
+///
+/// # Safety
+///
+/// Every pointer must be NUL-terminated or null.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_login_make_result(
+    account_id: *const c_char,
+    profile_id: *const c_char,
+    metadata: *const c_char,
+    page_url: *const c_char,
+) -> *mut c_char {
+    use goosic_shell_support::login;
+    let (Some(account_id), Some(profile_id), Some(metadata), Some(page_url)) = (
+        unsafe { borrow(account_id) },
+        unsafe { borrow(profile_id) },
+        unsafe { borrow(metadata) },
+        unsafe { borrow(page_url) },
+    ) else {
+        return std::ptr::null_mut();
+    };
+    if !login::are_distinct_profiles(account_id, profile_id) {
+        return std::ptr::null_mut();
+    }
+    let (Ok(account), Ok(profile)) = (
+        uuid::Uuid::parse_str(account_id),
+        uuid::Uuid::parse_str(profile_id),
+    ) else {
+        return std::ptr::null_mut();
+    };
+    match login::make_result(account, profile, metadata.as_bytes(), page_url) {
+        Some(result) => hand_over(serde_json::to_string(&result.summary).unwrap_or_default()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[cfg(test)]
+mod login_tests {
+    use super::*;
+
+    fn owned(value: &str) -> CString {
+        CString::new(value).unwrap()
+    }
+
+    #[test]
+    fn login_navigation_follows_the_shared_rule() {
+        let google = owned("https://accounts.google.com/ServiceLogin");
+        let elsewhere = owned("https://example.com/");
+        unsafe {
+            assert!(goosic_login_is_allowed_url(google.as_ptr()));
+            assert!(!goosic_login_is_allowed_url(elsewhere.as_ptr()));
+            assert!(!goosic_login_is_allowed_url(std::ptr::null()));
+        }
+    }
+
+    #[test]
+    fn a_finished_sign_in_needs_distinct_identities_and_a_second_field() {
+        let account = owned("6f1c1a52-6b7e-4f0e-9d1b-0a4f4bb1e001");
+        let profile = owned("6f1c1a52-6b7e-4f0e-9d1b-0a4f4bb1e002");
+        let page = owned("https://music.youtube.com/");
+        let good = owned(
+            r#"{"displayName":"Ada","email":"ada@example.com","channel":null,"avatarUrl":null}"#,
+        );
+        let weak = owned(r#"{"displayName":"Ada","email":null,"channel":null,"avatarUrl":null}"#);
+        unsafe {
+            let result = goosic_login_make_result(
+                account.as_ptr(),
+                profile.as_ptr(),
+                good.as_ptr(),
+                page.as_ptr(),
+            );
+            assert!(!result.is_null());
+            let text = CStr::from_ptr(result).to_str().unwrap().to_owned();
+            goosic_string_free(result);
+            assert!(text.contains("ada@example.com"));
+            assert!(goosic_login_make_result(
+                account.as_ptr(),
+                profile.as_ptr(),
+                weak.as_ptr(),
+                page.as_ptr()
+            )
+            .is_null());
+            assert!(goosic_login_make_result(
+                account.as_ptr(),
+                account.as_ptr(),
+                good.as_ptr(),
+                page.as_ptr()
+            )
+            .is_null());
+        }
+    }
 }

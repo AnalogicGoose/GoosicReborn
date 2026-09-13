@@ -87,6 +87,16 @@
 
             <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center"
                         Spacing="2" Margin="0,0,8,0">
+                <ToggleButton Style="{StaticResource TransportToggleStyle}" Content="&#xE8E1;"
+                              Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}"
+                              IsChecked="{x:Bind Model.IsNowPlayingLiked, Mode=OneWay}"
+                              ToolTipService.ToolTip="Like" AutomationProperties.Name="Like"
+                              Click="OnLikeNowPlaying" />
+                <ToggleButton Style="{StaticResource TransportToggleStyle}" Content="&#xE8E0;"
+                              Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}"
+                              IsChecked="{x:Bind Model.IsNowPlayingDisliked, Mode=OneWay}"
+                              ToolTipService.ToolTip="Dislike" AutomationProperties.Name="Dislike"
+                              Click="OnDislikeNowPlaying" />
                 <Button x:Name="VolumeButton" Style="{StaticResource TransportGlyphStyle}"
                         Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume">
                     <Button.Flyout>
@@ -154,22 +164,111 @@
                             Content="{x:Bind Model.AccountInitials, Mode=OneWay}"
                             Click="OnAccount">
                         <Button.Flyout>
-                            <Flyout Placement="Right">
-                                <StackPanel Width="240" Spacing="8" Padding="14">
-                                    <TextBlock Text="Account" FontWeight="SemiBold" />
-                                    <TextBlock Text="{x:Bind Model.AccountStatus, Mode=OneWay}"
+                            <Flyout x:Name="AccountFlyout" Placement="RightEdgeAlignedBottom">
+                                <StackPanel Width="300" Spacing="4">
+                                    <Grid ColumnSpacing="12" Margin="4,4,4,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="40" Height="40" CornerRadius="20"
+                                                Background="{StaticResource GoosicAccentBrush}">
+                                            <TextBlock Text="{x:Bind Model.AccountInitials, Mode=OneWay}"
+                                                       Foreground="White" FontWeight="SemiBold" FontSize="16"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                            <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}"
+                                                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{x:Bind Model.AccountDetail, Mode=OneWay}" FontSize="12"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                       TextWrapping="Wrap" MaxLines="2" />
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Button Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch"
+                                            Visibility="{x:Bind Model.IsGuest, Mode=OneWay}" Click="OnSignIn">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE77B;" FontSize="14" />
+                                            <TextBlock Text="Sign in with Google" />
+                                        </StackPanel>
+                                    </Button>
+
+                                    <MenuFlyoutSeparator Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" />
+                                    <Button Style="{StaticResource SidebarRouteStyle}" Tag="library"
+                                            Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnAccountRoute">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xE8F1;" FontSize="15" />
+                                            <TextBlock Text="Your library" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource SidebarRouteStyle}" Tag="liked"
+                                            Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnAccountRoute">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xE8E1;" FontSize="15" />
+                                            <TextBlock Text="Liked music" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource SidebarRouteStyle}" Tag="history"
+                                            Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnAccountRoute">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xE81C;" FontSize="15" />
+                                            <TextBlock Text="History" />
+                                        </StackPanel>
+                                    </Button>
+
+                                    <MenuFlyoutSeparator />
+                                    <TextBlock Text="Accounts" FontSize="12" Margin="8,4,0,0"
                                                Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                                     <ItemsControl ItemsSource="{x:Bind Model.Accounts, Mode=OneWay}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="vm:AccountViewModel">
-                                                <StackPanel Spacing="2" Margin="0,4">
-                                                    <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
-                                                    <TextBlock Text="{x:Bind Detail}" FontSize="12"
-                                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                                                </StackPanel>
+                                                <Button Style="{StaticResource SidebarRouteStyle}" Tag="{x:Bind Tag}"
+                                                        Click="OnUseAccount">
+                                                    <Grid ColumnSpacing="10">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Width="26" Height="26" CornerRadius="13"
+                                                                Background="{ThemeResource GoosicRaisedStrongBrush}">
+                                                            <TextBlock Text="{x:Bind Initial}" FontSize="11"
+                                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Spacing="1">
+                                                            <TextBlock Text="{x:Bind DisplayName}" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{x:Bind Detail}" FontSize="11"
+                                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                        <FontIcon Grid.Column="2" Glyph="{x:Bind ActiveMarker}" FontSize="12" />
+                                                    </Grid>
+                                                </Button>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
+                                    <Button Style="{StaticResource SidebarRouteStyle}"
+                                            Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnUseGuest">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xE7EE;" FontSize="15" />
+                                            <TextBlock Text="Browse as a guest" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource SidebarRouteStyle}"
+                                            Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignIn">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xE8FA;" FontSize="15" />
+                                            <TextBlock Text="Add another account" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource SidebarRouteStyle}"
+                                            Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignOut">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <FontIcon Glyph="&#xF3B1;" FontSize="15" />
+                                            <TextBlock Text="Sign out" />
+                                        </StackPanel>
+                                    </Button>
                                 </StackPanel>
                             </Flyout>
                         </Button.Flyout>
@@ -185,19 +284,65 @@
                                    FontSize="28" FontWeight="Bold" />
                         <TextBlock Text="{x:Bind Model.PageSubtitle, Mode=OneWay}"
                                    FontSize="13" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0"
+                        <ItemsControl Margin="0,12,0,0" ItemsSource="{x:Bind Model.LibrarySections}"
+                                      Visibility="{x:Bind Model.IsLibraryPage, Mode=OneWay}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LibrarySection">
+                                    <Button Content="{x:Bind Title}" CornerRadius="8" Padding="12,5"
+                                            Click="OnLibrarySection" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+                            <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage"
                                     Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
-                            <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <FontIcon Glyph="&#xE768;" FontSize="14" />
                                     <TextBlock Text="Play" />
                                 </StackPanel>
                             </Button>
-                            <Button Click="OnShufflePage">
+                            <Button Click="OnShufflePage" Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <FontIcon Glyph="&#xE8B1;" FontSize="14" />
                                     <TextBlock Text="Shuffle" />
                                 </StackPanel>
+                            </Button>
+                            <Button Visibility="{x:Bind Model.CanSavePagePlaylist, Mode=OneWay}" Click="OnSavePagePlaylist">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE8F4;" FontSize="14" />
+                                    <TextBlock Text="Save to library" />
+                                </StackPanel>
+                            </Button>
+                            <Button Visibility="{x:Bind Model.CanFollowPageArtist, Mode=OneWay}" Click="OnFollowPageArtist">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE8FA;" FontSize="14" />
+                                    <TextBlock Text="Subscribe" />
+                                </StackPanel>
+                            </Button>
+                            <Button Visibility="{x:Bind Model.IsOwnedPlaylistPage, Mode=OneWay}"
+                                    ToolTipService.ToolTip="Edit playlist">
+                                <FontIcon Glyph="&#xE712;" FontSize="14" />
+                                <Button.Flyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Text="Rename…" Click="OnRenamePagePlaylist">
+                                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8AC;" /></MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutSubItem Text="Who can see this">
+                                            <MenuFlyoutItem Text="Public" Tag="PUBLIC" Click="OnPagePlaylistPrivacy" />
+                                            <MenuFlyoutItem Text="Unlisted" Tag="UNLISTED" Click="OnPagePlaylistPrivacy" />
+                                            <MenuFlyoutItem Text="Private" Tag="PRIVATE" Click="OnPagePlaylistPrivacy" />
+                                        </MenuFlyoutSubItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Delete playlist…" Click="OnDeletePagePlaylist">
+                                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                    </MenuFlyout>
+                                </Button.Flyout>
                             </Button>
                         </StackPanel>
                     </StackPanel>
@@ -389,8 +534,8 @@
             and one WebView2 profile however many tracks are played. It is a renderer, never a
             surface the user browses: what it is showing is reported, not displayed.
         -->
-        <mux:WebView2 x:Name="PlaybackView" Grid.Row="1" Width="1" Height="1"
-                      HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />
+<Grid x:Name="WebHost" Grid.Row="1" Width="1" Height="1"
+              HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />
 
         <!--
             The named sidebar. It is drawn over the content rather than beside it, the way Apple
@@ -419,6 +564,32 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <StackPanel Spacing="6" Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}">
+                        <MenuFlyoutSeparator />
+                        <Button HorizontalAlignment="Stretch" CornerRadius="16" Click="OnNewPlaylist">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE710;" FontSize="13" />
+                                <TextBlock Text="New playlist" />
+                            </StackPanel>
+                        </Button>
+                        <ScrollViewer MaxHeight="340" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{x:Bind Model.UserPlaylists, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:PlaylistSummaryViewModel">
+                                        <Button Style="{StaticResource SidebarRouteStyle}" Padding="10,5"
+                                                Tag="{x:Bind ActivationTag}" Click="OnSidebarPlaylist">
+                                            <StackPanel Spacing="1">
+                                                <TextBlock Text="{x:Bind Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{x:Bind Subtitle}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                            </StackPanel>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
                 </StackPanel>
             </Border>
         </Grid>

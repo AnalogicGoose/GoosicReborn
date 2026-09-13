@@ -28,6 +28,8 @@ public sealed record RouteEntry(string Route, string Title, string Glyph)
         new("moodsAndGenres", "Moods & genres", ""),
         new("newReleases", "New releases", ""),
         new("library", "Library", ""),
+        new("liked", "Liked Music", "\uE8E1"),
+        new("history", "History", "\uE81C"),
         new("downloads", "Downloads", ""),
     ];
 }
@@ -122,7 +124,11 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         Explicit = item.Explicit;
         ArtistId = item.ArtistId;
         AlbumId = item.AlbumId;
+        EntryId = item.EntryId;
     }
+
+    /// <summary>This occurrence in an account's playlist, when the personal reader supplied one.</summary>
+    internal string? EntryId { get; }
 
     /// <summary>Promotes a playable shelf card without inventing metadata it did not carry.</summary>
     internal TrackViewModel(CardViewModel card)
@@ -276,7 +282,6 @@ public sealed class LyricLineViewModel : INotifyPropertyChanged
     /// <summary>The current line at full strength, the rest receding, as the reference does.</summary>
     public double Emphasis => IsCurrent ? 1.0 : 0.45;
 }
-public sealed record AccountViewModel(string DisplayName, string Detail);
 
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
 public sealed partial class ShellViewModel : INotifyPropertyChanged
@@ -635,40 +640,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
-        await LoadRouteAsync("home").ConfigureAwait(true);
         await RefreshAccountsAsync().ConfigureAwait(true);
-    }
-
-    /// <summary>Reads metadata persisted by Rust; credentials never appear in this response.</summary>
-    internal async Task RefreshAccountsAsync()
-    {
-        AccountStatus = "Checking account…";
-        try
-        {
-            var response = await _client.RequestAsync("accounts.get").ConfigureAwait(true);
-            var snapshot = response.Deserialize<AccountsResponsePayload>(ServiceProtocol.Json)?.Accounts;
-            Accounts.Clear();
-            if (snapshot is null || snapshot.Accounts.Count == 0)
-            {
-                AccountStatus = "Signed out";
-                AccountInitials = "G";
-                return;
-            }
-
-            foreach (var account in snapshot.Accounts)
-            {
-                Accounts.Add(new AccountViewModel(account.DisplayName, account.Email ?? "YouTube Music account"));
-            }
-
-            var active = snapshot.Accounts.FirstOrDefault(account => account.Id == snapshot.ActiveAccountId)
-                ?? snapshot.Accounts[0];
-            AccountInitials = string.IsNullOrWhiteSpace(active.DisplayName) ? "G" : active.DisplayName[..1].ToUpperInvariant();
-            AccountStatus = active.DisplayName;
-        }
-        catch (Exception error)
-        {
-            AccountStatus = "Account unavailable: " + Describe(error);
-        }
+        await LoadRouteAsync("home").ConfigureAwait(true);
     }
 
     /// <summary>Loads one browse surface.</summary>
@@ -680,7 +653,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
+        ForgetPersonalPage();
         Status = $"Loading {PageTitle.ToLowerInvariant()}…";
+        if (await TryLoadPersonalRouteAsync(route).ConfigureAwait(true))
+        {
+            return;
+        }
 
         try
         {
@@ -797,7 +775,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
+        ForgetPersonalPage();
         Status = $"Loading {title}…";
+        if (await TryOpenPersonalEntityAsync(kind, id, title).ConfigureAwait(true))
+        {
+            return;
+        }
 
         try
         {
@@ -864,6 +847,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
+        ForgetPersonalPage();
         Status = "Searching…";
 
         try

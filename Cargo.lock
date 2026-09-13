@@ -343,6 +343,7 @@ dependencies = [
  "goosic-shell-support",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

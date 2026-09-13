@@ -45,7 +45,9 @@ internal sealed record BridgeVerdict
 /// </remarks>
 internal sealed class OfficialPlaybackHost
 {
-    private readonly WebView2 _view;
+    private readonly Microsoft.UI.Xaml.Controls.Panel _container;
+    private WebView2 _view = new();
+    private string _profileName = WebProfiles.GuestProfile;
     private readonly GoosicServiceClient _client;
     private string _token = "";
     private string _videoId = "";
@@ -56,10 +58,47 @@ internal sealed class OfficialPlaybackHost
     private long _playRequest;
     private readonly System.Threading.SemaphoreSlim _playGate = new(1, 1);
 
-    internal OfficialPlaybackHost(WebView2 view, GoosicServiceClient client)
+    internal OfficialPlaybackHost(Microsoft.UI.Xaml.Controls.Panel container, GoosicServiceClient client)
     {
-        _view = view;
+        _container = container;
         _client = client;
+    }
+
+    /// <summary>
+    /// Opens the player into an account's profile, or the guest one, from the next track on.
+    /// </summary>
+    /// <remarks>
+    /// A WebView2 cannot move between profiles, so the renderer is torn down and a new one is made
+    /// on the next load. The caller has already given the lease back: tearing down is what silences
+    /// the old renderer, and a player that kept sounding across an account change would be playing
+    /// under an owner Rust no longer recognises.
+    /// </remarks>
+    internal void BindProfile(string? webProfileId)
+    {
+        var name = WebProfiles.NameFor(webProfileId);
+        if (name == _profileName)
+        {
+            return;
+        }
+
+        _profileName = name;
+        Stop();
+    }
+
+    /// <summary>Silences and discards the renderer, and refuses anything it still reports.</summary>
+    internal void Stop()
+    {
+        _token = "";
+        _videoId = "";
+        _observerPending = false;
+        if (_ready)
+        {
+            _view.CoreWebView2.WebMessageReceived -= OnWebMessage;
+            _container.Children.Remove(_view);
+            _view.Close();
+            _view = new WebView2();
+            _ready = false;
+        }
     }
 
     /// <summary>Raised when the page reports something the rules accepted.</summary>
@@ -189,19 +228,12 @@ internal sealed class OfficialPlaybackHost
 
         BridgeLog.Write($"initialising WebView2 (control loaded={_view.IsLoaded})");
 
-        // The profile lives under the user's own Goosic data, not beside the executable. The
-        // default for an unpackaged app is a folder next to the .exe, which is the wrong place for
-        // a profile once the app is installed somewhere the user cannot write, and is invisible
-        // to whoever later has to clear it.
-        var profile = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Goosic", "WebView2", "guest");
-        System.IO.Directory.CreateDirectory(profile);
-
+        // Every surface shares one environment, and the player opens into the active account's
+        // profile -- or the guest one -- so it plays with that account's cookies and no other.
         CoreWebView2Environment environment;
         try
         {
-            environment = await CoreWebView2Environment.CreateWithOptionsAsync(null, profile, null);
+            environment = await WebProfiles.EnvironmentAsync();
         }
         catch (Exception error)
         {
@@ -210,12 +242,21 @@ internal sealed class OfficialPlaybackHost
             throw;
         }
 
+        _view.Width = 1;
+        _view.Height = 1;
+        _view.IsHitTestVisible = false;
+        if (!_container.Children.Contains(_view))
+        {
+            _container.Children.Add(_view);
+        }
+
         BridgeLog.Write($"WebView2 environment created, runtime {environment.BrowserVersionString}");
 
         // Bounded, because the failure this guards against is a wait that never ends: an
         // initialisation that cannot complete otherwise leaves the shell silently claiming a
         // lease for a renderer that will never exist.
-        var initialise = _view.EnsureCoreWebView2Async(environment).AsTask();
+        var initialise = _view.EnsureCoreWebView2Async(
+            environment, WebProfiles.OptionsFor(environment, _profileName)).AsTask();
         if (await Task.WhenAny(initialise, Task.Delay(TimeSpan.FromSeconds(20))) != initialise)
         {
             BridgeLog.Write("WebView2 initialisation timed out");

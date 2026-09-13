@@ -50,6 +50,15 @@
     <Exec Command="cargo build -p goosic-shell-support-ffi" WorkingDirectory="$(GoosicRepoRoot)" />
   </Target>
 
+  <!--
+    The personal catalog reader is the Swift shell's resource, linked rather than copied, so both
+    shells run one program against YouTube Music and a fix to it reaches both.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\goosic-swift\Sources\GoosicSwift\Resources\PersonalCatalog.js"
+             Link="Resources\PersonalCatalog.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Include="$(GoosicFfiLibrary)" Condition="Exists('$(GoosicFfiLibrary)')"
           CopyToOutputDirectory="PreserveNewest" Link="goosic_shell_support_ffi.dll" />

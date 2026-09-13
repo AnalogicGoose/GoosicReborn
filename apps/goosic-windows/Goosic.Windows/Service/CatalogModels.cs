@@ -27,6 +27,14 @@ internal sealed record CatalogItem
     [JsonPropertyName("thumbnail")] public string? Thumbnail { get; init; }
     [JsonPropertyName("videoId")] public string? VideoId { get; init; }
     [JsonPropertyName("explicit")] public bool Explicit { get; init; }
+
+    /// <summary>
+    /// This occurrence of a track in an account's playlist, from the personal reader only.
+    /// </summary>
+    /// <remarks>
+    /// A playlist may hold the same track twice, so removing one needs this rather than the video id.
+    /// </remarks>
+    [JsonPropertyName("entryId")] public string? EntryId { get; init; }
 }
 
 internal sealed record CatalogShelf
@@ -90,6 +98,9 @@ internal sealed record LyricsResponsePayload
 internal sealed record AccountSummary
 {
     [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("webkitProfileId")] public string WebProfileId { get; init; } = "";
+    [JsonPropertyName("channel")] public string? Channel { get; init; }
+    [JsonPropertyName("avatarUrl")] public string? AvatarUrl { get; init; }
     [JsonPropertyName("displayName")] public string DisplayName { get; init; } = "";
     [JsonPropertyName("email")] public string? Email { get; init; }
 }

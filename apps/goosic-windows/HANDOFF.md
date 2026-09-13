@@ -77,11 +77,30 @@ presses go to the same handlers as the transport. Shortcuts: Space, Ctrl+Left/Ri
 Ctrl+Up/Down, Ctrl+M, Ctrl+S, Ctrl+R, Ctrl+F, Ctrl+L, Ctrl+Q, Alt+Left, Esc. It renders; the
 menus, radio and overlay have not yet been exercised by hand.
 
+## Accounts
+
+`AccountLoginWindow.cs` opens Google's sign-in in a WebView2 profile staged for a new account
+(`WebProfiles.cs`: one environment under `%LOCALAPPDATA%\Goosic\WebView2\profiles`, one named
+profile per `webkitProfileId`, plus `guest`). Where the window may navigate and whether the
+page's metadata completes the sign-in are Rust's answers, exported for this shell as
+`goosic_login_is_allowed_url`, `goosic_login_is_completion_origin` and `goosic_login_make_result`.
+The completion script itself is the macOS one, held in C# until that branch's version replaces
+the stale copy in `goosic-shell-support`. A result is stored with `accounts.upsert`, the lease is
+released, and `accounts.activate` switches; only then is the profile kept, otherwise it is
+cleared. Switching, guest mode and sign-out follow the same quiesce-then-ask order.
+
+`PersonalCatalogHost.cs` runs the Swift shell's `PersonalCatalog.js` (linked into the build, not
+copied) on a muted, hidden YouTube Music page in the active profile, through DevTools
+`Runtime.evaluate` so the promise can be awaited. It backs signed-in Home, Library with its
+section chips, Liked Music, History, playlists opened while signed in, their continuations, and
+every change: like and dislike, save to playlist, new playlist, rename, privacy, delete, remove
+from playlist, save a playlist to the library, subscribe. The player is opened into the same
+profile. Built and launched as a guest; **the sign-in itself has not been run**, because it needs
+a real Google account.
+
 ## Not started
 
-Sign-in and per-account WebView2 profile isolation, then everything that needs an account:
-library, likes, save to playlist, playlist management, all through `PersonalCatalog.js` inside
-the authenticated profile. Local downloaded-file playback, the full-screen player, the
+Local downloaded-file playback, the full-screen player, the
 artwork-derived mesh gradient behind the now-playing panel, MSIX packaging, running the
 protocol fixtures against this shell.
 

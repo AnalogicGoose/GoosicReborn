@@ -507,6 +507,11 @@ public sealed partial class ShellViewModel
         var cursor = _nextCursor;
         try
         {
+            if (await TryLoadMorePersonalAsync(cursor!).ConfigureAwait(true))
+            {
+                return;
+            }
+
             var answer = await _client
                 .RequestAsync("catalog.continue", new JsonObject { ["continuation"] = cursor })
                 .ConfigureAwait(true);
@@ -566,5 +571,10 @@ public sealed partial class ShellViewModel
         _ => "https://music.youtube.com/browse/" + Uri.EscapeDataString(card.Id),
     };
 
-    private void AnnounceConfirmed(TrackViewModel track) => NowPlayingChanged?.Invoke(track);
+    private void AnnounceConfirmed(TrackViewModel track)
+    {
+        OnPropertyChanged(nameof(IsNowPlayingLiked));
+        OnPropertyChanged(nameof(IsNowPlayingDisliked));
+        NowPlayingChanged?.Invoke(track);
+    }
 }

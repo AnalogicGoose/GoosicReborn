@@ -58,6 +58,21 @@ internal static class ShellSupport
         [MarshalAs(UnmanagedType.LPUTF8Str)] string expectedVideoId,
         ulong lastSequence);
 
+    [DllImport(Library, EntryPoint = "goosic_login_is_allowed_url")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool LoginIsAllowedUrlRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string url);
+
+    [DllImport(Library, EntryPoint = "goosic_login_is_completion_origin")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool LoginIsCompletionOriginRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string url);
+
+    [DllImport(Library, EntryPoint = "goosic_login_make_result")]
+    private static extern IntPtr LoginMakeResultRaw(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string accountId,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string profileId,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string metadata,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string pageUrl);
+
     /// <summary>Takes ownership of a native string and frees it.</summary>
     private static string Consume(IntPtr value)
     {
@@ -116,4 +131,19 @@ internal static class ShellSupport
         string expectedVideoId,
         ulong lastSequence) =>
         Consume(ValidateEventRaw(body, expectedToken, expectedGeneration, expectedVideoId, lastSequence));
+
+    /// <summary>Whether a sign-in window may navigate its main frame to <paramref name="url"/>.</summary>
+    internal static bool IsAllowedLoginUrl(string url) => LoginIsAllowedUrlRaw(url);
+
+    /// <summary>Whether a page is on the one origin a completed sign-in lands on.</summary>
+    internal static bool IsLoginCompletionOrigin(string url) => LoginIsCompletionOriginRaw(url);
+
+    /// <summary>
+    /// The cleaned account summary as JSON when the page's report completes a sign-in, else null.
+    /// </summary>
+    internal static string? LoginResult(string accountId, string profileId, string metadata, string pageUrl)
+    {
+        var value = LoginMakeResultRaw(accountId, profileId, metadata, pageUrl);
+        return value == IntPtr.Zero ? null : Consume(value);
+    }
 }

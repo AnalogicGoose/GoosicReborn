@@ -19,6 +19,7 @@ public sealed partial class MainWindow : Window
     private readonly GoosicServiceClient? _client;
     private OfficialPlaybackHost? _playback;
     private SystemMediaControls? _media;
+    private PersonalCatalogHost? _personal;
     private bool _seeking;
 
     public MainWindow()
@@ -52,7 +53,12 @@ public sealed partial class MainWindow : Window
 
         if (_client is not null)
         {
-            _playback = new OfficialPlaybackHost(PlaybackView, _client);
+            // Both web surfaces live in one invisible host panel, and are rebuilt there whenever the
+            // active account changes, because a WebView2 cannot move between profiles.
+            _playback = new OfficialPlaybackHost(WebHost, _client);
+            _personal = new PersonalCatalogHost(WebHost);
+            Model.Playback = _playback;
+            Model.Personal = _personal;
             _playback.Status += message => Model.ReportStatus(message);
             Model.CurrentLyricChanged += FollowLyricOnScreen;
             Model.ConfirmedTrackChanged += async () =>
@@ -373,11 +379,17 @@ public sealed partial class MainWindow : Window
                 break;
 
             case TrackViewModel track when !string.IsNullOrEmpty(track.VideoId):
-                Add(menu, "Play", "", async () => await PlayEntryAsync(Model.PlayFromPage(track)));
-                Add(menu, "Start radio", "", async () => await PlayEntryAsync(await Model.StartRadioAsync(track)));
+                Add(menu, "Play", "\uE768", async () => await PlayEntryAsync(Model.PlayFromPage(track)));
+                Add(menu, "Start radio", "\uEC05", async () => await PlayEntryAsync(await Model.StartRadioAsync(track)));
                 menu.Items.Add(new MenuFlyoutSeparator());
-                Add(menu, "Play next", "", () => Model.Enqueue(track, next: true));
-                Add(menu, "Add to queue", "", () => Model.Enqueue(track, next: false));
+                Add(menu, "Play next", "\uE7AC", () => Model.Enqueue(track, next: true));
+                Add(menu, "Add to queue", "\uE710", () => Model.Enqueue(track, next: false));
+                AddAccountTrackItems(menu, track.VideoId, track.Title);
+                if (Model.IsOwnedPlaylistPage && !string.IsNullOrEmpty(track.EntryId))
+                {
+                    Add(menu, "Remove from playlist", "\uE74D", async () => await Model.RemoveFromPagePlaylistAsync(track));
+                }
+
                 menu.Items.Add(new MenuFlyoutSeparator());
                 AddNavigation(menu, track.ArtistId, track.AlbumId, track.Subtitle, track.Title);
                 Add(menu, "Copy link", "", () => CopyLink(ShellViewModel.LinkFor(track)));
@@ -387,8 +399,9 @@ public sealed partial class MainWindow : Window
                 Add(menu, "Play", "", async () => await PlayEntryAsync(Model.PlayFromShelf(card)));
                 Add(menu, "Start radio", "", async () => await PlayEntryAsync(await Model.StartRadioAsync(card)));
                 menu.Items.Add(new MenuFlyoutSeparator());
-                Add(menu, "Play next", "", () => Model.Enqueue(card, next: true));
-                Add(menu, "Add to queue", "", () => Model.Enqueue(card, next: false));
+                Add(menu, "Play next", "\uE7AC", () => Model.Enqueue(card, next: true));
+                Add(menu, "Add to queue", "\uE710", () => Model.Enqueue(card, next: false));
+                AddAccountTrackItems(menu, card.VideoId, card.Title);
                 menu.Items.Add(new MenuFlyoutSeparator());
                 AddNavigation(menu, card.ArtistId, card.AlbumId, card.Subtitle, card.Title);
                 Add(menu, "Copy link", "", () => CopyLink(ShellViewModel.LinkFor(card)));
@@ -399,7 +412,24 @@ public sealed partial class MainWindow : Window
                 Add(menu, "Shuffle", "", async () => await PlayEntryAsync(await Model.PlayEntityAsync(card.Kind, card.Id, shuffle: true)));
                 menu.Items.Add(new MenuFlyoutSeparator());
                 Add(menu, card.Kind == "artist" ? "Go to artist" : card.Kind == "album" ? "Go to album" : "Open playlist",
-                    "", async () => await OpenAsync(card.Kind, card.Id, card.Title));
+                    "\uE8A7", async () => await OpenAsync(card.Kind, card.Id, card.Title));
+                if (Model.IsSignedIn && card.Kind == "playlist")
+                {
+                    if (Model.OwnsPlaylist(card.Id))
+                    {
+                        Add(menu, "Delete playlist…", "\uE74D", async () => await ConfirmDeleteAsync(card.Id, card.Title));
+                    }
+                    else
+                    {
+                        Add(menu, "Save to library", "\uE8F4", async () => await Model.SavePlaylistAsync(card.Id, card.Title, saved: true));
+                        Add(menu, "Remove from library", "\uE8F5", async () => await Model.SavePlaylistAsync(card.Id, card.Title, saved: false));
+                    }
+                }
+                else if (Model.IsSignedIn && card.Kind == "artist")
+                {
+                    Add(menu, "Subscribe", "\uE8FA", async () => await Model.FollowArtistAsync(card.Id, card.Title, follow: true));
+                    Add(menu, "Unsubscribe", "\uE8F8", async () => await Model.FollowArtistAsync(card.Id, card.Title, follow: false));
+                }
                 Add(menu, "Copy link", "", () => CopyLink(ShellViewModel.LinkFor(card)));
                 break;
 
@@ -408,6 +438,40 @@ public sealed partial class MainWindow : Window
         }
 
         return menu;
+    }
+
+    /// <summary>Like, dislike and save to playlist, offered only while an account is active.</summary>
+    private void AddAccountTrackItems(MenuFlyout menu, string? videoId, string title)
+    {
+        if (!Model.IsSignedIn || string.IsNullOrEmpty(videoId))
+        {
+            return;
+        }
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+        var rating = Model.RatingOf(videoId);
+        Add(menu, rating == "LIKE" ? "Remove from liked songs" : "Like", "\uE8E1",
+            async () => await Model.RateAsync(videoId, title, rating == "LIKE" ? "INDIFFERENT" : "LIKE"));
+        Add(menu, rating == "DISLIKE" ? "Remove dislike" : "Dislike", "\uE8E0",
+            async () => await Model.RateAsync(videoId, title, rating == "DISLIKE" ? "INDIFFERENT" : "DISLIKE"));
+
+        var save = new MenuFlyoutSubItem { Text = "Save to playlist", Icon = new FontIcon { Glyph = "\uE8F4" } };
+        var create = new MenuFlyoutItem { Text = "New playlist…", Icon = new FontIcon { Glyph = "\uE710" } };
+        create.Click += async (_, _) => await NewPlaylistAsync(videoId);
+        save.Items.Add(create);
+        if (Model.UserPlaylists.Count > 0)
+        {
+            save.Items.Add(new MenuFlyoutSeparator());
+        }
+
+        foreach (var playlist in Model.UserPlaylists)
+        {
+            var item = new MenuFlyoutItem { Text = playlist.Title };
+            item.Click += async (_, _) => await Model.AddToPlaylistAsync(playlist, videoId, title);
+            save.Items.Add(item);
+        }
+
+        menu.Items.Add(save);
     }
 
     private void AddNavigation(MenuFlyout menu, string? artistId, string? albumId, string artist, string title)
@@ -436,6 +500,191 @@ public sealed partial class MainWindow : Window
         package.SetText(link);
         Clipboard.SetContent(package);
         Model.ReportStatus("Link copied.");
+    }
+
+    // ---- Account ----------------------------------------------------------------------------
+
+    private async void OnSignIn(object sender, RoutedEventArgs e)
+    {
+        AccountFlyout.Hide();
+        await Model.SignInAsync();
+    }
+
+    private async void OnSignOut(object sender, RoutedEventArgs e)
+    {
+        AccountFlyout.Hide();
+        if (await ConfirmAsync($"Sign out of {Model.AccountName}?",
+                "Goosic forgets this account and clears its sign-in from this computer.", "Sign out"))
+        {
+            await Model.SignOutAsync();
+        }
+    }
+
+    private async void OnUseAccount(object sender, RoutedEventArgs e)
+    {
+        AccountFlyout.Hide();
+        if (sender is Button { Tag: string id })
+        {
+            await Model.SwitchAccountAsync(id);
+        }
+    }
+
+    private async void OnUseGuest(object sender, RoutedEventArgs e)
+    {
+        AccountFlyout.Hide();
+        await Model.SwitchAccountAsync(null);
+    }
+
+    private async void OnAccountRoute(object sender, RoutedEventArgs e)
+    {
+        AccountFlyout.Hide();
+        if (sender is Button { Tag: string route })
+        {
+            await Model.LoadRouteAsync(route);
+            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        }
+    }
+
+    private async void OnLibrarySection(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: LibrarySection section })
+        {
+            await Model.ShowLibrarySectionAsync(section);
+        }
+    }
+
+    private async void OnSidebarPlaylist(object sender, RoutedEventArgs e)
+    {
+        SidebarOverlay.Visibility = Visibility.Collapsed;
+        if (sender is Button { Tag: string tag } && tag.Split(ShellViewModel.KeySeparator) is { Length: 3 } parts)
+        {
+            await OpenAsync(parts[0], parts[1], parts[2]);
+        }
+    }
+
+    private async void OnNewPlaylist(object sender, RoutedEventArgs e)
+    {
+        SidebarOverlay.Visibility = Visibility.Collapsed;
+        await NewPlaylistAsync(null);
+    }
+
+    private async Task NewPlaylistAsync(string? videoId)
+    {
+        var answer = await PromptAsync("New playlist", "Title", "", "Create", privacy: true);
+        if (answer is not { } chosen)
+        {
+            return;
+        }
+
+        var id = await Model.CreatePlaylistAsync(chosen.Text, chosen.Privacy, videoId);
+        if (id is not null && videoId is null)
+        {
+            await OpenAsync("playlist", id, chosen.Text);
+        }
+    }
+
+    private async void OnSavePagePlaylist(object sender, RoutedEventArgs e)
+    {
+        if (Model.PagePlaylistId is { } id)
+        {
+            await Model.SavePlaylistAsync(id, Model.PageTitle, saved: true);
+        }
+    }
+
+    private async void OnFollowPageArtist(object sender, RoutedEventArgs e)
+    {
+        if (Model.PageArtistId is { } id)
+        {
+            await Model.FollowArtistAsync(id, Model.PageTitle, follow: true);
+        }
+    }
+
+    private async void OnRenamePagePlaylist(object sender, RoutedEventArgs e)
+    {
+        if (await PromptAsync("Rename playlist", "Title", Model.PageTitle, "Rename", privacy: false) is { } answer)
+        {
+            await Model.RenamePagePlaylistAsync(answer.Text);
+        }
+    }
+
+    private async void OnPagePlaylistPrivacy(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { Tag: string privacy })
+        {
+            await Model.SetPagePlaylistPrivacyAsync(privacy);
+        }
+    }
+
+    private async void OnDeletePagePlaylist(object sender, RoutedEventArgs e)
+    {
+        if (Model.PagePlaylistId is { } id)
+        {
+            await ConfirmDeleteAsync(id, Model.PageTitle);
+        }
+    }
+
+    private async Task ConfirmDeleteAsync(string playlistId, string title)
+    {
+        if (await ConfirmAsync($"Delete “{title}”?",
+                "The playlist is deleted from YouTube Music for good. This cannot be undone.", "Delete"))
+        {
+            await Model.DeletePlaylistAsync(playlistId, title);
+        }
+    }
+
+    private async void OnLikeNowPlaying(object sender, RoutedEventArgs e) =>
+        await Model.ToggleNowPlayingRatingAsync("LIKE");
+
+    private async void OnDislikeNowPlaying(object sender, RoutedEventArgs e) =>
+        await Model.ToggleNowPlayingRatingAsync("DISLIKE");
+
+    private async Task<bool> ConfirmAsync(string title, string message, string action)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = action,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    private async Task<(string Text, string Privacy)?> PromptAsync(
+        string title, string placeholder, string initial, string action, bool privacy)
+    {
+        var field = new TextBox { PlaceholderText = placeholder, Text = initial, MaxLength = 150 };
+        var visibility = new ComboBox
+        {
+            Header = "Who can see this",
+            ItemsSource = new[] { "Private", "Unlisted", "Public" },
+            SelectedIndex = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var panel = new StackPanel { Spacing = 12, MinWidth = 320, Children = { field } };
+        if (privacy)
+        {
+            panel.Children.Add(visibility);
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot,
+            Title = title,
+            Content = panel,
+            PrimaryButtonText = action,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        field.Loaded += (_, _) => field.Focus(FocusState.Programmatic);
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || field.Text.Trim().Length == 0)
+        {
+            return null;
+        }
+
+        return (field.Text.Trim(), (visibility.SelectedItem as string ?? "Private").ToUpperInvariant());
     }
 
     // ---- Keyboard ---------------------------------------------------------------------------
