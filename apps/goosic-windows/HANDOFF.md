@@ -64,12 +64,26 @@ never run before its shim). `dotnet build` succeeds. **None of it has been exerc
 running app.** Run it, check each control against the service, then commit in pieces with
 messages that say what changed and why (see `AGENTS.md` §6).
 
+## Queue, menus and system controls
+
+`ShellViewModel.Queue.cs` owns the queue: entries are clones found by reference, so a track
+queued twice stays two entries. It offers play next, add to queue, remove, clear, shuffle
+(upcoming entries only, with the original order kept to restore), repeat off/all/one, a radio
+through `catalog.radio` that extends itself from its cursor, playing a whole album, playlist or
+artist, and `catalog.continue` behind "Load more". Rows and cards have a context menu (right
+click, Shift+F10, or the row's "more" button). `SystemMediaControls.cs` publishes the Windows
+media overlay and media keys through an unplayed `MediaPlayer`'s transport controls; button
+presses go to the same handlers as the transport. Shortcuts: Space, Ctrl+Left/Right,
+Ctrl+Up/Down, Ctrl+M, Ctrl+S, Ctrl+R, Ctrl+F, Ctrl+L, Ctrl+Q, Alt+Left, Esc. It renders; the
+menus, radio and overlay have not yet been exercised by hand.
+
 ## Not started
 
-Sign-in and per-account WebView2 profile isolation, personal library through
-`PersonalCatalog.js` inside the authenticated profile, SMTC system media controls, local
-downloaded-file playback, the Playing Next queue contents, the artwork-derived mesh gradient
-behind the now-playing panel, MSIX packaging, running the protocol fixtures against this shell.
+Sign-in and per-account WebView2 profile isolation, then everything that needs an account:
+library, likes, save to playlist, playlist management, all through `PersonalCatalog.js` inside
+the authenticated profile. Local downloaded-file playback, the full-screen player, the
+artwork-derived mesh gradient behind the now-playing panel, MSIX packaging, running the
+protocol fixtures against this shell.
 
 ## How to build and run
 

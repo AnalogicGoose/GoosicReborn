@@ -31,8 +31,10 @@
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center"
                         Spacing="2" Margin="10,0,0,0">
-                <Button x:Name="ShuffleButton" Style="{StaticResource TransportGlyphStyle}"
-                        Content="&#xE8B1;" ToolTipService.ToolTip="Shuffle" Click="OnShuffle" />
+                <ToggleButton x:Name="ShuffleButton" Style="{StaticResource TransportToggleStyle}"
+                              Content="&#xE8B1;" IsChecked="{x:Bind Model.IsShuffled, Mode=OneWay}"
+                              ToolTipService.ToolTip="{x:Bind Model.ShuffleLabel, Mode=OneWay}"
+                              AutomationProperties.Name="Shuffle" Click="OnShuffle" />
                 <Button x:Name="PreviousButton" Style="{StaticResource TransportGlyphStyle}"
                         Content="&#xE892;" ToolTipService.ToolTip="Previous" Click="OnPrevious" />
                 <Button x:Name="PlayButton" Style="{StaticResource TransportPlayStyle}"
@@ -42,8 +44,11 @@
                         Click="OnPlayPause" />
                 <Button x:Name="NextButton" Style="{StaticResource TransportGlyphStyle}"
                         Content="&#xE893;" ToolTipService.ToolTip="Next" Click="OnNext" />
-                <Button x:Name="RepeatButton" Style="{StaticResource TransportGlyphStyle}"
-                        Content="&#xE8EE;" ToolTipService.ToolTip="Repeat" Click="OnRepeat" />
+                <ToggleButton x:Name="RepeatButton" Style="{StaticResource TransportToggleStyle}"
+                              Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
+                              IsChecked="{x:Bind Model.IsRepeating, Mode=OneWay}"
+                              ToolTipService.ToolTip="{x:Bind Model.RepeatLabel, Mode=OneWay}"
+                              AutomationProperties.Name="Repeat" Click="OnRepeat" />
             </StackPanel>
 
             <!--
@@ -180,6 +185,21 @@
                                    FontSize="28" FontWeight="Bold" />
                         <TextBlock Text="{x:Bind Model.PageSubtitle, Mode=OneWay}"
                                    FontSize="13" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0"
+                                    Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
+                            <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE768;" FontSize="14" />
+                                    <TextBlock Text="Play" />
+                                </StackPanel>
+                            </Button>
+                            <Button Click="OnShufflePage">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE8B1;" FontSize="14" />
+                                    <TextBlock Text="Shuffle" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
 
                     <InfoBar x:Name="StatusBar" IsOpen="{x:Bind Model.HasStatus, Mode=OneWay}"
@@ -191,11 +211,12 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:TrackViewModel">
                                 <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
-                                        Click="OnPlayTrack">
+                                        Click="OnPlayTrack" ContextRequested="OnItemContextRequested">
                                     <Grid ColumnSpacing="11">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <Border Grid.Column="0" Width="40" Height="40" CornerRadius="4"
@@ -212,6 +233,10 @@
                                         <TextBlock Grid.Column="2" Text="{x:Bind Duration}" FontSize="12"
                                                    VerticalAlignment="Center"
                                                    Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        <Button Grid.Column="3" Style="{StaticResource TransportGlyphStyle}"
+                                                Content="&#xE712;" ToolTipService.ToolTip="More"
+                                                AutomationProperties.Name="More options"
+                                                Click="OnItemMore" />
                                     </Grid>
                                 </Button>
                             </DataTemplate>
@@ -222,7 +247,18 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ShelfViewModel">
                                 <StackPanel Spacing="10" Margin="0,0,0,22">
-                                    <TextBlock Text="{x:Bind Title}" FontSize="19" FontWeight="Bold" />
+                                    <Grid>
+                                        <TextBlock Text="{x:Bind Title}" FontSize="19" FontWeight="Bold"
+                                                   VerticalAlignment="Center" />
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+                                            <Button Style="{StaticResource ShelfArrowStyle}" Content="&#xE76B;"
+                                                    ToolTipService.ToolTip="Scroll left" Tag="-1"
+                                                    Click="OnShelfScroll" />
+                                            <Button Style="{StaticResource ShelfArrowStyle}" Content="&#xE76C;"
+                                                    ToolTipService.ToolTip="Scroll right" Tag="1"
+                                                    Click="OnShelfScroll" />
+                                        </StackPanel>
+                                    </Grid>
                                     <ScrollViewer HorizontalScrollMode="Auto"
                                                   HorizontalScrollBarVisibility="Auto"
                                                   VerticalScrollMode="Disabled"
@@ -236,7 +272,8 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:CardViewModel">
                                                   <Button Style="{StaticResource CardButtonStyle}"
-                                                          Tag="{x:Bind ActivationTag}" Click="OnCardActivated">
+                                                          Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                          ContextRequested="OnItemContextRequested">
                                                     <StackPanel Width="{StaticResource GoosicCardSize}" Spacing="7">
                                                         <Border Width="{StaticResource GoosicCardSize}"
                                                                 Height="{StaticResource GoosicCardSize}"
@@ -261,6 +298,9 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <Button HorizontalAlignment="Center" Content="Load more"
+                            Visibility="{x:Bind Model.HasMore, Mode=OneWay}" Click="OnLoadMore" />
                 </StackPanel>
             </ScrollViewer>
 
@@ -273,30 +313,59 @@
                                HorizontalAlignment="Center" TextAlignment="Center"
                                Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                Text="Nothing playing." TextWrapping="Wrap" />
-                    <ItemsControl x:Name="QueueItems" Visibility="Collapsed"
-                                  ItemsSource="{x:Bind Model.Queue, Mode=OneWay}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:TrackViewModel">
-                                <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
-                                        Click="OnPlayTrack">
-                                    <Grid ColumnSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="40" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Image Width="40" Height="40" Source="{x:Bind Artwork, Mode=OneWay}"
-                                               Stretch="UniformToFill" />
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{x:Bind Subtitle}" FontSize="12"
-                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
-                                                       TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <Grid x:Name="QueuePanel" Visibility="Collapsed" RowSpacing="10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <Grid>
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="Playing Next" FontSize="17" FontWeight="Bold" />
+                                <TextBlock Text="{x:Bind Model.QueueSummary, Mode=OneWay}" FontSize="12"
+                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                            </StackPanel>
+                            <Button HorizontalAlignment="Right" VerticalAlignment="Center" Content="Clear"
+                                    Visibility="{x:Bind Model.HasQueue, Mode=OneWay}" Click="OnClearQueue" />
+                        </Grid>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="QueueItems" ItemsSource="{x:Bind Model.Queue, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:TrackViewModel">
+                                        <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
+                                                Click="OnPlayTrack" ContextRequested="OnItemContextRequested">
+                                            <Grid ColumnSpacing="10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="40" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <Border Width="40" Height="40" CornerRadius="4"
+                                                        Background="{ThemeResource GoosicRaisedBrush}">
+                                                    <Grid>
+                                                        <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
+                                                        <Border Background="#99000000"
+                                                                Visibility="{x:Bind CurrentMarker, Mode=OneWay}">
+                                                            <FontIcon Glyph="&#xE995;" FontSize="16" Foreground="White" />
+                                                        </Border>
+                                                    </Grid>
+                                                </Border>
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                    <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{x:Bind Subtitle}" FontSize="12"
+                                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                                <Button Grid.Column="2" Style="{StaticResource TransportGlyphStyle}"
+                                                        Content="&#xE711;" ToolTipService.ToolTip="Remove from queue"
+                                                        AutomationProperties.Name="Remove from queue"
+                                                        Click="OnRemoveFromQueue" />
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
                     <ScrollViewer x:Name="LyricsScroller" VerticalScrollBarVisibility="Hidden">
                         <ItemsControl x:Name="LyricsItems" Visibility="Collapsed"
                                       ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">

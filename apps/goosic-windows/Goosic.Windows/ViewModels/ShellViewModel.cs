@@ -42,12 +42,16 @@ public sealed class CardViewModel : INotifyPropertyChanged
         Kind = item.Kind;
         VideoId = item.VideoId;
         Thumbnail = item.Thumbnail;
+        ArtistId = item.ArtistId;
+        AlbumId = item.AlbumId;
     }
 
     public string Title { get; }
     public string Subtitle { get; }
     internal string Id { get; }
     internal string Kind { get; }
+    internal string? ArtistId { get; }
+    internal string? AlbumId { get; }
 
     /// <summary>
     /// What activating the card means, as one string the view can hand back.
@@ -116,6 +120,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         VideoId = item.VideoId;
         Thumbnail = item.Thumbnail;
         Explicit = item.Explicit;
+        ArtistId = item.ArtistId;
+        AlbumId = item.AlbumId;
     }
 
     /// <summary>Promotes a playable shelf card without inventing metadata it did not carry.</summary>
@@ -127,7 +133,57 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         VideoId = card.VideoId;
         Thumbnail = card.Thumbnail;
         Artwork = card.Artwork;
+        ArtistId = card.ArtistId;
+        AlbumId = card.AlbumId;
     }
+
+    private TrackViewModel(TrackViewModel source)
+    {
+        Title = source.Title;
+        Subtitle = source.Subtitle;
+        Duration = source.Duration;
+        VideoId = source.VideoId;
+        Thumbnail = source.Thumbnail;
+        Explicit = source.Explicit;
+        ArtistId = source.ArtistId;
+        AlbumId = source.AlbumId;
+        Artwork = source.Artwork;
+    }
+
+    /// <summary>
+    /// A separate queue entry for the same track.
+    /// </summary>
+    /// <remarks>
+    /// The queue finds its place by reference. Queuing the row object itself would make a track
+    /// added twice indistinguishable from itself, so Remove and "now playing" would land on
+    /// whichever copy happened to come first.
+    /// </remarks>
+    internal TrackViewModel Clone() => new(this);
+
+    internal string? ArtistId { get; }
+    internal string? AlbumId { get; }
+
+    private bool _isCurrent;
+
+    /// <summary>Whether this queue entry is the one the queue is on.</summary>
+    public bool IsCurrent
+    {
+        get => _isCurrent;
+        internal set
+        {
+            if (_isCurrent == value)
+            {
+                return;
+            }
+
+            _isCurrent = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurrentMarker)));
+        }
+    }
+
+    public Microsoft.UI.Xaml.Visibility CurrentMarker =>
+        IsCurrent ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -223,7 +279,7 @@ public sealed class LyricLineViewModel : INotifyPropertyChanged
 public sealed record AccountViewModel(string DisplayName, string Detail);
 
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
-public sealed class ShellViewModel : INotifyPropertyChanged
+public sealed partial class ShellViewModel : INotifyPropertyChanged
 {
     private readonly GoosicServiceClient _client;
     private readonly ArtworkLoader _artwork = new();
@@ -248,6 +304,8 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     internal ShellViewModel(GoosicServiceClient client)
     {
         _client = client;
+        Tracks.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasTracks));
+        Queue.CollectionChanged += (_, _) => QueueChanged();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -260,7 +318,6 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public ObservableCollection<LyricLineViewModel> Lyrics { get; } = [];
     public ObservableCollection<AccountViewModel> Accounts { get; } = [];
     private string _accountStatus = "Checking account…";
-    private int _queueIndex = -1;
     private TrackViewModel? _pendingTrack;
     private TrackViewModel? _confirmedTrack;
     private string? _advancedAfterEndVideoId;
@@ -469,6 +526,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 _lyricsSynced = false;
                 _currentLyric = -1;
                 ConfirmedTrackChanged?.Invoke();
+                AnnounceConfirmed(pending);
             }
 
             FollowLyrics(sample.CurrentTime);
@@ -505,67 +563,6 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
         _advancedAfterEndVideoId = sample.VideoId;
         return true;
-    }
-
-    /// <summary>Starts a fresh queue from the real track rows currently on screen.</summary>
-    internal void SelectTrack(TrackViewModel track)
-    {
-        Queue.Clear();
-        foreach (var candidate in Tracks.Where(candidate => !string.IsNullOrEmpty(candidate.VideoId)))
-        {
-            Queue.Add(candidate);
-        }
-
-        if (Queue.Count == 0)
-        {
-            Queue.Add(track);
-        }
-
-        _queueIndex = Math.Max(0, Queue.IndexOf(track));
-        _pendingTrack = track;
-        _advancedAfterEndVideoId = null;
-    }
-
-    /// <summary>Builds a queue from the playable cards in the selected card's real shelf.</summary>
-    internal void SelectCard(CardViewModel card)
-    {
-        Queue.Clear();
-        foreach (var candidate in card.Context.Where(candidate => !string.IsNullOrEmpty(candidate.VideoId)))
-        {
-            Queue.Add(new TrackViewModel(candidate));
-        }
-
-        if (Queue.Count == 0)
-        {
-            Queue.Add(new TrackViewModel(card));
-        }
-
-        _queueIndex = Math.Max(0, Queue.ToList().FindIndex(item => item.VideoId == card.VideoId));
-        _pendingTrack = Queue[_queueIndex];
-        _advancedAfterEndVideoId = null;
-    }
-
-    /// <summary>Chooses an adjacent real queue entry, wrapping for a deliberate command.</summary>
-    internal TrackViewModel? AdjacentTrack(bool forward, bool wrap = true)
-    {
-        if (Queue.Count == 0)
-        {
-            ReportStatus("Choose a track to begin.");
-            return null;
-        }
-
-        var nextIndex = _queueIndex + (forward ? 1 : -1);
-        if (!wrap && (nextIndex < 0 || nextIndex >= Queue.Count))
-        {
-            ReportStatus("The queue has finished.");
-            return null;
-        }
-
-        _queueIndex = (nextIndex + Queue.Count) % Queue.Count;
-        var track = Queue[_queueIndex];
-        _pendingTrack = track;
-        _advancedAfterEndVideoId = null;
-        return track;
     }
 
     /// <summary>Loads lyrics for the track the official renderer actually confirmed.</summary>
@@ -682,6 +679,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         PageTitle = entry?.Title ?? route;
         Shelves.Clear();
         Tracks.Clear();
+        NextCursor = null;
         Status = $"Loading {PageTitle.ToLowerInvariant()}…";
 
         try
@@ -705,6 +703,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 ? "Live from YouTube Music, browsed as a guest"
                 : page.Subtitle;
 
+            NextCursor = page.NextCursor;
             foreach (var track in page.Tracks)
             {
                 var row = new TrackViewModel(track);
@@ -797,6 +796,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         PageSubtitle = kind switch { "album" => "Album", "playlist" => "Playlist", _ => "Artist" };
         Shelves.Clear();
         Tracks.Clear();
+        NextCursor = null;
         Status = $"Loading {title}…";
 
         try
@@ -820,6 +820,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 PageSubtitle = page.Subtitle;
             }
 
+            NextCursor = page.NextCursor;
             foreach (var track in page.Tracks)
             {
                 var row = new TrackViewModel(track);
@@ -862,6 +863,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         PageSubtitle = filter == "all" ? "Everything matching" : $"Matching {filter}";
         Shelves.Clear();
         Tracks.Clear();
+        NextCursor = null;
         Status = "Searching…";
 
         try
@@ -875,6 +877,7 @@ public sealed class ShellViewModel : INotifyPropertyChanged
                 return;
             }
 
+            NextCursor = page.NextCursor;
             foreach (var track in page.Tracks)
             {
                 var row = new TrackViewModel(track);

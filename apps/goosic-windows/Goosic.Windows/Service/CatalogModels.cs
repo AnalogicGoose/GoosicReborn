@@ -20,6 +20,9 @@ internal sealed record CatalogItem
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("subtitle")] public string Subtitle { get; init; } = "";
     [JsonPropertyName("artist")] public string? Artist { get; init; }
+    [JsonPropertyName("artistId")] public string? ArtistId { get; init; }
+    [JsonPropertyName("album")] public string? Album { get; init; }
+    [JsonPropertyName("albumId")] public string? AlbumId { get; init; }
     [JsonPropertyName("duration")] public string? Duration { get; init; }
     [JsonPropertyName("thumbnail")] public string? Thumbnail { get; init; }
     [JsonPropertyName("videoId")] public string? VideoId { get; init; }
@@ -40,6 +43,9 @@ internal sealed record CatalogPage
     [JsonPropertyName("subtitle")] public string Subtitle { get; init; } = "";
     [JsonPropertyName("shelves")] public IReadOnlyList<CatalogShelf> Shelves { get; init; } = [];
     [JsonPropertyName("tracks")] public IReadOnlyList<CatalogItem> Tracks { get; init; } = [];
+
+    /// <summary>The opaque cursor for the next page, echoed only to <c>catalog.continue</c>.</summary>
+    [JsonPropertyName("nextCursor")] public string? NextCursor { get; init; }
 
     /// <summary>
     /// Whether the service had to cut this page short.
