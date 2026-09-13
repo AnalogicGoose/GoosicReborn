@@ -39,6 +39,7 @@ public sealed class CardViewModel : INotifyPropertyChanged
         Title = item.Title;
         Subtitle = string.IsNullOrWhiteSpace(item.Subtitle) ? item.Artist ?? "" : item.Subtitle;
         Id = item.Id;
+        Kind = item.Kind;
         VideoId = item.VideoId;
         Thumbnail = item.Thumbnail;
     }
@@ -46,8 +47,22 @@ public sealed class CardViewModel : INotifyPropertyChanged
     public string Title { get; }
     public string Subtitle { get; }
     internal string Id { get; }
+    internal string Kind { get; }
+
+    /// <summary>
+    /// What activating the card means, as one string the view can hand back.
+    /// </summary>
+    /// <remarks>
+    /// A bare video id plays; anything else is an entity to open, encoded as kind, id and title
+    /// joined by a unit separator -- a character no title or id carries, so the three parts come
+    /// back apart exactly as they went in.
+    /// </remarks>
+    public string ActivationTag => VideoId is { Length: > 0 } video
+        ? video
+        : string.Join(ShellViewModel.KeySeparator, Kind, Id, Title);
     internal string? VideoId { get; }
     internal string? Thumbnail { get; }
+    internal IReadOnlyList<CardViewModel> Context { get; set; } = [];
 
     /// <summary>The id for the view to hand back, or empty when the card is not a track.</summary>
     public string VideoIdOrEmpty => VideoId ?? "";
@@ -103,6 +118,17 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         Explicit = item.Explicit;
     }
 
+    /// <summary>Promotes a playable shelf card without inventing metadata it did not carry.</summary>
+    internal TrackViewModel(CardViewModel card)
+    {
+        Title = card.Title;
+        Subtitle = card.Subtitle;
+        Duration = "";
+        VideoId = card.VideoId;
+        Thumbnail = card.Thumbnail;
+        Artwork = card.Artwork;
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public string Title { get; }
@@ -148,11 +174,19 @@ public sealed class ShelfViewModel
     {
         Title = shelf.Title;
         Items = new ObservableCollection<CardViewModel>(shelf.Items.Select(item => new CardViewModel(item)));
+        foreach (var item in Items)
+        {
+            item.Context = Items;
+        }
     }
 
     public string Title { get; }
     public ObservableCollection<CardViewModel> Items { get; }
 }
+
+/// <summary>One line shown in the lyrics panel, never synthesized by the shell.</summary>
+public sealed record LyricLineViewModel(string Text, long AtMilliseconds);
+public sealed record AccountViewModel(string DisplayName, string Detail);
 
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
 public sealed class ShellViewModel : INotifyPropertyChanged
@@ -163,6 +197,19 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     private string _pageSubtitle = "Live from YouTube Music, browsed as a guest";
     private string _status = "";
     private string _accountInitials = "G";
+    /// <summary>Separates the parts of a page key; it appears in no title, id or query.</summary>
+    internal const string KeySeparator = "\u001f";
+
+    /// <summary>
+    /// What is on screen, as enough to put it back.
+    /// </summary>
+    /// <remarks>
+    /// History used to hold bare route names, so going back to a search asked
+    /// <c>catalog.browse</c> for a surface called "search". A key says which kind of page it was
+    /// and carries what reloading it needs.
+    /// </remarks>
+    private string _currentRoute = "route" + KeySeparator + "home";
+    private readonly Stack<string> _routeHistory = new();
 
     internal ShellViewModel(GoosicServiceClient client)
     {
@@ -174,6 +221,20 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     public IReadOnlyList<RouteEntry> Routes => RouteEntry.All;
     public ObservableCollection<ShelfViewModel> Shelves { get; } = [];
     public ObservableCollection<TrackViewModel> Tracks { get; } = [];
+    /// <summary>The real catalog rows surrounding the user's current selection.</summary>
+    public ObservableCollection<TrackViewModel> Queue { get; } = [];
+    public ObservableCollection<LyricLineViewModel> Lyrics { get; } = [];
+    public ObservableCollection<AccountViewModel> Accounts { get; } = [];
+    private string _accountStatus = "Checking account…";
+    private int _queueIndex = -1;
+    private TrackViewModel? _pendingTrack;
+    private TrackViewModel? _confirmedTrack;
+    private string? _advancedAfterEndVideoId;
+    private string _lyricsStatus = "Nothing playing.";
+    private double _playbackPosition;
+    private double _playbackDuration;
+    private double _volume = 1;
+    private bool _isMuted;
 
     /// <summary>The filters `catalog.search` accepts, in the order they are offered.</summary>
     public IReadOnlyList<string> SearchFilters { get; } = ["all", "songs", "albums", "artists", "playlists"];
@@ -198,9 +259,18 @@ public sealed class ShellViewModel : INotifyPropertyChanged
 
     private string _nowPlayingTitle = "Nothing playing";
     private string _nowPlayingSubtitle = "Choose a track to begin";
+    private BitmapImage? _nowPlayingArtwork;
 
     public string NowPlayingTitle { get => _nowPlayingTitle; private set => Set(ref _nowPlayingTitle, value); }
     public string NowPlayingSubtitle { get => _nowPlayingSubtitle; private set => Set(ref _nowPlayingSubtitle, value); }
+    public BitmapImage? NowPlayingArtwork { get => _nowPlayingArtwork; private set => Set(ref _nowPlayingArtwork, value); }
+    public string LyricsStatus { get => _lyricsStatus; private set => Set(ref _lyricsStatus, value); }
+    public string AccountStatus { get => _accountStatus; private set => Set(ref _accountStatus, value); }
+    public double PlaybackPosition { get => _playbackPosition; private set => Set(ref _playbackPosition, value); }
+    public double PlaybackDuration { get => _playbackDuration; private set => Set(ref _playbackDuration, value); }
+    public bool IsSeekable => PlaybackDuration > 0;
+    public double Volume { get => _volume; private set => Set(ref _volume, value); }
+    public bool IsMuted { get => _isMuted; private set => Set(ref _isMuted, value); }
 
     /// <summary>
     /// Shows what the page confirmed.
@@ -210,19 +280,147 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     /// instead of what was asked for. An advertisement is named, because it is a marker to be
     /// reported and never something to hide or skip past.
     /// </remarks>
-    internal void ReportPlayback(BridgeEvent sample)
+    /// <returns>Whether this is the first confirmed natural end for the current queue item.</returns>
+    internal bool ReportPlayback(BridgeEvent sample)
     {
         var position = TimeSpan.FromSeconds(Math.Max(0, sample.CurrentTime));
         var total = TimeSpan.FromSeconds(Math.Max(0, sample.Duration));
-        NowPlayingTitle = sample.IsAdvertisement ? "Advertisement" : sample.State switch
+        PlaybackPosition = Math.Max(0, sample.CurrentTime);
+        PlaybackDuration = Math.Max(0, sample.Duration);
+        Volume = Math.Clamp(sample.Volume, 0, 1);
+        IsMuted = sample.Muted;
+        OnPropertyChanged(nameof(IsSeekable));
+        if (!sample.IsAdvertisement && _pendingTrack is { } pending && pending.VideoId == sample.VideoId)
         {
-            "playing" => "Playing",
-            "paused" => "Paused",
-            _ => sample.State,
-        };
-        NowPlayingSubtitle = total > TimeSpan.Zero
-            ? Clock(position) + " / " + Clock(total)
-            : Clock(position);
+            _confirmedTrack = pending;
+            NowPlayingArtwork = pending.Artwork;
+            NowPlayingTitle = pending.Title;
+            NowPlayingSubtitle = pending.Subtitle + " · " + Clock(position)
+                + (total > TimeSpan.Zero ? " / " + Clock(total) : "");
+            return MarkNaturalEnd(sample);
+        }
+
+        NowPlayingTitle = sample.IsAdvertisement ? "Advertisement" : sample.State;
+        NowPlayingSubtitle = total > TimeSpan.Zero ? Clock(position) + " / " + Clock(total) : Clock(position);
+        return MarkNaturalEnd(sample);
+    }
+
+    private bool MarkNaturalEnd(BridgeEvent sample)
+    {
+        if (sample.IsAdvertisement || sample.State != "ended" || _advancedAfterEndVideoId == sample.VideoId)
+        {
+            return false;
+        }
+
+        _advancedAfterEndVideoId = sample.VideoId;
+        return true;
+    }
+
+    /// <summary>Starts a fresh queue from the real track rows currently on screen.</summary>
+    internal void SelectTrack(TrackViewModel track)
+    {
+        Queue.Clear();
+        foreach (var candidate in Tracks.Where(candidate => !string.IsNullOrEmpty(candidate.VideoId)))
+        {
+            Queue.Add(candidate);
+        }
+
+        if (Queue.Count == 0)
+        {
+            Queue.Add(track);
+        }
+
+        _queueIndex = Math.Max(0, Queue.IndexOf(track));
+        _pendingTrack = track;
+        _advancedAfterEndVideoId = null;
+    }
+
+    /// <summary>Builds a queue from the playable cards in the selected card's real shelf.</summary>
+    internal void SelectCard(CardViewModel card)
+    {
+        Queue.Clear();
+        foreach (var candidate in card.Context.Where(candidate => !string.IsNullOrEmpty(candidate.VideoId)))
+        {
+            Queue.Add(new TrackViewModel(candidate));
+        }
+
+        if (Queue.Count == 0)
+        {
+            Queue.Add(new TrackViewModel(card));
+        }
+
+        _queueIndex = Math.Max(0, Queue.ToList().FindIndex(item => item.VideoId == card.VideoId));
+        _pendingTrack = Queue[_queueIndex];
+        _advancedAfterEndVideoId = null;
+    }
+
+    /// <summary>Chooses an adjacent real queue entry, wrapping for a deliberate command.</summary>
+    internal TrackViewModel? AdjacentTrack(bool forward, bool wrap = true)
+    {
+        if (Queue.Count == 0)
+        {
+            ReportStatus("Choose a track to begin.");
+            return null;
+        }
+
+        var nextIndex = _queueIndex + (forward ? 1 : -1);
+        if (!wrap && (nextIndex < 0 || nextIndex >= Queue.Count))
+        {
+            ReportStatus("The queue has finished.");
+            return null;
+        }
+
+        _queueIndex = (nextIndex + Queue.Count) % Queue.Count;
+        var track = Queue[_queueIndex];
+        _pendingTrack = track;
+        _advancedAfterEndVideoId = null;
+        return track;
+    }
+
+    /// <summary>Loads lyrics for the track the official renderer actually confirmed.</summary>
+    internal async Task LoadLyricsAsync()
+    {
+        var track = _confirmedTrack;
+        if (track is null)
+        {
+            Lyrics.Clear();
+            LyricsStatus = "Nothing playing.";
+            return;
+        }
+
+        Lyrics.Clear();
+        LyricsStatus = $"Looking up lyrics for {track.Title}…";
+        try
+        {
+            var query = new JsonObject { ["title"] = track.Title, ["artist"] = track.Subtitle };
+            var answer = await _client.RequestAsync("lyrics.get", new JsonObject { ["lyrics"] = query })
+                .ConfigureAwait(true);
+            var document = answer.Deserialize<LyricsResponsePayload>(ServiceProtocol.Json)?.Document;
+            if (document is null || document.Lines.Count == 0)
+            {
+                LyricsStatus = "No lyrics were found for this track.";
+                return;
+            }
+
+            foreach (var line in document.Lines)
+            {
+                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds));
+            }
+
+            LyricsStatus = document.Synced ? $"Synced lyrics from {document.Source}." : $"Lyrics from {document.Source}.";
+            if (document.Truncated)
+            {
+                LyricsStatus += " Only the first part is shown.";
+            }
+        }
+        catch (ServiceRefusedException refused) when (refused.Code == "lyricsNotFound")
+        {
+            LyricsStatus = "No lyrics were found for this track.";
+        }
+        catch (Exception error)
+        {
+            LyricsStatus = "Could not load lyrics: " + Describe(error);
+        }
     }
 
     /// <summary>A position as minutes and seconds, counting minutes past the hour.</summary>
@@ -247,11 +445,45 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         }
 
         await LoadRouteAsync("home").ConfigureAwait(true);
+        await RefreshAccountsAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>Reads metadata persisted by Rust; credentials never appear in this response.</summary>
+    internal async Task RefreshAccountsAsync()
+    {
+        AccountStatus = "Checking account…";
+        try
+        {
+            var response = await _client.RequestAsync("accounts.get").ConfigureAwait(true);
+            var snapshot = response.Deserialize<AccountsResponsePayload>(ServiceProtocol.Json)?.Accounts;
+            Accounts.Clear();
+            if (snapshot is null || snapshot.Accounts.Count == 0)
+            {
+                AccountStatus = "Signed out";
+                AccountInitials = "G";
+                return;
+            }
+
+            foreach (var account in snapshot.Accounts)
+            {
+                Accounts.Add(new AccountViewModel(account.DisplayName, account.Email ?? "YouTube Music account"));
+            }
+
+            var active = snapshot.Accounts.FirstOrDefault(account => account.Id == snapshot.ActiveAccountId)
+                ?? snapshot.Accounts[0];
+            AccountInitials = string.IsNullOrWhiteSpace(active.DisplayName) ? "G" : active.DisplayName[..1].ToUpperInvariant();
+            AccountStatus = active.DisplayName;
+        }
+        catch (Exception error)
+        {
+            AccountStatus = "Account unavailable: " + Describe(error);
+        }
     }
 
     /// <summary>Loads one browse surface.</summary>
-    internal async Task LoadRouteAsync(string route)
+    internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true)
     {
+        Remember("route" + KeySeparator + route, rememberCurrentRoute);
         var entry = RouteEntry.All.FirstOrDefault(candidate => candidate.Route == route);
         PageTitle = entry?.Title ?? route;
         Shelves.Clear();
@@ -309,15 +541,129 @@ public sealed class ShellViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Returns to the prior native catalog route without involving the WebView.</summary>
+    internal async Task GoBackAsync()
+    {
+        if (_routeHistory.Count == 0)
+        {
+            ReportStatus("There is no earlier page.");
+            return;
+        }
+
+        var parts = _routeHistory.Pop().Split(KeySeparator);
+        switch (parts[0])
+        {
+            case "search" when parts.Length == 3:
+                await SearchAsync(parts[1], parts[2], remember: false).ConfigureAwait(true);
+                break;
+            case "entity" when parts.Length == 4:
+                await OpenEntityAsync(parts[1], parts[2], parts[3], remember: false).ConfigureAwait(true);
+                break;
+            default:
+                await LoadRouteAsync(parts.Length > 1 ? parts[1] : "home", rememberCurrentRoute: false)
+                    .ConfigureAwait(true);
+                break;
+        }
+    }
+
+    /// <summary>Records the page being left, then makes <paramref name="key"/> current.</summary>
+    private void Remember(string key, bool remember)
+    {
+        if (remember && !string.Equals(key, _currentRoute, StringComparison.Ordinal))
+        {
+            _routeHistory.Push(_currentRoute);
+        }
+
+        _currentRoute = key;
+    }
+
+    /// <summary>Opens an album, playlist or artist.</summary>
+    /// <remarks>
+    /// Each kind has its own command. A kind this build does not know opens nothing rather than
+    /// being guessed at: the protocol decodes unfamiliar kinds precisely so a newer service's row
+    /// can be shown inert instead of failing the page.
+    /// </remarks>
+    internal async Task OpenEntityAsync(string kind, string id, string title, bool remember = true)
+    {
+        var command = kind switch
+        {
+            "album" => "catalog.album",
+            "playlist" => "catalog.playlist",
+            "artist" => "catalog.artist",
+            _ => null,
+        };
+        if (command is null || id.Length == 0)
+        {
+            Status = "That item cannot be opened.";
+            return;
+        }
+
+        Remember(string.Join(KeySeparator, "entity", kind, id, title), remember);
+        PageTitle = title;
+        PageSubtitle = kind switch { "album" => "Album", "playlist" => "Playlist", _ => "Artist" };
+        Shelves.Clear();
+        Tracks.Clear();
+        Status = $"Loading {title}…";
+
+        try
+        {
+            var answer = await _client.RequestAsync(command, new JsonObject { ["catalogId"] = id })
+                .ConfigureAwait(true);
+            var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
+            if (page is null)
+            {
+                Status = "The service answered without a page.";
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(page.Title))
+            {
+                PageTitle = page.Title;
+            }
+
+            if (!string.IsNullOrWhiteSpace(page.Subtitle))
+            {
+                PageSubtitle = page.Subtitle;
+            }
+
+            foreach (var track in page.Tracks)
+            {
+                var row = new TrackViewModel(track);
+                Tracks.Add(row);
+                _ = row.LoadArtworkAsync(_artwork);
+            }
+
+            foreach (var shelf in page.Shelves)
+            {
+                var model = new ShelfViewModel(shelf);
+                Shelves.Add(model);
+                foreach (var card in model.Items)
+                {
+                    _ = card.LoadArtworkAsync(_artwork);
+                }
+            }
+
+            Status = Tracks.Count == 0 && Shelves.Count == 0
+                ? "This page came back empty."
+                : page.Truncated ? "This page was long, so only the first part is shown." : "";
+        }
+        catch (Exception error)
+        {
+            Status = Describe(error);
+        }
+    }
+
     /// <summary>Searches the catalog, and shows what came back as rows.</summary>
-    internal async Task SearchAsync(string query, string filter)
+    internal async Task SearchAsync(string query, string filter, bool remember = true)
     {
         var trimmed = query.Trim();
         if (trimmed.Length == 0)
         {
+            Status = "Type something to search the catalog.";
             return;
         }
 
+        Remember(string.Join(KeySeparator, "search", trimmed, filter), remember);
         PageTitle = $"Results for “{trimmed}”";
         PageSubtitle = filter == "all" ? "Everything matching" : $"Matching {filter}";
         Shelves.Clear();

@@ -52,7 +52,7 @@ internal sealed class OfficialPlaybackHost
     private ulong _generation;
     private ulong _lastSequence;
     private bool _ready;
-    private string? _observerId;
+    private bool _observerPending;
 
     internal OfficialPlaybackHost(WebView2 view, GoosicServiceClient client)
     {
@@ -66,6 +66,9 @@ internal sealed class OfficialPlaybackHost
     /// <summary>Raised with anything worth saying on screen.</summary>
     internal event Action<string>? Status;
 
+    /// <summary>Whether this host currently owns a loaded official document.</summary>
+    internal bool HasLoadedTrack => _ready && _videoId.Length > 0;
+
     /// <summary>
     /// Claims the lease and loads a track.
     /// </summary>
@@ -75,8 +78,10 @@ internal sealed class OfficialPlaybackHost
     /// </remarks>
     internal async Task PlayAsync(string videoId)
     {
+        BridgeLog.Write("play requested");
         if (!ShellSupport.IsValidVideoId(videoId))
         {
+            BridgeLog.Write("play refused: not a video id");
             Status?.Invoke("That is not a playable track.");
             return;
         }
@@ -89,6 +94,7 @@ internal sealed class OfficialPlaybackHost
             var snapshot = await _client.RequestAsync("state.get").ConfigureAwait(true);
             var owner = snapshot?["state"]?["owner"]?.GetValue<string>() ?? "none";
             var generation = snapshot?["state"]?["generation"]?.GetValue<ulong>() ?? 0;
+            BridgeLog.Write($"authority holds owner={owner} generation={generation}");
 
             // One owner at a time: switching tracks means giving the lease back before taking it
             // again, and the release is what quiesces the renderer that currently holds it.
@@ -114,6 +120,7 @@ internal sealed class OfficialPlaybackHost
         }
         catch (ServiceRefusedException refused)
         {
+            BridgeLog.Write($"claim refused: {refused.Code} {refused.Message}");
             // Rust refused the transition. That is an answer, not a failure to be worked around.
             Status?.Invoke($"Rust refused the claim: {refused.Message}");
             return;
@@ -130,18 +137,14 @@ internal sealed class OfficialPlaybackHost
         _videoId = videoId;
         _lastSequence = 0;
 
+        BridgeLog.Write($"lease claimed generation={_generation}; preparing WebView2");
         await EnsureReadyAsync().ConfigureAwait(true);
+        BridgeLog.Write("WebView2 ready");
 
-        // One observer at a time. Each carries the token and generation of its own load, so
-        // leaving the previous one installed would have every page reporting once per track ever
-        // played, each rejected for coming from a superseded document.
-        if (_observerId is { } previous)
-        {
-            _view.CoreWebView2.RemoveScriptToExecuteOnDocumentCreated(previous);
-        }
-
-        var script = ShellSupport.ObserverScript(_token, _generation, videoId);
-        _observerId = await _view.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+        // The observer for this load is installed once the page has finished loading; see
+        // InstallObserverAsync for why it is not a document-created script.
+        _observerPending = true;
+        BridgeLog.Write($"claimed generation={_generation}; loading requested track");
         _view.CoreWebView2.Navigate($"https://{ShellSupport.AllowedHost}/watch?v={Uri.EscapeDataString(videoId)}");
     }
 
@@ -152,24 +155,180 @@ internal sealed class OfficialPlaybackHost
             return;
         }
 
-        await _view.EnsureCoreWebView2Async();
+        BridgeLog.Write($"initialising WebView2 (control loaded={_view.IsLoaded})");
+
+        // The profile lives under the user's own Goosic data, not beside the executable. The
+        // default for an unpackaged app is a folder next to the .exe, which is the wrong place for
+        // a profile once the app is installed somewhere the user cannot write, and is invisible
+        // to whoever later has to clear it.
+        var profile = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Goosic", "WebView2", "guest");
+        System.IO.Directory.CreateDirectory(profile);
+
+        CoreWebView2Environment environment;
+        try
+        {
+            environment = await CoreWebView2Environment.CreateWithOptionsAsync(null, profile, null);
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"WebView2 environment failed: {error.Message}");
+            Status?.Invoke($"The web player could not start: {error.Message}");
+            throw;
+        }
+
+        BridgeLog.Write($"WebView2 environment created, runtime {environment.BrowserVersionString}");
+
+        // Bounded, because the failure this guards against is a wait that never ends: an
+        // initialisation that cannot complete otherwise leaves the shell silently claiming a
+        // lease for a renderer that will never exist.
+        var initialise = _view.EnsureCoreWebView2Async(environment).AsTask();
+        if (await Task.WhenAny(initialise, Task.Delay(TimeSpan.FromSeconds(20))) != initialise)
+        {
+            BridgeLog.Write("WebView2 initialisation timed out");
+            Status?.Invoke("The web player did not start in time.");
+            throw new TimeoutException("WebView2 initialisation timed out");
+        }
+
+        await initialise;
+        BridgeLog.Write($"WebView2 initialised, browser {_view.CoreWebView2.Environment.BrowserVersionString}");
         var core = _view.CoreWebView2;
 
         // The page must not install its own media-session handlers: the system transport belongs
         // to this shell, and a page that answered the media keys would be acting without Rust.
         await core.AddScriptToExecuteOnDocumentCreatedAsync(ShellSupport.MediaSessionGuardScript());
 
-        // The shared observer posts through `window.webkit.messageHandlers`, because WebKit is
-        // where it was first needed. WebView2 has no such object, so the script would return on
-        // its first line and report nothing at all.
-        //
-        // The adaptation belongs here rather than in the observer: making the shared script
-        // choose an engine at runtime would edit security-sensitive generated JavaScript for a
-        // difference only this platform has. The shim forwards and does nothing else -- the
-        // payload is unchanged, and it is stringified because WebView2 delivers an object as
-        // JSON while the host reads a string.
+        // The bridge shim carries no per-load state, so it is registered once for every document.
+        await core.AddScriptToExecuteOnDocumentCreatedAsync(WebView2BridgeShimScript());
+
+        core.WebMessageReceived += OnWebMessage;
+
+        // The click that selected a track has necessarily awaited Rust's lease claim before the
+        // navigation starts, so Chromium no longer considers it a user gesture. Grant autoplay
+        // only to the official origin, only for this request, and never write the decision into
+        // the WebView profile. Nothing else obtains a permission through this shell.
+        core.PermissionRequested += (_, args) =>
+        {
+            if (args.PermissionKind == CoreWebView2PermissionKind.Autoplay
+                && IsOfficialOrigin(args.Uri))
+            {
+                args.State = CoreWebView2PermissionState.Allow;
+                args.SavesInProfile = false;
+                args.Handled = true;
+            }
+        };
+
+        // Loading the official player is the slowest part of starting a track, and a shell that
+        // says nothing during it looks broken rather than busy.
+        core.NavigationCompleted += async (_, args) =>
+        {
+            BridgeLog.Write($"navigation completed success={args.IsSuccess} status={args.WebErrorStatus} "
+                + $"at {BridgeLog.Describe(core.Source)}");
+            if (!args.IsSuccess)
+            {
+                Status?.Invoke($"The official player did not load ({args.WebErrorStatus}).");
+                return;
+            }
+
+            await ProbePageAsync(core);
+            await InstallObserverAsync(core);
+        };
+
+        // Only the official host may run in here. A navigation anywhere else is cancelled rather
+        // than followed, so a redirect cannot turn this into a general browser.
+        core.NavigationStarting += (_, args) =>
+        {
+            var allowed = IsOfficialNavigation(args.Uri);
+            BridgeLog.Write($"navigation starting {BridgeLog.Describe(args.Uri)} allowed={allowed}");
+            if (!allowed)
+            {
+                args.Cancel = true;
+            }
+        };
+
+        _ready = true;
+    }
+
+    /// <summary>
+    /// Records what the loaded page can actually do, so a silent player can be diagnosed.
+    /// </summary>
+    /// <remarks>
+    /// Each field answers one way the chain can break: the shim not installed, the WebView2
+    /// message port absent, no media element yet, or a media element that exists but is paused.
+    /// </remarks>
+    private async Task ProbePageAsync(CoreWebView2 core)
+    {
+        try
+        {
+            var result = await core.ExecuteScriptAsync("""
+                (() => {
+                  const media = document.querySelector('audio,video');
+                  return JSON.stringify({
+                    shim: !!window.webkit?.messageHandlers,
+                    port: typeof window.chrome?.webview?.postMessage,
+                    media: !!media,
+                    paused: media ? media.paused : null,
+                    readyState: media ? media.readyState : null,
+                    title: document.title,
+                    href: location.pathname + (new URLSearchParams(location.search).has('v') ? '?v=present' : '?v=absent'),
+                  });
+                })();
+                """);
+            BridgeLog.Write($"page probe {result}");
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"page probe failed: {error.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Installs the shared observer for the load that just finished, exactly once.
+    /// </summary>
+    /// <remarks>
+    /// Registered as a document-created script, the observer never reported a single sample on
+    /// WebView2: the shim beside it was present, the message port worked, a media element existed,
+    /// and nothing was posted. The identical script executed once the page had loaded began
+    /// reporting at once and the track played -- verified against the running app, with the
+    /// bridge log showing accepted samples through a pre-roll advertisement.
+    ///
+    /// Running after load cannot duplicate reports: the observer samples on a timer and on media
+    /// events, so starting it after the page is ready loses nothing but a moment of silence, and
+    /// a load that fires NavigationCompleted twice is guarded twice -- once here by the pending
+    /// flag, and once in the page by the token, which also refuses a second copy if the page
+    /// re-runs its own navigation within the same document.
+    /// </remarks>
+    private async Task InstallObserverAsync(CoreWebView2 core)
+    {
+        if (!_observerPending)
+        {
+            return;
+        }
+
+        _observerPending = false;
+        var token = ShellSupport.JsStringLiteral(_token);
+        var observer = ShellSupport.ObserverScript(_token, _generation, _videoId);
+        try
+        {
+            var outcome = await core.ExecuteScriptAsync(
+                "(() => { if (window.__goosicObserverToken === " + token + ") return 'already'; "
+                + "window.__goosicObserverToken = " + token + "; "
+                + "try { " + observer + " return 'installed'; } catch (error) { return 'threw: ' + error; } })()");
+            BridgeLog.Write($"observer {outcome}");
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"observer install failed: {error.Message}");
+            Status?.Invoke($"Could not attach to the official player: {error.Message}");
+        }
+    }
+
+    /// <summary>The narrowly adapted message port that the shared WebKit observer requires.</summary>
+    private static string WebView2BridgeShimScript()
+    {
         var handler = ShellSupport.JsStringLiteral(ShellSupport.HandlerName);
-        await core.AddScriptToExecuteOnDocumentCreatedAsync($$"""
+        return $$"""
             (() => {
               const name = {{handler}};
               if (window.webkit?.messageHandlers?.[name]) return;
@@ -179,38 +338,120 @@ internal sealed class OfficialPlaybackHost
                 postMessage: (payload) => window.chrome.webview.postMessage(JSON.stringify(payload)),
               };
             })();
-            """);
+            """;
+    }
 
-        core.WebMessageReceived += OnWebMessage;
+    /// <summary>Whether a URL is one of the official player's controlled subdomains.</summary>
+    private static bool IsOfficialNavigation(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var target)
+        && target.Scheme == Uri.UriSchemeHttps
+        && (target.Host == ShellSupport.AllowedHost
+            || target.Host.EndsWith("." + ShellSupport.AllowedHost, StringComparison.Ordinal));
 
-        // Loading the official player is the slowest part of starting a track, and a shell that
-        // says nothing during it looks broken rather than busy.
-        core.NavigationCompleted += (_, args) =>
+    /// <summary>Autoplay is narrower than navigation: only the player origin is trusted.</summary>
+    private static bool IsOfficialOrigin(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var target)
+        && target.Scheme == Uri.UriSchemeHttps
+        && target.Host == ShellSupport.AllowedHost;
+
+    /// <summary>Requests a pause or resume from the page that already holds Rust's lease.</summary>
+    /// <remarks>
+    /// This does not manufacture playback state. The next observer sample is still what changes
+    /// the shell's now-playing UI and what Rust receives, so a rejected or ignored page request
+    /// cannot be presented as a successful transition.
+    /// </remarks>
+    internal async Task TogglePauseAsync()
+    {
+        if (!HasLoadedTrack)
         {
-            if (!args.IsSuccess)
-            {
-                Status?.Invoke($"The official player did not load ({args.WebErrorStatus}).");
-            }
-        };
+            Status?.Invoke("Choose a track to begin.");
+            return;
+        }
 
-        // Only the official host may run in here. A navigation anywhere else is cancelled rather
-        // than followed, so a redirect cannot turn this into a general browser.
-        core.NavigationStarting += (_, args) =>
+        try
         {
-            if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var target)
-                || target.Scheme != Uri.UriSchemeHttps
-                || !(target.Host == ShellSupport.AllowedHost
-                     || target.Host.EndsWith("." + ShellSupport.AllowedHost, StringComparison.Ordinal)))
-            {
-                args.Cancel = true;
-            }
-        };
+            await _view.CoreWebView2.ExecuteScriptAsync("""
+                (() => {
+                  const media = document.querySelector('audio,video');
+                  if (!media) return 'no-media';
+                  if (media.paused) { void media.play(); return 'play-requested'; }
+                  media.pause(); return 'pause-requested';
+                })();
+                """);
+        }
+        catch (Exception error)
+        {
+            Status?.Invoke($"Could not control the official player: {error.Message}");
+        }
+    }
 
-        _ready = true;
+    /// <summary>Requests a bounded seek; the next bridge sample remains the source of truth.</summary>
+    internal async Task SeekAsync(double position)
+    {
+        if (!HasLoadedTrack || !double.IsFinite(position) || position < 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var requested = position.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            await _view.CoreWebView2.ExecuteScriptAsync($$"""
+                (() => {
+                  const media = document.querySelector('audio,video');
+                  if (!media || !Number.isFinite(media.duration) || media.duration <= 0) return 'not-seekable';
+                  media.currentTime = Math.min(Math.max({{requested}}, 0), media.duration);
+                  return 'seek-requested';
+                })();
+                """);
+        }
+        catch (Exception error)
+        {
+            Status?.Invoke($"Could not seek in the official player: {error.Message}");
+        }
+    }
+
+    /// <summary>Requests a clamped page volume without treating that request as confirmed state.</summary>
+    internal async Task SetVolumeAsync(double volume)
+    {
+        if (!HasLoadedTrack || !double.IsFinite(volume)) return;
+        var requested = Math.Clamp(volume, 0, 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        try
+        {
+            await _view.CoreWebView2.ExecuteScriptAsync($$"""
+                (() => {
+                  const media = document.querySelector('audio,video');
+                  if (!media) return 'no-media';
+                  media.volume = {{requested}}; media.muted = false; return 'volume-requested';
+                })();
+                """);
+        }
+        catch (Exception error)
+        {
+            Status?.Invoke($"Could not set official-player volume: {error.Message}");
+        }
+    }
+
+    /// <summary>Requests mute inversion; bridge samples publish the result.</summary>
+    internal async Task ToggleMutedAsync()
+    {
+        if (!HasLoadedTrack) return;
+        try
+        {
+            await _view.CoreWebView2.ExecuteScriptAsync("""
+                (() => { const media = document.querySelector('audio,video');
+                  if (!media) return 'no-media'; media.muted = !media.muted; return 'mute-requested'; })();
+                """);
+        }
+        catch (Exception error)
+        {
+            Status?.Invoke($"Could not change official-player mute: {error.Message}");
+        }
     }
 
     private void OnWebMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
+        BridgeLog.Write($"message arrived from {BridgeLog.Describe(args.Source)}");
         string body;
         try
         {
@@ -219,11 +460,13 @@ internal sealed class OfficialPlaybackHost
         catch (ArgumentException)
         {
             // Not a string message, so not one of ours.
+            BridgeLog.Write("message ignored: not a string");
             return;
         }
 
         if (body.Length > ShellSupport.MaxBodyBytes)
         {
+            BridgeLog.Write($"message ignored: {body.Length} bytes is over the limit");
             return;
         }
 
@@ -238,10 +481,12 @@ internal sealed class OfficialPlaybackHost
         {
             // Kept quiet on screen: a superseded document reports for a moment after every load,
             // and saying so each time would be noise rather than information.
-            System.Diagnostics.Debug.WriteLine($"[bridge] rejected: {verdict.Reason}");
+            BridgeLog.Write($"message rejected: {verdict.Reason}");
             return;
         }
 
+        BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
+            + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement}");
         _lastSequence = verdict.Event.Sequence;
         Sampled?.Invoke(verdict.Event);
         _ = ReportSampleAsync(verdict.Event);

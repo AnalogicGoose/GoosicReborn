@@ -11,6 +11,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly GoosicServiceClient? _client;
     private OfficialPlaybackHost? _playback;
+    private bool _seeking;
 
     public MainWindow()
     {
@@ -43,7 +44,13 @@ public sealed partial class MainWindow : Window
         {
             _playback = new OfficialPlaybackHost(PlaybackView, _client);
             _playback.Status += message => Model.ReportStatus(message);
-            _playback.Sampled += sample => Model.ReportPlayback(sample);
+            _playback.Sampled += sample =>
+            {
+                if (Model.ReportPlayback(sample))
+                {
+                    PlayAdjacent(forward: true, wrap: false);
+                }
+            };
         }
 
         var rules = CheckShellSupport();
@@ -123,6 +130,24 @@ public sealed partial class MainWindow : Window
     /// allowed and a renderer that started first would have escaped that. Until the WebView2 host
     /// exists there is nothing to claim it for, so this says so rather than appearing to work.
     /// </remarks>
+    /// <summary>A card either plays its track or opens the album, playlist or artist it names.</summary>
+    private async void OnCardActivated(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag } || tag.Length == 0)
+        {
+            return;
+        }
+
+        var parts = tag.Split(ShellViewModel.KeySeparator);
+        if (parts.Length == 3)
+        {
+            await Model.OpenEntityAsync(parts[0], parts[1], parts[2]);
+            return;
+        }
+
+        OnPlayTrack(sender, e);
+    }
+
     private async void OnPlayTrack(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string videoId } || videoId.Length == 0)
@@ -137,15 +162,26 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (sender is Button { DataContext: TrackViewModel track })
+        {
+            Model.SelectTrack(track);
+        }
+        else if (sender is Button { DataContext: CardViewModel card })
+        {
+            Model.SelectCard(card);
+        }
+
         await _playback.PlayAsync(videoId);
     }
 
-    private void OnBack(object sender, RoutedEventArgs e)
+    private async void OnBack(object sender, RoutedEventArgs e)
     {
+        await Model.GoBackAsync();
     }
 
-    private void OnAccount(object sender, RoutedEventArgs e)
+    private async void OnAccount(object sender, RoutedEventArgs e)
     {
+        await Model.RefreshAccountsAsync();
     }
 
     /// <summary>
@@ -182,14 +218,70 @@ public sealed partial class MainWindow : Window
 
     private void OnPrevious(object sender, RoutedEventArgs e)
     {
+        PlayAdjacent(forward: false, wrap: true);
     }
 
-    private void OnPlayPause(object sender, RoutedEventArgs e)
+    private async void OnPlayPause(object sender, RoutedEventArgs e)
     {
+        if (_playback is null)
+        {
+            Model.ReportStatus("There is no service to claim playback from.");
+            return;
+        }
+
+        await _playback.TogglePauseAsync();
+    }
+
+    private void OnSeekStarted(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) => _seeking = true;
+
+    private async void OnSeekCompleted(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_seeking)
+        {
+            return;
+        }
+
+        _seeking = false;
+        if (_playback is not null)
+        {
+            await _playback.SeekAsync(PlaybackProgress.Value);
+        }
+    }
+
+    private async void OnVolumeCompleted(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_playback is not null)
+        {
+            await _playback.SetVolumeAsync(VolumeSlider.Value);
+        }
+    }
+
+    private async void OnToggleMuted(object sender, RoutedEventArgs e)
+    {
+        if (_playback is not null)
+        {
+            await _playback.ToggleMutedAsync();
+        }
     }
 
     private void OnNext(object sender, RoutedEventArgs e)
     {
+        PlayAdjacent(forward: true, wrap: true);
+    }
+
+    private async void PlayAdjacent(bool forward, bool wrap)
+    {
+        if (_playback is null)
+        {
+            Model.ReportStatus("There is no service to claim playback from.");
+            return;
+        }
+
+        var track = Model.AdjacentTrack(forward, wrap);
+        if (track?.VideoId is { Length: > 0 } videoId)
+        {
+            await _playback.PlayAsync(videoId);
+        }
     }
 
     private void OnRepeat(object sender, RoutedEventArgs e)
@@ -197,16 +289,32 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Lyrics and Playing Next share the right edge, so opening one closes the other.</summary>
-    private void OnToggleLyrics(object sender, RoutedEventArgs e)
+    private async void OnToggleLyrics(object sender, RoutedEventArgs e)
     {
         QueueButton.IsChecked = false;
-        ShowSidePanel(LyricsButton.IsChecked == true, "Nothing playing.");
+        QueueItems.Visibility = Visibility.Collapsed;
+        var visible = LyricsButton.IsChecked == true;
+        LyricsItems.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        SidePanelMessage.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        ShowSidePanel(visible, Model.LyricsStatus);
+        if (!visible)
+        {
+            return;
+        }
+
+        await Model.LoadLyricsAsync();
+        SidePanelMessage.Text = Model.LyricsStatus;
+        SidePanelMessage.Visibility = Model.Lyrics.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnToggleQueue(object sender, RoutedEventArgs e)
     {
         LyricsButton.IsChecked = false;
-        ShowSidePanel(QueueButton.IsChecked == true, "Playing Next is empty.");
+        LyricsItems.Visibility = Visibility.Collapsed;
+        var visible = QueueButton.IsChecked == true;
+        QueueItems.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        SidePanelMessage.Visibility = Model.Queue.Count == 0 && visible ? Visibility.Visible : Visibility.Collapsed;
+        ShowSidePanel(visible, Model.Queue.Count == 0 ? "Playing Next is empty." : "");
     }
 
     private void ShowSidePanel(bool visible, string message)

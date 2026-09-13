@@ -158,15 +158,20 @@ internal sealed class GoosicServiceClient : IAsyncDisposable
 
     private async Task WriteAsync(RequestEnvelope envelope, CancellationToken cancellationToken)
     {
+        if (_input is not { } input)
+        {
+            throw new ServiceUnavailableException(_closedReason ?? "goosic-service is not running");
+        }
+
         var line = JsonSerializer.Serialize(envelope, ServiceProtocol.Json);
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             // One request per line, and the newline is what makes it a request rather than a
             // partial buffer the service is still waiting to complete.
-            await _input.WriteAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
-            await _input.WriteAsync("\n".AsMemory(), cancellationToken).ConfigureAwait(false);
-            await _input.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await input.WriteAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await input.WriteAsync("\n".AsMemory(), cancellationToken).ConfigureAwait(false);
+            await input.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception error)
         {
@@ -181,12 +186,17 @@ internal sealed class GoosicServiceClient : IAsyncDisposable
 
     private async Task ReadAnswersAsync()
     {
+        if (_process is not { } process)
+        {
+            return;
+        }
+
         var buffer = new char[8192];
         try
         {
             while (true)
             {
-                var read = await _process.StandardOutput.ReadAsync(buffer, _shutdown.Token).ConfigureAwait(false);
+                var read = await process.StandardOutput.ReadAsync(buffer, _shutdown.Token).ConfigureAwait(false);
                 if (read == 0)
                 {
                     Close("goosic-service closed its output");
@@ -248,9 +258,14 @@ internal sealed class GoosicServiceClient : IAsyncDisposable
     /// </remarks>
     private async Task DrainDiagnosticsAsync()
     {
+        if (_process is not { } process)
+        {
+            return;
+        }
+
         try
         {
-            while (await _process.StandardError.ReadLineAsync(_shutdown.Token).ConfigureAwait(false) is { } line)
+            while (await process.StandardError.ReadLineAsync(_shutdown.Token).ConfigureAwait(false) is { } line)
             {
                 Debug.WriteLine($"[goosic-service] {line}");
             }

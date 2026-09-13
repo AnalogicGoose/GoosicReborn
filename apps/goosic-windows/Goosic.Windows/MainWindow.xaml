@@ -48,7 +48,7 @@
                 colour extraction exists this is a flat raised surface, which is the same shape
                 without pretending to a colour it has not sampled.
             -->
-            <Border Grid.Column="2" MinWidth="420" MaxWidth="560" Height="40"
+            <Border Grid.Column="2" MinWidth="420" MaxWidth="560" Height="44"
                     CornerRadius="6" Background="{ThemeResource GoosicRaisedBrush}"
                     VerticalAlignment="Center">
                 <Grid Margin="6,0,10,0">
@@ -58,15 +58,21 @@
                     </Grid.ColumnDefinitions>
                     <Border Grid.Column="0" Width="30" Height="30" CornerRadius="3"
                             Background="{ThemeResource GoosicRaisedStrongBrush}">
-                        <Image x:Name="NowPlayingArtwork" Stretch="UniformToFill" />
+                        <Image x:Name="NowPlayingArtwork" Source="{x:Bind Model.NowPlayingArtwork, Mode=OneWay}"
+                               Stretch="UniformToFill" />
                     </Border>
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="9,0,0,0">
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="9,0,0,0" Spacing="1">
                         <TextBlock x:Name="NowPlayingTitle" Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}"
                                    FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                    HorizontalAlignment="Center" />
                         <TextBlock x:Name="NowPlayingSubtitle" Text="{x:Bind Model.NowPlayingSubtitle, Mode=OneWay}"
                                    FontSize="11" Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                    TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" />
+                        <Slider x:Name="PlaybackProgress" Minimum="0" Height="6"
+                                Maximum="{x:Bind Model.PlaybackDuration, Mode=OneWay}"
+                                Value="{x:Bind Model.PlaybackPosition, Mode=OneWay}"
+                                IsEnabled="{x:Bind Model.IsSeekable, Mode=OneWay}"
+                                PointerPressed="OnSeekStarted" PointerReleased="OnSeekCompleted" />
                     </StackPanel>
                 </Grid>
             </Border>
@@ -74,7 +80,19 @@
             <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center"
                         Spacing="2" Margin="0,0,8,0">
                 <Button x:Name="VolumeButton" Style="{StaticResource TransportGlyphStyle}"
-                        Content="&#xE767;" ToolTipService.ToolTip="Volume" />
+                        Content="&#xE767;" ToolTipService.ToolTip="Volume">
+                    <Button.Flyout>
+                        <Flyout Placement="Bottom">
+                            <StackPanel Width="200" Spacing="10" Padding="12">
+                                <TextBlock Text="Volume" FontWeight="SemiBold" />
+                                <Slider x:Name="VolumeSlider" Minimum="0" Maximum="1"
+                                        Value="{x:Bind Model.Volume, Mode=OneWay}"
+                                        PointerReleased="OnVolumeCompleted" />
+                                <Button Content="Mute" Click="OnToggleMuted" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
                 <ToggleButton x:Name="LyricsButton" Style="{StaticResource TransportToggleStyle}"
                               Content="&#xE90A;" ToolTipService.ToolTip="Lyrics"
                               Click="OnToggleLyrics" />
@@ -117,7 +135,28 @@
                     <Button x:Name="AccountButton" Style="{StaticResource RailAvatarStyle}"
                             VerticalAlignment="Bottom" Margin="0,0,0,10"
                             Content="{x:Bind Model.AccountInitials, Mode=OneWay}"
-                            Click="OnAccount" />
+                            Click="OnAccount">
+                        <Button.Flyout>
+                            <Flyout Placement="Right">
+                                <StackPanel Width="240" Spacing="8" Padding="14">
+                                    <TextBlock Text="Account" FontWeight="SemiBold" />
+                                    <TextBlock Text="{x:Bind Model.AccountStatus, Mode=OneWay}"
+                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                    <ItemsControl ItemsSource="{x:Bind Model.Accounts, Mode=OneWay}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:AccountViewModel">
+                                                <StackPanel Spacing="2" Margin="0,4">
+                                                    <TextBlock Text="{x:Bind DisplayName}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{x:Bind Detail}" FontSize="12"
+                                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
                 </Grid>
             </Border>
 
@@ -185,7 +224,7 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:CardViewModel">
                                                   <Button Style="{StaticResource CardButtonStyle}"
-                                                          Tag="{x:Bind VideoIdOrEmpty}" Click="OnPlayTrack">
+                                                          Tag="{x:Bind ActivationTag}" Click="OnCardActivated">
                                                     <StackPanel Width="{StaticResource GoosicCardSize}" Spacing="7">
                                                         <Border Width="{StaticResource GoosicCardSize}"
                                                                 Height="{StaticResource GoosicCardSize}"
@@ -222,6 +261,39 @@
                                HorizontalAlignment="Center" TextAlignment="Center"
                                Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                Text="Nothing playing." TextWrapping="Wrap" />
+                    <ItemsControl x:Name="QueueItems" Visibility="Collapsed"
+                                  ItemsSource="{x:Bind Model.Queue, Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TrackViewModel">
+                                <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
+                                        Click="OnPlayTrack">
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Image Width="40" Height="40" Source="{x:Bind Artwork, Mode=OneWay}"
+                                               Stretch="UniformToFill" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{x:Bind Subtitle}" FontSize="12"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl x:Name="LyricsItems" Visibility="Collapsed"
+                                  ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:LyricLineViewModel">
+                                <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" FontSize="17"
+                                           Margin="0,0,0,14" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </Grid>
             </Border>
         </Grid>

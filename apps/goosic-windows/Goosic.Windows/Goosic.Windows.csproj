@@ -12,6 +12,13 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <!-- A build with no runtime identifier leaves native assets under runtimes\<rid>\native, and
+         WebView2 loads WebView2Loader.dll by name from beside the executable. The playback host
+         then fails with "the specified module could not be found", or, through the default
+         initialisation path, simply never finishes. Pick the machine's own architecture when the
+         caller did not name one. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
     <!-- Unpackaged for development: `dotnet run` launches it directly, without deploying an
          MSIX first. Packaging is step six of the migration plan and is not here yet. -->

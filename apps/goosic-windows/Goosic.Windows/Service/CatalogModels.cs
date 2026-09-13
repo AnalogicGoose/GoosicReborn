@@ -60,3 +60,41 @@ internal sealed record CatalogResponsePayload
 {
     [JsonPropertyName("catalog")] public CatalogPage? Page { get; init; }
 }
+
+/// <summary>The bounded lyric document returned only by <c>lyrics.get</c>.</summary>
+internal sealed record LyricsDocument
+{
+    [JsonPropertyName("source")] public string Source { get; init; } = "";
+    [JsonPropertyName("synced")] public bool Synced { get; init; }
+    [JsonPropertyName("truncated")] public bool Truncated { get; init; }
+    [JsonPropertyName("lines")] public IReadOnlyList<LyricsLine> Lines { get; init; } = [];
+}
+
+internal sealed record LyricsLine
+{
+    [JsonPropertyName("atMs")] public long AtMilliseconds { get; init; }
+    [JsonPropertyName("text")] public string Text { get; init; } = "";
+}
+
+internal sealed record LyricsResponsePayload
+{
+    [JsonPropertyName("lyrics")] public LyricsDocument? Document { get; init; }
+}
+
+internal sealed record AccountSummary
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("displayName")] public string DisplayName { get; init; } = "";
+    [JsonPropertyName("email")] public string? Email { get; init; }
+}
+
+internal sealed record AccountsSnapshot
+{
+    [JsonPropertyName("accounts")] public IReadOnlyList<AccountSummary> Accounts { get; init; } = [];
+    [JsonPropertyName("activeAccountId")] public string? ActiveAccountId { get; init; }
+}
+
+internal sealed record AccountsResponsePayload
+{
+    [JsonPropertyName("accounts")] public AccountsSnapshot? Accounts { get; init; }
+}
