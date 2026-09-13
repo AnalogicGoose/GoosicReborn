@@ -88,13 +88,9 @@ final class GoosicServiceClient: @unchecked Sendable {
             ?? ProcessInfo.processInfo.environment["GOOSIC_SERVICE_PATH"]
             ?? "goosic-service"
         process = Process()
-        if configuredPath.contains("/") {
-            process.executableURL = URL(fileURLWithPath: configuredPath)
-            process.arguments = []
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [configuredPath]
-        }
+        let launch = ServiceLaunch.plan(for: configuredPath)
+        process.executableURL = launch.url
+        process.arguments = launch.arguments
 
         let stdin = Pipe()
         let stdout = Pipe()
