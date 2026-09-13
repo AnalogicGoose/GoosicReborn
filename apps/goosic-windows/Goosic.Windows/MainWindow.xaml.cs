@@ -10,6 +10,7 @@ namespace Goosic.Windows;
 public sealed partial class MainWindow : Window
 {
     private readonly GoosicServiceClient? _client;
+    private OfficialPlaybackHost? _playback;
 
     public MainWindow()
     {
@@ -37,6 +38,13 @@ public sealed partial class MainWindow : Window
         // the user may drag the window by -- otherwise the whole row swallows the gesture.
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TransportBar);
+
+        if (_client is not null)
+        {
+            _playback = new OfficialPlaybackHost(PlaybackView, _client);
+            _playback.Status += message => Model.ReportStatus(message);
+            _playback.Sampled += sample => Model.ReportPlayback(sample);
+        }
 
         var rules = CheckShellSupport();
         if (rules.Length > 0)
@@ -115,14 +123,21 @@ public sealed partial class MainWindow : Window
     /// allowed and a renderer that started first would have escaped that. Until the WebView2 host
     /// exists there is nothing to claim it for, so this says so rather than appearing to work.
     /// </remarks>
-    private void OnPlayTrack(object sender, RoutedEventArgs e)
+    private async void OnPlayTrack(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string videoId } && videoId.Length > 0)
+        if (sender is not Button { Tag: string videoId } || videoId.Length == 0)
         {
-            Model.ReportStatus(ShellSupport.IsValidVideoId(videoId)
-                ? "Playback is not implemented on Windows yet."
-                : "That row does not carry a playable track.");
+            Model.ReportStatus("That row does not carry a playable track.");
+            return;
         }
+
+        if (_playback is null)
+        {
+            Model.ReportStatus("There is no service to claim playback from.");
+            return;
+        }
+
+        await _playback.PlayAsync(videoId);
     }
 
     private void OnBack(object sender, RoutedEventArgs e)

@@ -11,3 +11,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 goosic-shell-support = { path = "../goosic-shell-support" }
+serde = { workspace = true }
+serde_json = { workspace = true }

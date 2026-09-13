@@ -49,6 +49,9 @@ public sealed class CardViewModel : INotifyPropertyChanged
     internal string? VideoId { get; }
     internal string? Thumbnail { get; }
 
+    /// <summary>The id for the view to hand back, or empty when the card is not a track.</summary>
+    public string VideoIdOrEmpty => VideoId ?? "";
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>
@@ -192,6 +195,39 @@ public sealed class ShellViewModel : INotifyPropertyChanged
     }
 
     public bool HasStatus => !string.IsNullOrEmpty(_status);
+
+    private string _nowPlayingTitle = "Nothing playing";
+    private string _nowPlayingSubtitle = "Choose a track to begin";
+
+    public string NowPlayingTitle { get => _nowPlayingTitle; private set => Set(ref _nowPlayingTitle, value); }
+    public string NowPlayingSubtitle { get => _nowPlayingSubtitle; private set => Set(ref _nowPlayingSubtitle, value); }
+
+    /// <summary>
+    /// Shows what the page confirmed.
+    /// </summary>
+    /// <remarks>
+    /// Driven by accepted samples rather than by the request, so the bar says what is happening
+    /// instead of what was asked for. An advertisement is named, because it is a marker to be
+    /// reported and never something to hide or skip past.
+    /// </remarks>
+    internal void ReportPlayback(BridgeEvent sample)
+    {
+        var position = TimeSpan.FromSeconds(Math.Max(0, sample.CurrentTime));
+        var total = TimeSpan.FromSeconds(Math.Max(0, sample.Duration));
+        NowPlayingTitle = sample.IsAdvertisement ? "Advertisement" : sample.State switch
+        {
+            "playing" => "Playing",
+            "paused" => "Paused",
+            _ => sample.State,
+        };
+        NowPlayingSubtitle = total > TimeSpan.Zero
+            ? Clock(position) + " / " + Clock(total)
+            : Clock(position);
+    }
+
+    /// <summary>A position as minutes and seconds, counting minutes past the hour.</summary>
+    private static string Clock(TimeSpan value) =>
+        $"{(int)value.TotalMinutes:D2}:{value.Seconds:D2}";
 
     /// <summary>Says something on screen that did not come from the service.</summary>
     internal void ReportStatus(string message) => Status = message;

@@ -129,3 +129,70 @@ pub unsafe extern "C" fn goosic_bridge_js_string_literal(value: *const c_char) -
         None => std::ptr::null_mut(),
     }
 }
+
+/// The verdict on one bridge message, as the shell receives it.
+#[derive(serde::Serialize)]
+struct Verdict<'a> {
+    accepted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event: Option<&'a bridge::BridgeEvent>,
+}
+
+/// Decides whether one message from the page may be believed.
+///
+/// The whole decision crosses in a single call, returning JSON, because the alternative is the
+/// shell marshalling a struct field by field and then applying the checks itself -- which is the
+/// third copy of the rules this boundary exists to avoid. An empty `expected_token` or
+/// `expected_video_id` means "nothing is loaded", which every check treats as a mismatch.
+///
+/// # Safety
+///
+/// Every pointer must be NUL-terminated or null.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_bridge_validate_event(
+    body: *const c_char,
+    expected_token: *const c_char,
+    expected_generation: c_ulonglong,
+    expected_video_id: *const c_char,
+    last_sequence: c_ulonglong,
+) -> *mut c_char {
+    let Some(body) = (unsafe { borrow(body) }) else {
+        return hand_over(
+            serde_json::to_string(&Verdict {
+                accepted: false,
+                reason: Some("the message body was not valid UTF-8".to_owned()),
+                event: None,
+            })
+            .unwrap_or_default(),
+        );
+    };
+
+    let Some(event) = bridge::parse_event(body.as_bytes()) else {
+        return hand_over(
+            serde_json::to_string(&Verdict {
+                accepted: false,
+                reason: Some("the message was not a bridge event".to_owned()),
+                event: None,
+            })
+            .unwrap_or_default(),
+        );
+    };
+
+    let token = unsafe { borrow(expected_token) }.filter(|value| !value.is_empty());
+    let video_id = unsafe { borrow(expected_video_id) }.filter(|value| !value.is_empty());
+    let reason = bridge::rejection_reason(
+        &event,
+        token,
+        Some(expected_generation),
+        video_id,
+        last_sequence,
+    );
+
+    let verdict = match &reason {
+        Some(reason) => Verdict { accepted: false, reason: Some(reason.clone()), event: None },
+        None => Verdict { accepted: true, reason: None, event: Some(&event) },
+    };
+    hand_over(serde_json::to_string(&verdict).unwrap_or_default())
+}

@@ -61,10 +61,10 @@
                         <Image x:Name="NowPlayingArtwork" Stretch="UniformToFill" />
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="9,0,0,0">
-                        <TextBlock x:Name="NowPlayingTitle" Text="Nothing playing"
+                        <TextBlock x:Name="NowPlayingTitle" Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}"
                                    FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                    HorizontalAlignment="Center" />
-                        <TextBlock x:Name="NowPlayingSubtitle" Text="Choose a track to begin"
+                        <TextBlock x:Name="NowPlayingSubtitle" Text="{x:Bind Model.NowPlayingSubtitle, Mode=OneWay}"
                                    FontSize="11" Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                    TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" />
                     </StackPanel>
@@ -184,6 +184,8 @@
                                             </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:CardViewModel">
+                                                  <Button Style="{StaticResource CardButtonStyle}"
+                                                          Tag="{x:Bind VideoIdOrEmpty}" Click="OnPlayTrack">
                                                     <StackPanel Width="{StaticResource GoosicCardSize}" Spacing="7">
                                                         <Border Width="{StaticResource GoosicCardSize}"
                                                                 Height="{StaticResource GoosicCardSize}"
@@ -199,6 +201,7 @@
                                                                    TextWrapping="Wrap" MaxLines="2"
                                                                    TextTrimming="CharacterEllipsis" />
                                                     </StackPanel>
+                                                  </Button>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
@@ -222,6 +225,16 @@
                 </Grid>
             </Border>
         </Grid>
+
+        <!--
+            The official player.
+
+            One pixel and kept mounted for the lifetime of the window, so there is one renderer
+            and one WebView2 profile however many tracks are played. It is a renderer, never a
+            surface the user browses: what it is showing is reported, not displayed.
+        -->
+        <mux:WebView2 x:Name="PlaybackView" Grid.Row="1" Width="1" Height="1"
+                      HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />
 
         <!--
             The named sidebar. It is drawn over the content rather than beside it, the way Apple

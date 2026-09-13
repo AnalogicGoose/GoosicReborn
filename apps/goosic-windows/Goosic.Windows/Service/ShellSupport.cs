@@ -50,6 +50,14 @@ internal static class ShellSupport
     [DllImport(Library, EntryPoint = "goosic_bridge_js_string_literal")]
     private static extern IntPtr JsStringLiteralRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string value);
 
+    [DllImport(Library, EntryPoint = "goosic_bridge_validate_event")]
+    private static extern IntPtr ValidateEventRaw(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string body,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string expectedToken,
+        ulong expectedGeneration,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string expectedVideoId,
+        ulong lastSequence);
+
     /// <summary>Takes ownership of a native string and frees it.</summary>
     private static string Consume(IntPtr value)
     {
@@ -92,4 +100,20 @@ internal static class ShellSupport
 
     /// <summary>Encodes a value as a JavaScript string literal.</summary>
     internal static string JsStringLiteral(string value) => Consume(JsStringLiteralRaw(value));
+
+    /// <summary>
+    /// Decides whether one message from the page may be believed, returning the verdict as JSON.
+    /// </summary>
+    /// <remarks>
+    /// The whole decision crosses in one call rather than the shell fetching the parsed event and
+    /// then applying the checks: doing the latter here would be the third copy of the rules this
+    /// boundary exists to avoid.
+    /// </remarks>
+    internal static string ValidateEvent(
+        string body,
+        string expectedToken,
+        ulong expectedGeneration,
+        string expectedVideoId,
+        ulong lastSequence) =>
+        Consume(ValidateEventRaw(body, expectedToken, expectedGeneration, expectedVideoId, lastSequence));
 }
