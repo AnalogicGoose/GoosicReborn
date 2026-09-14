@@ -9,6 +9,7 @@ pub mod bridge;
 pub mod local_host;
 mod login_host;
 pub mod lyrics;
+mod mpris;
 pub mod official_host;
 pub mod pages;
 pub mod playback;

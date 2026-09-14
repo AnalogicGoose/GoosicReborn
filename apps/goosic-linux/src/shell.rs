@@ -42,6 +42,7 @@ use crate::artwork::ArtworkCache;
 use crate::local_host::{LocalEvent, LocalHandlers, LocalHost};
 use crate::login_host::{LoginHandlers, LoginHost};
 use crate::lyrics::Lyrics;
+use crate::mpris::{Mpris, MprisHandlers};
 use crate::official_host::{self, OfficialHost};
 use crate::pages::{Browser, DownloadsState, ShellFacts};
 use crate::playback::Player;
@@ -67,6 +68,7 @@ pub struct Shell {
     queue_visible: Cell<bool>,
     official: Rc<OfficialHost>,
     local: Rc<LocalHost>,
+    mpris: Rc<Mpris>,
     login: RefCell<Option<Rc<LoginHost>>>,
     /// The epoch of the accounts snapshot on screen, so a late answer cannot replace a newer one.
     account_epoch: Cell<u64>,
@@ -136,6 +138,23 @@ impl Shell {
             let local = LocalHost::new(LocalHandlers {
                 on_event: Box::new(forward(weak, Shell::receive_local)),
                 on_status: Box::new(forward(weak, Shell::local_status)),
+            });
+            let mpris = Mpris::start(MprisHandlers {
+                snapshot: Box::new({
+                    let weak = weak.clone();
+                    move || match weak.upgrade() {
+                        Some(shell) => shell.player.borrow().snapshot(),
+                        None => Player::new().snapshot(),
+                    }
+                }),
+                toggle_pause: Box::new(forward_unit(weak, Shell::toggle_pause)),
+                next: Box::new(forward_unit(weak, Shell::next)),
+                previous: Box::new(forward_unit(weak, Shell::previous)),
+                stop: Box::new(forward_unit(weak, Shell::release_playback)),
+                seek: Box::new(forward(weak, Shell::seek)),
+                set_volume: Box::new(forward(weak, Shell::set_volume)),
+                raise: Box::new(forward_unit(weak, Shell::raise)),
+                quit: Box::new(forward_unit(weak, Shell::quit)),
             });
             let bar = PlayerBar::new(
                 BarActions {
@@ -217,6 +236,7 @@ impl Shell {
                 queue_visible: Cell::new(false),
                 official,
                 local,
+                mpris,
                 login: RefCell::new(None),
                 account_epoch: Cell::new(0),
                 accounts_read: Cell::new(false),
@@ -2164,6 +2184,18 @@ impl Shell {
         });
     }
 
+    /// Shows the window, wherever it was — hidden in the background or behind other windows.
+    pub fn raise(self: &Rc<Self>) {
+        self.window.present();
+    }
+
+    /// Ends Goosic. Quitting is explicit; closing the window is not quitting.
+    pub fn quit(self: &Rc<Self>) {
+        if let Some(app) = self.window.application() {
+            app.quit();
+        }
+    }
+
     // MARK: side panels
 
     pub fn toggle_queue(self: &Rc<Self>) {
@@ -2256,7 +2288,11 @@ impl Shell {
 
     fn refresh_player(&self) {
         let loaded = self.official.loaded_video_id().is_some() || self.local.is_loaded();
-        self.bar.update(&self.player.borrow(), loaded);
+        {
+            let player = self.player.borrow();
+            self.bar.update(&player, loaded);
+            self.mpris.update(&player.snapshot());
+        }
         self.refresh_panels();
     }
 }
