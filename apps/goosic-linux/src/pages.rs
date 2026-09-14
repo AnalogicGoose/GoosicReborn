@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use goosic_protocol::{DownloadedTrack, RequestPayload, ResponseEnvelope};
+use goosic_protocol::{AccountSummary, DownloadedTrack, RequestPayload, ResponseEnvelope};
 use goosic_shell_support::catalog::{detail_subtitle, failure_text, Card, PageView, Track};
 use goosic_shell_support::navigation::{CatalogKey, EntityReference, Route, SearchFilter, Theme};
 use goosic_shell_support::TransportError;
@@ -32,8 +32,12 @@ pub struct ShellFacts {
     pub theme: Theme,
     pub legacy_imported: bool,
     pub legacy_available: bool,
-    /// The account playback runs under, or `None` for the guest.
+    /// The name of the account playback runs under, or `None` for the guest.
     pub account: Option<String>,
+    pub accounts: Vec<AccountSummary>,
+    pub active_account_id: Option<String>,
+    /// A sign-in, switch or removal is in flight; nothing else about accounts may start.
+    pub account_busy: bool,
     pub downloads: DownloadsState,
     /// A read or import of the downloaded files is in flight.
     pub downloads_busy: bool,
@@ -47,6 +51,9 @@ impl Default for ShellFacts {
             legacy_imported: false,
             legacy_available: false,
             account: None,
+            accounts: Vec::new(),
+            active_account_id: None,
+            account_busy: false,
             downloads: DownloadsState::NotRead,
             downloads_busy: false,
         }
@@ -420,10 +427,15 @@ impl Browser {
                               account profile."
                         .to_owned(),
                 },
+                // The previous Goosic's library reader runs inside the account's web profile, and
+                // only macOS has that reader so far. Showing guest shelves here would pass them off
+                // as this account's library.
                 Some(_) => PageRow::Empty {
-                    title: "Personal library is next".to_owned(),
-                    message: "This account is signed in, but personal library reads are left \
-                              as the next authenticated-data step."
+                    title: "Your library is not on Linux yet".to_owned(),
+                    message: "Playback runs under this account, but reading its playlists, liked \
+                              songs, albums and artists needs an account reader inside its web \
+                              profile, which the Linux shell does not have yet. The catalog is \
+                              still browsed anonymously."
                         .to_owned(),
                 },
             }),

@@ -33,8 +33,29 @@ service decoded it under the lease, GStreamer played it, and PipeWire showed the
 opens a generated WAV paused and reads its length back, which needs neither a display nor a sound
 card.
 
-Until the remaining slices land — accounts, the media-player interface and background mode — the
-Swift shell remains the Linux build, and the sections about those describe a destination.
+Accounts are real on Linux now, which the Swift port never managed. Add account releases whatever
+plays and opens Google's sign-in in a window of its own, whose cookies land in a staging directory
+and are written to SQLite explicitly, since a sign-in kept only in the network process's memory would
+be gone at the next launch. Nothing is kept until Rust has stored the account, activated it, and the
+staging has been moved into the account's profile; if any of the three fails, the account is removed
+again and the staging deleted. Closing the window or letting it time out deletes the staging too —
+twice, because WebKit's network process writes into the directory once more as it winds down — and
+leftovers are swept at startup. Switching, signing out and removing rebind the player only once Rust
+has confirmed, and removing an account deletes its profile after the player has let go of it. The
+sign-in window has been opened, shown Google's page, closed and cleaned up under the harness; a
+complete sign-in needs a real account and has not been run. The Library still says that reading an
+account's playlists needs an account reader inside its web profile, which only macOS has, rather than
+passing guest shelves off as the account's own.
+
+Both web surfaces judge only the main frame. WebKitGTK asks for a policy on every frame's navigation
+without saying which frame it is, and an earlier version of this shell refused every navigation off
+the player host — including the frames YouTube Music serves advertisements in, which turns a player
+that reports advertisements into one that blocks them. The rule is now applied when the main frame's
+load starts or is redirected, where the view's URI is the one being loaded, and a disallowed load is
+stopped before it commits; subframes are left alone, and new windows are refused.
+
+Until the remaining slices land — the media-player interface and background mode — the Swift shell
+remains the Linux build, and the sections about those describe a destination.
 
 ## Why GTK 4, and why not the alternatives
 
@@ -261,7 +282,8 @@ apps/goosic-linux/
         artwork.rs         anonymous libsoup fetches into the XDG cache, under the shared rules
         theme.rs           gtk-interface-color-scheme, which GTK 4.20 made the way to choose
         official_host.rs   WebKitGTK player: script world, bridge handler, per-account session
-        login_host.rs      planned: sign-in window under the shared navigation policy
+        login_host.rs      sign-in window under the shared navigation policy
+        web_profile.rs     profile and staging storage, and the main-frame navigation guard
         local_host.rs      GStreamer playbin for decoded files
         mpris.rs           planned: org.mpris.MediaPlayer2 over gio
         status_icon.rs     planned: StatusNotifierItem, where a watcher exists

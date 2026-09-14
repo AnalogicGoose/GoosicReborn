@@ -30,6 +30,10 @@ pub struct Actions {
     pub play_download: Box<dyn Fn(DownloadedTrack)>,
     pub refresh_downloads: Box<dyn Fn()>,
     pub import_downloads: Box<dyn Fn()>,
+    pub sign_in: Box<dyn Fn()>,
+    pub switch_account: Box<dyn Fn(String)>,
+    pub sign_out: Box<dyn Fn()>,
+    pub remove_account: Box<dyn Fn(String)>,
     pub artwork: Rc<ArtworkCache>,
 }
 
@@ -523,6 +527,63 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
         "Catalog reads go through Rust to YouTube Music as an anonymous guest. No cookies, account \
          headers, or credentials are sent, and artwork is fetched just as anonymously.",
     ));
+
+    page.append(&section_title("Accounts"));
+    page.append(&dim(
+        "Each account has a WebKit profile of its own. Goosic stores only its name and email; the \
+         sign-in stays in that profile's cookies and never reaches Rust.",
+    ));
+    let add = gtk::Button::builder()
+        .label("Add account")
+        .halign(gtk::Align::Start)
+        .sensitive(facts.connected && !facts.account_busy)
+        .build();
+    {
+        let actions = actions.clone();
+        add.connect_clicked(move |_| (actions.sign_in)());
+    }
+    page.append(&add);
+    if facts.accounts.is_empty() {
+        page.append(&dim(
+            "No signed-in accounts. Add account opens Google's sign-in in a window of its own.",
+        ));
+    }
+    for account in &facts.accounts {
+        let active = facts.active_account_id.as_deref() == Some(account.id.as_str());
+        let line = row(8);
+        let text = column(2);
+        text.set_hexpand(true);
+        text.append(&plain(&account.display_name));
+        text.append(&dim(account
+            .email
+            .as_deref()
+            .or(account.channel.as_deref())
+            .unwrap_or("YouTube Music account")));
+        line.append(&text);
+        if active {
+            let label = dim("Active");
+            label.set_valign(gtk::Align::Center);
+            line.append(&label);
+        } else {
+            let switch = gtk::Button::with_label("Switch");
+            switch.set_sensitive(!facts.account_busy);
+            let (actions, id) = (actions.clone(), account.id.clone());
+            switch.connect_clicked(move |_| (actions.switch_account)(id.clone()));
+            line.append(&switch);
+        }
+        let leave = gtk::Button::with_label(if active { "Sign out" } else { "Remove" });
+        leave.set_sensitive(!facts.account_busy);
+        let (actions, id) = (actions.clone(), account.id.clone());
+        leave.connect_clicked(move |_| {
+            if active {
+                (actions.sign_out)();
+            } else {
+                (actions.remove_account)(id.clone());
+            }
+        });
+        line.append(&leave);
+        page.append(&line);
+    }
 
     page.append(&section_title("Appearance"));
     let themes = row(6);

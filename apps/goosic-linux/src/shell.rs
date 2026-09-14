@@ -19,10 +19,12 @@ use std::rc::{Rc, Weak};
 use std::time::Instant;
 
 use goosic_protocol::{
-    DownloadedTrack, Owner, PreferencesPatch, RequestPayload, ResponseEnvelope, SettingsSnapshot,
+    AccountUpsert, AccountsSnapshot, DownloadedTrack, Owner, PreferencesPatch, RequestPayload,
+    ResponseEnvelope, SettingsSnapshot,
 };
 use goosic_shell_support::bridge::BridgeEvent;
 use goosic_shell_support::catalog::{PageView, Track};
+use goosic_shell_support::login::{self, LoginResult};
 use goosic_shell_support::navigation::{
     CatalogKey, EntityReference, PlaybackTransition, Route, SearchFilter, Theme,
 };
@@ -34,15 +36,18 @@ use goosic_shell_support::playback::{
 use goosic_shell_support::{ServiceClient, TransportError};
 use gtk::prelude::*;
 use gtk::{gio, glib};
+use uuid::Uuid;
 
 use crate::artwork::ArtworkCache;
 use crate::local_host::{LocalEvent, LocalHandlers, LocalHost};
+use crate::login_host::{LoginHandlers, LoginHost};
 use crate::lyrics::Lyrics;
 use crate::official_host::{self, OfficialHost};
 use crate::pages::{Browser, DownloadsState, ShellFacts};
 use crate::playback::Player;
 use crate::player_bar::{BarActions, PlayerBar};
 use crate::side_panels::{LyricsPanel, QueuePanel};
+use crate::web_profile;
 use crate::{bridge, service, theme, ui};
 
 type Answer = Result<ResponseEnvelope, TransportError>;
@@ -50,6 +55,7 @@ type Answer = Result<ResponseEnvelope, TransportError>;
 const PENDING: &str = "A playback change is still being confirmed; try again in a moment.";
 const IN_ADVERTISEMENT: &str =
     "Track changes are unavailable while the official player shows an advertisement.";
+const ACCOUNT_CHANGING: &str = "Playback is unavailable while the account changes.";
 
 pub struct Shell {
     pub window: gtk::ApplicationWindow,
@@ -61,6 +67,10 @@ pub struct Shell {
     queue_visible: Cell<bool>,
     official: Rc<OfficialHost>,
     local: Rc<LocalHost>,
+    login: RefCell<Option<Rc<LoginHost>>>,
+    /// The epoch of the accounts snapshot on screen, so a late answer cannot replace a newer one.
+    account_epoch: Cell<u64>,
+    accounts_read: Cell<bool>,
     rows: gio::ListStore,
     scroller: gtk::ScrolledWindow,
     search_bar: gtk::Box,
@@ -84,6 +94,7 @@ impl Shell {
     /// Builds the window, starts the service and asks it to say hello.
     pub fn start(app: &gtk::Application) -> Rc<Shell> {
         let launched = service::launch();
+        web_profile::clear_abandoned_staging();
         let artwork = ArtworkCache::new();
         let shell = Rc::new_cyclic(|weak: &Weak<Shell>| {
             let actions = Rc::new(ui::Actions {
@@ -104,6 +115,10 @@ impl Shell {
                 play_download: Box::new(forward(weak, Shell::play_download)),
                 refresh_downloads: Box::new(forward_unit(weak, Shell::load_downloads)),
                 import_downloads: Box::new(forward_unit(weak, Shell::import_downloads)),
+                sign_in: Box::new(forward_unit(weak, Shell::sign_in)),
+                switch_account: Box::new(forward(weak, Shell::switch_account)),
+                sign_out: Box::new(forward_unit(weak, Shell::sign_out)),
+                remove_account: Box::new(forward(weak, Shell::remove_account)),
                 artwork: artwork.clone(),
             });
             let (scroller, rows) = ui::page_list(actions);
@@ -202,6 +217,9 @@ impl Shell {
                 queue_visible: Cell::new(false),
                 official,
                 local,
+                login: RefCell::new(None),
+                account_epoch: Cell::new(0),
+                accounts_read: Cell::new(false),
                 rows,
                 scroller,
                 search_bar,
@@ -289,6 +307,7 @@ impl Shell {
                 self.connection.set_label("● Rust service connected");
                 self.status.set_label("");
                 self.load_preferences();
+                self.load_accounts();
             }
             Err(error) => {
                 let (code, message) = error.describe();
@@ -541,7 +560,9 @@ impl Shell {
     pub fn play(self: &Rc<Self>, track: Track, context: Rc<[Track]>) {
         let owner = {
             let player = self.player.borrow();
-            if player.transition() != PlaybackTransition::Idle {
+            if self.facts.borrow().account_busy {
+                Err(ACCOUNT_CHANGING)
+            } else if player.transition() != PlaybackTransition::Idle {
                 Err(PENDING)
             } else if player.advertisement {
                 Err(IN_ADVERTISEMENT)
@@ -1385,7 +1406,9 @@ impl Shell {
     pub fn play_download(self: &Rc<Self>, track: DownloadedTrack) {
         let owner = {
             let player = self.player.borrow();
-            if !track.available {
+            if self.facts.borrow().account_busy {
+                Err(ACCOUNT_CHANGING)
+            } else if !track.available {
                 Err("This downloaded file is missing from disk. Refresh Downloads to check again.")
             } else if player.advertisement {
                 Err("A downloaded file cannot start while the official player shows an advertisement.")
@@ -1660,6 +1683,485 @@ impl Shell {
             self.player.borrow_mut().apply_lease(state);
             self.refresh_player();
         }
+    }
+
+    // MARK: accounts
+
+    fn load_accounts(self: &Rc<Self>) {
+        self.send(
+            "accounts.get",
+            RequestPayload::default(),
+            |shell, answer| match answer {
+                Ok(response) => {
+                    if let Some(snapshot) = response.payload.and_then(|payload| payload.accounts) {
+                        let initial = !shell.accounts_read.get();
+                        shell.apply_accounts(snapshot, initial);
+                    }
+                }
+                Err(error) => {
+                    let (_, message) = error.describe();
+                    shell.set_status(&format!("Could not read accounts: {message}"));
+                }
+            },
+        );
+    }
+
+    /// Takes a snapshot of the accounts unless a newer one is already shown, so a late answer
+    /// cannot bring back an account that was just removed.
+    fn apply_accounts(self: &Rc<Self>, snapshot: AccountsSnapshot, initial: bool) {
+        if !login::accepts_snapshot_epoch(snapshot.epoch, self.account_epoch.get(), initial) {
+            return;
+        }
+        self.account_epoch.set(snapshot.epoch);
+        self.accounts_read.set(true);
+        let profile = {
+            let mut facts = self.facts.borrow_mut();
+            let active = login::active_account(&snapshot);
+            facts.account = active.map(|account| account.display_name.clone());
+            facts.active_account_id = active.map(|account| account.id.clone());
+            let profile =
+                active.and_then(|account| Uuid::parse_str(&account.webkit_profile_id).ok());
+            facts.accounts = snapshot.accounts.clone();
+            profile
+        };
+        self.render_soon();
+        // An account remembered from the last run is where this run starts, not a change to make:
+        // nothing plays yet, so its profile is bound directly.
+        if initial && self.player.borrow().lease.owner == Owner::None {
+            self.official
+                .bind_profile(profile.unwrap_or(goosic_shell_support::bridge::GUEST_PROFILE_ID));
+        }
+    }
+
+    /// The web profile of `account_id`, or the guest's.
+    fn profile_for(&self, account_id: Option<&str>) -> Uuid {
+        let facts = self.facts.borrow();
+        account_id
+            .and_then(|id| facts.accounts.iter().find(|account| account.id == id))
+            .and_then(|account| Uuid::parse_str(&account.webkit_profile_id).ok())
+            .unwrap_or(goosic_shell_support::bridge::GUEST_PROFILE_ID)
+    }
+
+    fn active_profile(&self) -> Uuid {
+        let active = self.facts.borrow().active_account_id.clone();
+        self.profile_for(active.as_deref())
+    }
+
+    /// Opens Google's sign-in in a window of its own, once playback has let go.
+    pub fn sign_in(self: &Rc<Self>) {
+        if !self.begin_account_operation() {
+            return;
+        }
+        self.prepare_for_account_change(
+            |shell| shell.open_sign_in(),
+            |shell, message| shell.end_account_operation(&message),
+        );
+    }
+
+    pub fn switch_account(self: &Rc<Self>, id: String) {
+        let switchable = {
+            let facts = self.facts.borrow();
+            facts.accounts.iter().any(|account| account.id == id)
+                && facts.active_account_id.as_deref() != Some(id.as_str())
+        };
+        if !switchable || !self.begin_account_operation() {
+            return;
+        }
+        self.change_account(Some(id.clone()), Some(id), None);
+    }
+
+    pub fn sign_out(self: &Rc<Self>) {
+        let signed_in = self.facts.borrow().active_account_id.is_some();
+        if !signed_in || !self.begin_account_operation() {
+            return;
+        }
+        self.change_account(None, None, None);
+    }
+
+    pub fn remove_account(self: &Rc<Self>, id: String) {
+        let (known, target) = {
+            let facts = self.facts.borrow();
+            let known = facts.accounts.iter().any(|account| account.id == id);
+            let active = facts.active_account_id.clone();
+            let target = if active.as_deref() == Some(id.as_str()) {
+                None
+            } else {
+                active
+            };
+            (known, target)
+        };
+        if !known {
+            return;
+        }
+        let removed = self.profile_for(Some(&id));
+        if !self.begin_account_operation() {
+            return;
+        }
+        self.change_account(Some(id), target, Some(removed));
+    }
+
+    fn begin_account_operation(self: &Rc<Self>) -> bool {
+        let busy = self.facts.borrow().account_busy;
+        let (advertisement, transition) = {
+            let player = self.player.borrow();
+            (player.advertisement, player.transition())
+        };
+        let refusal = if !login::can_interact(busy) {
+            Some("An account change is already in progress.")
+        } else if advertisement {
+            Some("Accounts cannot change during an advertisement.")
+        } else if !login::can_start_account_transition(advertisement, transition) {
+            Some(PENDING)
+        } else if self.client.is_none() {
+            Some("Connect to the Rust service before changing accounts.")
+        } else {
+            None
+        };
+        if let Some(refusal) = refusal {
+            self.set_status(refusal);
+            return false;
+        }
+        self.facts.borrow_mut().account_busy = true;
+        self.render_soon();
+        true
+    }
+
+    fn end_account_operation(self: &Rc<Self>, message: &str) {
+        self.facts.borrow_mut().account_busy = false;
+        self.render_soon();
+        self.set_status(message);
+    }
+
+    /// Stops whatever plays, gives its lease back and blanks the page before an account changes,
+    /// so no renderer is bound to one account while Rust already answers for another.
+    fn prepare_for_account_change(
+        self: &Rc<Self>,
+        then: impl FnOnce(&Rc<Shell>) + 'static,
+        fail: impl FnOnce(&Rc<Shell>, String) + 'static,
+    ) {
+        let owner = self.player.borrow().lease.owner;
+        if owner == Owner::None {
+            let weak = Rc::downgrade(self);
+            self.official.detach(move || {
+                if let Some(shell) = weak.upgrade() {
+                    then(&shell);
+                }
+            });
+            return;
+        }
+        let token = {
+            let mut player = self.player.borrow_mut();
+            player.confirmed = false;
+            player.begin_transition(PlaybackTransition::Releasing)
+        };
+        self.set_status("Stopping playback before the account changes…");
+        let weak = Rc::downgrade(self);
+        let release = move || {
+            let Some(shell) = weak.upgrade() else {
+                return;
+            };
+            if !shell
+                .player
+                .borrow()
+                .is_current(token, PlaybackTransition::Releasing)
+            {
+                return;
+            }
+            if owner == Owner::LocalDownloadedFile {
+                shell.local.stop();
+            } else {
+                shell.official.invalidate_expectations();
+            }
+            let generation = shell.player.borrow().lease.generation;
+            let payload = RequestPayload {
+                owner: Some(owner),
+                generation: Some(generation),
+                ..Default::default()
+            };
+            shell.send("playback.release", payload, move |shell, answer| {
+                if !shell
+                    .player
+                    .borrow()
+                    .is_current(token, PlaybackTransition::Releasing)
+                {
+                    return;
+                }
+                match answer {
+                    Ok(response) => {
+                        shell.apply_lease(&response);
+                        let weak = Rc::downgrade(shell);
+                        shell.official.detach(move || {
+                            if let Some(shell) = weak.upgrade() {
+                                shell.player.borrow_mut().finish_transition(token);
+                                then(&shell);
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        shell.player.borrow_mut().finish_transition(token);
+                        let (_, message) = error.describe();
+                        fail(
+                            shell,
+                            format!("Could not stop playback for the account change: {message}"),
+                        );
+                    }
+                }
+            });
+        };
+        if owner == Owner::OfficialWebView {
+            self.official.quiesce(release);
+        } else {
+            release();
+        }
+    }
+
+    fn open_sign_in(self: &Rc<Self>) {
+        self.clear_account_scoped();
+        let (completed, cancelled) = (Rc::downgrade(self), Rc::downgrade(self));
+        let host = LoginHost::open(
+            &self.window,
+            LoginHandlers {
+                on_completed: Box::new(move |result| {
+                    if let Some(shell) = completed.upgrade() {
+                        shell.finish_sign_in(result);
+                    }
+                }),
+                on_cancelled: Box::new(move || {
+                    if let Some(shell) = cancelled.upgrade() {
+                        shell.login.borrow_mut().take();
+                        shell.end_account_operation("Sign-in cancelled.");
+                    }
+                }),
+            },
+        );
+        *self.login.borrow_mut() = Some(host);
+        self.set_status("Sign in with Google in the window that opened.");
+    }
+
+    /// Stores the account Rust will know. Nothing about the sign-in is promoted yet.
+    fn finish_sign_in(self: &Rc<Self>, result: LoginResult) {
+        self.login.borrow_mut().take();
+        let upsert = AccountUpsert {
+            id: Some(result.account_id.hyphenated().to_string()),
+            webkit_profile_id: result.profile_id.hyphenated().to_string(),
+            display_name: result.summary.display_name.clone(),
+            email: result.summary.email.clone(),
+            channel: result.summary.channel.clone(),
+            avatar_url: result.summary.avatar_url.clone(),
+        };
+        self.set_status("Saving the account…");
+        let payload = RequestPayload {
+            account: Some(upsert),
+            ..Default::default()
+        };
+        self.send(
+            "accounts.upsert",
+            payload,
+            move |shell, answer| match answer {
+                Ok(response) => {
+                    if let Some(snapshot) = response.payload.and_then(|payload| payload.accounts) {
+                        shell.apply_accounts(snapshot, false);
+                    }
+                    shell.activate_signed_in(result);
+                }
+                Err(error) => {
+                    web_profile::discard_staging(result.profile_id);
+                    let (_, message) = error.describe();
+                    shell.end_account_operation(&format!("Could not save the account: {message}"));
+                }
+            },
+        );
+    }
+
+    /// Activates the stored account, then makes the staged sign-in its profile. Only when all three
+    /// have happened is anything kept; otherwise the account is removed again and the staging
+    /// deleted, so a failure never leaves half an account behind.
+    fn activate_signed_in(self: &Rc<Self>, result: LoginResult) {
+        let account_id = result.account_id.hyphenated().to_string();
+        let (token, generation) = {
+            let mut player = self.player.borrow_mut();
+            (
+                player.begin_transition(PlaybackTransition::Releasing),
+                player.lease.generation,
+            )
+        };
+        let payload = RequestPayload {
+            account_id: Some(account_id.clone()),
+            generation: Some(generation),
+            ..Default::default()
+        };
+        self.send("accounts.activate", payload, move |shell, answer| {
+            if !shell
+                .player
+                .borrow()
+                .is_current(token, PlaybackTransition::Releasing)
+            {
+                return;
+            }
+            let activated = match answer {
+                Ok(response) => {
+                    shell.apply_lease(&response);
+                    if let Some(snapshot) = response.payload.and_then(|payload| payload.accounts) {
+                        shell.apply_accounts(snapshot, false);
+                    }
+                    Ok(())
+                }
+                Err(error) => Err(error.describe().1),
+            };
+            let promoted =
+                activated.is_ok() && web_profile::promote_staging(result.profile_id).is_ok();
+            if login::can_commit_staging(true, activated.is_ok(), promoted) {
+                shell.official.bind_profile(result.profile_id);
+                shell.player.borrow_mut().finish_transition(token);
+                shell.end_account_operation(&format!(
+                    "Signed in as {}.",
+                    result.summary.display_name
+                ));
+                return;
+            }
+            let message = match activated {
+                Err(message) => format!("Rust did not activate the account: {message}"),
+                Ok(()) => "The sign-in could not be kept on disk.".to_owned(),
+            };
+            shell.roll_back_sign_in(account_id.clone(), result.profile_id, token, message);
+        });
+    }
+
+    fn roll_back_sign_in(
+        self: &Rc<Self>,
+        account_id: String,
+        profile: Uuid,
+        token: u64,
+        message: String,
+    ) {
+        web_profile::discard_staging(profile);
+        let generation = self.player.borrow().lease.generation;
+        let payload = RequestPayload {
+            account_id: Some(account_id),
+            generation: Some(generation),
+            ..Default::default()
+        };
+        self.send("accounts.remove", payload, move |shell, answer| {
+            let message = match answer {
+                Ok(response) => {
+                    shell.apply_lease(&response);
+                    if let Some(snapshot) = response.payload.and_then(|payload| payload.accounts) {
+                        shell.apply_accounts(snapshot, false);
+                    }
+                    message
+                }
+                Err(_) => format!(
+                    "{message} Removing the half-made account also failed; reopen Settings \
+                     before trying again."
+                ),
+            };
+            shell.official.bind_profile(shell.active_profile());
+            shell.player.borrow_mut().finish_transition(token);
+            shell.end_account_operation(&message);
+        });
+    }
+
+    /// Switches, signs out or removes. The page is rebound only once Rust has confirmed the change,
+    /// so a refused change leaves the previous profile as it was.
+    fn change_account(
+        self: &Rc<Self>,
+        account_id: Option<String>,
+        target: Option<String>,
+        removed: Option<Uuid>,
+    ) {
+        let command = if removed.is_some() {
+            "accounts.remove"
+        } else {
+            login::activation_command(target.as_deref())
+        };
+        self.prepare_for_account_change(
+            move |shell| {
+                shell.clear_account_scoped();
+                let (token, generation) = {
+                    let mut player = shell.player.borrow_mut();
+                    (
+                        player.begin_transition(PlaybackTransition::Releasing),
+                        player.lease.generation,
+                    )
+                };
+                shell.set_status("Changing account…");
+                let payload = RequestPayload {
+                    account_id,
+                    generation: Some(generation),
+                    ..Default::default()
+                };
+                shell.send(command, payload, move |shell, answer| {
+                    if !shell
+                        .player
+                        .borrow()
+                        .is_current(token, PlaybackTransition::Releasing)
+                    {
+                        return;
+                    }
+                    shell.player.borrow_mut().finish_transition(token);
+                    match answer {
+                        Ok(response) => {
+                            shell.apply_lease(&response);
+                            match response.payload.and_then(|payload| payload.accounts) {
+                                Some(snapshot) => shell.apply_accounts(snapshot, false),
+                                None => shell.load_accounts(),
+                            }
+                            shell
+                                .official
+                                .bind_profile(shell.profile_for(target.as_deref()));
+                            // Deleted only after the page has let go of it.
+                            if let Some(profile) = removed {
+                                web_profile::delete_profile(profile);
+                            }
+                            shell.end_account_operation(if removed.is_some() {
+                                "Account removed from this machine."
+                            } else if target.is_none() {
+                                "Signed out."
+                            } else {
+                                "Active account changed."
+                            });
+                        }
+                        Err(error) => {
+                            let (_, message) = error.describe();
+                            shell.end_account_operation(&format!(
+                                "The account change failed: {message}"
+                            ));
+                        }
+                    }
+                });
+            },
+            |shell, message| shell.end_account_operation(&message),
+        );
+    }
+
+    /// Forgets what played under the previous account, so nothing from one account is shown or
+    /// resumed under another.
+    fn clear_account_scoped(self: &Rc<Self>) {
+        {
+            let mut player = self.player.borrow_mut();
+            player.queue.clear();
+            player.index = 0;
+            player.current = None;
+            player.radio_seed = None;
+            player.radio_cursor = None;
+            player.radio_in_flight = false;
+            player.begin_track();
+            player.start_pending = false;
+        }
+        self.lyrics.borrow_mut().track_changed();
+        self.load_lyrics();
+        self.refresh_player();
+    }
+
+    /// Redraws once the current signal has returned, for changes that may start from a button on
+    /// the very page being redrawn.
+    fn render_soon(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            if let Some(shell) = weak.upgrade() {
+                shell.render();
+            }
+        });
     }
 
     // MARK: side panels

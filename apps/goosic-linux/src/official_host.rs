@@ -22,9 +22,9 @@ use gtk::prelude::*;
 use gtk::{gio, glib};
 use uuid::Uuid;
 use webkit6::prelude::*;
-use webkit6::{
-    LoadEvent, PolicyDecisionType, UserContentInjectedFrames, UserScript, UserScriptInjectionTime,
-};
+use webkit6::{LoadEvent, UserContentInjectedFrames, UserScript, UserScriptInjectionTime};
+
+use crate::web_profile;
 
 /// The bridge's script world. The page cannot reach anything registered in it.
 const SCRIPT_WORLD: &str = "goosic";
@@ -144,29 +144,8 @@ impl OfficialHost {
     }
 
     fn attach(self: &Rc<Self>, view: &webkit6::WebView) {
-        view.connect_decide_policy(|_, decision, kind| {
-            if kind != PolicyDecisionType::NavigationAction {
-                return false;
-            }
-            let uri = decision
-                .downcast_ref::<webkit6::NavigationPolicyDecision>()
-                .and_then(|decision| decision.navigation_action())
-                .and_then(|action| action.request())
-                .and_then(|request| request.uri());
-            match uri {
-                Some(uri) if is_official_page(&uri) => decision.use_(),
-                other => {
-                    // A silent refusal looks exactly like a page that never arrives, so the host is
-                    // named on stderr. The host only: a URL can carry tokens in its query.
-                    eprintln!(
-                        "goosic: refused navigation to {}",
-                        describe_destination(other.as_deref())
-                    );
-                    decision.ignore();
-                }
-            }
-            true
-        });
+        // The main frame stays on the player; advertisements load in subframes and are left alone.
+        web_profile::guard_navigation(view, is_official_page);
 
         let weak = Rc::downgrade(self);
         view.connect_load_changed(move |_, event| {
@@ -497,35 +476,7 @@ fn fire(slot: &OnceSlot) {
 
 /// Builds a renderer whose cookies and storage belong to `profile`.
 fn build_view(profile: Uuid) -> webkit6::WebView {
-    let name = profile.hyphenated().to_string().to_uppercase();
-    // The data directory is the one the Swift Linux shell used, so a sign-in made there carries
-    // over. The engine's HTTP cache is a cache, so it lives with the other caches.
-    let data = glib::user_data_dir()
-        .join("goosic")
-        .join("profiles")
-        .join(&name)
-        .join("data");
-    let cache = glib::user_cache_dir()
-        .join("goosic")
-        .join("web")
-        .join(&name);
-    let session = webkit6::NetworkSession::new(
-        Some(&*data.to_string_lossy()),
-        Some(&*cache.to_string_lossy()),
-    );
-    let view = webkit6::WebView::builder()
-        .network_session(&session)
-        .build();
-    if let Some(settings) = WebViewExt::settings(&view) {
-        // YouTube Music refuses to run its player under a bare engine agent, so the agent names a
-        // Safari version, as the macOS host does.
-        settings.set_user_agent(Some(&format!(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) {}",
-            bridge::SAFARI_USER_AGENT_SUFFIX
-        )));
-        // The user pressed play in Goosic, and that gesture does not cross into the web view.
-        settings.set_media_playback_requires_user_gesture(false);
-    }
+    let view = web_profile::profile_view(profile);
     view.set_hexpand(true);
     view.set_vexpand(true);
     view
@@ -545,20 +496,6 @@ fn is_official_page(uri: &str) -> bool {
                 && url.username().is_empty()
                 && url.password().is_none()
         })
-}
-
-/// A refused destination, reduced to what can be logged: a host, or else a scheme.
-fn describe_destination(uri: Option<&str>) -> String {
-    match uri {
-        None => "an unreadable request".to_owned(),
-        Some(uri) => match url::Url::parse(uri) {
-            Ok(url) => url
-                .host_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| format!("a {} URL", url.scheme())),
-            Err(_) => "an unparsable URL".to_owned(),
-        },
-    }
 }
 
 #[cfg(test)]
@@ -582,18 +519,5 @@ mod tests {
         assert!(!is_official_page(
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         ));
-    }
-
-    #[test]
-    fn a_refused_destination_is_logged_as_a_host_and_never_a_url() {
-        assert_eq!(
-            describe_destination(Some("https://accounts.google.com/signin?token=secret")),
-            "accounts.google.com"
-        );
-        assert_eq!(
-            describe_destination(Some("data:text/html,hi")),
-            "a data URL"
-        );
-        assert_eq!(describe_destination(None), "an unreadable request");
     }
 }

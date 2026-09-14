@@ -7,6 +7,7 @@
 mod artwork;
 pub mod bridge;
 pub mod local_host;
+mod login_host;
 pub mod lyrics;
 pub mod official_host;
 pub mod pages;
@@ -17,6 +18,7 @@ pub mod shell;
 mod side_panels;
 pub mod theme;
 mod ui;
+mod web_profile;
 
 /// The application ID. It makes a second launch activate the running instance instead of starting
 /// another, and it is how the desktop, its portals and the media panel recognise this program.
