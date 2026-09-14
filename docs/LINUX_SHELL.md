@@ -9,7 +9,12 @@ It is being written slice by slice on `platform/linux`. What exists browses and 
 catalog, opens albums, artists and playlists, and plays through the official WebKitGTK host under
 Rust's lease, with a queue, a now-playing bar, radio, and preferences that are saved and restored.
 It draws catalog artwork, follows a light, dark or system theme, shows the queue and synced lyrics
-beside the page, and has a settings screen that imports the previous Goosic's preferences.
+beside the page, and has a settings screen that imports the previous Goosic's preferences. A page
+the service can continue — Home and the other editorial routes — fetches its next part when the list
+reaches the bottom, with a Load more row for a page too short to scroll, and a radio that runs out
+follows its own station's cursor instead of seeding a new station from its last track. Only the rows
+after the last unchanged one are replaced when a page grows, so appending never moves what is on
+screen.
 
 That playback has been heard rather than only compiled: a scratch harness asked the shell to play a
 real track the way a Play button does, the advertisement in front of it was reported and not

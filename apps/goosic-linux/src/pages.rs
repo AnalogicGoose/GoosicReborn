@@ -85,6 +85,24 @@ pub enum PageRow {
     Truncated,
     /// The settings screen's sections.
     Settings(ShellFacts),
+    /// The end of a page that continues upstream.
+    More(MoreRow),
+}
+
+/// The row at the end of a page that continues.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MoreRow {
+    Available,
+    Loading,
+    Failed(String),
+}
+
+/// Where a page's next part stands. Only a page the service returned a cursor for has one.
+#[derive(Debug, Clone, PartialEq)]
+enum More {
+    Available(String),
+    Loading(String),
+    Failed { cursor: String, message: String },
 }
 
 /// The shell's navigation, and the catalog pages it has loaded.
@@ -98,6 +116,7 @@ pub struct Browser {
     submitted_query: String,
     filter: SearchFilter,
     pages: HashMap<CatalogKey, LoadState>,
+    more: HashMap<CatalogKey, More>,
 }
 
 impl Default for Browser {
@@ -114,6 +133,7 @@ impl Browser {
             submitted_query: String::new(),
             filter: SearchFilter::All,
             pages: HashMap::new(),
+            more: HashMap::new(),
         }
     }
 
@@ -188,7 +208,10 @@ impl Browser {
     pub fn finish(&mut self, key: CatalogKey, result: Result<ResponseEnvelope, TransportError>) {
         let state = match result {
             Ok(response) => match response.payload.and_then(|payload| payload.catalog) {
-                Some(page) => LoadState::Loaded(PageView::from_wire(&page)),
+                Some(page) => {
+                    self.set_cursor(&key, page.next_cursor.clone());
+                    LoadState::Loaded(PageView::from_wire(&page))
+                }
                 None => LoadState::Failed {
                     code: "invalidResponse".to_owned(),
                     message: "The service answered without a catalog page.".to_owned(),
@@ -217,8 +240,104 @@ impl Browser {
         self.detail.is_none() && self.route == Route::Search
     }
 
+    /// The continuation the page `key` needs next — the cursor being followed and the payload for
+    /// `catalog.continue` — marked as loading. `None` when the page is not loaded, has no next part,
+    /// or is already fetching it.
+    pub fn begin_more(&mut self, key: &CatalogKey) -> Option<(String, RequestPayload)> {
+        if !matches!(self.state(key), LoadState::Loaded(_)) {
+            return None;
+        }
+        let cursor = match self.more.get(key)? {
+            More::Available(cursor) | More::Failed { cursor, .. } => cursor.clone(),
+            More::Loading(_) => return None,
+        };
+        self.more.insert(key.clone(), More::Loading(cursor.clone()));
+        let payload = RequestPayload {
+            continuation: Some(cursor.clone()),
+            ..Default::default()
+        };
+        Some((cursor, payload))
+    }
+
+    /// Appends the next part of `key` to what is already loaded. An answer for a cursor the page is
+    /// no longer following is dropped, so a slow continuation cannot land twice or out of order.
+    pub fn finish_more(
+        &mut self,
+        key: CatalogKey,
+        cursor: &str,
+        result: Result<ResponseEnvelope, TransportError>,
+    ) {
+        if self.more.get(&key) != Some(&More::Loading(cursor.to_owned())) {
+            return;
+        }
+        match result {
+            Ok(response) => {
+                let Some(page) = response.payload.and_then(|payload| payload.catalog) else {
+                    self.more.insert(
+                        key,
+                        More::Failed {
+                            cursor: cursor.to_owned(),
+                            message: "The service answered without a catalog page.".to_owned(),
+                        },
+                    );
+                    return;
+                };
+                self.set_cursor(&key, page.next_cursor.clone());
+                let next = PageView::from_wire(&page);
+                if let Some(LoadState::Loaded(loaded)) = self.pages.get_mut(&key) {
+                    loaded.tracks.extend(next.tracks);
+                    loaded.shelves.extend(next.shelves);
+                    loaded.truncated |= next.truncated;
+                }
+            }
+            Err(error) => {
+                let (code, message) = error.describe();
+                // Upstream answers the end of a feed with an empty page, which is not a failure.
+                if code == "catalogEmpty" {
+                    self.more.remove(&key);
+                } else {
+                    self.more.insert(
+                        key,
+                        More::Failed {
+                            cursor: cursor.to_owned(),
+                            message,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    fn set_cursor(&mut self, key: &CatalogKey, cursor: Option<String>) {
+        match cursor.filter(|cursor| !cursor.trim().is_empty()) {
+            Some(cursor) => {
+                self.more.insert(key.clone(), More::Available(cursor));
+            }
+            None => {
+                self.more.remove(key);
+            }
+        }
+    }
+
     /// Everything the screen draws, top to bottom.
     pub fn rows(&self, facts: &ShellFacts) -> Vec<PageRow> {
+        let mut rows = self.screen_rows(facts);
+        let key = self.current_key();
+        let more = key
+            .as_ref()
+            .filter(|key| matches!(self.state(key), LoadState::Loaded(_)))
+            .and_then(|key| self.more.get(key));
+        rows.extend(more.map(|more| {
+            PageRow::More(match more {
+                More::Available(_) => MoreRow::Available,
+                More::Loading(_) => MoreRow::Loading,
+                More::Failed { message, .. } => MoreRow::Failed(message.clone()),
+            })
+        }));
+        rows
+    }
+
+    fn screen_rows(&self, facts: &ShellFacts) -> Vec<PageRow> {
         if let Some(entity) = &self.detail {
             return self.detail_rows(entity);
         }
@@ -652,6 +771,100 @@ mod tests {
             &rows(&browser)[1],
             PageRow::Empty { title, .. } if title == "Not connected to an account"
         ));
+    }
+
+    fn loaded_with_cursor(cursor: &str) -> (Browser, CatalogKey) {
+        let mut browser = Browser::new();
+        let key = browser.current_key().unwrap();
+        browser.begin(&key, false);
+        browser.finish(
+            key.clone(),
+            answer(CatalogPage {
+                next_cursor: Some(cursor.into()),
+                ..home_page()
+            }),
+        );
+        (browser, key)
+    }
+
+    fn next_part(title: &str) -> Result<ResponseEnvelope, TransportError> {
+        answer(CatalogPage {
+            shelves: vec![CatalogShelf {
+                id: "more".into(),
+                title: title.into(),
+                items: vec![item(CatalogItemKind::Album, "MPRE2", None)],
+            }],
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn a_page_that_continues_offers_more_and_appends_what_comes_back() {
+        let (mut browser, key) = loaded_with_cursor("page-2");
+        assert_eq!(
+            rows(&browser).last(),
+            Some(&PageRow::More(MoreRow::Available))
+        );
+
+        let (cursor, payload) = browser.begin_more(&key).expect("a cursor to follow");
+        assert_eq!(cursor, "page-2");
+        assert_eq!(payload.continuation.as_deref(), Some("page-2"));
+        assert!(browser.begin_more(&key).is_none(), "already loading");
+        assert_eq!(
+            rows(&browser).last(),
+            Some(&PageRow::More(MoreRow::Loading))
+        );
+
+        browser.finish_more(key, &cursor, next_part("More picks"));
+        let rows = rows(&browser);
+        assert!(
+            rows.contains(&PageRow::ShelfTitle("Quick picks".into())),
+            "the first part stays"
+        );
+        assert!(rows.contains(&PageRow::ShelfTitle("More picks".into())));
+        assert!(
+            !rows.iter().any(|row| matches!(row, PageRow::More(_))),
+            "a part without a cursor ends the feed"
+        );
+    }
+
+    #[test]
+    fn a_stale_continuation_is_dropped_and_a_failed_one_can_be_retried() {
+        let (mut browser, key) = loaded_with_cursor("page-2");
+        let (cursor, _) = browser.begin_more(&key).unwrap();
+
+        browser.finish_more(key.clone(), "an-older-cursor", next_part("Stale"));
+        assert!(!rows(&browser).contains(&PageRow::ShelfTitle("Stale".into())));
+
+        browser.finish_more(
+            key.clone(),
+            &cursor,
+            Err(TransportError::Remote {
+                code: "catalogUnavailable".into(),
+                message: "timed out upstream".into(),
+            }),
+        );
+        assert_eq!(
+            rows(&browser).last(),
+            Some(&PageRow::More(MoreRow::Failed("timed out upstream".into())))
+        );
+
+        let (retry, _) = browser.begin_more(&key).expect("a failure can be retried");
+        assert_eq!(retry, "page-2");
+        browser.finish_more(
+            key,
+            &retry,
+            Err(TransportError::Remote {
+                code: "catalogEmpty".into(),
+                message: "nothing more".into(),
+            }),
+        );
+        assert!(
+            !rows(&browser)
+                .iter()
+                .any(|row| matches!(row, PageRow::More(_))),
+            "an empty next part is the end of the feed, not an error"
+        );
     }
 
     #[test]

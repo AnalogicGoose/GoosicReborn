@@ -46,6 +46,9 @@ pub struct Player {
     /// The track the current radio grew from, so a radio that runs out does not reseed from the
     /// same song and loop.
     pub radio_seed: Option<String>,
+    /// Where the current radio station continues, so a radio that runs out asks for its own next
+    /// part rather than growing a new station from its last track.
+    pub radio_cursor: Option<String>,
     /// What the shell tells the user about playback.
     pub status: String,
     sample_base: u64,
@@ -88,6 +91,7 @@ impl Player {
             repeat: RepeatMode::Off,
             radio_in_flight: false,
             radio_seed: None,
+            radio_cursor: None,
             status: "Choose a track to begin.".to_owned(),
             sample_base: 0,
             last_sample_sent: 0,
@@ -140,6 +144,7 @@ impl Player {
             .unwrap_or(0);
         self.queue = tracks;
         self.radio_seed = None;
+        self.radio_cursor = None;
     }
 
     /// Moves the queue to `track`, putting it at the front when it is not already in it.
@@ -372,6 +377,7 @@ mod tests {
             queue_visible: false,
             shuffle: true,
             repeat_mode: "one".into(),
+            artwork_background: true,
             imported_from_legacy: false,
             legacy_available: false,
         });

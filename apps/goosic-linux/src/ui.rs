@@ -12,7 +12,7 @@ use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 
 use crate::artwork::ArtworkCache;
-use crate::pages::{route_title, PageRow, ShellFacts};
+use crate::pages::{route_title, MoreRow, PageRow, ShellFacts};
 use crate::theme;
 
 /// What a row can ask the shell to do, and the artwork cache rows draw from.
@@ -24,11 +24,14 @@ pub struct Actions {
     pub back: Box<dyn Fn()>,
     pub set_theme: Box<dyn Fn(Theme)>,
     pub import_legacy: Box<dyn Fn()>,
+    /// Fetches the next part of a page that continues.
+    pub load_more: Box<dyn Fn()>,
     pub artwork: Rc<ArtworkCache>,
 }
 
 /// A scrolled list that draws `PageRow`s, and the store that feeds it.
 pub fn page_list(actions: Rc<Actions>) -> (gtk::ScrolledWindow, gio::ListStore) {
+    let at_end = actions.clone();
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let factory = gtk::SignalListItemFactory::new();
     // Since GTK 4.12 a factory also builds section headers, so it is handed a plain object.
@@ -62,6 +65,13 @@ pub fn page_list(actions: Rc<Actions>) -> (gtk::ScrolledWindow, gio::ListStore) 
         .vexpand(true)
         .child(&list)
         .build();
+    // Reaching the bottom fetches the next part, as the previous Goosic's feed did. A page short
+    // enough never to scroll still has its Load more row.
+    scroller.connect_edge_reached(move |_, edge| {
+        if edge == gtk::PositionType::Bottom {
+            (at_end.load_more)();
+        }
+    });
     (scroller, store)
 }
 
@@ -71,11 +81,52 @@ fn list_item(object: &glib::Object) -> &gtk::ListItem {
         .expect("the page list has no section headers")
 }
 
-/// Replaces what the list shows, in one change rather than one per row.
+/// Replaces what the list shows, in one change. Only the rows after the last unchanged one are
+/// replaced, so a page that grew at its end keeps its scroll position and the rows on screen keep
+/// their widgets.
 pub fn set_rows(store: &gio::ListStore, rows: Vec<PageRow>) {
-    let objects: Vec<glib::BoxedAnyObject> =
-        rows.into_iter().map(glib::BoxedAnyObject::new).collect();
-    store.splice(0, store.n_items(), &objects);
+    let unchanged = (0..store.n_items())
+        .zip(rows.iter())
+        .take_while(|(position, row)| {
+            store
+                .item(*position)
+                .and_downcast::<glib::BoxedAnyObject>()
+                .is_some_and(|object| same_row(&object.borrow::<PageRow>(), row))
+        })
+        .count();
+    let objects: Vec<glib::BoxedAnyObject> = rows
+        .into_iter()
+        .skip(unchanged)
+        .map(glib::BoxedAnyObject::new)
+        .collect();
+    let unchanged = u32::try_from(unchanged).expect("a list store position fits in u32");
+    store.splice(unchanged, store.n_items() - unchanged, &objects);
+}
+
+/// Row equality that stays cheap on a long album: a track row's list is compared by identity, then
+/// by the ids it holds, rather than field by field for every row.
+fn same_row(old: &PageRow, new: &PageRow) -> bool {
+    match (old, new) {
+        (
+            PageRow::Track {
+                track: old_track,
+                context: old_context,
+            },
+            PageRow::Track {
+                track: new_track,
+                context: new_context,
+            },
+        ) => {
+            old_track == new_track
+                && (Rc::ptr_eq(old_context, new_context)
+                    || (old_context.len() == new_context.len()
+                        && old_context
+                            .iter()
+                            .zip(new_context.iter())
+                            .all(|(old, new)| old.id == new.id)))
+        }
+        _ => old == new,
+    }
 }
 
 /// The sidebar: the routes, and below them whether the service is there.
@@ -285,6 +336,27 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
             18,
         ),
         PageRow::Settings(facts) => padded(&settings_page(facts, actions), 8, 24),
+        PageRow::More(more) => {
+            let line = row(8);
+            let action_button = |label: &str| {
+                let button = gtk::Button::with_label(label);
+                let actions = actions.clone();
+                button.connect_clicked(move |_| (actions.load_more)());
+                button
+            };
+            match more {
+                MoreRow::Available => line.append(&action_button("Load more")),
+                MoreRow::Loading => {
+                    line.append(&gtk::Spinner::builder().spinning(true).build());
+                    line.append(&dim("Loading more…"));
+                }
+                MoreRow::Failed(message) => {
+                    line.append(&dim(&format!("Could not load more: {message}")));
+                    line.append(&action_button("Try again"));
+                }
+            }
+            padded(&line, 8, 24)
+        }
     }
 }
 

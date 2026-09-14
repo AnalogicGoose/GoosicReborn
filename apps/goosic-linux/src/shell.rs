@@ -97,6 +97,7 @@ impl Shell {
                 back: Box::new(forward_unit(weak, Shell::back)),
                 set_theme: Box::new(forward(weak, Shell::set_theme)),
                 import_legacy: Box::new(forward_unit(weak, Shell::import_legacy_preferences)),
+                load_more: Box::new(forward_unit(weak, Shell::load_more)),
                 artwork: artwork.clone(),
             });
             let (scroller, rows) = ui::page_list(actions);
@@ -430,6 +431,28 @@ impl Shell {
         self.load_current(true);
     }
 
+    /// Fetches the next part of the page on screen, if it continues and is not fetching it already.
+    fn load_more(self: &Rc<Self>) {
+        let Some(key) = self.browser.borrow().current_key() else {
+            return;
+        };
+        let request = self.browser.borrow_mut().begin_more(&key);
+        let Some((cursor, payload)) = request else {
+            return;
+        };
+        self.render();
+        self.send("catalog.continue", payload, move |shell, answer| {
+            shell
+                .browser
+                .borrow_mut()
+                .finish_more(key.clone(), &cursor, answer);
+            let current = shell.browser.borrow().current_key();
+            if current.as_ref() == Some(&key) {
+                shell.render();
+            }
+        });
+    }
+
     fn submit_search(self: &Rc<Self>, text: String) {
         self.browser.borrow_mut().submit_search(&text);
         self.show_new_page();
@@ -757,18 +780,23 @@ impl Shell {
     /// Continues past the end of the queue with the radio that follows the last track — what the
     /// previous Goosic called "auto radio".
     fn extend_with_radio(self: &Rc<Self>) {
-        let seed = {
+        let (station, seed) = {
             let player = self.player.borrow();
             if player.lease.owner != Owner::OfficialWebView || player.radio_in_flight {
-                None
+                (None, None)
             } else {
-                player
+                let station = player.radio_seed.clone().zip(player.radio_cursor.clone());
+                let seed = player
                     .queued()
                     .cloned()
                     .or_else(|| player.current.clone())
-                    .filter(|seed| player.radio_seed.as_deref() != Some(seed.video_id.as_str()))
+                    .filter(|seed| player.radio_seed.as_deref() != Some(seed.video_id.as_str()));
+                (station, seed)
             }
         };
+        if let Some((seed, cursor)) = station {
+            return self.continue_radio(seed, cursor);
+        }
         match seed {
             Some(seed) => self.begin_radio(seed, "Queue finished. Starting radio from"),
             None => self.set_status("Queue finished."),
@@ -802,18 +830,26 @@ impl Shell {
             ..Default::default()
         };
         self.send("catalog.radio", payload, move |shell, answer| {
-            shell.player.borrow_mut().radio_in_flight = false;
-            let tracks = match answer {
-                Ok(response) => response
-                    .payload
-                    .and_then(|payload| payload.catalog)
-                    .map(|page| PageView::from_wire(&page).tracks)
-                    .unwrap_or_default(),
+            let still_wanted = {
+                let mut player = shell.player.borrow_mut();
+                player.radio_in_flight = false;
+                // A list chosen while this was in flight cleared the seed; it is not replaced.
+                player.radio_seed.as_deref() == Some(seed.video_id.as_str())
+            };
+            if !still_wanted {
+                return;
+            }
+            let page = match answer {
+                Ok(response) => response.payload.and_then(|payload| payload.catalog),
                 Err(error) => {
                     let (_, message) = error.describe();
                     return shell.set_status(&format!("Could not start radio: {message}"));
                 }
             };
+            let cursor = page.as_ref().and_then(|page| page.next_cursor.clone());
+            let tracks = page
+                .map(|page| PageView::from_wire(&page).tracks)
+                .unwrap_or_default();
             let Some(first) = tracks.first().cloned() else {
                 return shell.set_status("Radio had nothing to continue with.");
             };
@@ -821,8 +857,68 @@ impl Shell {
                 let mut player = shell.player.borrow_mut();
                 player.queue = std::iter::once(seed).chain(tracks).collect();
                 player.index = 0;
+                player.radio_cursor = cursor;
             }
             shell.play(first, no_context());
+        });
+    }
+
+    /// Asks the station that is playing for its next part and appends it, so a radio keeps its
+    /// character rather than drifting through a new station seeded by its own last track.
+    fn continue_radio(self: &Rc<Self>, seed: String, cursor: String) {
+        self.player.borrow_mut().radio_in_flight = true;
+        self.set_status("Queue finished. Continuing the radio…");
+        let payload = RequestPayload {
+            catalog_id: Some(seed.clone()),
+            continuation: Some(cursor.clone()),
+            ..Default::default()
+        };
+        self.send("catalog.radio", payload, move |shell, answer| {
+            let same_station = {
+                let mut player = shell.player.borrow_mut();
+                player.radio_in_flight = false;
+                player.radio_seed.as_deref() == Some(seed.as_str())
+                    && player.radio_cursor.as_deref() == Some(cursor.as_str())
+            };
+            if !same_station {
+                return;
+            }
+            let page = match answer {
+                Ok(response) => response.payload.and_then(|payload| payload.catalog),
+                Err(error) => {
+                    shell.player.borrow_mut().radio_cursor = None;
+                    let (code, message) = error.describe();
+                    return shell.set_status(&if code == "catalogEmpty" {
+                        "The radio has nothing more to play.".to_owned()
+                    } else {
+                        format!("Could not continue the radio: {message}")
+                    });
+                }
+            };
+            let next_cursor = page.as_ref().and_then(|page| page.next_cursor.clone());
+            let first = {
+                let mut player = shell.player.borrow_mut();
+                // A station repeats itself across parts; a track already queued is not queued twice.
+                let fresh: Vec<Track> = page
+                    .map(|page| PageView::from_wire(&page).tracks)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|track| {
+                        !player
+                            .queue
+                            .iter()
+                            .any(|queued| queued.video_id == track.video_id)
+                    })
+                    .collect();
+                player.radio_cursor = next_cursor;
+                let first = fresh.first().cloned();
+                player.queue.extend(fresh);
+                first
+            };
+            match first {
+                Some(track) => shell.play(track, no_context()),
+                None => shell.set_status("The radio has nothing more to play."),
+            }
         });
     }
 
