@@ -40,6 +40,57 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         }
     }
 
+    /// Where this route sits in the sidebar.
+    ///
+    /// The grouping is here rather than in the view because it is a statement about what the
+    /// routes *are* -- browsing the catalog, or reaching your own things -- and the sidebar is
+    /// only one place that distinction could be drawn.
+    enum Section: String, CaseIterable {
+        /// Reached constantly, so it sits above the groups with no header of its own.
+        case primary
+        case discover
+        case collection
+        /// Pinned to the bottom, below the spacer.
+        case utility
+
+        /// The header shown above the group, or `nil` where the group explains itself.
+        var title: String? {
+            switch self {
+            case .primary, .utility: return nil
+            case .discover: return "Discover"
+            case .collection: return "Collection"
+            }
+        }
+    }
+
+    var section: Section {
+        switch self {
+        case .search, .home: return .primary
+        case .explore, .charts, .moodsAndGenres, .newReleases: return .discover
+        case .library, .downloads: return .collection
+        case .settings: return .utility
+        }
+    }
+
+    /// The routes of one section, in the order they are shown.
+    ///
+    /// Stated rather than derived from `allCases`, so that adding a case cannot silently
+    /// reorder the sidebar, and so search can sit above home where it is reached for most.
+    static func routes(in section: Section) -> [GoosicRoute] {
+        let ordered: [GoosicRoute]
+        switch section {
+        case .primary: ordered = [.search, .home]
+        case .discover: ordered = [.explore, .charts, .moodsAndGenres, .newReleases]
+        case .collection: ordered = [.library, .downloads]
+        case .utility: ordered = [.settings]
+        }
+        assert(
+            ordered.allSatisfy { $0.section == section },
+            "a route is listed under a section it does not belong to"
+        )
+        return ordered
+    }
+
     /// The `catalog.browse` route name, for routes backed by a live catalog surface.
     ///
     /// Search has its own command; Library, Downloads, and Settings are local surfaces that no
@@ -446,21 +497,50 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         detail = nil
     }
 
+    /// Whether a greeting is still in flight. Between creating the client and hearing back,
+    /// `serviceConnected` is false and the reconnect control is showing, so without this a click
+    /// would start a second child process while the first is still answering.
+    private var isConnecting = false
+
+    /// Which connection attempt is current. A discarded client is not deallocated at once -- its
+    /// queued request holds it -- so its reply can still arrive, and would otherwise either
+    /// announce success for a process being thrown away or drive the shared failure path and
+    /// tear down the client that replaced it.
+    private var connectionEpoch: UInt64 = 0
+
     func connect() {
-        guard client == nil else { return }
+        // A client that exists but never completed the handshake -- the process started and then
+        // the greeting failed or was rejected -- would otherwise make this a no-op, leaving the
+        // reconnect control visible, enabled, and dead. Drop it and start over instead.
+        if client != nil {
+            guard !serviceConnected, !isConnecting else { return }
+            // Releasing the reference runs the client's deinit, which tears the child process down.
+            client = nil
+        }
+        connectionEpoch &+= 1
+        let epoch = connectionEpoch
         do {
             client = try GoosicServiceClient()
             serviceConnected = false
+            isConnecting = true
             status = "Connecting to Rust service…"
             send(command: "hello") { [weak self] response in
-                guard let self else { return }
+                guard let self, epoch == self.connectionEpoch else { return }
+                self.isConnecting = false
                 self.apply(response)
                 self.serviceConnected = true
                 self.status = response.payload?.message ?? "Rust service connected."
                 self.loadPreferences()
                 self.loadAccounts()
+            } failure: { [weak self] _ in
+                // The shared handler already reports the error and drops the transport. This
+                // only has to release the attempt, so the control works again -- including after
+                // a rejection the service answered, which leaves the client in place.
+                guard let self, epoch == self.connectionEpoch else { return }
+                self.isConnecting = false
             }
         } catch {
+            isConnecting = false
             status = error.localizedDescription
         }
     }
