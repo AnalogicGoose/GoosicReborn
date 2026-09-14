@@ -18,6 +18,7 @@ struct GoosicRequestPayload: Codable {
     var query: String?
     var filter: String?
     var catalogId: String?
+    var continuation: String?
     var limit: UInt32?
     var preferences: GoosicPreferencesPatch?
     var lyrics: GoosicLyricsQuery?
@@ -32,6 +33,7 @@ struct GoosicRequestPayload: Codable {
         query: String? = nil,
         filter: String? = nil,
         catalogId: String? = nil,
+        continuation: String? = nil,
         limit: UInt32? = nil,
         preferences: GoosicPreferencesPatch? = nil,
         lyrics: GoosicLyricsQuery? = nil
@@ -45,6 +47,7 @@ struct GoosicRequestPayload: Codable {
         self.query = query
         self.filter = filter
         self.catalogId = catalogId
+        self.continuation = continuation
         self.limit = limit
         self.preferences = preferences
         self.lyrics = lyrics
@@ -87,6 +90,7 @@ struct GoosicPreferencesPatch: Codable {
     var queueVisible: Bool?
     var shuffle: Bool?
     var repeatMode: String?
+    var artworkBackground: Bool?
 
     init(
         theme: String? = nil,
@@ -96,7 +100,8 @@ struct GoosicPreferencesPatch: Codable {
         lastRoute: String? = nil,
         queueVisible: Bool? = nil,
         shuffle: Bool? = nil,
-        repeatMode: String? = nil
+        repeatMode: String? = nil,
+        artworkBackground: Bool? = nil
     ) {
         self.theme = theme
         self.volume = volume
@@ -106,6 +111,7 @@ struct GoosicPreferencesPatch: Codable {
         self.queueVisible = queueVisible
         self.shuffle = shuffle
         self.repeatMode = repeatMode
+        self.artworkBackground = artworkBackground
     }
 }
 
@@ -214,6 +220,7 @@ struct GoosicCatalogPage: Codable {
     var shelves: [GoosicCatalogShelf]?
     var tracks: [GoosicCatalogItem]?
     var thumbnail: String?
+    var nextCursor: String?
     /// True when the service clamped the upstream page to fit one protocol frame.
     var truncated: Bool?
 }
@@ -260,6 +267,9 @@ struct GoosicSettings: Codable {
     var shuffle: Bool
     /// `off`, `all`, or `one`.
     var repeatMode: String
+    /// Optional on the wire so a service built before this preference existed still decodes;
+    /// absent means the default, which is on.
+    var artworkBackground: Bool?
     /// Whether preferences from a previous Goosic install have been imported.
     var importedFromLegacy: Bool
     /// Whether a previous Goosic install's preferences are present to import.

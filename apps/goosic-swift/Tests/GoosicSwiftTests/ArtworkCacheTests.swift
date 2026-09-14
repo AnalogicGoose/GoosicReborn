@@ -105,11 +105,18 @@ final class ArtworkCacheBehaviourTests: XCTestCase {
 
     func testAnAlreadyCachedFileIsReturnedWithoutAFetch() async throws {
         try await MainActor.run {
-            let (cache, directory) = Self.makeCache()
+            // The cache indexes its directory once, when it opens, so that view layout never
+            // touches the filesystem. A file already on disk is therefore written *before* the
+            // cache is constructed — which is also the real sequence, since the previous run's
+            // artwork is there before this run starts.
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("goosic-artwork-tests-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: directory) }
             let remote = "https://yt3.googleusercontent.com/already-there"
             let expected = directory.appendingPathComponent("\(ArtworkCache.cacheKey(for: remote)).img")
             try Data("pretend image".utf8).write(to: expected)
+            let cache = ArtworkCache(directory: directory)
 
             XCTAssertEqual(cache.localFile(for: remote), expected)
         }
@@ -148,6 +155,31 @@ final class RadioPageTests: XCTestCase {
         let page = CatalogPageView(wire: try XCTUnwrap(response.payload?.catalog))
         XCTAssertTrue(page.isEmpty)
         XCTAssertTrue(page.playableTracks.isEmpty)
+    }
+
+    func testRadioRecommendationsKeepTheirOrderAndRemoveQueuedDuplicates() async {
+        await MainActor.run {
+            func track(_ videoID: String) -> GoosicTrack {
+                GoosicTrack(
+                    id: videoID,
+                    title: videoID,
+                    subtitle: "",
+                    artist: "",
+                    artistID: nil,
+                    album: "",
+                    albumID: nil,
+                    duration: "",
+                    videoID: videoID,
+                    explicit: false,
+                    thumbnail: nil
+                )
+            }
+
+            let recommendations = [track("already-queued"), track("first"), track("first"), track("last")]
+            let fresh = GoosicAppModel.freshRadioTracks(recommendations, excluding: [track("already-queued")])
+
+            XCTAssertEqual(fresh.map(\.videoID), ["first", "last"])
+        }
     }
 }
 
