@@ -96,6 +96,10 @@ public sealed partial class ShellViewModel
                 _ => RepeatMode.Off,
             };
             _settingsLoaded = true;
+            if (settings["volume"]?.GetValue<double>() is { } volume)
+            {
+                Playback?.RestoreVolume(volume, settings["muted"]?.GetValue<bool>() ?? false);
+            }
         }
         catch (Exception error)
         {
@@ -122,6 +126,29 @@ public sealed partial class ShellViewModel
         {
             ReportStatus("Could not save that preference: " + Describe(error));
         }
+    }
+
+    private System.Threading.CancellationTokenSource? _volumeSave;
+
+    /// <summary>
+    /// Remembers the chosen volume in Rust's preferences, once the slider has come to rest.
+    /// </summary>
+    internal async void RememberVolume(double volume, bool muted)
+    {
+        _volumeSave?.Cancel();
+        var pending = new System.Threading.CancellationTokenSource();
+        _volumeSave = pending;
+        try
+        {
+            await Task.Delay(600, pending.Token).ConfigureAwait(true);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        await SaveAsync("volume", Math.Clamp(volume, 0, 1)).ConfigureAwait(true);
+        await SaveAsync("muted", muted).ConfigureAwait(true);
     }
 
     internal Task SetAutoplayAsync(bool value)

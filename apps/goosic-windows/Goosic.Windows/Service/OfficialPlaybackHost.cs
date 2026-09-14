@@ -115,6 +115,7 @@ internal sealed class OfficialPlaybackHost
     private double? _preferredVolume;
     private bool _preferredMuted;
     private bool _lastMuted;
+    private string? _volumePrimerId;
     private DateTime _lastVolumeFix = DateTime.MinValue;
     private bool _movedOnHandled;
 
@@ -232,6 +233,7 @@ internal sealed class OfficialPlaybackHost
         // InstallObserverAsync for why it is not a document-created script.
         _observerPending = true;
         BridgeLog.Write($"claimed generation={_generation}; loading requested track");
+        await PrimeVolumeAsync(_view.CoreWebView2);
         _view.CoreWebView2.Navigate($"https://{ShellSupport.AllowedHost}/watch?v={Uri.EscapeDataString(videoId)}");
     }
 
@@ -544,6 +546,73 @@ internal sealed class OfficialPlaybackHost
 
         await ApplyPreferredVolumeAsync();
     }
+
+    /// <summary>
+    /// Makes the next page start at the chosen volume instead of correcting it once it is playing.
+    /// </summary>
+    /// <remarks>
+    /// Correcting after the first report left each new track loud for a moment -- often at 100 --
+    /// before it dropped to the listener's level. Before the next document exists, this writes the
+    /// level into the player's own saved-volume entry, which it reads when it starts, and sets it
+    /// on every media element as it begins loading, so the first sound is already at that level.
+    /// It touches volume only; nothing about what plays, or any advertisement, is changed.
+    /// </remarks>
+    private async Task PrimeVolumeAsync(CoreWebView2 core)
+    {
+        if (_preferredVolume is not { } volume)
+        {
+            return;
+        }
+
+        if (_volumePrimerId is not null)
+        {
+            core.RemoveScriptToExecuteOnDocumentCreated(_volumePrimerId);
+            _volumePrimerId = null;
+        }
+
+        var level = volume.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var muted = _preferredMuted ? "true" : "false";
+        try
+        {
+            _volumePrimerId = await core.AddScriptToExecuteOnDocumentCreatedAsync($$"""
+                (() => {
+                  const level = {{level}}, muted = {{muted}};
+                  if (location.hostname !== 'music.youtube.com') return;
+                  try {
+                    const now = Date.now();
+                    const data = JSON.stringify({ volume: Math.round(level * 100), muted });
+                    localStorage.setItem('yt-player-volume', JSON.stringify({ data, expiration: now + 2592000000, creation: now }));
+                    sessionStorage.setItem('yt-player-volume', JSON.stringify({ data, creation: now }));
+                  } catch (_) {}
+                  const apply = (event) => {
+                    const media = event.target;
+                    if (!(media instanceof HTMLMediaElement) || window.__goosicVolumePrimed === media) return;
+                    window.__goosicVolumePrimed = media;
+                    media.volume = level;
+                    media.muted = muted;
+                  };
+                  document.addEventListener('loadstart', apply, true);
+                  document.addEventListener('loadedmetadata', apply, true);
+                })();
+                """);
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"volume primer failed: {error.Message}");
+        }
+    }
+
+    /// <summary>Adopts a remembered volume without touching the page, for the first track to start at.</summary>
+    internal void RestoreVolume(double volume, bool muted)
+    {
+        if (double.IsFinite(volume))
+        {
+            _preferredVolume = Math.Clamp(volume, 0, 1);
+            _preferredMuted = muted;
+        }
+    }
+
+    internal bool PreferredMuted => _preferredMuted;
 
     /// <summary>Puts the chosen volume and mute on the page that is loaded.</summary>
     private async Task ApplyPreferredVolumeAsync()

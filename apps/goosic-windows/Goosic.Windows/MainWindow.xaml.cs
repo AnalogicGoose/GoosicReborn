@@ -1296,6 +1296,7 @@ public sealed partial class MainWindow : Window
         }
 
         await _playback.SetVolumeAsync(e.NewValue / 100.0);
+        Model.RememberVolume(e.NewValue / 100.0, _playback.PreferredMuted);
     }
 
     private async void OnToggleMuted(object sender, RoutedEventArgs e)
@@ -1303,6 +1304,7 @@ public sealed partial class MainWindow : Window
         if (_playback is not null)
         {
             await _playback.ToggleMutedAsync();
+            Model.RememberVolume(Model.Volume, _playback.PreferredMuted);
         }
     }
 
