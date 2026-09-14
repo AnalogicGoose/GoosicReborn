@@ -177,8 +177,10 @@ fixture becomes `static`.
 
 `apps/goosic-linux` is being written on `platform/linux`: it browses and plays the catalog through
 the official WebKitGTK host, plays downloaded files through GStreamer, signs accounts in, publishes
-MPRIS and a status icon, and keeps playing with its window closed. The Flatpak is what is left, and
-[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) holds the decisions and what has been verified. When you work on it, these are settled and not yours to reopen without
+MPRIS and a status icon, and keeps playing with its window closed. It is not packaged yet.
+[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) holds the decisions, what has been verified, and under
+*What is left* every pending item with the branch it belongs on — read that before picking up
+Linux work. When you work on it, these are settled and not yours to reopen without
 asking:
 
 - It is its own Cargo workspace, not a member of the root one. CI runs

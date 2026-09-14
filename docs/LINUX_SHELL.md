@@ -65,8 +65,8 @@ against a real Plasma session rather than only compiled: `gdbus` read the MPRIS 
 panel does and a `PlayPause` sent over the bus paused the page; the status icon registered with the
 watcher and served its menu over dbusmenu; closing the window hid it while PipeWire kept the stream
 uncorked, raising it brought it back, and the suspend inhibition appeared in the power manager's
-list while music played. What is left before this shell replaces the Swift Linux build is the
-Flatpak, the desktop file and icons that come with it, and the conformance and CI work.
+list while music played. Everything still missing before this shell replaces the Swift Linux build
+is listed under [What is left](#what-is-left).
 
 ## Why GTK 4, and why not the alternatives
 
@@ -264,6 +264,45 @@ into `/app/bin` with the desktop file, metainfo and icons, and builds offline fr
 sources, as Flatpak requires. A native build remains the development path. No other Linux package
 format is planned.
 
+### Building the Flatpak locally
+
+The toolchain was checked against Flathub on 14 September 2026 rather than taken from memory. Flathub
+carries the GNOME runtime at 49 and 50, and the GNOME 50 SDK declares its SDK extensions at the
+freedesktop `25.08` branch, so the Rust extension has to be `rust-stable//25.08`; that one ships Rust
+1.98.1, above the shell's 1.92 floor. On Fedora, Flathub is added as a system remote, which is why an
+earlier `flatpak install --user` answered "No remote refs found for 'flathub'": a user installation
+only sees user remotes. Installing without `--user`, or adding Flathub as a user remote first,
+both work.
+
+```sh
+sudo dnf install flatpak-builder python3-aiohttp python3-tomlkit
+flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+    org.freedesktop.Sdk.Extension.rust-stable//25.08
+# or, for a user installation:
+# flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+# flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+#     org.freedesktop.Sdk.Extension.rust-stable//25.08
+```
+
+A Flatpak build has no network, so both workspaces' crates are vendored as source lists generated
+from their lock files by `flatpak-cargo-generator.py`, from
+[flatpak-builder-tools](https://github.com/flatpak/flatpak-builder-tools); its Python dependencies are
+the two packages above. The Rust extension alone is a download of more than half a gigabyte.
+
+```sh
+git clone https://github.com/flatpak/flatpak-builder-tools ~/src/flatpak-builder-tools
+python3 ~/src/flatpak-builder-tools/cargo/flatpak-cargo-generator.py \
+    Cargo.lock -o apps/goosic-linux/packaging/flatpak/cargo-sources-service.json
+python3 ~/src/flatpak-builder-tools/cargo/flatpak-cargo-generator.py \
+    apps/goosic-linux/Cargo.lock -o apps/goosic-linux/packaging/flatpak/cargo-sources-shell.json
+flatpak-builder --user --install --force-clean build-dir \
+    apps/goosic-linux/packaging/flatpak/io.github.analogicgoose.Goosic.yml
+flatpak run io.github.analogicgoose.Goosic
+```
+
+The last two commands need the manifest, which does not exist yet; it is the first item under
+[What is left](#what-is-left).
+
 ## Workspace and layout
 
 The shell is its own Cargo workspace, with its own `Cargo.toml`, `Cargo.lock` and target
@@ -328,20 +367,59 @@ test in any case. That job runs when the shell, `goosic-shell-support` or the pr
 
 ## Order of work
 
-The plan's order for step four holds. Transport, catalog, search, queue and settings come first,
-because they need no platform host and prove the shell against the service. Then the WebKitGTK
-player and the sign-in window, then local audio, then the media-player interface and the status icon,
-then running in the background, and the Flatpak last. The test that no host can sound without Rust's
-active lease comes with the first host, not after the last. The Linux local host in the Swift shell
-already shows how: a paused GStreamer pipeline decodes without opening the audio device, so the test
-runs silently in CI.
+The plan's order for step four held, and every step but the last is done. Transport, catalog, search,
+queue and settings came first, because they need no platform host and prove the shell against the
+service. Then the WebKitGTK player, local audio, the sign-in window, the media-player interface and
+the status icon, and running in the background. The Flatpak is last and has not started.
+
+One part of the order was not kept. The test that no host can sound without Rust's active lease was
+meant to come with the first host, not after the last, and it did not come at all: each host claims
+the lease before it loads, and the harness has heard that ordering work, but nothing fails a build if
+a later change breaks it. The GStreamer host now has a test that opens a file paused, which is the
+first half of that proof — a paused pipeline decodes without opening the audio device, so it runs
+silently in CI — and the rest is listed under [What is left](#what-is-left).
 
 ## Known risks
 
 WebKitGTK's DMA-BUF renderer has been reported to leave pages blank on NVIDIA drivers under
 Wayland. The usual escape hatch is `WEBKIT_DISABLE_DMABUF_RENDERER=1`. The shell does not set it by
-default. It is tested first on an NVIDIA machine, which the main development machine is, and the
-variable is set only if that test fails.
+default, and it is set only if a test on NVIDIA hardware fails. That test has not happened: the
+machine every check so far ran on loaded Intel's video driver, so the NVIDIA case is still open.
+
+## What is left
+
+The shell does everything a listener needs, and it has been heard doing it. What remains is making it
+installable, making its guarantees fail a build when they break, confirming the few paths no harness
+could reach, and the features that exist on macOS only. The table says where each item belongs,
+because half of them are not Linux work: anything in a shared crate, the protocol, the Makefile or CI
+lands on `development` first.
+
+| What | Where it belongs | Why it is still open |
+| --- | --- | --- |
+| The Flatpak manifest, building the service and the shell offline from vendored crates | `platform/linux` | Nothing is installable yet; the toolchain is known, above |
+| The desktop file, metainfo and icons under `data/` | `platform/linux` | The desktop entry MPRIS names does not exist, and the status icon borrows the theme's `multimedia-player` |
+| The Background portal request, actually running inside the sandbox | `platform/linux` | It only runs in a Flatpak, and there is none |
+| `make build-linux`, `test-linux` and `run-linux` | `development` | The Makefile is shared; until then the commands under Workspace and layout apply |
+| A CI job that builds and tests the shell inside the Flatpak builder | `development` | No workflow builds `apps/goosic-linux` today, so nothing stops it breaking |
+| A test proving neither host can sound without Rust's lease | `platform/linux` | The plan's completion condition; the order is right today, but untested |
+| The shell's client run against the protocol exchange fixtures | `platform/linux` | The transport is covered in `goosic-shell-support`; the shell above it is not |
+| A complete sign-in with a real account | a person | Needs credentials; the completion fix was proven against an imitation page only |
+| A whole track ending with the window hidden | a person | WebKitGTK may throttle timers in a hidden view; end of track is expected to survive, unobserved |
+| An import from a real previous Goosic install | a person | Only a scratch `.webm` has been imported and played |
+| NVIDIA hardware, and GNOME, Xfce and COSMIC sessions | a person | Every live check ran on Plasma with Intel graphics |
+| Account-scoped reads: a signed-in Home, the Library, private playlists | `platform/linux` | Needs a reader inside the account's WebKitGTK profile running `PersonalCatalog.js`, as macOS has |
+| Library mutations: likes, add to playlist, managing an owned playlist | `platform/linux` | macOS only; depends on the reader above |
+| The playing track's artwork drawn, blurred, behind the content | `platform/linux` | The `artwork_background` preference is stored and ignored |
+| Reordering the queue, saved queues, and keyboard shortcuts beyond Ctrl+Q and Ctrl+W | `platform/linux` | Not built; media keys work through MPRIS |
+| `fix/shell-support-login-completion` merged into `development` | `development` | The shared half of the sign-in fix; the Linux branch carries a cherry-pick until it lands |
+| The Swift Linux sign-in, broken since its completion script became an async body | `development` | Its host still evaluates the script as an expression; it matters only while that build is kept as a reference |
+| The decoded WAV cache moved from data to cache, on every platform | `development` | Unchanged; see Where things are stored |
+| The `goosic-paths` crate from `rescue/native-mac-shell-and-paths` | `development` | Never merged, so path rules are still duplicated per crate |
+| `feature/linux/complete-shell` merged into `platform/linux`, and superseded branches retired | `platform/linux` | The shell exists only on its feature branch; older slices such as `feature/linux/catalog-and-search` are superseded by it |
+
+When the rows marked `platform/linux` that concern packaging and conformance are done, the Swift
+Linux build can go, as the next section describes. The feature rows do not block that: the Swift
+Linux build never had them either.
 
 A native build on a distribution whose GTK is older than 4.20, such as the current Ubuntu LTS, would
 not follow the system's dark mode. The Flatpak is the supported way to run the shell there.
