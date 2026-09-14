@@ -59,6 +59,7 @@ The Swift shell is built in the Swift 6 language mode and needs Swift 6.0+ and, 
 | --- | --- |
 | macOS 14.0+ | Xcode's toolchain; nothing further |
 | Linux | Development headers for GTK 4, WebKitGTK 6.0, GLib and GStreamer — `gtk4-devel webkitgtk6.0-devel glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel` on Fedora, `libgtk-4-dev libwebkitgtk-6.0-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev` on Debian. `CGtk`, `CWebKitGTK`, `CGLib` and `CGStreamer` resolve them through `pkg-config`. GStreamer also needs its runtime plugins (`gstreamer1-plugins-good`, `gstreamer1-plugin-libav`) to decode anything, and WebKitGTK plays through the same ones |
+| Windows 10/11 | Visual Studio Build Tools with the C++ workload, for `link.exe` and the Windows SDK; the Windows App Runtime **1.5-preview1**, which the WinUI bindings require by version and which a newer 1.5 does not satisfy; and Git for Windows, whose bash runs the symlink repair below |
 
 Swift package resolution needs network access the first time because SwiftCrossUI is pinned to the official `0.9.0` tag.
 
@@ -76,6 +77,16 @@ make run-swift      # builds the service and launches the shell against it
 ```
 
 `make run-swift` is the whole story on both platforms: it builds `goosic-service`, points `GOOSIC_SERVICE_PATH` at it, and launches the shell, which spawns the service itself. On Linux the result is a GTK 4 window, on Wayland or X11 alike.
+
+Windows uses the scripts under `scripts/` instead, because the Makefile's `uname` branch does not cover it and `make` is not part of the toolchain:
+
+```bat
+scripts\windows-build.bat   :: builds the shell
+scripts\windows-test.bat    :: runs the Swift test target
+scripts\windows-run.bat     :: builds the service and launches the shell against it
+```
+
+They exist to carry three pieces of setup that are not obvious from any failure they cause. `vcvars64.bat` is called for `link.exe` and the Windows SDK, with the Visual Studio Installer directory added to `PATH` first so it can find `vswhere`; without that it aborts early and `swiftc` reports a missing `link` tool and then an unloadable standard library, neither of which names the cause. `SDKROOT` is set explicitly, because the toolchain installer writes it machine-wide and any shell opened beforehand inherits a stale environment. And Windows refuses to create symlinks without Developer Mode, so dependencies are checked out with `core.symlinks=false` and repaired afterwards by `scripts/windows-fix-symlinks.sh`, which the scripts run for you between resolving and building.
 
 The shell connects to the service on launch, so Home loads without any manual step. The sidebar button remains the way back if a transport failure drops the child process.
 
@@ -95,7 +106,7 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 - **Decoded audio is stored as data, not cache.** Rust's WAV cache sits in the per-user data directory rather than the cache directory, so it is swept into backups and ignored by tools that free cache space. The move is planned for every platform in one change; see [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
 - **Windows has no audio at all.** `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs there. A stub reports the limitation rather than producing sound, so no renderer can bypass Rust's authority.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
-- **Two download tests fail on Windows.** `goosic-downloads` builds and 13 of its 15 tests pass there, but path handling assumes Unix syntax and the legacy import returns `InvalidFilename`. CI reports it without blocking, because it is a real bug in shared code rather than an accepted platform limit.
+- **The Windows shell browses but makes no sound.** It builds and runs against the live catalog, and the whole Rust and Swift suites pass there, but the playback seams below are still stubs.
 - Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
 
 `goosic-service` is a private, one-process-per-app, single-client child reached through inherited stdin/stdout. It is not a daemon or socket service; stdio must never be shared or multiplexed. Generation is freshness authorization within that boundary. Future multiplexing requires an unforgeable per-client capability and active-owner authorization before account resets.
