@@ -12,8 +12,9 @@ use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 
 use crate::artwork::ArtworkCache;
-use crate::pages::{route_title, MoreRow, PageRow, ShellFacts};
+use crate::pages::{route_title, size_text, MoreRow, PageRow, ShellFacts};
 use crate::theme;
+use goosic_protocol::DownloadedTrack;
 
 /// What a row can ask the shell to do, and the artwork cache rows draw from.
 pub struct Actions {
@@ -26,6 +27,9 @@ pub struct Actions {
     pub import_legacy: Box<dyn Fn()>,
     /// Fetches the next part of a page that continues.
     pub load_more: Box<dyn Fn()>,
+    pub play_download: Box<dyn Fn(DownloadedTrack)>,
+    pub refresh_downloads: Box<dyn Fn()>,
+    pub import_downloads: Box<dyn Fn()>,
     pub artwork: Rc<ArtworkCache>,
 }
 
@@ -336,6 +340,34 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
             18,
         ),
         PageRow::Settings(facts) => padded(&settings_page(facts, actions), 8, 24),
+        PageRow::DownloadsToolbar { busy } => {
+            let toolbar = column(8);
+            let buttons = row(8);
+            let refresh = gtk::Button::with_label("Refresh");
+            let import = gtk::Button::with_label("Import previous Goosic files");
+            refresh.set_sensitive(!busy);
+            import.set_sensitive(!busy);
+            {
+                let actions = actions.clone();
+                refresh.connect_clicked(move |_| (actions.refresh_downloads)());
+            }
+            {
+                let actions = actions.clone();
+                import.connect_clicked(move |_| (actions.import_downloads)());
+            }
+            buttons.append(&refresh);
+            buttons.append(&import);
+            if *busy {
+                buttons.append(&gtk::Spinner::builder().spinning(true).build());
+            }
+            toolbar.append(&buttons);
+            toolbar.append(&dim(
+                "Goosic plays finalized files already on disk. It never starts a downloader and \
+                 never reads account cookies.",
+            ));
+            padded(&toolbar, 0, 12)
+        }
+        PageRow::Download(track) => padded(&download_row(track, actions), 4, 4),
         PageRow::More(more) => {
             let line = row(8);
             let action_button = |label: &str| {
@@ -386,6 +418,41 @@ fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk
         .build();
     let (track, context, actions) = (track.clone(), context.clone(), actions.clone());
     play.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
+    line.append(&play);
+    line
+}
+
+fn download_row(track: &DownloadedTrack, actions: &Rc<Actions>) -> gtk::Box {
+    let line = row(10);
+    line.append(&artwork(actions, None, "♪", 40));
+
+    let text = column(2);
+    text.set_hexpand(true);
+    text.set_valign(gtk::Align::Center);
+    text.append(&single_line(plain(&track.title)));
+    let mut detail = vec![track.artist.clone(), size_text(track.bytes)];
+    if track.imported {
+        detail.push("From the previous Goosic".to_owned());
+    }
+    if !track.available {
+        detail.push("Missing from disk".to_owned());
+    }
+    detail.retain(|part| !part.is_empty());
+    text.append(&single_line(dim(&detail.join(" · "))));
+    line.append(&text);
+
+    let play = gtk::Button::builder()
+        .icon_name("media-playback-start-symbolic")
+        .tooltip_text(if track.available {
+            "Play the downloaded file"
+        } else {
+            "This file is missing from disk"
+        })
+        .valign(gtk::Align::Center)
+        .sensitive(track.available)
+        .build();
+    let (track, actions) = (track.clone(), actions.clone());
+    play.connect_clicked(move |_| (actions.play_download)(track.clone()));
     line.append(&play);
     line
 }

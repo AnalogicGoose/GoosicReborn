@@ -14,11 +14,12 @@
 //! already borrowed is a panic rather than a bug report.
 
 use std::cell::{Cell, RefCell};
+use std::path::Path;
 use std::rc::{Rc, Weak};
 use std::time::Instant;
 
 use goosic_protocol::{
-    Owner, PreferencesPatch, RequestPayload, ResponseEnvelope, SettingsSnapshot,
+    DownloadedTrack, Owner, PreferencesPatch, RequestPayload, ResponseEnvelope, SettingsSnapshot,
 };
 use goosic_shell_support::bridge::BridgeEvent;
 use goosic_shell_support::catalog::{PageView, Track};
@@ -35,9 +36,10 @@ use gtk::prelude::*;
 use gtk::{gio, glib};
 
 use crate::artwork::ArtworkCache;
+use crate::local_host::{LocalEvent, LocalHandlers, LocalHost};
 use crate::lyrics::Lyrics;
 use crate::official_host::{self, OfficialHost};
-use crate::pages::{Browser, ShellFacts};
+use crate::pages::{Browser, DownloadsState, ShellFacts};
 use crate::playback::Player;
 use crate::player_bar::{BarActions, PlayerBar};
 use crate::side_panels::{LyricsPanel, QueuePanel};
@@ -58,6 +60,7 @@ pub struct Shell {
     facts: RefCell<ShellFacts>,
     queue_visible: Cell<bool>,
     official: Rc<OfficialHost>,
+    local: Rc<LocalHost>,
     rows: gio::ListStore,
     scroller: gtk::ScrolledWindow,
     search_bar: gtk::Box,
@@ -98,6 +101,9 @@ impl Shell {
                 set_theme: Box::new(forward(weak, Shell::set_theme)),
                 import_legacy: Box::new(forward_unit(weak, Shell::import_legacy_preferences)),
                 load_more: Box::new(forward_unit(weak, Shell::load_more)),
+                play_download: Box::new(forward(weak, Shell::play_download)),
+                refresh_downloads: Box::new(forward_unit(weak, Shell::load_downloads)),
+                import_downloads: Box::new(forward_unit(weak, Shell::import_downloads)),
                 artwork: artwork.clone(),
             });
             let (scroller, rows) = ui::page_list(actions);
@@ -111,6 +117,10 @@ impl Shell {
                 on_status: Box::new(forward(weak, Shell::host_status)),
                 on_page_advanced: Box::new(forward(weak, Shell::official_moved_on)),
                 on_diagnostics: Box::new(forward(weak, Shell::host_diagnostics)),
+            });
+            let local = LocalHost::new(LocalHandlers {
+                on_event: Box::new(forward(weak, Shell::receive_local)),
+                on_status: Box::new(forward(weak, Shell::local_status)),
             });
             let bar = PlayerBar::new(
                 BarActions {
@@ -191,6 +201,7 @@ impl Shell {
                 facts: RefCell::new(ShellFacts::default()),
                 queue_visible: Cell::new(false),
                 official,
+                local,
                 rows,
                 scroller,
                 search_bar,
@@ -316,7 +327,13 @@ impl Shell {
     /// Takes on stored preferences, whether read at launch or imported from the previous Goosic.
     /// Where the app opens is left to the caller: an import must not move the user.
     fn adopt_settings(&self, settings: &SettingsSnapshot) {
-        self.player.borrow_mut().apply_settings(settings);
+        let (volume, muted) = {
+            let mut player = self.player.borrow_mut();
+            player.apply_settings(settings);
+            (player.volume, player.muted)
+        };
+        self.local.set_volume(volume);
+        self.local.set_muted(muted);
         let theme = Theme::named(&settings.theme);
         {
             let mut facts = self.facts.borrow_mut();
@@ -428,6 +445,9 @@ impl Shell {
     }
 
     fn retry(self: &Rc<Self>) {
+        if self.browser.borrow().route() == Route::Downloads {
+            return self.load_downloads();
+        }
         self.load_current(true);
     }
 
@@ -469,6 +489,11 @@ impl Shell {
         self.render();
         self.scroller.vadjustment().set_value(0.0);
         self.load_current(false);
+        let downloads_unread = self.browser.borrow().route() == Route::Downloads
+            && self.facts.borrow().downloads == DownloadsState::NotRead;
+        if downloads_unread {
+            self.load_downloads();
+        }
     }
 
     fn load_current(self: &Rc<Self>, force: bool) {
@@ -520,8 +545,6 @@ impl Shell {
                 Err(PENDING)
             } else if player.advertisement {
                 Err(IN_ADVERTISEMENT)
-            } else if player.lease.owner == Owner::LocalDownloadedFile {
-                Err("A downloaded file is playing; stop it before playing from the catalog.")
             } else {
                 Ok(player.lease.owner)
             }
@@ -541,10 +564,13 @@ impl Shell {
                 player.set_queue(context.to_vec(), &track);
             }
         }
-        if owner == Owner::OfficialWebView {
-            self.load_official(track);
-        } else {
-            self.claim_official(track);
+        match owner {
+            Owner::OfficialWebView => self.load_official(track),
+            // The downloaded file stops and its lease goes back before the page may claim.
+            Owner::LocalDownloadedFile => {
+                self.leave_local_then(move |shell| shell.claim_official(track))
+            }
+            _ => self.claim_official(track),
         }
     }
 
@@ -944,6 +970,15 @@ impl Shell {
             }
             return;
         }
+        let local_owns = self.player.borrow().lease.owner == Owner::LocalDownloadedFile;
+        if local_owns && self.local.is_loaded() {
+            if paused {
+                self.local.play();
+            } else {
+                self.local.pause();
+            }
+            return;
+        }
         match queued {
             Some(track) => self.play(track, no_context()),
             None => self.set_status("Choose a track to begin."),
@@ -990,11 +1025,19 @@ impl Shell {
         };
         match target {
             Ok(target) => {
-                self.player.borrow_mut().pending_seek = Some(PendingSeek {
-                    position: target,
-                    requested_at: Instant::now(),
-                });
-                self.official.seek(target);
+                let owner = {
+                    let mut player = self.player.borrow_mut();
+                    player.pending_seek = Some(PendingSeek {
+                        position: target,
+                        requested_at: Instant::now(),
+                    });
+                    player.lease.owner
+                };
+                if owner == Owner::LocalDownloadedFile {
+                    self.local.seek(target);
+                } else {
+                    self.official.seek(target);
+                }
                 self.refresh_player();
             }
             Err(reason) if !reason.is_empty() => self.set_status(reason),
@@ -1017,6 +1060,8 @@ impl Shell {
             player.volume_applied_for_load = true;
         }
         self.official.set_volume(volume);
+        self.local.set_volume(volume);
+        self.local.set_muted(false);
         self.save_preferences(PreferencesPatch {
             volume: Some(volume),
             muted: Some(false),
@@ -1040,6 +1085,7 @@ impl Shell {
             return self.set_status("Mute is unavailable during advertisements.");
         };
         self.official.set_muted(muted);
+        self.local.set_muted(muted);
         self.save_preferences(PreferencesPatch {
             muted: Some(muted),
             ..Default::default()
@@ -1108,6 +1154,76 @@ impl Shell {
             Err(reason) => return self.set_status(reason),
         };
         self.set_status("Stopping playback…");
+        if owner == Owner::LocalDownloadedFile {
+            // GStreamer stops synchronously, so there is nothing to wait for before telling Rust.
+            self.local.stop();
+            return self.send_release(owner, token);
+        }
+        let weak = Rc::downgrade(self);
+        self.official.quiesce(move || {
+            let Some(shell) = weak.upgrade() else {
+                return;
+            };
+            if !shell
+                .player
+                .borrow()
+                .is_current(token, PlaybackTransition::Releasing)
+            {
+                return;
+            }
+            shell.official.invalidate_expectations();
+            shell.send_release(owner, token);
+        });
+    }
+
+    fn send_release(self: &Rc<Self>, owner: Owner, token: u64) {
+        let generation = self.player.borrow().lease.generation;
+        let payload = RequestPayload {
+            owner: Some(owner),
+            generation: Some(generation),
+            ..Default::default()
+        };
+        self.send("playback.release", payload, move |shell, answer| {
+            if !shell
+                .player
+                .borrow()
+                .is_current(token, PlaybackTransition::Releasing)
+            {
+                return;
+            }
+            let released = answer.is_ok();
+            if let Ok(response) = &answer {
+                shell.apply_lease(response);
+            }
+            {
+                let mut player = shell.player.borrow_mut();
+                player.current = None;
+                player.begin_track();
+                player.start_pending = false;
+                player.finish_transition(token);
+            }
+            shell.lyrics.borrow_mut().track_changed();
+            shell.load_lyrics();
+            if owner == Owner::OfficialWebView {
+                // A released page keeps reporting that it is paused; blanking it ends that.
+                shell.official.detach(|| {});
+            }
+            shell.set_status(if released {
+                "Playback stopped and released."
+            } else {
+                "Rust did not confirm the release."
+            });
+        });
+    }
+
+    /// Quiesces the official page and gives its lease back, then carries on with `then`.
+    fn leave_official_then(self: &Rc<Self>, then: impl FnOnce(&Rc<Shell>) + 'static) {
+        let token = {
+            let mut player = self.player.borrow_mut();
+            player.confirmed = false;
+            player.begin_transition(PlaybackTransition::Releasing)
+        };
+        self.set_status("Stopping the official player first…");
         let weak = Rc::downgrade(self);
         self.official.quiesce(move || {
             let Some(shell) = weak.upgrade() else {
@@ -1123,7 +1239,7 @@ impl Shell {
             shell.official.invalidate_expectations();
             let generation = shell.player.borrow().lease.generation;
             let payload = RequestPayload {
-                owner: Some(owner),
+                owner: Some(Owner::OfficialWebView),
                 generation: Some(generation),
                 ..Default::default()
             };
@@ -1135,27 +1251,392 @@ impl Shell {
                 {
                     return;
                 }
-                let released = answer.is_ok();
-                if let Ok(response) = &answer {
-                    shell.apply_lease(response);
+                shell.player.borrow_mut().finish_transition(token);
+                match answer {
+                    Ok(response) => {
+                        shell.apply_lease(&response);
+                        shell.official.detach(|| {});
+                        then(shell);
+                    }
+                    Err(error) => {
+                        let (_, message) = error.describe();
+                        shell.set_status(&format!(
+                            "Rust did not release the official player: {message}"
+                        ));
+                    }
                 }
-                {
-                    let mut player = shell.player.borrow_mut();
-                    player.current = None;
-                    player.begin_track();
-                    player.finish_transition(token);
-                }
-                shell.lyrics.borrow_mut().track_changed();
-                shell.load_lyrics();
-                // A released page keeps reporting that it is paused; blanking it ends that.
-                shell.official.detach(|| {});
-                shell.set_status(if released {
-                    "Playback stopped and released."
-                } else {
-                    "Rust did not confirm the release."
-                });
             });
         });
+    }
+
+    /// Stops the downloaded file and gives its lease back, then carries on with `then`.
+    fn leave_local_then(self: &Rc<Self>, then: impl FnOnce(&Rc<Shell>) + 'static) {
+        self.local.stop();
+        let (token, generation) = {
+            let mut player = self.player.borrow_mut();
+            player.confirmed = false;
+            (
+                player.begin_transition(PlaybackTransition::Releasing),
+                player.lease.generation,
+            )
+        };
+        self.set_status("Stopping the downloaded file first…");
+        let payload = RequestPayload {
+            owner: Some(Owner::LocalDownloadedFile),
+            generation: Some(generation),
+            ..Default::default()
+        };
+        self.send("playback.release", payload, move |shell, answer| {
+            if !shell
+                .player
+                .borrow()
+                .is_current(token, PlaybackTransition::Releasing)
+            {
+                return;
+            }
+            shell.player.borrow_mut().finish_transition(token);
+            match answer {
+                Ok(response) => {
+                    shell.apply_lease(&response);
+                    then(shell);
+                }
+                Err(error) => {
+                    let (_, message) = error.describe();
+                    shell.set_status(&format!(
+                        "Rust did not release the downloaded file: {message}"
+                    ));
+                }
+            }
+        });
+    }
+
+    // MARK: downloads
+
+    /// Reads the downloaded files the service knows about.
+    fn load_downloads(self: &Rc<Self>) {
+        if self.facts.borrow().downloads_busy {
+            return;
+        }
+        self.facts.borrow_mut().downloads_busy = true;
+        self.render();
+        self.send(
+            "downloads.list",
+            RequestPayload::default(),
+            |shell, answer| {
+                {
+                    let mut facts = shell.facts.borrow_mut();
+                    facts.downloads_busy = false;
+                    facts.downloads = match answer {
+                        Ok(response) => DownloadsState::Read(
+                            response
+                                .payload
+                                .and_then(|payload| payload.downloads)
+                                .unwrap_or_default(),
+                        ),
+                        Err(error) => DownloadsState::Failed(error.describe().1),
+                    };
+                }
+                shell.render();
+            },
+        );
+    }
+
+    /// Imports the finalized files a previous Goosic left on disk. The service references them
+    /// where they are and never starts a downloader.
+    fn import_downloads(self: &Rc<Self>) {
+        if self.facts.borrow().downloads_busy {
+            return;
+        }
+        self.facts.borrow_mut().downloads_busy = true;
+        self.render();
+        self.set_status("Reading finalized files from the previous Goosic…");
+        self.send(
+            "downloads.importLegacy",
+            RequestPayload::default(),
+            |shell, answer| {
+                let message = match answer {
+                    Ok(response) => {
+                        let payload = response.payload.unwrap_or_default();
+                        if let Some(tracks) = payload.downloads {
+                            shell.facts.borrow_mut().downloads = DownloadsState::Read(tracks);
+                        }
+                        payload.message.unwrap_or_else(|| {
+                            "Imported downloaded files from the previous Goosic.".to_owned()
+                        })
+                    }
+                    Err(error) => {
+                        let (code, message) = error.describe();
+                        if code == "legacyNotFound" {
+                            "No previous Goosic downloads were found on this machine.".to_owned()
+                        } else {
+                            format!("Could not import downloaded files: {message}")
+                        }
+                    }
+                };
+                shell.facts.borrow_mut().downloads_busy = false;
+                shell.render();
+                shell.set_status(&message);
+            },
+        );
+    }
+
+    /// Plays a downloaded file: Rust grants the local lease, the service returns the decoded file,
+    /// and only then does GStreamer open it.
+    pub fn play_download(self: &Rc<Self>, track: DownloadedTrack) {
+        let owner = {
+            let player = self.player.borrow();
+            if !track.available {
+                Err("This downloaded file is missing from disk. Refresh Downloads to check again.")
+            } else if player.advertisement {
+                Err("A downloaded file cannot start while the official player shows an advertisement.")
+            } else if player.transition() != PlaybackTransition::Idle {
+                Err(PENDING)
+            } else {
+                Ok(player.lease.owner)
+            }
+        };
+        let owner = match owner {
+            Ok(owner) => owner,
+            Err(reason) => return self.set_status(reason),
+        };
+        if self.client.is_none() {
+            return self
+                .set_status("Connect to the Rust service before playing a downloaded file.");
+        }
+        match owner {
+            Owner::LocalDownloadedFile => {
+                // One file replacing another keeps the lease, but the old file stops first.
+                self.local.stop_for_replacement();
+                let token = self
+                    .player
+                    .borrow_mut()
+                    .begin_transition(PlaybackTransition::PreparingLocal);
+                self.prepare_local(track, token);
+            }
+            Owner::OfficialWebView => {
+                self.leave_official_then(move |shell| shell.claim_local(track))
+            }
+            _ => self.claim_local(track),
+        }
+    }
+
+    fn claim_local(self: &Rc<Self>, track: DownloadedTrack) {
+        let (token, generation) = {
+            let mut player = self.player.borrow_mut();
+            (
+                player.begin_transition(PlaybackTransition::Claiming),
+                player.lease.generation,
+            )
+        };
+        self.set_status("Asking Rust for local playback…");
+        let payload = RequestPayload {
+            owner: Some(Owner::LocalDownloadedFile),
+            generation: Some(generation),
+            ..Default::default()
+        };
+        self.send("playback.claim", payload, move |shell, answer| {
+            if !shell
+                .player
+                .borrow()
+                .is_current(token, PlaybackTransition::Claiming)
+            {
+                return;
+            }
+            shell.player.borrow_mut().finish_transition(token);
+            match answer {
+                Ok(response) => {
+                    shell.apply_lease(&response);
+                    let granted = shell.player.borrow().lease.owner == Owner::LocalDownloadedFile;
+                    if granted {
+                        let token = shell
+                            .player
+                            .borrow_mut()
+                            .begin_transition(PlaybackTransition::PreparingLocal);
+                        shell.prepare_local(track, token);
+                    } else {
+                        shell.set_status("Rust did not grant local playback.");
+                    }
+                }
+                Err(error) => {
+                    let (_, message) = error.describe();
+                    shell.set_status(&format!("Rust refused local playback: {message}"));
+                }
+            }
+        });
+    }
+
+    fn prepare_local(self: &Rc<Self>, track: DownloadedTrack, token: u64) {
+        let generation = self.player.borrow().lease.generation;
+        self.set_status(&format!("Preparing {}…", track.title));
+        let payload = RequestPayload {
+            owner: Some(Owner::LocalDownloadedFile),
+            generation: Some(generation),
+            catalog_id: Some(track.video_id.clone()),
+            ..Default::default()
+        };
+        self.send("downloads.prepare", payload, move |shell, answer| {
+            if !shell
+                .player
+                .borrow()
+                .is_current(token, PlaybackTransition::PreparingLocal)
+            {
+                return;
+            }
+            let path = match answer {
+                Ok(response) => response
+                    .payload
+                    .and_then(|payload| payload.local_file)
+                    .filter(|path| !path.is_empty()),
+                Err(error) => {
+                    let (_, message) = error.describe();
+                    return shell.fail_local(
+                        token,
+                        format!("Could not prepare the downloaded file: {message}"),
+                    );
+                }
+            };
+            let Some(path) = path else {
+                return shell.fail_local(token, "Rust did not return a decoded file.".to_owned());
+            };
+            let (generation, volume, muted) = {
+                let player = shell.player.borrow();
+                (player.lease.generation, player.volume, player.muted)
+            };
+            shell.local.set_volume(volume);
+            shell.local.set_muted(muted);
+            if let Err(reason) = shell
+                .local
+                .prepare(Path::new(&path), &track.video_id, generation)
+            {
+                return shell.fail_local(token, reason);
+            }
+            {
+                let mut player = shell.player.borrow_mut();
+                // A downloaded file is its own listening context, not a place in a catalog list.
+                player.queue.clear();
+                player.index = 0;
+                player.radio_seed = None;
+                player.radio_cursor = None;
+                player.current = Some(downloaded_track(&track));
+                player.begin_track();
+                // Started deliberately just below; there is no page autoplay to make up for.
+                player.start_pending = false;
+            }
+            if !shell.local.play() {
+                return shell.fail_local(token, "GStreamer did not start the file.".to_owned());
+            }
+            shell.player.borrow_mut().finish_transition(token);
+            shell.lyrics.borrow_mut().track_changed();
+            shell.load_lyrics();
+            shell.set_status(&format!("Playing {} from disk.", track.title));
+        });
+    }
+
+    /// Stops the local renderer and gives the lease back, so a file that could not play never
+    /// holds the speakers in Rust's eyes.
+    fn fail_local(self: &Rc<Self>, token: u64, message: String) {
+        if !self
+            .player
+            .borrow()
+            .is_current(token, PlaybackTransition::PreparingLocal)
+        {
+            return;
+        }
+        self.local.stop();
+        let generation = {
+            let mut player = self.player.borrow_mut();
+            player.current = None;
+            player.begin_track();
+            player.start_pending = false;
+            player.lease.generation
+        };
+        let payload = RequestPayload {
+            owner: Some(Owner::LocalDownloadedFile),
+            generation: Some(generation),
+            ..Default::default()
+        };
+        self.send("playback.release", payload, move |shell, answer| {
+            if let Ok(response) = &answer {
+                shell.apply_lease(response);
+            }
+            shell.player.borrow_mut().finish_transition(token);
+            shell.set_status(&message);
+        });
+    }
+
+    /// A report from GStreamer about the downloaded file.
+    fn receive_local(self: &Rc<Self>, event: LocalEvent) {
+        let loaded = self.local.loaded_video_id();
+        let advance = {
+            let mut player = self.player.borrow_mut();
+            let sample = ReportedSample {
+                generation: event.generation,
+                video_id: &event.video_id,
+                current_time: event.current_time,
+                duration: event.duration,
+            };
+            if !believes_sample(
+                Owner::LocalDownloadedFile,
+                &player.lease,
+                loaded.as_deref(),
+                &sample,
+            ) {
+                return;
+            }
+            player.confirmed = true;
+            player.paused = event.state != "playing";
+            player.advertisement = false;
+            player.current_time = event.current_time;
+            player.duration = event.duration;
+            let settled = player
+                .pending_seek
+                .is_some_and(|seek| seek.is_settled_by(event.current_time, Instant::now()));
+            if settled {
+                player.pending_seek = None;
+            }
+            let advance = should_advance_after_end(
+                event.state,
+                false,
+                &event.video_id,
+                player.ended_video_id.as_deref(),
+            );
+            if advance {
+                player.ended_video_id = Some(event.video_id.clone());
+            }
+            let title = player
+                .current
+                .as_ref()
+                .map_or(event.video_id.clone(), |track| track.title.clone());
+            player.status = match event.state {
+                "playing" => format!("Playing {title} from disk."),
+                "paused" => format!("Paused {title}."),
+                _ => format!("{title} ended."),
+            };
+            advance
+        };
+        self.refresh_player();
+        let payload = RequestPayload {
+            owner: Some(Owner::LocalDownloadedFile),
+            generation: Some(event.generation),
+            sequence: Some(event.sequence),
+            marker: Some("audio".to_owned()),
+            ..Default::default()
+        };
+        self.send("playback.sample", payload, |shell, answer| {
+            if let Ok(response) = answer {
+                shell.apply_lease(&response);
+            }
+        });
+        if advance {
+            self.advance_after_end();
+        }
+    }
+
+    fn local_status(self: &Rc<Self>, message: String) {
+        let owned = self.player.borrow().lease.owner == Owner::LocalDownloadedFile;
+        if owned {
+            self.set_status(&message);
+        }
     }
 
     fn host_status(self: &Rc<Self>, message: String) {
@@ -1272,9 +1753,26 @@ impl Shell {
     }
 
     fn refresh_player(&self) {
-        let loaded = self.official.loaded_video_id().is_some();
+        let loaded = self.official.loaded_video_id().is_some() || self.local.is_loaded();
         self.bar.update(&self.player.borrow(), loaded);
         self.refresh_panels();
+    }
+}
+
+/// A downloaded file as the player and the now-playing bar show a track.
+fn downloaded_track(track: &DownloadedTrack) -> Track {
+    Track {
+        id: track.video_id.clone(),
+        title: track.title.clone(),
+        subtitle: "Downloaded".to_owned(),
+        artist: track.artist.clone(),
+        artist_id: None,
+        album: String::new(),
+        album_id: None,
+        duration: String::new(),
+        video_id: track.video_id.clone(),
+        explicit: false,
+        thumbnail: None,
     }
 }
 

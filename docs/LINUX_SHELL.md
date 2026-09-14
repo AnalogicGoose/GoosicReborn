@@ -24,9 +24,17 @@ the Swift port never had to face: on a fresh profile YouTube Music loads the tra
 waits. The shell therefore answers the first paused report of a load it was asked to play with a
 single play request, once, so a pause the user makes afterwards is kept.
 
-Until the remaining slices land — downloads, accounts, the media-player interface and background
-mode — the Swift shell remains the Linux build, and the sections about those describe a
-destination.
+Downloaded files play through a GStreamer pipeline of their own, under the `localDownloadedFile`
+lease: the Downloads screen lists and imports the previous Goosic's finalized files, the service
+decodes one when it is chosen, and the shell switches the lease between the official page and the
+file in either direction, quiescing or stopping one renderer before the other may claim. That path
+has been exercised end to end too, against a scratch legacy folder: the import found the file, the
+service decoded it under the lease, GStreamer played it, and PipeWire showed the stream. A unit test
+opens a generated WAV paused and reads its length back, which needs neither a display nor a sound
+card.
+
+Until the remaining slices land — accounts, the media-player interface and background mode — the
+Swift shell remains the Linux build, and the sections about those describe a destination.
 
 ## Why GTK 4, and why not the alternatives
 
@@ -254,7 +262,7 @@ apps/goosic-linux/
         theme.rs           gtk-interface-color-scheme, which GTK 4.20 made the way to choose
         official_host.rs   WebKitGTK player: script world, bridge handler, per-account session
         login_host.rs      planned: sign-in window under the shared navigation policy
-        local_host.rs      planned: GStreamer playbin for decoded files
+        local_host.rs      GStreamer playbin for decoded files
         mpris.rs           planned: org.mpris.MediaPlayer2 over gio
         status_icon.rs     planned: StatusNotifierItem, where a watcher exists
         portals.rs         planned: Inhibit, Background, Notification, OpenURI

@@ -6,6 +6,7 @@
 
 mod artwork;
 pub mod bridge;
+pub mod local_host;
 pub mod lyrics;
 pub mod official_host;
 pub mod pages;
