@@ -175,9 +175,10 @@ fixture becomes `static`.
 
 ### The GTK shell on Linux
 
-`apps/goosic-linux` is being written on `platform/linux`: it browses the catalog and plays through
-the official WebKitGTK host today, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) holds the
-decisions and what is done. When you work on it, these are settled and not yours to reopen without
+`apps/goosic-linux` is being written on `platform/linux`: it browses and plays the catalog through
+the official WebKitGTK host, plays downloaded files through GStreamer, signs accounts in, publishes
+MPRIS and a status icon, and keeps playing with its window closed. The Flatpak is what is left, and
+[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) holds the decisions and what has been verified. When you work on it, these are settled and not yours to reopen without
 asking:
 
 - It is its own Cargo workspace, not a member of the root one. CI runs

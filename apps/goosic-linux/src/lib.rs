@@ -5,6 +5,7 @@
 //! here. See `docs/LINUX_SHELL.md` for why it is built this way.
 
 mod artwork;
+mod background;
 pub mod bridge;
 pub mod local_host;
 mod login_host;
@@ -17,6 +18,7 @@ mod player_bar;
 pub mod service;
 pub mod shell;
 mod side_panels;
+mod status_icon;
 pub mod theme;
 mod ui;
 mod web_profile;

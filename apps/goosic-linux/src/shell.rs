@@ -39,6 +39,7 @@ use gtk::{gio, glib};
 use uuid::Uuid;
 
 use crate::artwork::ArtworkCache;
+use crate::background::Background;
 use crate::local_host::{LocalEvent, LocalHandlers, LocalHost};
 use crate::login_host::{LoginHandlers, LoginHost};
 use crate::lyrics::Lyrics;
@@ -48,6 +49,7 @@ use crate::pages::{Browser, DownloadsState, ShellFacts};
 use crate::playback::Player;
 use crate::player_bar::{BarActions, PlayerBar};
 use crate::side_panels::{LyricsPanel, QueuePanel};
+use crate::status_icon::{StatusIcon, TrayHandlers};
 use crate::web_profile;
 use crate::{bridge, service, theme, ui};
 
@@ -69,6 +71,8 @@ pub struct Shell {
     official: Rc<OfficialHost>,
     local: Rc<LocalHost>,
     mpris: Rc<Mpris>,
+    background: Rc<Background>,
+    status_icon: Rc<StatusIcon>,
     login: RefCell<Option<Rc<LoginHost>>>,
     /// The epoch of the accounts snapshot on screen, so a late answer cannot replace a newer one.
     account_epoch: Cell<u64>,
@@ -225,6 +229,21 @@ impl Shell {
                 .default_height(760)
                 .child(&root)
                 .build();
+            let background = Background::start(app, &window);
+            let status_icon = StatusIcon::start(TrayHandlers {
+                snapshot: Box::new({
+                    let weak = weak.clone();
+                    move || match weak.upgrade() {
+                        Some(shell) => shell.player.borrow().snapshot(),
+                        None => Player::new().snapshot(),
+                    }
+                }),
+                show: Box::new(forward_unit(weak, Shell::raise)),
+                toggle_pause: Box::new(forward_unit(weak, Shell::toggle_pause)),
+                next: Box::new(forward_unit(weak, Shell::next)),
+                previous: Box::new(forward_unit(weak, Shell::previous)),
+                quit: Box::new(forward_unit(weak, Shell::quit)),
+            });
 
             Shell {
                 window,
@@ -237,6 +256,8 @@ impl Shell {
                 official,
                 local,
                 mpris,
+                background,
+                status_icon,
                 login: RefCell::new(None),
                 account_epoch: Cell::new(0),
                 accounts_read: Cell::new(false),
@@ -2291,7 +2312,12 @@ impl Shell {
         {
             let player = self.player.borrow();
             self.bar.update(&player, loaded);
-            self.mpris.update(&player.snapshot());
+            let snapshot = player.snapshot();
+            self.mpris.update(&snapshot);
+            self.status_icon.update(&snapshot);
+            // An advertisement is audible too; only a confirmed, unpaused renderer counts.
+            self.background
+                .set_audible(player.confirmed && !player.paused);
         }
         self.refresh_panels();
     }

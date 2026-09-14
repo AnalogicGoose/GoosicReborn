@@ -54,8 +54,13 @@ that reports advertisements into one that blocks them. The rule is now applied w
 load starts or is redirected, where the view's URI is the one being loaded, and a disallowed load is
 stopped before it commits; subframes are left alone, and new windows are refused.
 
-Until the remaining slices land — the media-player interface and background mode — the Swift shell
-remains the Linux build, and the sections about those describe a destination.
+The media-player interface, the status icon and background mode are in too, and each was checked
+against a real Plasma session rather than only compiled: `gdbus` read the MPRIS properties back as a
+panel does and a `PlayPause` sent over the bus paused the page; the status icon registered with the
+watcher and served its menu over dbusmenu; closing the window hid it while PipeWire kept the stream
+uncorked, raising it brought it back, and the suspend inhibition appeared in the power manager's
+list while music played. What is left before this shell replaces the Swift Linux build is the
+Flatpak, the desktop file and icons that come with it, and the conformance and CI work.
 
 ## Why GTK 4, and why not the alternatives
 
@@ -152,29 +157,32 @@ declared, in keeping with the rule that an interface declares only what the appl
 
 Where the desktop has a status area, the shell adds an icon to it through StatusNotifierItem, with
 a menu to show the window, play or pause, skip, and quit. Plasma, Xfce and COSMIC have one. GNOME
-does not without an extension, so the icon is a convenience and never the only way back. On GNOME
-the shell asks the Background portal to run without a window, and GNOME lists it under Background
-Apps with a way to close it. On every desktop, launching the application again presents the
-existing window.
+does not without an extension, so the icon is a convenience and never the only way back. The icon
+registers whenever a watcher appears, not once at startup, so a panel that starts after Goosic still
+shows it. Inside a Flatpak the shell asks the Background portal to run without a window, and GNOME
+lists it under Background Apps with a way to close it; a native process needs no such permission.
+On every desktop, launching the application again presents the existing window.
 
-The first time the window closes while something is playing, a notification says the application
-is still running and how to quit it, so somebody who expected closing to mean quitting is not left
-wondering what is holding their speakers. Quitting is explicit — `Ctrl+Q`, the status icon's menu,
-the media panel's quit, GNOME's background list — and it releases the Rust lease, stops both
-playback hosts and ends the service.
+The first time the window closes, a notification says the application is still running and how to
+quit it, so somebody who expected closing to mean quitting is not left wondering what is holding
+their speakers. It says so whether or not music is playing, because the process keeps running
+either way. Quitting is explicit — `Ctrl+Q`, the status icon's menu, the media panel's quit, GNOME's
+background list — and it ends the service, which takes Rust's lease with it, and both playback
+hosts.
 
-The mechanics follow from that. The window is `hide-on-close`, and the application holds itself
-while it runs in the background, so losing its last visible window does not end the process. The
-official web view lives as long as the application, not as long as the window: rebuilding it on
-reopen would drop the page and the lease with it. While audio is playing, the shell inhibits
-suspend through the Inhibit portal and releases the inhibition on pause. It does not stop the screen
-from locking; music is not a video.
+The mechanics follow from that. Closing the window hides it, and the application holds itself while
+it runs in the background, so losing its last visible window does not end the process. The official
+web view lives as long as the application, not as long as the window: rebuilding it on reopen would
+drop the page and the lease with it. While audio is playing — an advertisement included — the shell
+inhibits suspend through GTK, which goes through the Inhibit portal or the session's power manager,
+and releases the inhibition as soon as nothing is audible. It does not stop the screen from locking;
+music is not a video.
 
-Two behaviours have to be observed rather than assumed, and each gets a test on real hardware before
-this is called done. WebKitGTK may throttle timers in a page whose view is hidden, which would slow
-the observer's periodic report; the observer also reports on media events, so end-of-track
-detection should survive, but that is an expectation. And the page must keep playing while hidden.
-Browsers do not pause background audio, but this is something to hear, not to argue.
+One of the two behaviours this section said had to be heard rather than argued has been: closing
+the window during playback left the page playing, with its stream uncorked. The other is still an
+expectation. WebKitGTK may throttle timers in a page whose view is hidden, which would slow the
+observer's periodic report; the observer also reports on media events, so end-of-track detection
+should survive, but a whole track has not yet been left to finish with the window closed.
 
 ## Desktop portals
 
@@ -187,8 +195,9 @@ the `org.freedesktop.appearance` namespace. That is the interface applications c
 portal *backends* implement, and an application never calls it.
 
 The shell uses the Inhibit portal for suspend while audible, the Background portal to run without a
-window, the Notification portal for the one notice above, and OpenURI to open an outside link in the
-user's browser. Sign-in never goes there: it stays in the application's own window, under the shared
+window, and the Notification portal for the one notice above, each through GTK and GIO, which choose
+the portal when one is there. OpenURI is for opening an outside link in the user's browser, and no
+screen offers one yet. Sign-in never goes there: it stays in the application's own window, under the shared
 navigation policy. The file chooser is used only if a feature needs a path picked, and none does
 today — the legacy import reads known locations. The status icon is not a portal; it is
 StatusNotifierItem over D-Bus.
@@ -285,9 +294,9 @@ apps/goosic-linux/
         login_host.rs      sign-in window under the shared navigation policy
         web_profile.rs     profile and staging storage, and the main-frame navigation guard
         local_host.rs      GStreamer playbin for decoded files
-        mpris.rs           planned: org.mpris.MediaPlayer2 over gio
-        status_icon.rs     planned: StatusNotifierItem, where a watcher exists
-        portals.rs         planned: Inhibit, Background, Notification, OpenURI
+        mpris.rs           org.mpris.MediaPlayer2 over gio
+        status_icon.rs     StatusNotifierItem and its dbusmenu, where a watcher exists
+        background.rs      hiding on close, holding the app, Ctrl+Q, inhibit, the Background portal
     data/                  planned: desktop file, metainfo, icons, named after the application ID
     packaging/flatpak/     planned: manifest and vendored crate sources
 ```
