@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Goosic.Windows.Service;
@@ -189,10 +190,87 @@ public sealed partial class MainWindow : Window
 
     private void ToggleSidebar()
     {
-        var hidden = Sidebar.Visibility == Visibility.Visible;
-        Sidebar.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
-        SidebarColumn.Width = hidden ? new GridLength(0) : new GridLength(280);
-        ContentScroller.Padding = new Thickness(hidden ? 34 : 34, 56, 34, 128);
+        Sidebar.Visibility = Sidebar.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        ApplyInsets();
+    }
+
+    private const double PanelGap = 8;
+    private const double ContentGutter = 26;
+    private readonly List<ScrollViewer> _carousels = [];
+
+    private double LeftInset => Sidebar.Visibility == Visibility.Visible ? PanelGap + Sidebar.Width : 0;
+
+    private double RightInset => SidePanel.Visibility == Visibility.Visible ? PanelGap + SidePanel.Width : 0;
+
+    /// <summary>
+    /// Keeps the content clear of the floating panels without clipping it at their edge.
+    /// </summary>
+    /// <remarks>
+    /// The page is padded so its first card and its headings start beside the sidebar, while each
+    /// row of cards is pulled back out to the window's edges and padded in again: its first card
+    /// lines up with the page, and scrolling it slides the cards under the glass rather than
+    /// cutting them off at a margin.
+    /// </remarks>
+    private void ApplyInsets()
+    {
+        var left = LeftInset + ContentGutter;
+        var right = RightInset + ContentGutter;
+        ContentStack.Padding = new Thickness(left, 0, right, 0);
+        PlayerPill.Margin = new Thickness(LeftInset + 16, 0, RightInset + 16, 18);
+        BackButton.Margin = new Thickness(56, 7, 0, 0);
+        foreach (var carousel in _carousels)
+        {
+            FitCarousel(carousel, left, right);
+        }
+    }
+
+    private static void FitCarousel(ScrollViewer carousel, double left, double right)
+    {
+        carousel.Margin = new Thickness(-left, 0, -right, 0);
+        // Padded through a border: an ItemsControl's own Padding never reaches its panel.
+        if (carousel.Content is Border row)
+        {
+            row.Padding = new Thickness(left, 0, right, 0);
+        }
+    }
+
+    private void OnCarouselLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is ScrollViewer carousel && !_carousels.Contains(carousel))
+        {
+            _carousels.Add(carousel);
+            FitCarousel(carousel, LeftInset + ContentGutter, RightInset + ContentGutter);
+        }
+    }
+
+    private void OnCarouselUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is ScrollViewer carousel)
+        {
+            _carousels.Remove(carousel);
+        }
+    }
+
+    /// <summary>
+    /// Scrolls the page, not the row, when the wheel turns over a row of cards.
+    /// </summary>
+    /// <remarks>
+    /// A scroller that can only move sideways turns a vertical wheel into sideways movement, so
+    /// scrolling down the page stalled on every shelf and slid its cards instead. A plain wheel is
+    /// handed to the page here, before the row sees it; a horizontal wheel or Shift+wheel still
+    /// moves the row, and so do its arrows, touch and the touchpad.
+    /// </remarks>
+    private void OnCarouselWheel(object sender, PointerRoutedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(ContentScroller);
+        var shift = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0;
+        if (point.Properties.IsHorizontalMouseWheel || shift)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        ContentScroller.ChangeView(null, ContentScroller.VerticalOffset - point.Properties.MouseWheelDelta, null);
     }
 
     private void OpenSearch()
@@ -1220,5 +1298,6 @@ public sealed partial class MainWindow : Window
     {
         SidePanelMessage.Text = message;
         SidePanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        ApplyInsets();
     }
 }
