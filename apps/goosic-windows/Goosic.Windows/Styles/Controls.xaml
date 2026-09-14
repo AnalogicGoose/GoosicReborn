@@ -51,6 +51,30 @@
         <Setter Property="BorderBrush" Value="{ThemeResource GoosicHairlineBrush}" />
     </Style>
 
+    <!-- The full-screen player's controls: larger, and always light over the cover's colours. -->
+    <Style x:Key="FullPlayerGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
+        <Setter Property="Width" Value="44" />
+        <Setter Property="Height" Value="44" />
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="CornerRadius" Value="22" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="FullPlayerToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource TransportToggleStyle}">
+        <Setter Property="Width" Value="44" />
+        <Setter Property="Height" Value="44" />
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="CornerRadius" Value="22" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+
+    <!-- A group of settings, as the macOS Settings page draws its cards. -->
+    <Style x:Key="SettingsCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource GoosicRaisedBrush}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="18" />
+    </Style>
+
     <Style x:Key="RailGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
         <Setter Property="Width" Value="40" />
         <Setter Property="Height" Value="40" />

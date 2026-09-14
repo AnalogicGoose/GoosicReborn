@@ -98,6 +98,19 @@ from playlist, save a playlist to the library, subscribe. The player is opened i
 profile. Built and launched as a guest; **the sign-in itself has not been run**, because it needs
 a real Google account.
 
+## Full-screen player, settings, autoplay
+
+`NowPlayingMesh.cs` ports the macOS palette, seeded layout and motion rules number for number,
+and `Views/MeshBackground.cs` draws them as radial-gradient blobs (no element blur in WinUI
+without Win2D, so the falloff is wider instead). The full-screen player (F11, Ctrl+Shift+F,
+double-click the now-playing panel, or its button) takes the window to the full-screen
+presenter and moves the drag region to an empty strip at its top; it has the large cover (the
+high-resolution variant when the image server has one), scrubbing with elapsed and remaining
+time, the transport, and tap-to-seek synced lyrics. The same palette fills the window behind the
+content when Album Art Background is on. The Settings page reads and writes `settings.get` /
+`settings.set` for autoplay, shuffle, repeat and that background; autoplay starts a radio from
+the last track when the queue ends. Built; not yet exercised by hand.
+
 ## Not started
 
 Local downloaded-file playback, the full-screen player, the

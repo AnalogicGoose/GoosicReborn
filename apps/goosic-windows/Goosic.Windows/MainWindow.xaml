@@ -14,11 +14,19 @@
         </Grid.RowDefinitions>
 
         <!--
+            The playing cover's colours, behind everything, when Album Art Background is on. The
+            veil over it keeps text readable on a pale cover without flattening the colour.
+        -->
+        <Grid x:Name="ArtworkBackdrop" Grid.RowSpan="2" Visibility="Collapsed" IsHitTestVisible="False">
+            <Rectangle x:Name="ArtworkBackdropVeil" Fill="{ThemeResource GoosicWindowBackgroundBrush}" Opacity="0.78" />
+        </Grid>
+
+        <!--
             The transport is the title bar. Apple Music puts the controls on the same row as the
             window buttons rather than below them, so the window's content is extended into the
             caption area and this strip is handed to the system as the drag region.
         -->
-        <Grid x:Name="TransportBar" Grid.Row="0" Background="{ThemeResource GoosicChromeBrush}">
+        <Grid x:Name="TransportBar" Grid.Row="0" Background="Transparent">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -58,7 +66,8 @@
             -->
             <Border Grid.Column="2" MinWidth="420" MaxWidth="560" Height="44"
                     CornerRadius="6" Background="{ThemeResource GoosicRaisedBrush}"
-                    VerticalAlignment="Center">
+                    VerticalAlignment="Center" DoubleTapped="OnNowPlayingDoubleTapped"
+                    ToolTipService.ToolTip="Double-click for the full-screen player">
                 <Grid Margin="6,0,10,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -120,6 +129,9 @@
                         </Flyout>
                     </Button.Flyout>
                 </Button>
+                <Button Style="{StaticResource TransportGlyphStyle}" Content="&#xE740;"
+                        ToolTipService.ToolTip="Full-screen player (F11)"
+                        AutomationProperties.Name="Full-screen player" Click="OnOpenFullPlayer" />
                 <ToggleButton x:Name="LyricsButton" Style="{StaticResource TransportToggleStyle}"
                               Content="&#xE90A;" ToolTipService.ToolTip="Lyrics"
                               Click="OnToggleLyrics" />
@@ -345,6 +357,61 @@
                                 </Button.Flyout>
                             </Button>
                         </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Spacing="14" MaxWidth="720" HorizontalAlignment="Left"
+                                Visibility="{x:Bind Model.IsSettingsPage, Mode=OneWay}">
+                        <Border Style="{StaticResource SettingsCardStyle}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Playback" FontSize="16" FontWeight="SemiBold" />
+                                <ToggleSwitch Header="Autoplay" OnContent="Keep playing related music when the queue ends"
+                                              OffContent="Stop when the queue ends"
+                                              IsOn="{x:Bind Model.Autoplay, Mode=OneWay}" Toggled="OnAutoplayToggled" />
+                                <ToggleSwitch Header="Shuffle" OnContent="The queue plays in a random order"
+                                              OffContent="The queue plays in order"
+                                              IsOn="{x:Bind Model.IsShuffled, Mode=OneWay}" Toggled="OnShuffleToggled" />
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="Repeat" />
+                                    <Button Content="{x:Bind Model.RepeatLabel, Mode=OneWay}" Click="OnRepeat" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource SettingsCardStyle}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="Appearance" FontSize="16" FontWeight="SemiBold" />
+                                <ToggleSwitch Header="Album art background"
+                                              OnContent="The playing cover's colours fill the window"
+                                              OffContent="A plain background"
+                                              IsOn="{x:Bind Model.ArtworkBackground, Mode=OneWay}"
+                                              Toggled="OnArtworkBackgroundToggled" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource SettingsCardStyle}">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Account" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind Model.AccountDetail, Mode=OneWay}"
+                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Style="{StaticResource AccentButtonStyle}" Content="Sign in with Google"
+                                            Visibility="{x:Bind Model.IsGuest, Mode=OneWay}" Click="OnSignIn" />
+                                    <Button Content="Add another account"
+                                            Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignIn" />
+                                    <Button Content="Sign out"
+                                            Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignOut" />
+                                </StackPanel>
+                                <TextBlock FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                           Text="Sign-in data stays inside each account's own WebView2 profile and never enters the playback service." />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource SettingsCardStyle}">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Keyboard" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap"
+                                           Text="Space play or pause · Ctrl+← / Ctrl+→ previous / next · Ctrl+↑ / Ctrl+↓ volume · Ctrl+M mute · Ctrl+S shuffle · Ctrl+R repeat · Ctrl+F search · Ctrl+L lyrics · Ctrl+Q queue · F11 full-screen player · Alt+← back · Esc close" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <InfoBar x:Name="StatusBar" IsOpen="{x:Bind Model.HasStatus, Mode=OneWay}"
@@ -592,6 +659,132 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
+        </Grid>
+
+        <!--
+            The full-screen player. Everything underneath stays mounted, the official player
+            included, so opening and closing it never interrupts playback.
+        -->
+        <Grid x:Name="FullPlayer" Grid.RowSpan="2" Visibility="Collapsed" Background="Black"
+              RequestedTheme="Dark">
+            <Grid x:Name="FullPlayerBackdrop" />
+            <Rectangle Fill="#000000" Opacity="0.35" IsHitTestVisible="False" />
+
+            <Grid x:Name="FullPlayerLayout" Padding="72,56,72,72" ColumnSpacing="72">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MaxWidth="560" />
+                    <ColumnDefinition x:Name="FullPlayerLyricsColumn" Width="1.3*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="14" MaxWidth="520">
+                    <Button x:Name="FullPlayerCoverButton" Padding="0" BorderThickness="0" Background="Transparent"
+                            HorizontalAlignment="Stretch" ToolTipService.ToolTip="Exit full-screen player"
+                            Click="OnCloseFullPlayer">
+                        <Border CornerRadius="12" Background="#22FFFFFF">
+                            <Viewbox Stretch="Uniform">
+                                <Grid Width="520" Height="520">
+                                    <FontIcon Glyph="&#xE8D6;" FontSize="64" Opacity="0.5" />
+                                    <Image x:Name="FullPlayerCover" Stretch="UniformToFill" />
+                                </Grid>
+                            </Viewbox>
+                        </Border>
+                    </Button>
+
+                    <StackPanel Spacing="3" Margin="0,12,0,0">
+                        <TextBlock Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}" FontSize="24"
+                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{x:Bind Model.NowPlayingArtist, Mode=OneWay}" FontSize="16" Opacity="0.7"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+
+                    <Slider x:Name="FullPlayerProgress" Minimum="0" StepFrequency="1"
+                            Maximum="{x:Bind Model.PlaybackDuration, Mode=OneWay}"
+                            Value="{x:Bind Model.PlaybackPosition, Mode=OneWay}"
+                            IsEnabled="{x:Bind Model.IsSeekable, Mode=OneWay}"
+                            AutomationProperties.Name="Position" />
+                    <Grid Margin="0,-8,0,0" Opacity="0.7">
+                        <TextBlock Text="{x:Bind Model.PositionText, Mode=OneWay}" FontSize="12" />
+                        <TextBlock Text="{x:Bind Model.RemainingText, Mode=OneWay}" FontSize="12" HorizontalAlignment="Right" />
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ToggleButton Grid.Column="0" Style="{StaticResource FullPlayerToggleStyle}" Content="&#xE8B1;"
+                                      IsChecked="{x:Bind Model.IsShuffled, Mode=OneWay}"
+                                      ToolTipService.ToolTip="{x:Bind Model.ShuffleLabel, Mode=OneWay}" Click="OnShuffle" />
+                        <Button Grid.Column="1" Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xE892;"
+                                FontSize="24" ToolTipService.ToolTip="Previous" Click="OnPrevious" />
+                        <Button Grid.Column="2" Style="{StaticResource FullPlayerGlyphStyle}" FontSize="36"
+                                Width="64" Height="64"
+                                Content="{x:Bind Model.PlayPauseGlyph, Mode=OneWay}"
+                                ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}" Click="OnPlayPause" />
+                        <Button Grid.Column="3" Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xE893;"
+                                FontSize="24" ToolTipService.ToolTip="Next" Click="OnNext" />
+                        <ToggleButton Grid.Column="4" Style="{StaticResource FullPlayerToggleStyle}"
+                                      Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
+                                      IsChecked="{x:Bind Model.IsRepeating, Mode=OneWay}"
+                                      ToolTipService.ToolTip="{x:Bind Model.RepeatLabel, Mode=OneWay}" Click="OnRepeat" />
+                    </Grid>
+                </StackPanel>
+
+                <Grid x:Name="FullPlayerLyrics" Grid.Column="1" VerticalAlignment="Stretch" MaxHeight="900">
+                    <StackPanel VerticalAlignment="Center" Spacing="10" Opacity="0.7"
+                                Visibility="{x:Bind Model.HasNoLyrics, Mode=OneWay}">
+                        <FontIcon Glyph="&#xE90A;" FontSize="30" HorizontalAlignment="Left" />
+                        <TextBlock Text="{x:Bind Model.LyricsStatus, Mode=OneWay}" FontSize="22"
+                                   FontWeight="SemiBold" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <ScrollViewer x:Name="FullPlayerLyricsScroller" VerticalScrollBarVisibility="Hidden">
+                        <ItemsControl x:Name="FullPlayerLyricsItems" Padding="0,240,0,240"
+                                      ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LyricLineViewModel">
+                                    <Button Background="Transparent" BorderThickness="0" Padding="0,0,0,26"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                            Tag="{x:Bind AtMilliseconds}" Click="OnLyricLineClicked"
+                                            ToolTipService.ToolTip="Play from this line">
+                                        <TextBlock Text="{x:Bind Text}" FontSize="32" FontWeight="Bold"
+                                                   TextWrapping="Wrap" Opacity="{x:Bind Emphasis, Mode=OneWay}" />
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Grid>
+
+            <!-- The strip the window is dragged by while the player is open; no controls sit in it. -->
+            <Border x:Name="FullPlayerDragStrip" Height="40" VerticalAlignment="Top" Background="Transparent"
+                    Margin="0,0,260,0" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,48,24,0" Spacing="6">
+                <Button Style="{StaticResource FullPlayerGlyphStyle}" Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
+                        ToolTipService.ToolTip="Volume">
+                    <Button.Flyout>
+                        <Flyout Placement="Bottom">
+                            <StackPanel Width="240" Spacing="8">
+                                <Slider x:Name="FullPlayerVolume" Minimum="0" Maximum="100" StepFrequency="1"
+                                        Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
+                                        ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
+                                <Button Content="{x:Bind Model.MuteLabel, Mode=OneWay}"
+                                        HorizontalAlignment="Stretch" Click="OnToggleMuted" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <ToggleButton x:Name="FullPlayerLyricsToggle" Style="{StaticResource FullPlayerToggleStyle}"
+                              Content="&#xE90A;" IsChecked="True" ToolTipService.ToolTip="Show or hide lyrics"
+                              Click="OnToggleFullPlayerLyrics" />
+                <Button Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xE73F;"
+                        ToolTipService.ToolTip="Exit full-screen player (Esc)" Click="OnCloseFullPlayer" />
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>

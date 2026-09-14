@@ -20,6 +20,10 @@ public sealed partial class MainWindow : Window
     private OfficialPlaybackHost? _playback;
     private SystemMediaControls? _media;
     private PersonalCatalogHost? _personal;
+    private readonly Views.MeshBackground _fullPlayerMesh = new();
+    private readonly Views.MeshBackground _backdropMesh = new();
+    private string? _paletteFor;
+    private bool _fullPlayerSeeking;
     private bool _seeking;
 
     public MainWindow()
@@ -44,6 +48,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         WireSeekGestures();
         WireKeyboard();
+        WireFullPlayer();
         Title = "Goosic";
 
         // The transport strip is the caption area, so the window has to be told which element
@@ -65,6 +70,12 @@ public sealed partial class MainWindow : Window
             {
                 // Only fetched while the panel is open: lyrics are a third-party lookup, and a
                 // listener who never opens the panel should not send one per track.
+                if (FullPlayer.Visibility == Visibility.Visible && LyricsButton.IsChecked != true)
+                {
+                    FullPlayerLyricsScroller.ChangeView(null, 0, null, disableAnimation: true);
+                    await Model.LoadLyricsAsync();
+                }
+
                 if (LyricsButton.IsChecked == true)
                 {
                     LyricsScroller.ChangeView(null, 0, null, disableAnimation: true);
@@ -298,7 +309,11 @@ public sealed partial class MainWindow : Window
         var entry = Model.Advance(forward, natural);
         if (entry is null && natural)
         {
-            Model.ReportStatus("The queue has finished.");
+            entry = await Model.AutoplayAfterAsync();
+            if (entry is null)
+            {
+                Model.ReportStatus("The queue has finished.");
+            }
         }
 
         await PlayEntryAsync(entry);
@@ -687,6 +702,164 @@ public sealed partial class MainWindow : Window
         return (field.Text.Trim(), (visibility.SelectedItem as string ?? "Private").ToUpperInvariant());
     }
 
+    // ---- Full-screen player -----------------------------------------------------------------
+
+    /// <summary>
+    /// Builds the parts of the full-screen player that live in code: its background, and its seek
+    /// gestures, which the slider hides from markup handlers exactly as the transport's does.
+    /// </summary>
+    private void WireFullPlayer()
+    {
+        FullPlayerBackdrop.Children.Add(_fullPlayerMesh);
+        ArtworkBackdrop.Children.Insert(0, _backdropMesh);
+        FullPlayerProgress.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler((_, _) => { _fullPlayerSeeking = true; Model.IsScrubbing = true; }), handledEventsToo: true);
+        PointerEventHandler done = async (_, _) =>
+        {
+            if (!_fullPlayerSeeking)
+            {
+                return;
+            }
+
+            _fullPlayerSeeking = false;
+            Model.IsScrubbing = false;
+            if (_playback is not null)
+            {
+                await _playback.SeekAsync(FullPlayerProgress.Value);
+            }
+        };
+        FullPlayerProgress.AddHandler(UIElement.PointerReleasedEvent, done, handledEventsToo: true);
+        FullPlayerProgress.AddHandler(UIElement.PointerCaptureLostEvent, done, handledEventsToo: true);
+
+        Model.ArtworkChanged += async thumbnail => await ShowArtworkAsync(thumbnail);
+        Model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ShellViewModel.ArtworkBackground))
+            {
+                UpdateBackdrop();
+            }
+        };
+    }
+
+    /// <summary>Loads the cover at full size and samples its colours for both backgrounds.</summary>
+    private async Task ShowArtworkAsync(string? thumbnail)
+    {
+        _paletteFor = thumbnail;
+        var file = await Model.LargeArtworkFileAsync(thumbnail);
+        if (_paletteFor != thumbnail)
+        {
+            return;
+        }
+
+        if (file is null)
+        {
+            FullPlayerCover.Source = null;
+            _fullPlayerMesh.SetPalette(null);
+            _backdropMesh.SetPalette(null);
+            UpdateBackdrop();
+            return;
+        }
+
+        var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+        using (var stream = File.OpenRead(file))
+        {
+            await image.SetSourceAsync(stream.AsRandomAccessStream());
+        }
+
+        var palette = await Views.MeshBackground.PaletteAsync(file);
+        if (_paletteFor != thumbnail)
+        {
+            return;
+        }
+
+        FullPlayerCover.Source = image;
+        _fullPlayerMesh.SetPalette(palette);
+        _backdropMesh.SetPalette(palette);
+        UpdateBackdrop();
+    }
+
+    private void UpdateBackdrop() =>
+        ArtworkBackdrop.Visibility = Model.ArtworkBackground && _paletteFor is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    private void OnOpenFullPlayer(object sender, RoutedEventArgs e) => SetFullPlayerOpen(true);
+
+    private void OnCloseFullPlayer(object sender, RoutedEventArgs e) => SetFullPlayerOpen(false);
+
+    private void OnNowPlayingDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => SetFullPlayerOpen(true);
+
+    /// <summary>
+    /// Opens or closes the full-screen player, taking the window to full screen with it.
+    /// </summary>
+    /// <remarks>
+    /// While it is open the drag region moves to an empty strip at its top, because the transport
+    /// bar that is normally the title bar is underneath it and its drag would swallow clicks on
+    /// the player's own controls.
+    /// </remarks>
+    private async void SetFullPlayerOpen(bool open)
+    {
+        var visible = FullPlayer.Visibility == Visibility.Visible;
+        if (open == visible)
+        {
+            return;
+        }
+
+        FullPlayer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        SetTitleBar(open ? FullPlayerDragStrip : TransportBar);
+        AppWindow.SetPresenter(open
+            ? Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen
+            : Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
+        if (open)
+        {
+            FullPlayerCoverButton.Focus(FocusState.Programmatic);
+            if (Model.Lyrics.Count == 0)
+            {
+                await Model.LoadLyricsAsync();
+            }
+        }
+    }
+
+    private void OnToggleFullPlayerLyrics(object sender, RoutedEventArgs e)
+    {
+        var shown = FullPlayerLyricsToggle.IsChecked == true;
+        FullPlayerLyrics.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+        FullPlayerLyricsColumn.Width = shown ? new GridLength(1.3, GridUnitType.Star) : new GridLength(0);
+    }
+
+    /// <summary>Seeks to a synced line. Plain lyrics carry no times, so their lines do nothing.</summary>
+    private async void OnLyricLineClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: long at } && at > 0 && _playback is not null && Model.IsSeekable)
+        {
+            await _playback.SeekAsync(at / 1000.0);
+        }
+    }
+
+    private async void OnAutoplayToggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleSwitch toggle && toggle.IsOn != Model.Autoplay)
+        {
+            await Model.SetAutoplayAsync(toggle.IsOn);
+        }
+    }
+
+    private void OnShuffleToggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleSwitch toggle && toggle.IsOn != Model.IsShuffled)
+        {
+            Model.ToggleShuffle();
+        }
+    }
+
+    private async void OnArtworkBackgroundToggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleSwitch toggle && toggle.IsOn != Model.ArtworkBackground)
+        {
+            await Model.SetArtworkBackgroundAsync(toggle.IsOn);
+        }
+    }
+
     // ---- Keyboard ---------------------------------------------------------------------------
 
     /// <summary>
@@ -718,7 +891,19 @@ public sealed partial class MainWindow : Window
             OnToggleQueue(QueueButton, new RoutedEventArgs());
         });
         Accelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, () => _ = GoBackAsync());
-        Accelerator(VirtualKey.Escape, VirtualKeyModifiers.None, () => SidebarOverlay.Visibility = Visibility.Collapsed);
+        Accelerator(VirtualKey.F11, VirtualKeyModifiers.None, () => SetFullPlayerOpen(FullPlayer.Visibility != Visibility.Visible));
+        Accelerator(VirtualKey.F, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift,
+            () => SetFullPlayerOpen(FullPlayer.Visibility != Visibility.Visible));
+        Accelerator(VirtualKey.Escape, VirtualKeyModifiers.None, () =>
+        {
+            if (FullPlayer.Visibility == Visibility.Visible)
+            {
+                SetFullPlayerOpen(false);
+                return;
+            }
+
+            SidebarOverlay.Visibility = Visibility.Collapsed;
+        });
         RootGrid.PreviewKeyDown += OnPreviewKeyDown;
     }
 
@@ -902,6 +1087,12 @@ public sealed partial class MainWindow : Window
     /// <summary>Keeps the line being sung in the upper part of the lyrics panel.</summary>
     private void FollowLyricOnScreen(int index)
     {
+        if (FullPlayer.Visibility == Visibility.Visible
+            && FullPlayerLyricsItems.ContainerFromIndex(index) is FrameworkElement fullLine)
+        {
+            fullLine.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.36, AnimationDesired = true });
+        }
+
         if (LyricsItems.Visibility != Visibility.Visible)
         {
             return;

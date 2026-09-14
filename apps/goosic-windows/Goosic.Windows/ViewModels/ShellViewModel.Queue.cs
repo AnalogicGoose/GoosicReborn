@@ -281,11 +281,13 @@ public sealed partial class ShellViewModel
 
             _unshuffled = null;
             IsShuffled = false;
+            SaveQueueModes();
             return;
         }
 
         IsShuffled = true;
         ShuffleUpcoming();
+        SaveQueueModes();
     }
 
     /// <summary>Shuffles only what is after the current entry; what already played stays put.</summary>
@@ -305,12 +307,32 @@ public sealed partial class ShellViewModel
         }
     }
 
-    internal void CycleRepeat() => Repeat = Repeat switch
+    internal void CycleRepeat()
     {
-        RepeatMode.Off => RepeatMode.All,
-        RepeatMode.All => RepeatMode.One,
-        _ => RepeatMode.Off,
-    };
+        Repeat = Repeat switch
+        {
+            RepeatMode.Off => RepeatMode.All,
+            RepeatMode.All => RepeatMode.One,
+            _ => RepeatMode.Off,
+        };
+        SaveQueueModes();
+    }
+
+    /// <summary>
+    /// Keeps the music going after the queue ends, with a radio from the track that just finished.
+    /// </summary>
+    /// <returns>The first new entry, or null when autoplay is off or nothing came back.</returns>
+    internal async Task<TrackViewModel?> AutoplayAfterAsync()
+    {
+        if (!Autoplay || _current is not { } last)
+        {
+            return null;
+        }
+
+        var seed = await StartRadioAsync(last).ConfigureAwait(true);
+        // The radio starts with its seed, which has just played; move on to what follows it.
+        return seed is null ? null : Advance(forward: true, natural: false);
+    }
 
     /// <summary>
     /// Chooses the entry to play after a command or a natural end.

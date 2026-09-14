@@ -31,6 +31,7 @@ public sealed record RouteEntry(string Route, string Title, string Glyph)
         new("liked", "Liked Music", "\uE8E1"),
         new("history", "History", "\uE81C"),
         new("downloads", "Downloads", ""),
+        new("settings", "Settings", "\uE713"),
     ];
 }
 
@@ -311,6 +312,11 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         _client = client;
         Tracks.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasTracks));
         Queue.CollectionChanged += (_, _) => QueueChanged();
+        Lyrics.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasLyrics));
+            OnPropertyChanged(nameof(HasNoLyrics));
+        };
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -517,6 +523,10 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         PlaybackDuration = Math.Max(0, sample.Duration);
+        ReportNowPlayingDetails(
+            !sample.IsAdvertisement && _pendingTrack?.VideoId == sample.VideoId ? _pendingTrack : null,
+            IsScrubbing ? PlaybackPosition : sample.CurrentTime,
+            sample.Duration);
         Volume = Math.Clamp(sample.Volume, 0, 1);
         IsMuted = sample.Muted;
         IsPlaying = sample.State == "playing";
@@ -633,6 +643,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         {
             await _client.RequestAsync("hello").ConfigureAwait(true);
             Status = "";
+            await LoadSettingsAsync().ConfigureAwait(true);
         }
         catch (Exception error)
         {
@@ -647,6 +658,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// <summary>Loads one browse surface.</summary>
     internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true)
     {
+        if (route == "settings")
+        {
+            ShowSettingsPage();
+            return;
+        }
+
         Remember("route" + KeySeparator + route, rememberCurrentRoute);
         var entry = RouteEntry.All.FirstOrDefault(candidate => candidate.Route == route);
         PageTitle = entry?.Title ?? route;

@@ -143,6 +143,7 @@ public sealed partial class ShellViewModel
         _pagePlaylistId = null;
         _pageArtistId = null;
         IsLibraryPage = false;
+        IsSettingsPage = false;
         PageActionsChanged();
     }
 
