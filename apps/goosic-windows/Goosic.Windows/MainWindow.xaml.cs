@@ -962,11 +962,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // The player fills the window; taking the window itself to full screen is a separate
+        // choice, made with its own button or F11, and closing the player always undoes it.
         FullPlayer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
         SetTitleBar(open ? FullPlayerDragStrip : TitleBarStrip);
-        AppWindow.SetPresenter(open
-            ? Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen
-            : Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
+        if (!open)
+        {
+            SetWindowFullScreen(false);
+        }
         if (open)
         {
             FullPlayerCoverButton.Focus(FocusState.Programmatic);
@@ -975,6 +978,18 @@ public sealed partial class MainWindow : Window
                 await Model.LoadLyricsAsync();
             }
         }
+    }
+
+    private void OnToggleWindowFullScreen(object sender, RoutedEventArgs e) =>
+        SetWindowFullScreen(FullPlayerWindowToggle.IsChecked == true);
+
+    private void SetWindowFullScreen(bool fullScreen)
+    {
+        FullPlayerWindowToggle.IsChecked = fullScreen;
+        FullPlayerWindowToggle.Content = fullScreen ? "\uE73F" : "\uE740";
+        AppWindow.SetPresenter(fullScreen
+            ? Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen
+            : Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
     }
 
     private void OnToggleFullPlayerLyrics(object sender, RoutedEventArgs e)
@@ -1048,7 +1063,18 @@ public sealed partial class MainWindow : Window
             OnToggleQueue(QueueButton, new RoutedEventArgs());
         });
         Accelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, () => _ = GoBackAsync());
-        Accelerator(VirtualKey.F11, VirtualKeyModifiers.None, () => SetFullPlayerOpen(FullPlayer.Visibility != Visibility.Visible));
+        Accelerator(VirtualKey.F11, VirtualKeyModifiers.None, () =>
+        {
+            // In the player F11 fills the screen; elsewhere it opens the player.
+            if (FullPlayer.Visibility == Visibility.Visible)
+            {
+                SetWindowFullScreen(FullPlayerWindowToggle.IsChecked != true);
+            }
+            else
+            {
+                SetFullPlayerOpen(true);
+            }
+        });
         Accelerator(VirtualKey.F, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift,
             () => SetFullPlayerOpen(FullPlayer.Visibility != Visibility.Visible));
         Accelerator(VirtualKey.Escape, VirtualKeyModifiers.None, () =>

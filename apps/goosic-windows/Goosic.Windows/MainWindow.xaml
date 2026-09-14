@@ -381,22 +381,20 @@
                             <Button x:Name="VolumeButton" Style="{StaticResource PillGlyphStyle}"
                                     Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume">
                                 <Button.Flyout>
-                                    <Flyout Placement="Top">
-                                        <StackPanel Width="240" Spacing="8" Padding="4">
-                                            <Grid>
-                                                <TextBlock Text="Volume" FontWeight="SemiBold" />
-                                                <TextBlock HorizontalAlignment="Right"
-                                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}"
-                                                           Text="{x:Bind Model.VolumePercent, Mode=OneWay}" />
-                                            </Grid>
-                                            <!-- 0 to 100 in whole steps. On 0 to 1 the default step of 1 let
-                                                 the thumb sit only at the two ends. -->
-                                            <Slider x:Name="VolumeSlider" Minimum="0" Maximum="100" StepFrequency="1"
+                                    <Flyout Placement="Top" FlyoutPresenterStyle="{StaticResource VolumeFlyoutStyle}">
+                                        <StackPanel Width="44" Spacing="10" HorizontalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Model.VolumePercent, Mode=OneWay}" FontSize="14"
+                                                       FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                            <Slider x:Name="VolumeSlider" Orientation="Vertical" Height="170"
+                                                    Minimum="0" Maximum="100" StepFrequency="1"
+                                                    HorizontalAlignment="Center" IsThumbToolTipEnabled="False"
+                                                    Style="{StaticResource VolumeSliderStyle}"
                                                     Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
-                                                    ValueChanged="OnVolumeChanged"
-                                                    AutomationProperties.Name="Volume" />
-                                            <Button Content="{x:Bind Model.MuteLabel, Mode=OneWay}"
-                                                    HorizontalAlignment="Stretch" Click="OnToggleMuted" />
+                                                    ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
+                                            <Button Style="{StaticResource PillGlyphStyle}" HorizontalAlignment="Center"
+                                                    Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
+                                                    ToolTipService.ToolTip="{x:Bind Model.MuteLabel, Mode=OneWay}"
+                                                    Click="OnToggleMuted" />
                                         </StackPanel>
                                     </Flyout>
                                 </Button.Flyout>
@@ -821,17 +819,27 @@
                 <Button Style="{StaticResource FullPlayerGlyphStyle}" Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
                         ToolTipService.ToolTip="Volume">
                     <Button.Flyout>
-                        <Flyout Placement="Bottom">
-                            <StackPanel Width="240" Spacing="8">
-                                <Slider x:Name="FullPlayerVolume" Minimum="0" Maximum="100" StepFrequency="1"
-                                        Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
-                                        ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
-                                <Button Content="{x:Bind Model.MuteLabel, Mode=OneWay}"
-                                        HorizontalAlignment="Stretch" Click="OnToggleMuted" />
-                            </StackPanel>
-                        </Flyout>
+                        <Flyout Placement="Bottom" FlyoutPresenterStyle="{StaticResource VolumeFlyoutStyle}">
+                                        <StackPanel Width="44" Spacing="10" HorizontalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Model.VolumePercent, Mode=OneWay}" FontSize="14"
+                                                       FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                            <Slider x:Name="FullPlayerVolume" Orientation="Vertical" Height="170"
+                                                    Minimum="0" Maximum="100" StepFrequency="1"
+                                                    HorizontalAlignment="Center" IsThumbToolTipEnabled="False"
+                                                    Style="{StaticResource VolumeSliderStyle}"
+                                                    Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
+                                                    ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
+                                            <Button Style="{StaticResource PillGlyphStyle}" HorizontalAlignment="Center"
+                                                    Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
+                                                    ToolTipService.ToolTip="{x:Bind Model.MuteLabel, Mode=OneWay}"
+                                                    Click="OnToggleMuted" />
+                                        </StackPanel>
+                                    </Flyout>
                     </Button.Flyout>
                 </Button>
+                <ToggleButton x:Name="FullPlayerWindowToggle" Style="{StaticResource FullPlayerToggleStyle}"
+                              Content="&#xE740;" ToolTipService.ToolTip="Fill the screen (F11)"
+                              AutomationProperties.Name="Fill the screen" Click="OnToggleWindowFullScreen" />
                 <ToggleButton x:Name="FullPlayerLyricsToggle" Style="{StaticResource FullPlayerToggleStyle}"
                               Content="&#xE90A;" IsChecked="True" ToolTipService.ToolTip="Show or hide lyrics"
                               Click="OnToggleFullPlayerLyrics" />

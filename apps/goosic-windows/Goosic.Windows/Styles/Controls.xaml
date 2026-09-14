@@ -136,6 +136,21 @@
         <Setter Property="IsThumbToolTipEnabled" Value="False" />
     </Style>
 
+    <!-- The volume popover: a tall rounded pill with the level, a vertical slider and mute. -->
+    <Style x:Key="VolumeFlyoutStyle" TargetType="FlyoutPresenter">
+        <Setter Property="CornerRadius" Value="26" />
+        <Setter Property="Padding" Value="8,14,8,8" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Background" Value="{ThemeResource GoosicPillAcrylicBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource GoosicPillBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style x:Key="VolumeSliderStyle" TargetType="Slider">
+        <Setter Property="Foreground" Value="{StaticResource GoosicAccentBrush}" />
+    </Style>
+
     <Style x:Key="RailGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
         <Setter Property="Width" Value="40" />
         <Setter Property="Height" Value="40" />

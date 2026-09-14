@@ -110,6 +110,12 @@ internal sealed class OfficialPlaybackHost
     internal event Action<string>? PageMovedOn;
 
     private int _strayReports;
+
+    /// <summary>The volume and mute the listener last chose, or null before they chose one.</summary>
+    private double? _preferredVolume;
+    private bool _preferredMuted;
+    private bool _lastMuted;
+    private DateTime _lastVolumeFix = DateTime.MinValue;
     private bool _movedOnHandled;
 
     /// <summary>Raised with anything worth saying on screen.</summary>
@@ -515,24 +521,54 @@ internal sealed class OfficialPlaybackHost
     }
 
     /// <summary>Requests a clamped page volume without treating that request as confirmed state.</summary>
+    /// <summary>
+    /// Sets the volume, and remembers it as the listener's choice.
+    /// </summary>
+    /// <remarks>
+    /// Every track is a new page, and a new page starts at whatever volume YouTube Music keeps for
+    /// itself -- so the level the listener chose was lost on some track changes. The choice is kept
+    /// here and put back whenever a report shows the page has drifted from it.
+    /// </remarks>
     internal async Task SetVolumeAsync(double volume)
     {
-        if (!HasLoadedTrack || !double.IsFinite(volume)) return;
-        var requested = Math.Clamp(volume, 0, 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (!double.IsFinite(volume))
+        {
+            return;
+        }
+
+        _preferredVolume = Math.Clamp(volume, 0, 1);
+        if (_preferredVolume > 0)
+        {
+            _preferredMuted = false;
+        }
+
+        await ApplyPreferredVolumeAsync();
+    }
+
+    /// <summary>Puts the chosen volume and mute on the page that is loaded.</summary>
+    private async Task ApplyPreferredVolumeAsync()
+    {
+        if (!HasLoadedTrack || _preferredVolume is not { } volume)
+        {
+            return;
+        }
+
+        var level = volume.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var muted = _preferredMuted ? "true" : "false";
         try
         {
             await _view.CoreWebView2.ExecuteScriptAsync($$"""
                 (() => {
-                  const level = {{requested}};
+                  const level = {{level}}, muted = {{muted}};
                   const player = document.getElementById('movie_player');
                   if (player && typeof player.setVolume === 'function') {
                     player.setVolume(Math.round(level * 100));
-                    if (level > 0 && typeof player.unMute === 'function') player.unMute();
+                    if (muted) player.mute(); else player.unMute();
                     return 'volume-requested';
                   }
                   const media = document.querySelector('audio,video');
                   if (!media) return 'no-media';
-                  media.volume = level; if (level > 0) media.muted = false; return 'volume-requested';
+                  media.volume = level; media.muted = muted; return 'volume-requested';
                 })();
                 """);
         }
@@ -545,25 +581,9 @@ internal sealed class OfficialPlaybackHost
     /// <summary>Requests mute inversion; bridge samples publish the result.</summary>
     internal async Task ToggleMutedAsync()
     {
-        if (!HasLoadedTrack) return;
-        try
-        {
-            await _view.CoreWebView2.ExecuteScriptAsync("""
-                (() => {
-                  const player = document.getElementById('movie_player');
-                  if (player && typeof player.isMuted === 'function') {
-                    if (player.isMuted()) player.unMute(); else player.mute();
-                    return 'mute-requested';
-                  }
-                  const media = document.querySelector('audio,video');
-                  if (!media) return 'no-media'; media.muted = !media.muted; return 'mute-requested';
-                })();
-                """);
-        }
-        catch (Exception error)
-        {
-            Status?.Invoke($"Could not change official-player mute: {error.Message}");
-        }
+        _preferredVolume ??= 1;
+        _preferredMuted = !_lastMuted;
+        await ApplyPreferredVolumeAsync();
     }
 
     private void OnWebMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
@@ -608,6 +628,8 @@ internal sealed class OfficialPlaybackHost
         BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
             + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement}");
         _lastSequence = verdict.Event.Sequence;
+        _lastMuted = verdict.Event.Muted;
+        KeepPreferredVolume(verdict.Event);
         Sampled?.Invoke(verdict.Event);
         _ = ReportSampleAsync(verdict.Event);
     }
@@ -651,6 +673,20 @@ internal sealed class OfficialPlaybackHost
             })();
             """);
         PageMovedOn?.Invoke(_videoId);
+    }
+
+    /// <summary>Restores the chosen volume when a report shows the page has moved away from it.</summary>
+    private void KeepPreferredVolume(BridgeEvent sample)
+    {
+        if (_preferredVolume is not { } volume
+            || (Math.Abs(sample.Volume - volume) < 0.02 && sample.Muted == _preferredMuted)
+            || DateTime.UtcNow - _lastVolumeFix < TimeSpan.FromMilliseconds(900))
+        {
+            return;
+        }
+
+        _lastVolumeFix = DateTime.UtcNow;
+        _ = ApplyPreferredVolumeAsync();
     }
 
     /// <summary>Tells Rust what the page confirmed.</summary>

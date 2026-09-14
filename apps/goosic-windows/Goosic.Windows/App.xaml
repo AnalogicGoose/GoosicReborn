@@ -10,6 +10,13 @@
                 <ResourceDictionary Source="Styles/Palette.xaml" />
                 <ResourceDictionary Source="Styles/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <!-- Sliders fill in the brand red and carry a white thumb, as the volume popover shows. -->
+            <StaticResource x:Key="SliderTrackValueFill" ResourceKey="GoosicAccentBrush" />
+            <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="GoosicAccentBrush" />
+            <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="GoosicAccentBrush" />
+            <SolidColorBrush x:Key="SliderThumbBackground" Color="White" />
+            <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="White" />
+            <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#EEEEEE" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
