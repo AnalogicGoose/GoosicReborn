@@ -45,6 +45,34 @@ public sealed partial class ShellViewModel
 
     public bool HasLyrics => Lyrics.Count > 0;
 
+    private bool _showPageHeader;
+
+    /// <summary>Whether the page has a heading; Home does not.</summary>
+    public bool ShowPageHeader { get => _showPageHeader; private set => Set(ref _showPageHeader, value); }
+
+    /// <summary>What the sidebar's account row says under the name.</summary>
+    public string ConnectionLabel => IsSignedIn ? "Connected" : "Guest";
+
+    /// <summary>Whether there is an earlier page to go back to.</summary>
+    internal bool CanGoBack => _routeHistory.Count > 0;
+
+    /// <summary>The route on screen, or null for a search or an entity page.</summary>
+    internal string? CurrentRouteName
+    {
+        get
+        {
+            var parts = _currentRoute.Split(KeySeparator);
+            return parts[0] == "route" && parts.Length > 1 ? parts[1] : null;
+        }
+    }
+
+    /// <summary>Opens one section of the library directly, as the sidebar's library items do.</summary>
+    internal async Task OpenLibrarySectionAsync(string browseId)
+    {
+        _librarySection = browseId;
+        await LoadRouteAsync("library").ConfigureAwait(true);
+    }
+
     public bool HasNoLyrics => Lyrics.Count == 0;
 
     /// <summary>Reads preferences once, and applies the ones this shell honours.</summary>
@@ -122,6 +150,7 @@ public sealed partial class ShellViewModel
         NextCursor = null;
         ForgetPersonalPage();
         PageTitle = "Settings";
+        ShowPageHeader = true;
         PageSubtitle = "Playback, appearance and accounts";
         Status = "";
         IsSettingsPage = true;

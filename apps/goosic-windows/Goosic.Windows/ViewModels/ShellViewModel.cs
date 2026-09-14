@@ -569,6 +569,22 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         return MarkNaturalEnd(sample);
     }
 
+    /// <summary>
+    /// Records that the requested track finished because the page moved past it.
+    /// </summary>
+    /// <returns>Whether this is the first end recorded for it, so the queue advances once.</returns>
+    internal bool ConfirmEndedByPage(string videoId)
+    {
+        if (_pendingTrack?.VideoId != videoId || _advancedAfterEndVideoId == videoId)
+        {
+            return false;
+        }
+
+        _advancedAfterEndVideoId = videoId;
+        IsPlaying = false;
+        return true;
+    }
+
     private bool MarkNaturalEnd(BridgeEvent sample)
     {
         if (sample.IsAdvertisement || sample.State != "ended" || _advancedAfterEndVideoId == sample.VideoId)
@@ -664,9 +680,25 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
+        if (route == "downloads")
+        {
+            Remember("route" + KeySeparator + route, rememberCurrentRoute);
+            Shelves.Clear();
+            Tracks.Clear();
+            NextCursor = null;
+            ForgetPersonalPage();
+            PageTitle = "Downloads";
+            PageSubtitle = "Tracks saved by a previous Goosic";
+            ShowPageHeader = true;
+            Status = "Playing downloaded files is not available in the Windows shell yet.";
+            return;
+        }
+
         Remember("route" + KeySeparator + route, rememberCurrentRoute);
         var entry = RouteEntry.All.FirstOrDefault(candidate => candidate.Route == route);
         PageTitle = entry?.Title ?? route;
+        // Home is shelves under the title bar, with no heading of its own, as on macOS.
+        ShowPageHeader = route != "home";
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
@@ -787,6 +819,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         Remember(string.Join(KeySeparator, "entity", kind, id, title), remember);
+        ShowPageHeader = true;
         PageTitle = title;
         PageSubtitle = kind switch { "album" => "Album", "playlist" => "Playlist", _ => "Artist" };
         Shelves.Clear();
@@ -859,6 +892,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         Remember(string.Join(KeySeparator, "search", trimmed, filter), remember);
+        ShowPageHeader = true;
         PageTitle = $"Results for “{trimmed}”";
         PageSubtitle = filter == "all" ? "Everything matching" : $"Matching {filter}";
         Shelves.Clear();

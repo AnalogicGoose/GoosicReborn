@@ -104,6 +104,14 @@ internal sealed class OfficialPlaybackHost
     /// <summary>Raised when the page reports something the rules accepted.</summary>
     internal event Action<BridgeEvent>? Sampled;
 
+    /// <summary>
+    /// Raised with the requested video id when the page moved on to a track of its own choosing.
+    /// </summary>
+    internal event Action<string>? PageMovedOn;
+
+    private int _strayReports;
+    private bool _movedOnHandled;
+
     /// <summary>Raised with anything worth saying on screen.</summary>
     internal event Action<string>? Status;
 
@@ -207,6 +215,8 @@ internal sealed class OfficialPlaybackHost
         _token = Guid.NewGuid().ToString("n");
         _videoId = videoId;
         _lastSequence = 0;
+        _strayReports = 0;
+        _movedOnHandled = false;
 
         BridgeLog.Write($"lease claimed generation={_generation}; preparing WebView2");
         await EnsureReadyAsync().ConfigureAwait(true);
@@ -589,14 +599,58 @@ internal sealed class OfficialPlaybackHost
             // Kept quiet on screen: a superseded document reports for a moment after every load,
             // and saying so each time would be noise rather than information.
             BridgeLog.Write($"message rejected: {verdict.Reason}");
+            NoticeStrayTrack(verdict.Reason);
             return;
         }
+
+        _strayReports = 0;
 
         BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
             + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement}");
         _lastSequence = verdict.Event.Sequence;
         Sampled?.Invoke(verdict.Event);
         _ = ReportSampleAsync(verdict.Event);
+    }
+
+    /// <summary>
+    /// Stops the page when it has started a track nobody asked for, and says the requested one is over.
+    /// </summary>
+    /// <remarks>
+    /// When a track ends, YouTube Music's own page moves straight on to a track from its own
+    /// automix, so the observer never reports the requested one as ended -- it reports a different
+    /// video. Those reports are refused, correctly, but refusing them left the page playing its own
+    /// choice without a lease that covered it, and the queue never learned the song had finished.
+    ///
+    /// The rules only say "describes another video" after the token and generation have both
+    /// matched, so the report is from this document under this lease. Two in a row is the page
+    /// having moved on rather than a single report racing a navigation. The page is paused at once
+    /// -- the track Rust did not approve must not keep sounding -- and the queue decides what plays.
+    /// </remarks>
+    private void NoticeStrayTrack(string? reason)
+    {
+        const string prefix = "it describes ";
+        if (_movedOnHandled || _videoId.Length == 0 || reason is null
+            || !reason.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var described = reason[prefix.Length..].Split(',')[0];
+        if (!ShellSupport.IsValidVideoId(described) || described == _videoId || ++_strayReports < 2)
+        {
+            return;
+        }
+
+        _movedOnHandled = true;
+        BridgeLog.Write("the page moved on to its own track; pausing it and advancing the queue");
+        _ = _view.CoreWebView2?.ExecuteScriptAsync("""
+            (() => {
+              const player = document.getElementById('movie_player');
+              if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
+              document.querySelectorAll('audio,video').forEach((media) => media.pause());
+            })();
+            """);
+        PageMovedOn?.Invoke(_videoId);
     }
 
     /// <summary>Tells Rust what the page confirmed.</summary>

@@ -35,10 +35,50 @@ public sealed class AccountViewModel
 }
 
 /// <summary>A playlist the signed-in account owns and may edit.</summary>
-public sealed record PlaylistSummaryViewModel(string Id, string Title, string Subtitle)
+public sealed class PlaylistSummaryViewModel : INotifyPropertyChanged
 {
+    private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? _artwork;
+
+    internal PlaylistSummaryViewModel(string id, string title, string subtitle, string? thumbnail)
+    {
+        Id = id;
+        Title = title;
+        Subtitle = subtitle;
+        Thumbnail = thumbnail;
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    internal string Id { get; }
+    public string Title { get; }
+    public string Subtitle { get; }
+    internal string? Thumbnail { get; }
+
     /// <summary>What activating the row opens.</summary>
     public string ActivationTag => string.Join(ShellViewModel.KeySeparator, "playlist", Id, Title);
+
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? Artwork
+    {
+        get => _artwork;
+        private set
+        {
+            _artwork = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Artwork)));
+        }
+    }
+
+    internal async Task LoadArtworkAsync(ArtworkLoader loader)
+    {
+        if (await loader.LocalFileAsync(Thumbnail).ConfigureAwait(true) is not { } file)
+        {
+            return;
+        }
+
+        var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+        using var stream = System.IO.File.OpenRead(file);
+        await image.SetSourceAsync(System.IO.WindowsRuntimeStreamExtensions.AsRandomAccessStream(stream));
+        Artwork = image;
+    }
 }
 
 /// <summary>The sections of the library, as the chips above it name them.</summary>
@@ -120,7 +160,7 @@ public sealed partial class ShellViewModel
     {
         foreach (var name in new[]
         {
-            nameof(IsSignedIn), nameof(IsGuest), nameof(AccountName), nameof(AccountDetail),
+            nameof(IsSignedIn), nameof(IsGuest), nameof(AccountName), nameof(AccountDetail), nameof(ConnectionLabel),
             nameof(IsOwnedPlaylistPage), nameof(CanSavePagePlaylist), nameof(CanFollowPageArtist),
             nameof(HasPageActions),
         })
@@ -543,10 +583,13 @@ public sealed partial class ShellViewModel
             {
                 if (item?["id"]?.GetValue<string>() is { Length: > 0 } id)
                 {
-                    UserPlaylists.Add(new PlaylistSummaryViewModel(
+                    var playlist = new PlaylistSummaryViewModel(
                         id,
                         item["title"]?.GetValue<string>() ?? "",
-                        item["subtitle"]?.GetValue<string>() ?? ""));
+                        item["subtitle"]?.GetValue<string>() ?? "",
+                        item["thumbnail"]?.GetValue<string>());
+                    UserPlaylists.Add(playlist);
+                    _ = playlist.LoadArtworkAsync(_artwork);
                 }
             }
 

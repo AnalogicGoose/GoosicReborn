@@ -43,12 +43,11 @@
 
     <!-- The round carousel arrows beside a shelf title, as YouTube Music draws them. -->
     <Style x:Key="ShelfArrowStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
-        <Setter Property="Width" Value="32" />
-        <Setter Property="Height" Value="32" />
-        <Setter Property="FontSize" Value="11" />
-        <Setter Property="CornerRadius" Value="16" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="BorderBrush" Value="{ThemeResource GoosicHairlineBrush}" />
+        <Setter Property="Width" Value="40" />
+        <Setter Property="Height" Value="40" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="CornerRadius" Value="20" />
+        <Setter Property="Background" Value="{ThemeResource GoosicRaisedStrongBrush}" />
     </Style>
 
     <!-- The full-screen player's controls: larger, and always light over the cover's colours. -->
@@ -73,6 +72,68 @@
         <Setter Property="Background" Value="{ThemeResource GoosicRaisedBrush}" />
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Padding" Value="18" />
+    </Style>
+
+    <!-- ===== The macOS-style sidebar ===== -->
+    <Style x:Key="SidebarItemStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="FontSize" Value="15" />
+    </Style>
+
+    <Style x:Key="SidebarIconStyle" TargetType="FontIcon">
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+    </Style>
+
+    <Style x:Key="SidebarHeaderStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="10,16,0,4" />
+        <Setter Property="Foreground" Value="{ThemeResource GoosicSecondaryTextBrush}" />
+    </Style>
+
+    <Style x:Key="SidebarGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
+        <Setter Property="FontSize" Value="14" />
+    </Style>
+
+    <!-- The round button at the top left that shows and hides the sidebar. -->
+    <Style x:Key="SidebarToggleStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="34" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="CornerRadius" Value="17" />
+        <Setter Property="Background" Value="{ThemeResource GoosicRaisedBrush}" />
+    </Style>
+
+    <!-- ===== The floating player pill ===== -->
+    <Style x:Key="PillGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
+        <Setter Property="Width" Value="38" />
+        <Setter Property="Height" Value="38" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="CornerRadius" Value="19" />
+    </Style>
+
+    <Style x:Key="PillToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource TransportToggleStyle}">
+        <Setter Property="Width" Value="38" />
+        <Setter Property="Height" Value="38" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="CornerRadius" Value="19" />
+    </Style>
+
+    <!-- A thin position line. The default slider's 32-pixel frame would not fit in the pill. -->
+    <Style x:Key="PillProgressStyle" TargetType="Slider">
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Height" Value="22" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="IsThumbToolTipEnabled" Value="False" />
     </Style>
 
     <Style x:Key="RailGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">

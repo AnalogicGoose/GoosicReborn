@@ -49,12 +49,17 @@ public sealed partial class MainWindow : Window
         WireSeekGestures();
         WireKeyboard();
         WireFullPlayer();
+        HighlightNavigation("home");
         Title = "Goosic";
 
-        // The transport strip is the caption area, so the window has to be told which element
-        // the user may drag the window by -- otherwise the whole row swallows the gesture.
+        // Content runs under the caption area, as it does on macOS, and an empty strip along the
+        // top is handed to the system as the drag region -- the sidebar toggle sits left of it so
+        // it stays clickable. Mica is the window's material; the sidebar and the player pill are
+        // acrylic over it and over the cover's colours.
         ExtendsContentIntoTitleBar = true;
-        SetTitleBar(TransportBar);
+        AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
+        SetTitleBar(TitleBarStrip);
+        SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
 
         if (_client is not null)
         {
@@ -65,6 +70,15 @@ public sealed partial class MainWindow : Window
             Model.Playback = _playback;
             Model.Personal = _personal;
             _playback.Status += message => Model.ReportStatus(message);
+            _playback.PageMovedOn += videoId =>
+            {
+                // YouTube Music started a track of its own when the requested one finished; that is
+                // the requested track's natural end, and the queue decides what plays next.
+                if (Model.ConfirmEndedByPage(videoId))
+                {
+                    _ = AdvanceAsync(forward: true, natural: true);
+                }
+            };
             Model.CurrentLyricChanged += FollowLyricOnScreen;
             Model.ConfirmedTrackChanged += async () =>
             {
@@ -130,46 +144,73 @@ public sealed partial class MainWindow : Window
 
     // ---- Navigation -------------------------------------------------------------------------
 
-    private async void OnRailRoute(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// A sidebar item: a route, or a library section written as <c>library:browseId</c>.
+    /// </summary>
+    private async void OnNavigate(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string route })
+        if (sender is not Button { Tag: string tag })
         {
-            await Model.LoadRouteAsync(route);
-            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+            return;
+        }
+
+        HighlightNavigation(tag);
+        if (tag.StartsWith("library:", StringComparison.Ordinal))
+        {
+            await Model.OpenLibrarySectionAsync(tag["library:".Length..]);
+        }
+        else
+        {
+            await Model.LoadRouteAsync(tag);
+        }
+
+        ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
+    }
+
+    /// <summary>Marks the sidebar item for the page on screen, as the macOS sidebar selects its row.</summary>
+    private void HighlightNavigation(string? tag)
+    {
+        var selected = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GoosicSidebarSelectedBrush"];
+        foreach (var child in SidebarItems.Children)
+        {
+            if (child is Button { Tag: string itemTag } item)
+            {
+                item.Background = itemTag == tag ? selected : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
         }
     }
 
-    private async void OnSidebarRoute(object sender, RoutedEventArgs e)
+    private void UpdateBackButton() =>
+        BackButton.Visibility = Model.CanGoBack ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Hides or shows the sidebar; the content takes the whole width while it is hidden.</summary>
+    private void OnToggleSidebar(object sender, RoutedEventArgs e) => ToggleSidebar();
+
+    private void ToggleSidebar()
     {
-        SidebarOverlay.Visibility = Visibility.Collapsed;
-        if (sender is Button { Tag: string route })
-        {
-            await Model.LoadRouteAsync(route);
-            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
-        }
+        var hidden = Sidebar.Visibility == Visibility.Visible;
+        Sidebar.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
+        SidebarColumn.Width = hidden ? new GridLength(0) : new GridLength(280);
+        ContentScroller.Padding = new Thickness(hidden ? 34 : 34, 56, 34, 128);
     }
-
-    private void OnToggleSidebar(object sender, RoutedEventArgs e) =>
-        SidebarOverlay.Visibility = SidebarOverlay.Visibility == Visibility.Visible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-
-    private void OnDismissSidebar(object sender, TappedRoutedEventArgs e) =>
-        SidebarOverlay.Visibility = Visibility.Collapsed;
-
-    private void OnSearchRoute(object sender, RoutedEventArgs e) => OpenSearch();
 
     private void OpenSearch()
     {
-        SidebarOverlay.Visibility = Visibility.Visible;
+        if (Sidebar.Visibility != Visibility.Visible)
+        {
+            ToggleSidebar();
+        }
+
         SidebarSearch.Focus(FocusState.Programmatic);
     }
 
     private async void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
-        SidebarOverlay.Visibility = Visibility.Collapsed;
+        HighlightNavigation(null);
         await Model.SearchAsync(args.QueryText, "all");
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
     }
 
     private async void OnBack(object sender, RoutedEventArgs e) => await GoBackAsync();
@@ -177,13 +218,53 @@ public sealed partial class MainWindow : Window
     private async Task GoBackAsync()
     {
         await Model.GoBackAsync();
+        HighlightNavigation(Model.CurrentRouteName);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
     }
 
     private async Task OpenAsync(string kind, string id, string title)
     {
+        HighlightNavigation(null);
         await Model.OpenEntityAsync(kind, id, title);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
+    }
+
+    // ---- The player pill --------------------------------------------------------------------
+
+    /// <summary>Pointing at the pill shows the times either side of the position line.</summary>
+    private void OnPillPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        PillElapsed.Opacity = 1;
+        PillRemaining.Opacity = 1;
+    }
+
+    private void OnPillPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        PillElapsed.Opacity = 0;
+        PillRemaining.Opacity = 0;
+    }
+
+    /// <summary>Pointing at the cover shows that clicking it opens the full-screen player.</summary>
+    private void OnCoverPointerEntered(object sender, PointerRoutedEventArgs e) => PillCoverHover.Opacity = 1;
+
+    private void OnCoverPointerExited(object sender, PointerRoutedEventArgs e) => PillCoverHover.Opacity = 0;
+
+    /// <summary>The pill's "more" menu: what the row menu offers, for the track that is playing.</summary>
+    private void OnNowPlayingMore(object sender, RoutedEventArgs e)
+    {
+        if (Model.ConfirmedTrack is not { } track || BuildMenu(track) is not { } menu)
+        {
+            Model.ReportStatus("Nothing is playing.");
+            return;
+        }
+
+        menu.Items.Insert(0, new MenuFlyoutSeparator());
+        var full = new MenuFlyoutItem { Text = "Full-screen player", Icon = new FontIcon { Glyph = "\uE740" } };
+        full.Click += (_, _) => SetFullPlayerOpen(true);
+        menu.Items.Insert(0, full);
+        menu.ShowAt(PillMoreButton, new FlyoutShowOptions { Placement = FlyoutPlacementMode.TopEdgeAlignedRight });
     }
 
     private async void OnAccount(object sender, RoutedEventArgs e)
@@ -570,7 +651,6 @@ public sealed partial class MainWindow : Window
 
     private async void OnSidebarPlaylist(object sender, RoutedEventArgs e)
     {
-        SidebarOverlay.Visibility = Visibility.Collapsed;
         if (sender is Button { Tag: string tag } && tag.Split(ShellViewModel.KeySeparator) is { Length: 3 } parts)
         {
             await OpenAsync(parts[0], parts[1], parts[2]);
@@ -579,7 +659,6 @@ public sealed partial class MainWindow : Window
 
     private async void OnNewPlaylist(object sender, RoutedEventArgs e)
     {
-        SidebarOverlay.Visibility = Visibility.Collapsed;
         await NewPlaylistAsync(null);
     }
 
@@ -806,7 +885,7 @@ public sealed partial class MainWindow : Window
         }
 
         FullPlayer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        SetTitleBar(open ? FullPlayerDragStrip : TransportBar);
+        SetTitleBar(open ? FullPlayerDragStrip : TitleBarStrip);
         AppWindow.SetPresenter(open
             ? Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen
             : Microsoft.UI.Windowing.AppWindowPresenterKind.Default);
@@ -902,8 +981,8 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            SidebarOverlay.Visibility = Visibility.Collapsed;
         });
+        Accelerator(VirtualKey.B, VirtualKeyModifiers.Control, ToggleSidebar);
         RootGrid.PreviewKeyDown += OnPreviewKeyDown;
     }
 

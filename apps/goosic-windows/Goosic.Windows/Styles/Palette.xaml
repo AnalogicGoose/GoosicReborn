@@ -12,6 +12,12 @@
             <SolidColorBrush x:Key="GoosicRaisedStrongBrush" Color="#FFFFFF" Opacity="0.11" />
             <SolidColorBrush x:Key="GoosicSecondaryTextBrush" Color="#9E9EA7" />
             <SolidColorBrush x:Key="GoosicHairlineBrush" Color="#FFFFFF" Opacity="0.09" />
+            <AcrylicBrush x:Key="GoosicSidebarAcrylicBrush" TintColor="#2A2A30" TintOpacity="0.45"
+                          TintLuminosityOpacity="0.55" FallbackColor="#232328" />
+            <AcrylicBrush x:Key="GoosicPillAcrylicBrush" TintColor="#3A3A40" TintOpacity="0.3"
+                          TintLuminosityOpacity="0.45" FallbackColor="#E62C2C32" />
+            <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="#FFFFFF" Opacity="0.14" />
+            <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="#FFFFFF" Opacity="0.10" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#FBFBFD" />
@@ -21,6 +27,12 @@
             <SolidColorBrush x:Key="GoosicRaisedStrongBrush" Color="#000000" Opacity="0.10" />
             <SolidColorBrush x:Key="GoosicSecondaryTextBrush" Color="#5C5C66" />
             <SolidColorBrush x:Key="GoosicHairlineBrush" Color="#000000" Opacity="0.12" />
+            <AcrylicBrush x:Key="GoosicSidebarAcrylicBrush" TintColor="#F3F3F6" TintOpacity="0.55"
+                          TintLuminosityOpacity="0.7" FallbackColor="#F1F1F5" />
+            <AcrylicBrush x:Key="GoosicPillAcrylicBrush" TintColor="#FFFFFF" TintOpacity="0.45"
+                          TintLuminosityOpacity="0.6" FallbackColor="#F2FFFFFF" />
+            <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="#000000" Opacity="0.10" />
+            <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="#000000" Opacity="0.08" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
@@ -41,6 +53,6 @@
     <x:Double x:Key="GoosicRailWidth">48</x:Double>
     <x:Double x:Key="GoosicSidebarWidth">292</x:Double>
     <x:Double x:Key="GoosicTransportHeight">56</x:Double>
-    <x:Double x:Key="GoosicCardSize">168</x:Double>
+    <x:Double x:Key="GoosicCardSize">196</x:Double>
 
 </ResourceDictionary>
