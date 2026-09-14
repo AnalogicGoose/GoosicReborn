@@ -125,6 +125,17 @@ fn catalog_id(payload: &RequestPayload, request_id: &str) -> Result<String, Resp
     }
 }
 
+fn continuation(payload: &RequestPayload, request_id: &str) -> Result<String, ResponseEnvelope> {
+    match payload.continuation.as_deref().map(str::trim) {
+        Some(cursor) if !cursor.is_empty() => Ok(cursor.to_owned()),
+        _ => Err(failure(
+            request_id.to_owned(),
+            "invalidRequest",
+            "catalog.continue requires continuation".into(),
+        )),
+    }
+}
+
 /// Handles every `catalog.*` command. Returns `None` when the command is not a catalog command.
 pub fn handle(
     catalog: &Catalog,
@@ -147,6 +158,10 @@ pub fn handle(
             let title = payload.query.clone().unwrap_or_else(|| route.clone());
             respond(id, catalog.browse_route(&route, &title))
         }
+        "catalog.continue" => match continuation(payload, request_id) {
+            Ok(cursor) => respond(id, catalog.browse_continuation(&cursor)),
+            Err(response) => response,
+        },
         "catalog.album" => match catalog_id(payload, request_id) {
             Ok(browse_id) => respond(id, catalog.album(&browse_id)),
             Err(response) => response,
@@ -156,7 +171,12 @@ pub fn handle(
             Err(response) => response,
         },
         "catalog.radio" => match catalog_id(payload, request_id) {
-            Ok(video_id) => respond(id, catalog.radio(&video_id)),
+            Ok(video_id) => match payload.continuation.as_deref() {
+                Some(continuation) => {
+                    respond(id, catalog.radio_continuation(&video_id, continuation))
+                }
+                None => respond(id, catalog.radio(&video_id)),
+            },
             Err(response) => response,
         },
         "catalog.artist" => match catalog_id(payload, request_id) {
@@ -282,6 +302,20 @@ mod tests {
     fn search_rejects_an_empty_query_without_network_access() {
         let catalog = Catalog::new();
         let response = handle(&catalog, "catalog.search", "1", &RequestPayload::default()).unwrap();
+        assert!(!response.ok);
+        assert_eq!(response.error.unwrap().code, "invalidRequest");
+    }
+
+    #[test]
+    fn continuation_rejects_a_missing_cursor_without_network_access() {
+        let catalog = Catalog::new();
+        let response = handle(
+            &catalog,
+            "catalog.continue",
+            "1",
+            &RequestPayload::default(),
+        )
+        .unwrap();
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "invalidRequest");
     }

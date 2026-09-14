@@ -78,10 +78,14 @@ task seems to require breaking one, stop and say so instead of working around it
 - **Credentials never cross the protocol and never reach stdout.** Cookies, bridge tokens,
   signing keys, and media URLs stay in platform-secure storage.
 - **Advertisements are reported, never bypassed.** They are informational markers.
-- **No GPL source is copied into this repository.** The previous Goosic is read for
-  compatibility of formats and storage keys only — see
-  [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md). The legacy import reads old
-  data and never modifies or deletes it, and never carries credentials over.
+- **Code from the previous Goosic keeps its notice.** The previous Goosic is GPL-3.0 and may
+  be ported here directly — reuse working code rather than rewriting it — but a ported file
+  carries the GPL header and the original authors' copyright, and the combined program is
+  distributed under GPL-3.0 (`LICENSE-GPL-3.0`); see
+  [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md). Porting does not relax the
+  other invariants: ported fetch code runs where the cookies already live, inside the account's
+  WebKit profile, never through the service protocol. The legacy import reads old data and
+  never modifies or deletes it, and never carries credentials over.
 - **No downloader.** `goosic-downloads` imports finalized legacy files and decodes them. It
   contains no yt-dlp path and no account-cookie path, and must not grow one.
 - **A clamped catalog page says so.** Never present a partial list as complete.
