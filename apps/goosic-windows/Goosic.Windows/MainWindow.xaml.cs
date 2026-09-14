@@ -352,6 +352,33 @@ public sealed partial class MainWindow : Window
 
     private async void OnLoadMore(object sender, RoutedEventArgs e) => await Model.LoadMoreAsync();
 
+    /// <summary>Loads the next part of a long page as the reader nears its end, as YouTube Music does.</summary>
+    private async void OnContentViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    {
+        if (Model.HasMore && ContentScroller.ScrollableHeight > 0
+            && ContentScroller.VerticalOffset > ContentScroller.ScrollableHeight - 900)
+        {
+            await Model.LoadMoreAsync();
+        }
+    }
+
+    private async void OnSearchFilter(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string filter })
+        {
+            await Model.RefilterSearchAsync(filter);
+            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        }
+    }
+
+    private async void OnQueueItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is TrackViewModel entry)
+        {
+            await PlayEntryAsync(Model.JumpTo(entry));
+        }
+    }
+
     /// <summary>Pages a shelf sideways by most of its visible width, like the carousel arrows.</summary>
     private void OnShelfScroll(object sender, RoutedEventArgs e)
     {
@@ -1049,6 +1076,8 @@ public sealed partial class MainWindow : Window
         Accelerator(VirtualKey.Up, VirtualKeyModifiers.Control, () => _ = NudgeVolumeAsync(0.05));
         Accelerator(VirtualKey.Down, VirtualKeyModifiers.Control, () => _ = NudgeVolumeAsync(-0.05));
         Accelerator(VirtualKey.M, VirtualKeyModifiers.Control, () => _ = _playback?.ToggleMutedAsync());
+        Accelerator(VirtualKey.Right, VirtualKeyModifiers.Shift, () => _ = SeekByAsync(10));
+        Accelerator(VirtualKey.Left, VirtualKeyModifiers.Shift, () => _ = SeekByAsync(-10));
         Accelerator(VirtualKey.S, VirtualKeyModifiers.Control, Model.ToggleShuffle);
         Accelerator(VirtualKey.R, VirtualKeyModifiers.Control, Model.CycleRepeat);
         Accelerator(VirtualKey.F, VirtualKeyModifiers.Control, OpenSearch);
@@ -1088,6 +1117,15 @@ public sealed partial class MainWindow : Window
         });
         Accelerator(VirtualKey.B, VirtualKeyModifiers.Control, ToggleSidebar);
         RootGrid.PreviewKeyDown += OnPreviewKeyDown;
+    }
+
+    /// <summary>Moves ten seconds either way, as the web player's seek keys do.</summary>
+    private async Task SeekByAsync(double seconds)
+    {
+        if (_playback is not null && Model.IsSeekable)
+        {
+            await _playback.SeekAsync(Math.Clamp(Model.PlaybackPosition + seconds, 0, Model.PlaybackDuration));
+        }
     }
 
     private void Accelerator(VirtualKey key, VirtualKeyModifiers modifiers, Action action)

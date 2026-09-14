@@ -899,6 +899,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Tracks.Clear();
         NextCursor = null;
         ForgetPersonalPage();
+        MarkSearchPage(trimmed);
         Status = "Searching…";
 
         try

@@ -81,6 +81,9 @@ public sealed class PlaylistSummaryViewModel : INotifyPropertyChanged
     }
 }
 
+/// <summary>One search filter chip.</summary>
+public sealed record SearchFilterChoice(string Title, string Filter);
+
 /// <summary>The sections of the library, as the chips above it name them.</summary>
 public sealed record LibrarySection(string Title, string BrowseId, string Shape);
 
@@ -184,6 +187,7 @@ public sealed partial class ShellViewModel
         _pageArtistId = null;
         IsLibraryPage = false;
         IsSettingsPage = false;
+        IsSearchPage = false;
         PageActionsChanged();
     }
 

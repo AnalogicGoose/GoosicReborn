@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Goosic.Windows.Service;
@@ -44,6 +45,32 @@ public sealed partial class ShellViewModel
     internal string? NowPlayingThumbnail => _nowPlayingThumbnail;
 
     public bool HasLyrics => Lyrics.Count > 0;
+
+    private bool _isSearchPage;
+    private string _searchQuery = "";
+
+    /// <summary>The search filters, in the order YouTube Music offers them.</summary>
+    public IReadOnlyList<SearchFilterChoice> SearchFilterChoices { get; } =
+    [
+        new("All", "all"),
+        new("Songs", "songs"),
+        new("Albums", "albums"),
+        new("Artists", "artists"),
+        new("Playlists", "playlists"),
+    ];
+
+    /// <summary>Whether the page on screen is search results, so the filter chips show.</summary>
+    public bool IsSearchPage { get => _isSearchPage; private set => Set(ref _isSearchPage, value); }
+
+    /// <summary>Runs the current search again under another filter.</summary>
+    internal Task RefilterSearchAsync(string filter) =>
+        _searchQuery.Length == 0 ? Task.CompletedTask : SearchAsync(_searchQuery, filter);
+
+    internal void MarkSearchPage(string query)
+    {
+        _searchQuery = query;
+        IsSearchPage = true;
+    }
 
     private bool _showPageHeader;
 
