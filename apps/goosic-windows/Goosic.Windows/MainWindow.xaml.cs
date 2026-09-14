@@ -215,7 +215,7 @@ public sealed partial class MainWindow : Window
     {
         var left = LeftInset + ContentGutter;
         var right = RightInset + ContentGutter;
-        ContentStack.Padding = new Thickness(left, 0, right, 0);
+        ContentStack.Padding = new Thickness(left, 56, right, 128);
         PlayerPill.Margin = new Thickness(LeftInset + 16, 0, RightInset + 16, 18);
         BackButton.Margin = new Thickness(56, 7, 0, 0);
         foreach (var carousel in _carousels)

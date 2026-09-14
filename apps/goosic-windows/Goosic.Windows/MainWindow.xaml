@@ -29,8 +29,13 @@
 
             <!-- ============================== Content ============================== -->
             <Grid>
-                <ScrollViewer x:Name="ContentScroller" Padding="0,56,0,128">
-                    <StackPanel x:Name="ContentStack" Spacing="22" Padding="314,0,34,0">
+                <!--
+                    No padding on the scroller itself: a ScrollViewer clips its content inside its
+                    padding, which cut the shelves off above the player pill. The page carries the
+                    space instead, so it scrolls under the pill and the title bar and shows through.
+                -->
+                <ScrollViewer x:Name="ContentScroller">
+                    <StackPanel x:Name="ContentStack" Spacing="22" Padding="314,56,34,128">
                         <StackPanel Spacing="2" Visibility="{x:Bind Model.ShowPageHeader, Mode=OneWay}">
                             <TextBlock Text="{x:Bind Model.PageTitle, Mode=OneWay}"
                                        FontSize="30" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
