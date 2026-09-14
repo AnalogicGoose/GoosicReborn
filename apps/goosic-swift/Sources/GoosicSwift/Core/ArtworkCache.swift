@@ -34,6 +34,9 @@ final class ArtworkCache {
     private let session: URLSession
     /// Local files known to exist, keyed by remote URL.
     private var ready: [String: URL] = [:]
+    /// File names discovered once when the cache opens. View layout consults this in-memory
+    /// index instead of calling into the filesystem for every card on every model update.
+    private var filesOnDisk: Set<String>
     /// Remote URLs currently being fetched.
     private var inFlight: Set<String> = []
     /// Remote URLs waiting for a slot.
@@ -43,11 +46,17 @@ final class ArtworkCache {
 
     /// Called when new artwork becomes available, so the shell can re-render.
     var onArtworkLoaded: (() -> Void)?
+    /// Several thumbnails commonly finish together. One refresh is enough for the entire batch.
+    private var artworkNotificationPending = false
 
     init(directory: URL? = nil) {
         let base = directory ?? Self.defaultDirectory()
         self.directory = base
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        filesOnDisk = Set(
+            (try? FileManager.default.contentsOfDirectory(atPath: base.path))?
+                .filter { $0.hasSuffix(".img") } ?? []
+        )
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
@@ -103,8 +112,9 @@ final class ArtworkCache {
         if let known = ready[remote] { return known }
         guard !failed.contains(remote) else { return nil }
 
-        let destination = directory.appendingPathComponent("\(Self.cacheKey(for: remote)).img")
-        if FileManager.default.fileExists(atPath: destination.path) {
+        let fileName = "\(Self.cacheKey(for: remote)).img"
+        let destination = directory.appendingPathComponent(fileName)
+        if filesOnDisk.contains(fileName) {
             ready[remote] = destination
             return destination
         }
@@ -140,20 +150,40 @@ final class ArtworkCache {
                 failed.insert(remote)
                 return
             }
-            // Written beside the destination and renamed, so a half-written file can never be
-            // picked up as a valid cache entry by a later layout pass.
-            let partial = destination.appendingPathExtension("partial")
-            try data.write(to: partial, options: .atomic)
-            _ = try? FileManager.default.replaceItemAt(destination, withItemAt: partial)
-            if FileManager.default.fileExists(atPath: destination.path) {
+            // Disk work must not share the main actor with tab layout. Write beside the final
+            // file and move atomically, so layout can only ever see a complete image.
+            let stored = try await Task.detached(priority: .utility) {
+                let manager = FileManager.default
+                let partial = destination.appendingPathExtension("partial")
+                try data.write(to: partial, options: .atomic)
+                if manager.fileExists(atPath: destination.path) {
+                    _ = try manager.replaceItemAt(destination, withItemAt: partial)
+                } else {
+                    try manager.moveItem(at: partial, to: destination)
+                }
+                return true
+            }.value
+            if stored {
+                filesOnDisk.insert(destination.lastPathComponent)
                 ready[remote] = destination
-                onArtworkLoaded?()
+                scheduleArtworkNotification()
             } else {
                 failed.insert(remote)
             }
         } catch {
             // Artwork is decoration. A failure leaves the placeholder in place.
             failed.insert(remote)
+        }
+    }
+
+    private func scheduleArtworkNotification() {
+        guard !artworkNotificationPending else { return }
+        artworkNotificationPending = true
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard let self else { return }
+            artworkNotificationPending = false
+            onArtworkLoaded?()
         }
     }
 

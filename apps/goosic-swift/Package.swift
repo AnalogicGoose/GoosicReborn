@@ -23,6 +23,10 @@ let package = Package(
                 .target(name: "CWebKitGTK", condition: .when(platforms: [.linux])),
                 .target(name: "CGLib", condition: .when(platforms: [.linux])),
                 .target(name: "CGStreamer", condition: .when(platforms: [.linux])),
+            ],
+            resources: [
+                .copy("Resources/PersonalCatalog.js"),
+                .copy("Resources/AppIcons"),
             ]
         ),
         // WebKitGTK's GTK 4 binding. Only Linux depends on it; macOS keeps using WebKit.framework.

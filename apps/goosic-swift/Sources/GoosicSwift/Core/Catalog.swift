@@ -4,18 +4,55 @@ import Foundation
 ///
 /// Pages are cached under this key, so a slow response can never land on the screen the user
 /// has since navigated away from — it lands on its own key and is simply not displayed.
+///
+/// That is the only staleness the key itself decides. Whether an answer is still the current
+/// answer *for its own key* — after a reload, or after the account it was asked for stopped being
+/// the active one — is `CatalogRequestLedger`'s question.
 enum CatalogKey: Hashable {
     case route(GoosicRoute)
     case search(query: String, filter: String)
     case album(String)
     case artist(String)
     case playlist(String)
+    case library(String)
 
     static func entity(_ reference: GoosicEntityReference) -> CatalogKey {
         switch reference {
         case .album(let id): return .album(id)
         case .artist(let id): return .artist(id)
         case .playlist(let id): return .playlist(id)
+        }
+    }
+}
+
+enum PersonalLibrarySection: String, CaseIterable, Identifiable {
+    case playlists = "Playlists"
+    case songs = "Songs"
+    case albums = "Albums"
+    case artists = "Artists"
+
+    var id: String { rawValue }
+
+    var browseID: String {
+        switch self {
+        case .playlists: return "FEmusic_liked_playlists"
+        case .songs: return "VLLM"
+        case .albums: return "FEmusic_liked_albums"
+        case .artists: return "FEmusic_library_corpus_artists"
+        }
+    }
+
+    var key: CatalogKey { .library(rawValue) }
+}
+
+extension CatalogKey {
+    /// Whether this page is a flat track list rather than shelves of cards. Used to draw the
+    /// right placeholder before the answer arrives — a shelf skeleton in front of a playlist
+    /// would be a second layout jump rather than a stand-in for the first.
+    var expectsTrackList: Bool {
+        switch self {
+        case .album, .playlist: return true
+        case .route, .search, .artist, .library: return false
         }
     }
 }
@@ -34,6 +71,7 @@ struct CatalogPageView: Hashable {
     let subtitle: String
     let shelves: [GoosicShelf]
     let tracks: [GoosicTrack]
+    let nextCursor: String?
     /// The service clamped this page to fit one protocol frame.
     let truncated: Bool
 
@@ -119,17 +157,60 @@ extension CatalogPageView {
             subtitle: page.subtitle ?? "",
             shelves: shelves,
             tracks: (page.tracks ?? []).compactMap(GoosicTrack.init(catalog:)),
+            nextCursor: page.nextCursor,
             truncated: page.truncated ?? false
         )
+    }
+
+    func appending(_ continuation: CatalogPageView) -> CatalogPageView {
+        var seen = Set(shelves.map(\.id))
+        var mergedShelves = shelves
+        for shelf in continuation.shelves {
+            var candidate = shelf
+            var suffix = 2
+            while !seen.insert(candidate.id).inserted {
+                candidate = GoosicShelf(
+                    id: "\(shelf.id)-\(suffix)",
+                    title: shelf.title,
+                    cards: shelf.cards
+                )
+                suffix += 1
+            }
+            mergedShelves.append(candidate)
+        }
+        return CatalogPageView(
+            id: id,
+            title: title,
+            subtitle: subtitle,
+            shelves: mergedShelves,
+            tracks: tracks + continuation.tracks,
+            nextCursor: continuation.nextCursor,
+            truncated: truncated || continuation.truncated
+        )
+    }
+}
+
+/// Whether a shelf is drawn as a row of artwork or as a list of tracks.
+///
+/// This depends on the page, which is why the shelf cannot decide it alone. The rule began as
+/// "every card is playable, so draw rows", written for search, where songs and albums come back
+/// in one page shape and songs read far better as a list. On Home the same test is true of any
+/// all-songs shelf — and there it is wrong: Home is a wall of artwork, and a shelf of songs
+/// collapsing into a text list is the one thing on the page that does not look like the rest of
+/// it. The context the rule always depended on was simply not available where it was written.
+enum ShelfPresentation: Equatable {
+    case cards
+    case rows([GoosicTrack])
+
+    static func preferred(for key: CatalogKey, shelf: GoosicShelf) -> ShelfPresentation {
+        guard case .search = key, let tracks = shelf.playableRows else { return .cards }
+        return .rows(tracks)
     }
 }
 
 extension GoosicShelf {
     /// The shelf as an ordered track list, when every row in it is playable.
-    ///
-    /// Search returns songs and albums in the same page shape; songs read far better as rows
-    /// than as artwork cards, so the shelf decides its own presentation.
-    var trackList: [GoosicTrack]? {
+    var playableRows: [GoosicTrack]? {
         let tracks = cards.compactMap { card -> GoosicTrack? in
             if case .play(let track) = card.action { return track }
             return nil
@@ -212,5 +293,35 @@ func catalogFailureText(code: String, message: String, subject: String) -> (titl
         return ("Service not connected", message)
     default:
         return ("Could not load", message)
+    }
+}
+
+/// Where a page's continuation stands.
+///
+/// The screen used to infer this from two facts that cannot express it: a cursor exists, and a
+/// key is or is not in a "loading" set. A continuation that failed looks exactly like one that has
+/// not started, so the row kept saying "Loading more…" over a request that had already given up,
+/// and every time it came back on screen it asked again — a spinner that never resolves in front
+/// of a retry loop nobody asked for. Failure has to be a state you can be in.
+enum CatalogContinuationState: Equatable {
+    /// There is more to fetch and nothing is fetching it.
+    case idle
+    case loading
+    /// Asked and refused. Nothing retries this but the user; the row says so and offers to.
+    case failed(String)
+}
+
+/// What a "load more" control says in each state.
+///
+/// Pure because the wrong answer here is the whole defect: the control read a boolean and so had
+/// no word for "this was refused", which is how a failed continuation came to sit under a label
+/// promising it was still loading.
+enum CatalogContinuationLabel {
+    static func text(for state: CatalogContinuationState) -> String {
+        switch state {
+        case .idle: return "Load more"
+        case .loading: return "Loading more…"
+        case .failed: return "Try again"
+        }
     }
 }
