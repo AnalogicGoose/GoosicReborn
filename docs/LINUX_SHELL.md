@@ -8,12 +8,20 @@ each choice was made, so that the reasons survive the people who made them.
 It is being written slice by slice on `platform/linux`. What exists browses and searches the
 catalog, opens albums, artists and playlists, and plays through the official WebKitGTK host under
 Rust's lease, with a queue, a now-playing bar, radio, and preferences that are saved and restored.
+It draws catalog artwork, follows a light, dark or system theme, shows the queue and synced lyrics
+beside the page, and has a settings screen that imports the previous Goosic's preferences.
+
 That playback has been heard rather than only compiled: a scratch harness asked the shell to play a
 real track the way a Play button does, the advertisement in front of it was reported and not
 skipped, validated samples from the page moved the bar through the song, and PipeWire showed the
-WebKit process's uncorked stream. Until the remaining slices land — artwork, the lyrics and queue
-panels, downloads, accounts, the media-player interface and background mode — the Swift shell
-remains the Linux build, and the sections about those describe a destination.
+WebKit process's uncorked stream. Running the same harness against empty storage found something
+the Swift port never had to face: on a fresh profile YouTube Music loads the track paused and
+waits. The shell therefore answers the first paused report of a load it was asked to play with a
+single play request, once, so a pause the user makes afterwards is kept.
+
+Until the remaining slices land — downloads, accounts, the media-player interface and background
+mode — the Swift shell remains the Linux build, and the sections about those describe a
+destination.
 
 ## Why GTK 4, and why not the alternatives
 
@@ -233,8 +241,12 @@ apps/goosic-linux/
         shell.rs           the window, and the orchestration that ties the rest together
         pages.rs           navigation and catalog load state, decided without GTK
         playback.rs        queue, lease and transport state, decided without GTK
-        ui.rs              page rows, sidebar, search bar
+        lyrics.rs          the lyrics panel's lookups and highlight, decided without GTK
+        ui.rs              page rows, sidebar, search bar, settings screen
         player_bar.rs      the now-playing bar
+        side_panels.rs     the queue and lyrics panels
+        artwork.rs         anonymous libsoup fetches into the XDG cache, under the shared rules
+        theme.rs           gtk-interface-color-scheme, which GTK 4.20 made the way to choose
         official_host.rs   WebKitGTK player: script world, bridge handler, per-account session
         login_host.rs      planned: sign-in window under the shared navigation policy
         local_host.rs      planned: GStreamer playbin for decoded files
@@ -247,8 +259,8 @@ apps/goosic-linux/
 
 The modules are flat rather than grouped into `state/`, `ui/` and `platform/` as first sketched,
 because a dozen files did not need folders. What the grouping was meant to protect still holds:
-`pages` and `playback` import no GTK, so the decisions they make are tested without a display, and
-only `shell` joins them to widgets and hosts.
+`pages`, `playback` and `lyrics` import no GTK, so the decisions they make are tested without a
+display, and only `shell` joins them to widgets and hosts.
 
 The shell lives on `platform/linux`, and each slice of it is a `feature/linux/<slug>`. Anything it
 needs from `goosic-shell-support` or the protocol is not Linux work: it lands on `development`

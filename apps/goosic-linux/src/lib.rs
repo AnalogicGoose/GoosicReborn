@@ -4,13 +4,17 @@
 //! no machine in it comes from `goosic-shell-support`, and everything it knows about GTK stays
 //! here. See `docs/LINUX_SHELL.md` for why it is built this way.
 
+mod artwork;
 pub mod bridge;
+pub mod lyrics;
 pub mod official_host;
 pub mod pages;
 pub mod playback;
 mod player_bar;
 pub mod service;
 pub mod shell;
+mod side_panels;
+pub mod theme;
 mod ui;
 
 /// The application ID. It makes a second launch activate the running instance instead of starting

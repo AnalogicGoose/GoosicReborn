@@ -2,8 +2,8 @@
 //!
 //! The service connection belongs to the application rather than to a window, because closing the
 //! window will not end the conversation once the shell plays in the background. Navigation lives
-//! in a `Browser` and playback in a `Player`, both of which decide without GTK; this file carries
-//! answers from the service and the renderer into them, and redraws.
+//! in a `Browser`, playback in a `Player` and lyrics in a `Lyrics`, all of which decide without
+//! GTK; this file carries answers from the service and the renderer into them, and redraws.
 //!
 //! Every playback change goes through Rust first. The shell asks for the lease, and only once it is
 //! granted does a renderer load anything; it releases the lease only after the renderer has been
@@ -17,11 +17,13 @@ use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 use std::time::Instant;
 
-use goosic_protocol::{Owner, PreferencesPatch, RequestPayload, ResponseEnvelope};
+use goosic_protocol::{
+    Owner, PreferencesPatch, RequestPayload, ResponseEnvelope, SettingsSnapshot,
+};
 use goosic_shell_support::bridge::BridgeEvent;
 use goosic_shell_support::catalog::{PageView, Track};
 use goosic_shell_support::navigation::{
-    CatalogKey, EntityReference, PlaybackTransition, Route, SearchFilter,
+    CatalogKey, EntityReference, PlaybackTransition, Route, SearchFilter, Theme,
 };
 use goosic_shell_support::playback::{
     believes_sample, clamp_seek, clamp_volume, is_seekable, merge_preferences,
@@ -32,11 +34,14 @@ use goosic_shell_support::{ServiceClient, TransportError};
 use gtk::prelude::*;
 use gtk::{gio, glib};
 
+use crate::artwork::ArtworkCache;
+use crate::lyrics::Lyrics;
 use crate::official_host::{self, OfficialHost};
-use crate::pages::Browser;
+use crate::pages::{Browser, ShellFacts};
 use crate::playback::Player;
 use crate::player_bar::{BarActions, PlayerBar};
-use crate::{bridge, service, ui};
+use crate::side_panels::{LyricsPanel, QueuePanel};
+use crate::{bridge, service, theme, ui};
 
 type Answer = Result<ResponseEnvelope, TransportError>;
 
@@ -49,12 +54,18 @@ pub struct Shell {
     client: Option<ServiceClient>,
     browser: RefCell<Browser>,
     player: RefCell<Player>,
+    lyrics: RefCell<Lyrics>,
+    facts: RefCell<ShellFacts>,
+    queue_visible: Cell<bool>,
     official: Rc<OfficialHost>,
     rows: gio::ListStore,
     scroller: gtk::ScrolledWindow,
     search_bar: gtk::Box,
     routes: gtk::ListBox,
     bar: PlayerBar,
+    side: gtk::Box,
+    queue_panel: QueuePanel,
+    lyrics_panel: LyricsPanel,
     connection: gtk::Label,
     status: gtk::Label,
     diagnostics: RefCell<String>,
@@ -70,6 +81,7 @@ impl Shell {
     /// Builds the window, starts the service and asks it to say hello.
     pub fn start(app: &gtk::Application) -> Rc<Shell> {
         let launched = service::launch();
+        let artwork = ArtworkCache::new();
         let shell = Rc::new_cyclic(|weak: &Weak<Shell>| {
             let actions = Rc::new(ui::Actions {
                 open: Box::new(forward(weak, Shell::open)),
@@ -83,6 +95,9 @@ impl Shell {
                 }),
                 retry: Box::new(forward_unit(weak, Shell::retry)),
                 back: Box::new(forward_unit(weak, Shell::back)),
+                set_theme: Box::new(forward(weak, Shell::set_theme)),
+                import_legacy: Box::new(forward_unit(weak, Shell::import_legacy_preferences)),
+                artwork: artwork.clone(),
             });
             let (scroller, rows) = ui::page_list(actions);
             let search_bar = ui::search_bar(
@@ -96,19 +111,26 @@ impl Shell {
                 on_page_advanced: Box::new(forward(weak, Shell::official_moved_on)),
                 on_diagnostics: Box::new(forward(weak, Shell::host_diagnostics)),
             });
-            let bar = PlayerBar::new(BarActions {
-                toggle_pause: Box::new(forward_unit(weak, Shell::toggle_pause)),
-                previous: Box::new(forward_unit(weak, Shell::previous)),
-                next: Box::new(forward_unit(weak, Shell::next)),
-                seek: Box::new(forward(weak, Shell::seek)),
-                volume: Box::new(forward(weak, Shell::set_volume)),
-                mute: Box::new(forward_unit(weak, Shell::toggle_muted)),
-                shuffle: Box::new(forward_unit(weak, Shell::toggle_shuffle)),
-                repeat: Box::new(forward_unit(weak, Shell::cycle_repeat)),
-                autoplay: Box::new(forward_unit(weak, Shell::toggle_autoplay)),
-                radio: Box::new(forward_unit(weak, Shell::start_radio)),
-                stop: Box::new(forward_unit(weak, Shell::release_playback)),
-            });
+            let bar = PlayerBar::new(
+                BarActions {
+                    toggle_pause: Box::new(forward_unit(weak, Shell::toggle_pause)),
+                    previous: Box::new(forward_unit(weak, Shell::previous)),
+                    next: Box::new(forward_unit(weak, Shell::next)),
+                    seek: Box::new(forward(weak, Shell::seek)),
+                    volume: Box::new(forward(weak, Shell::set_volume)),
+                    mute: Box::new(forward_unit(weak, Shell::toggle_muted)),
+                    shuffle: Box::new(forward_unit(weak, Shell::toggle_shuffle)),
+                    repeat: Box::new(forward_unit(weak, Shell::cycle_repeat)),
+                    autoplay: Box::new(forward_unit(weak, Shell::toggle_autoplay)),
+                    radio: Box::new(forward_unit(weak, Shell::start_radio)),
+                    stop: Box::new(forward_unit(weak, Shell::release_playback)),
+                    lyrics: Box::new(forward_unit(weak, Shell::toggle_lyrics)),
+                    queue: Box::new(forward_unit(weak, Shell::toggle_queue)),
+                },
+                artwork.clone(),
+            );
+            let queue_panel = QueuePanel::new(forward(weak, Shell::play_queued));
+            let lyrics_panel = LyricsPanel::new();
 
             let client = match launched {
                 Ok(client) => Some(client),
@@ -122,10 +144,27 @@ impl Shell {
                 }
             };
 
+            let panels = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            panels.set_width_request(320);
+            panels.append(&queue_panel.root);
+            panels.append(&lyrics_panel.root);
+            let side = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            side.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+            side.append(&panels);
+            side.set_visible(false);
+
+            let page = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            page.set_vexpand(true);
+            let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            main.set_hexpand(true);
+            main.append(&search_bar);
+            main.append(&scroller);
+            page.append(&main);
+            page.append(&side);
+
             let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
             content.set_hexpand(true);
-            content.append(&search_bar);
-            content.append(&scroller);
+            content.append(&page);
             content.append(official.widget());
             content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
             content.append(&bar.root);
@@ -147,12 +186,18 @@ impl Shell {
                 client,
                 browser: RefCell::new(Browser::new()),
                 player: RefCell::new(Player::new()),
+                lyrics: RefCell::new(Lyrics::new()),
+                facts: RefCell::new(ShellFacts::default()),
+                queue_visible: Cell::new(false),
                 official,
                 rows,
                 scroller,
                 search_bar,
                 routes: sidebar.routes,
                 bar,
+                side,
+                queue_panel,
+                lyrics_panel,
                 connection: sidebar.connection,
                 status: sidebar.status,
                 diagnostics: RefCell::new(String::new()),
@@ -199,6 +244,7 @@ impl Shell {
             };
             if let Err(error) = &result {
                 if error.invalidates_connection() {
+                    shell.facts.borrow_mut().connected = false;
                     shell.connection.set_label("○ Service offline");
                     shell.status.set_label(&error.to_string());
                 }
@@ -227,6 +273,7 @@ impl Shell {
                     .and_then(|payload| payload.message)
                     .unwrap_or_else(|| "goosic-service ready".to_owned());
                 eprintln!("goosic: connected — {message}");
+                self.facts.borrow_mut().connected = true;
                 self.connection.set_label("● Rust service connected");
                 self.status.set_label("");
                 self.load_preferences();
@@ -253,7 +300,7 @@ impl Shell {
                     .and_then(|response| response.payload)
                     .and_then(|payload| payload.settings);
                 if let Some(settings) = settings {
-                    shell.player.borrow_mut().apply_settings(&settings);
+                    shell.adopt_settings(&settings);
                     if let Some(route) = Route::from_raw(&settings.last_route) {
                         shell.browser.borrow_mut().navigate(route);
                         ui::select_route(&shell.routes, route);
@@ -263,6 +310,22 @@ impl Shell {
                 shell.show_new_page();
             },
         );
+    }
+
+    /// Takes on stored preferences, whether read at launch or imported from the previous Goosic.
+    /// Where the app opens is left to the caller: an import must not move the user.
+    fn adopt_settings(&self, settings: &SettingsSnapshot) {
+        self.player.borrow_mut().apply_settings(settings);
+        let theme = Theme::named(&settings.theme);
+        {
+            let mut facts = self.facts.borrow_mut();
+            facts.theme = theme;
+            facts.legacy_imported = settings.imported_from_legacy;
+            facts.legacy_available = settings.legacy_available;
+        }
+        theme::apply(theme);
+        self.queue_visible.set(settings.queue_visible);
+        self.sync_side_panels();
     }
 
     /// Queues a preference change, coalescing rapid ones such as a volume drag into one save.
@@ -290,10 +353,62 @@ impl Shell {
         });
     }
 
+    pub fn set_theme(self: &Rc<Self>, theme: Theme) {
+        self.facts.borrow_mut().theme = theme;
+        theme::apply(theme);
+        // Redrawn once the current signal has returned: the choice may come from the settings
+        // page's own toggle, and rebuilding the page inside that toggle's signal would destroy it
+        // mid-emission.
+        let weak = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            if let Some(shell) = weak.upgrade() {
+                shell.render();
+            }
+        });
+        self.save_preferences(PreferencesPatch {
+            theme: Some(theme.raw_value().to_owned()),
+            ..Default::default()
+        });
+    }
+
+    /// Reads the previous Goosic's preferences. The service reads them without changing them and
+    /// never carries credentials over.
+    fn import_legacy_preferences(self: &Rc<Self>) {
+        if !self.facts.borrow().legacy_available {
+            return self.set_status("No previous Goosic preferences were found on this machine.");
+        }
+        self.set_status("Importing preferences from the previous Goosic…");
+        self.send(
+            "settings.importLegacy",
+            RequestPayload::default(),
+            |shell, answer| match answer {
+                Ok(response) => {
+                    let payload = response.payload.unwrap_or_default();
+                    if let Some(settings) = &payload.settings {
+                        shell.adopt_settings(settings);
+                    }
+                    shell.render();
+                    shell.set_status(
+                        payload
+                            .message
+                            .as_deref()
+                            .unwrap_or("Imported preferences from the previous Goosic."),
+                    );
+                }
+                Err(error) => {
+                    let (_, message) = error.describe();
+                    shell.set_status(&format!("Could not import previous preferences: {message}"));
+                }
+            },
+        );
+    }
+
     // MARK: navigation
 
-    fn navigate(self: &Rc<Self>, route: Route) {
+    pub fn navigate(self: &Rc<Self>, route: Route) {
         self.browser.borrow_mut().navigate(route);
+        // Selecting a row does not activate it, so this cannot come back here.
+        ui::select_route(&self.routes, route);
         self.show_new_page();
         self.save_preferences(PreferencesPatch {
             last_route: Some(route.raw_value().to_owned()),
@@ -363,9 +478,10 @@ impl Shell {
     }
 
     fn render(&self) {
+        let facts = self.facts.borrow().clone();
         let (rows, searching) = {
             let browser = self.browser.borrow();
-            (browser.rows(), browser.shows_search_bar())
+            (browser.rows(&facts), browser.shows_search_bar())
         };
         ui::set_rows(&self.rows, rows);
         self.search_bar.set_visible(searching);
@@ -406,6 +522,14 @@ impl Shell {
             self.load_official(track);
         } else {
             self.claim_official(track);
+        }
+    }
+
+    /// Plays the queue from `index`, for a row chosen in the queue panel.
+    fn play_queued(self: &Rc<Self>, index: usize) {
+        let track = self.player.borrow().queue.get(index).cloned();
+        if let Some(track) = track {
+            self.play(track, no_context());
         }
     }
 
@@ -453,21 +577,27 @@ impl Shell {
 
     /// Loads `track` into the official renderer under the lease already held.
     fn load_official(self: &Rc<Self>, track: Track) {
-        let generation = {
+        let (generation, changed) = {
             let mut player = self.player.borrow_mut();
+            let changed =
+                player.current.as_ref().map(|current| &current.video_id) != Some(&track.video_id);
             player.current = Some(track.clone());
             player.begin_track();
             player.begin_load();
-            player.lease.generation
+            (player.lease.generation, changed)
         };
         self.official.load(&track.video_id, generation);
+        if changed {
+            self.lyrics.borrow_mut().track_changed();
+            self.load_lyrics();
+        }
         self.refresh_player();
     }
 
     /// A report from the official page that passed the bridge's checks.
     fn receive_official(self: &Rc<Self>, event: BridgeEvent) {
         let loaded = self.official.loaded_video_id();
-        let (push, advance, sequence) = {
+        let (push, advance, sequence, nudge) = {
             let mut player = self.player.borrow_mut();
             let sample = ReportedSample {
                 generation: event.generation,
@@ -527,6 +657,13 @@ impl Shell {
             if advance {
                 player.ended_video_id = Some(event.video_id.clone());
             }
+            // The page's own autoplay is not guaranteed: on a fresh profile YouTube Music loads
+            // the track paused. The user asked for this track to play, so the load's first paused
+            // report is answered with one play request — once, so a pause the user makes is kept.
+            let nudge = player.start_pending && !event.is_advertisement && event.state == "paused";
+            if nudge || event.state == "playing" {
+                player.start_pending = false;
+            }
             let title = player
                 .current
                 .as_ref()
@@ -541,11 +678,14 @@ impl Shell {
                     other => format!("The player reports {other}."),
                 }
             };
-            (push, advance, player.sample_sequence(event.sequence))
+            (push, advance, player.sample_sequence(event.sequence), nudge)
         };
         if let Some((volume, muted)) = push {
             self.official.set_volume(volume);
             self.official.set_muted(muted);
+        }
+        if nudge {
+            self.official.play();
         }
         self.refresh_player();
         let payload = RequestPayload {
@@ -909,6 +1049,8 @@ impl Shell {
                     player.begin_track();
                     player.finish_transition(token);
                 }
+                shell.lyrics.borrow_mut().track_changed();
+                shell.load_lyrics();
                 // A released page keeps reporting that it is paused; blanking it ends that.
                 shell.official.detach(|| {});
                 shell.set_status(if released {
@@ -943,6 +1085,91 @@ impl Shell {
         }
     }
 
+    // MARK: side panels
+
+    pub fn toggle_queue(self: &Rc<Self>) {
+        let visible = !self.queue_visible.get();
+        self.queue_visible.set(visible);
+        self.save_preferences(PreferencesPatch {
+            queue_visible: Some(visible),
+            ..Default::default()
+        });
+        self.sync_side_panels();
+    }
+
+    pub fn toggle_lyrics(self: &Rc<Self>) {
+        {
+            let mut lyrics = self.lyrics.borrow_mut();
+            lyrics.visible = !lyrics.visible;
+        }
+        self.load_lyrics();
+        self.sync_side_panels();
+    }
+
+    /// Looks up lyrics for what is playing, if the panel is open and they are not loaded yet.
+    fn load_lyrics(self: &Rc<Self>) {
+        let request = {
+            let player = self.player.borrow();
+            self.lyrics.borrow_mut().begin(player.current.as_ref())
+        };
+        if let Some((requested_for, query)) = request {
+            let payload = RequestPayload {
+                lyrics: Some(query),
+                ..Default::default()
+            };
+            self.send("lyrics.get", payload, move |shell, answer| {
+                let current = shell
+                    .player
+                    .borrow()
+                    .current
+                    .as_ref()
+                    .map(|track| track.video_id.clone());
+                shell
+                    .lyrics
+                    .borrow_mut()
+                    .finish(&requested_for, current.as_deref(), answer);
+                // The track may have changed while this was in flight; ask for the new one.
+                shell.load_lyrics();
+            });
+        }
+        self.refresh_panels();
+    }
+
+    fn sync_side_panels(&self) {
+        let queue = self.queue_visible.get();
+        let lyrics = self.lyrics.borrow().visible;
+        self.queue_panel.root.set_visible(queue);
+        self.lyrics_panel.root.set_visible(lyrics);
+        self.side.set_visible(queue || lyrics);
+        self.bar.set_panels(lyrics, queue);
+        self.refresh_panels();
+    }
+
+    fn refresh_panels(&self) {
+        let player = self.player.borrow();
+        if self.queue_visible.get() {
+            // The queue marks a row only when that row really is what plays.
+            let current = player.current.as_ref().and_then(|current| {
+                player
+                    .queue
+                    .get(player.index)
+                    .filter(|queued| queued.id == current.id)
+                    .map(|_| player.index)
+            });
+            self.queue_panel.update(&player.queue, current);
+        }
+        let lyrics = self.lyrics.borrow();
+        if lyrics.visible {
+            // During an advertisement the clock is the ad's, not the song's, so nothing is lit.
+            let position = if player.advertisement {
+                -1.0
+            } else {
+                player.current_time
+            };
+            self.lyrics_panel.update(&lyrics, position);
+        }
+    }
+
     fn set_status(&self, message: &str) {
         self.player.borrow_mut().status = message.to_owned();
         self.refresh_player();
@@ -950,8 +1177,8 @@ impl Shell {
 
     fn refresh_player(&self) {
         let loaded = self.official.loaded_video_id().is_some();
-        let player = self.player.borrow();
-        self.bar.update(&player, loaded);
+        self.bar.update(&self.player.borrow(), loaded);
+        self.refresh_panels();
     }
 }
 

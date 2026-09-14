@@ -36,6 +36,9 @@ pub struct Player {
     pub ended_video_id: Option<String>,
     /// Whether the stored volume has been pushed to this load's page yet.
     pub volume_applied_for_load: bool,
+    /// Whether this load was asked to play and has not been seen playing yet. The page's own
+    /// autoplay is not guaranteed, so the shell answers the first paused report with one play.
+    pub start_pending: bool,
     pub autoplay: bool,
     pub shuffle: bool,
     pub repeat: RepeatMode,
@@ -79,6 +82,7 @@ impl Player {
             pending_seek: None,
             ended_video_id: None,
             volume_applied_for_load: false,
+            start_pending: false,
             autoplay: true,
             shuffle: false,
             repeat: RepeatMode::Off,
@@ -124,6 +128,7 @@ impl Player {
         self.advertisement = false;
         self.confirmed = false;
         self.volume_applied_for_load = false;
+        self.start_pending = true;
     }
 
     /// Makes `tracks` the queue, positioned on `chosen`. A deliberately chosen list is a fresh

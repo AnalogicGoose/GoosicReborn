@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use goosic_protocol::{RequestPayload, ResponseEnvelope};
 use goosic_shell_support::catalog::{detail_subtitle, failure_text, Card, PageView, Track};
-use goosic_shell_support::navigation::{CatalogKey, EntityReference, Route, SearchFilter};
+use goosic_shell_support::navigation::{CatalogKey, EntityReference, Route, SearchFilter, Theme};
 use goosic_shell_support::TransportError;
 
 /// Where one catalog page stands.
@@ -23,6 +23,30 @@ pub enum LoadState {
 }
 
 static IDLE: LoadState = LoadState::Idle;
+
+/// What the shell knows that some screens show — the connection, stored preferences, the account.
+/// It is handed in, so those screens are decided here without GTK like the rest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShellFacts {
+    pub connected: bool,
+    pub theme: Theme,
+    pub legacy_imported: bool,
+    pub legacy_available: bool,
+    /// The account playback runs under, or `None` for the guest.
+    pub account: Option<String>,
+}
+
+impl Default for ShellFacts {
+    fn default() -> Self {
+        ShellFacts {
+            connected: false,
+            theme: Theme::System,
+            legacy_imported: false,
+            legacy_available: false,
+            account: None,
+        }
+    }
+}
 
 /// One row of a screen, in the order it is drawn.
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +83,8 @@ pub enum PageRow {
     Cards(Vec<Card>),
     /// The service clamped the page to fit one protocol frame, and the screen has to say so.
     Truncated,
+    /// The settings screen's sections.
+    Settings(ShellFacts),
 }
 
 /// The shell's navigation, and the catalog pages it has loaded.
@@ -89,6 +115,10 @@ impl Browser {
             filter: SearchFilter::All,
             pages: HashMap::new(),
         }
+    }
+
+    pub fn route(&self) -> Route {
+        self.route
     }
 
     pub fn navigate(&mut self, route: Route) {
@@ -188,7 +218,7 @@ impl Browser {
     }
 
     /// Everything the screen draws, top to bottom.
-    pub fn rows(&self) -> Vec<PageRow> {
+    pub fn rows(&self, facts: &ShellFacts) -> Vec<PageRow> {
         if let Some(entity) = &self.detail {
             return self.detail_rows(entity);
         }
@@ -208,6 +238,22 @@ impl Browser {
                     message: "Every result is a real YouTube Music entry.".to_owned(),
                 }),
             },
+            Route::Settings => rows.push(PageRow::Settings(facts.clone())),
+            Route::Library => rows.push(match facts.account {
+                None => PageRow::Empty {
+                    title: "Not connected to an account".to_owned(),
+                    message: "The catalog is browsed as a guest, so there is no personal \
+                              library to read. Sign in from Settings to create an isolated \
+                              account profile."
+                        .to_owned(),
+                },
+                Some(_) => PageRow::Empty {
+                    title: "Personal library is next".to_owned(),
+                    message: "This account is signed in, but personal library reads are left \
+                              as the next authenticated-data step."
+                        .to_owned(),
+                },
+            }),
             route if route.catalog_route().is_some() => {
                 rows.push(PageRow::GuestNotice);
                 rows.extend(body_rows(
@@ -425,6 +471,10 @@ mod tests {
         browser
     }
 
+    fn rows(browser: &Browser) -> Vec<PageRow> {
+        browser.rows(&ShellFacts::default())
+    }
+
     #[test]
     fn home_asks_for_its_browse_route_under_its_title() {
         let mut browser = Browser::new();
@@ -451,7 +501,7 @@ mod tests {
 
     #[test]
     fn a_loaded_page_draws_its_header_notice_shelves_and_truncation() {
-        let rows = loaded_home().rows();
+        let rows = rows(&loaded_home());
         assert!(matches!(&rows[0], PageRow::Header { title, .. } if title == "Home"));
         assert_eq!(rows[1], PageRow::GuestNotice);
         assert_eq!(rows[2], PageRow::ShelfTitle("Quick picks".into()));
@@ -481,7 +531,7 @@ mod tests {
                 ..Default::default()
             }),
         );
-        let rows = browser.rows();
+        let rows = rows(&browser);
         assert!(matches!(&rows[2], PageRow::PlayAll(tracks) if tracks.len() == 2));
         match &rows[4] {
             PageRow::Track { track, context } => {
@@ -505,7 +555,7 @@ mod tests {
                 message: "timed out upstream".into(),
             }),
         );
-        let rows = browser.rows();
+        let rows = rows(&browser);
         assert!(
             matches!(&rows[2], PageRow::Failure { title, .. } if title == "Catalog unreachable")
         );
@@ -516,7 +566,7 @@ mod tests {
         let mut browser = Browser::new();
         let key = browser.current_key().unwrap();
         browser.fail_offline(key);
-        let rows = browser.rows();
+        let rows = rows(&browser);
         assert!(
             matches!(&rows[2], PageRow::Failure { title, .. } if title == "Service not connected")
         );
@@ -529,7 +579,7 @@ mod tests {
         assert!(browser.shows_search_bar());
         assert_eq!(browser.current_key(), None);
         assert!(
-            matches!(&browser.rows()[1], PageRow::Empty { title, .. } if title == "Start a search")
+            matches!(&rows(&browser)[1], PageRow::Empty { title, .. } if title == "Start a search")
         );
 
         assert!(!browser.submit_search("   "), "blank is not a query");
@@ -555,7 +605,7 @@ mod tests {
         assert!(!browser.shows_search_bar());
         let key = browser.current_key().unwrap();
         assert_eq!(request_for(&key).unwrap().0, "catalog.album");
-        let rows = browser.rows();
+        let rows = rows(&browser);
         assert_eq!(rows[0], PageRow::Back);
         assert!(matches!(&rows[1], PageRow::Header { title, .. } if title == "Album"));
         browser.back();
@@ -569,11 +619,39 @@ mod tests {
         browser.begin(&home, false);
         browser.navigate(Route::Charts);
         browser.finish(home.clone(), answer(home_page()));
-        assert!(matches!(&browser.rows()[0], PageRow::Header { title, .. } if title == "Charts"));
+        assert!(matches!(&rows(&browser)[0], PageRow::Header { title, .. } if title == "Charts"));
         assert!(
             matches!(browser.state(&home), LoadState::Loaded(_)),
             "kept for coming back"
         );
+    }
+
+    #[test]
+    fn settings_shows_the_facts_the_shell_hands_it() {
+        let mut browser = Browser::new();
+        browser.navigate(Route::Settings);
+        assert_eq!(
+            browser.current_key(),
+            None,
+            "settings reads no catalog page"
+        );
+        let facts = ShellFacts {
+            connected: true,
+            theme: Theme::Dark,
+            legacy_available: true,
+            ..ShellFacts::default()
+        };
+        assert_eq!(browser.rows(&facts)[1], PageRow::Settings(facts.clone()));
+    }
+
+    #[test]
+    fn the_library_says_why_it_is_empty_for_a_guest() {
+        let mut browser = Browser::new();
+        browser.navigate(Route::Library);
+        assert!(matches!(
+            &rows(&browser)[1],
+            PageRow::Empty { title, .. } if title == "Not connected to an account"
+        ));
     }
 
     #[test]
@@ -582,7 +660,7 @@ mod tests {
         browser.navigate(Route::Downloads);
         assert_eq!(browser.current_key(), None);
         assert!(
-            matches!(&browser.rows()[1], PageRow::Empty { title, .. } if title == "Not in the Linux shell yet")
+            matches!(&rows(&browser)[1], PageRow::Empty { title, .. } if title == "Not in the Linux shell yet")
         );
     }
 }

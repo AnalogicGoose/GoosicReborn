@@ -7,19 +7,24 @@
 use std::rc::Rc;
 
 use goosic_shell_support::catalog::{Card, CardAction, Track};
-use goosic_shell_support::navigation::{EntityReference, Route, SearchFilter};
+use goosic_shell_support::navigation::{EntityReference, Route, SearchFilter, Theme};
 use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 
-use crate::pages::{route_title, PageRow};
+use crate::artwork::ArtworkCache;
+use crate::pages::{route_title, PageRow, ShellFacts};
+use crate::theme;
 
-/// What a row can ask the shell to do.
+/// What a row can ask the shell to do, and the artwork cache rows draw from.
 pub struct Actions {
     pub open: Box<dyn Fn(EntityReference)>,
     /// Plays a track; the list is what becomes the queue, and may be empty.
     pub play: Box<dyn Fn(Track, Rc<[Track]>)>,
     pub retry: Box<dyn Fn()>,
     pub back: Box<dyn Fn()>,
+    pub set_theme: Box<dyn Fn(Theme)>,
+    pub import_legacy: Box<dyn Fn()>,
+    pub artwork: Rc<ArtworkCache>,
 }
 
 /// A scrolled list that draws `PageRow`s, and the store that feeds it.
@@ -279,15 +284,17 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
             4,
             18,
         ),
+        PageRow::Settings(facts) => padded(&settings_page(facts, actions), 8, 24),
     }
 }
 
 fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::Box {
     let line = row(10);
-    line.append(&artwork_placeholder("♪", 34, 34));
+    line.append(&artwork(actions, track.thumbnail.as_deref(), "♪", 40));
 
     let text = column(2);
     text.set_hexpand(true);
+    text.set_valign(gtk::Align::Center);
     let title_line = row(6);
     title_line.append(&single_line(plain(&track.title)));
     if track.explicit {
@@ -297,7 +304,9 @@ fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk
     text.append(&single_line(dim(&track.secondary_text())));
     line.append(&text);
 
-    line.append(&dim(&track.duration));
+    let duration = dim(&track.duration);
+    duration.set_valign(gtk::Align::Center);
+    line.append(&duration);
     let play = gtk::Button::builder()
         .icon_name("media-playback-start-symbolic")
         .tooltip_text("Play")
@@ -331,7 +340,7 @@ fn card_widget(card: &Card, actions: &Rc<Actions>) -> gtk::Button {
     };
     let body = column(5);
     body.set_size_request(148, -1);
-    body.append(&artwork_placeholder(glyph, 148, 82));
+    body.append(&artwork(actions, card.thumbnail.as_deref(), glyph, 148));
     let title = single_line(plain(&card.title));
     title.set_max_width_chars(18);
     let subtitle = single_line(dim(&card.subtitle));
@@ -358,6 +367,96 @@ fn card_widget(card: &Card, actions: &Rc<Actions>) -> gtk::Button {
     button
 }
 
+fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
+    let page = column(8);
+
+    page.append(&section_title("Service"));
+    page.append(&plain(if facts.connected {
+        "Connected to goosic-service, the private child process this window started. It speaks \
+         line-delimited JSON over stdio, and nothing else can reach it."
+    } else {
+        "Not connected. goosic-service could not be started or stopped answering; restart Goosic \
+         to start it again."
+    }));
+
+    page.append(&section_title("Catalog"));
+    page.append(&dim(
+        "Catalog reads go through Rust to YouTube Music as an anonymous guest. No cookies, account \
+         headers, or credentials are sent, and artwork is fetched just as anonymously.",
+    ));
+
+    page.append(&section_title("Appearance"));
+    let themes = row(6);
+    let mut first: Option<gtk::ToggleButton> = None;
+    for option in Theme::ALL {
+        let toggle = gtk::ToggleButton::with_label(theme::label(option));
+        match &first {
+            Some(first) => toggle.set_group(Some(first)),
+            None => first = Some(toggle.clone()),
+        }
+        // Set before the handler is connected, so drawing the page never counts as a choice.
+        toggle.set_active(option == facts.theme);
+        let actions = actions.clone();
+        toggle.connect_toggled(move |toggle| {
+            if toggle.is_active() {
+                (actions.set_theme)(option);
+            }
+        });
+        themes.append(&toggle);
+    }
+    page.append(&themes);
+    page.append(&dim("System follows the desktop's light or dark setting."));
+
+    page.append(&section_title("Preferences"));
+    page.append(&dim(
+        "Volume, mute, shuffle, repeat, autoplay, the queue panel, the theme and the last screen \
+         are stored by Rust and restored on launch.",
+    ));
+    if facts.legacy_imported {
+        page.append(&dim(
+            "Preferences were imported from a previous Goosic install. The old data was read, \
+             never changed.",
+        ));
+    } else if facts.legacy_available {
+        page.append(&dim(
+            "A previous Goosic install's preferences were found on this machine. Importing reads \
+             them without changing them, and never carries over saved credentials.",
+        ));
+        let import = gtk::Button::builder()
+            .label("Import previous Goosic preferences")
+            .halign(gtk::Align::Start)
+            .build();
+        let actions = actions.clone();
+        import.connect_clicked(move |_| (actions.import_legacy)());
+        page.append(&import);
+    } else {
+        page.append(&dim("No previous Goosic install was found to import from."));
+    }
+
+    page.append(&section_title("Playback"));
+    page.append(&plain(
+        "Rust owns playback state and leases. Every song plays in the one official WebKit host; \
+         advertisements are reported as markers and never bypassed.",
+    ));
+    page.append(&dim(&format!(
+        "Account: {}",
+        facts
+            .account
+            .as_deref()
+            .unwrap_or("none — browsing as a guest")
+    )));
+    page
+}
+
+fn section_title(text: &str) -> gtk::Label {
+    let label = markup(&format!(
+        "<span size='large' weight='bold'>{}</span>",
+        glib::markup_escape_text(text)
+    ));
+    label.set_margin_top(10);
+    label
+}
+
 fn retry_button(label: &str, actions: &Rc<Actions>) -> gtk::Button {
     let button = gtk::Button::builder()
         .label(label)
@@ -368,13 +467,23 @@ fn retry_button(label: &str, actions: &Rc<Actions>) -> gtk::Button {
     button
 }
 
-/// Where artwork will go once the shell fetches it; a glyph until then.
-fn artwork_placeholder(glyph: &str, width: i32, height: i32) -> gtk::Frame {
-    gtk::Frame::builder()
+/// A square of artwork: the glyph until the image arrives, and for good if it never does.
+fn artwork(actions: &Actions, remote: Option<&str>, glyph: &str, size: i32) -> gtk::Frame {
+    // An image draws its content at a fixed size, whatever the thumbnail's own dimensions.
+    let image = gtk::Image::builder().pixel_size(size).build();
+    actions.artwork.show(remote, &image);
+    let overlay = gtk::Overlay::builder()
         .child(&gtk::Label::new(Some(glyph)))
-        .width_request(width)
-        .height_request(height)
-        .build()
+        .build();
+    overlay.add_overlay(&image);
+    let frame = gtk::Frame::builder()
+        .child(&overlay)
+        .width_request(size)
+        .height_request(size)
+        .valign(gtk::Align::Center)
+        .build();
+    frame.set_overflow(gtk::Overflow::Hidden);
+    frame
 }
 
 fn padded(widget: &impl IsA<gtk::Widget>, top: i32, bottom: i32) -> gtk::Widget {

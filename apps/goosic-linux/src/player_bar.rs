@@ -15,11 +15,14 @@ use goosic_shell_support::playback::{
 use gtk::glib;
 use gtk::prelude::*;
 
+use crate::artwork::ArtworkCache;
 use crate::playback::Player;
 
 /// A drag on the position slider becomes one seek once the pointer rests this long, rather than a
 /// seek per pixel.
 const SEEK_SETTLE: Duration = Duration::from_millis(200);
+
+const ARTWORK_SIZE: i32 = 48;
 
 /// What the bar can ask the shell to do.
 pub struct BarActions {
@@ -34,10 +37,16 @@ pub struct BarActions {
     pub autoplay: Box<dyn Fn()>,
     pub radio: Box<dyn Fn()>,
     pub stop: Box<dyn Fn()>,
+    pub lyrics: Box<dyn Fn()>,
+    pub queue: Box<dyn Fn()>,
 }
 
 pub struct PlayerBar {
     pub root: gtk::Box,
+    artwork_cache: Rc<ArtworkCache>,
+    artwork_slot: gtk::Box,
+    /// The thumbnail the artwork shows, so it is replaced only when the track changes.
+    artwork_shown: RefCell<Option<String>>,
     title: gtk::Label,
     subtitle: gtk::Label,
     status: gtk::Label,
@@ -54,6 +63,8 @@ pub struct PlayerBar {
     autoplay: gtk::ToggleButton,
     radio: gtk::Button,
     stop: gtk::Button,
+    lyrics: gtk::ToggleButton,
+    queue: gtk::ToggleButton,
     /// True while a drag on the position slider has not settled, so reports do not pull it back.
     seeking: Rc<Cell<bool>>,
     /// True while `update` is writing to the toggles, so their signals are not mistaken for clicks.
@@ -61,7 +72,7 @@ pub struct PlayerBar {
 }
 
 impl PlayerBar {
-    pub fn new(actions: BarActions) -> PlayerBar {
+    pub fn new(actions: BarActions, artwork_cache: Rc<ArtworkCache>) -> PlayerBar {
         let actions = Rc::new(actions);
         let seeking = Rc::new(Cell::new(false));
         let updating = Rc::new(Cell::new(false));
@@ -87,6 +98,10 @@ impl PlayerBar {
             .build();
         let autoplay = gtk::ToggleButton::with_label("Autoplay");
         autoplay.set_tooltip_text(Some("Keep playing when the queue runs out"));
+        let lyrics = gtk::ToggleButton::with_label("Lyrics");
+        lyrics.set_tooltip_text(Some("Show the lyrics for what is playing"));
+        let queue = gtk::ToggleButton::with_label("Queue");
+        queue.set_tooltip_text(Some("Show what plays next"));
 
         connect(&previous, &actions, |a| (a.previous)());
         connect(&play_pause, &actions, |a| (a.toggle_pause)());
@@ -97,6 +112,8 @@ impl PlayerBar {
         connect(&radio, &actions, |a| (a.radio)());
         connect_toggle(&shuffle, &actions, &updating, |a| (a.shuffle)());
         connect_toggle(&autoplay, &actions, &updating, |a| (a.autoplay)());
+        connect_toggle(&lyrics, &actions, &updating, |a| (a.lyrics)());
+        connect_toggle(&queue, &actions, &updating, |a| (a.queue)());
 
         let position = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 1.0);
         position.set_draw_value(false);
@@ -137,11 +154,18 @@ impl PlayerBar {
         let total = gtk::Label::new(Some("--:--"));
         total.add_css_class("dim-label");
 
+        // The artwork is replaced as a whole on each track change, so a slow thumbnail for the
+        // previous track can never land on the new one's image.
+        let artwork_slot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        artwork_slot.append(&placeholder_artwork());
+
         let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
         text.set_hexpand(true);
+        text.set_valign(gtk::Align::Center);
         text.append(&title);
         text.append(&subtitle);
         let top = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        top.append(&artwork_slot);
         top.append(&text);
         for widget in [&previous, &play_pause, &next] {
             top.append(widget);
@@ -158,6 +182,8 @@ impl PlayerBar {
         bottom.append(&repeat);
         bottom.append(&autoplay);
         bottom.append(&radio);
+        bottom.append(&lyrics);
+        bottom.append(&queue);
         bottom.append(&stop);
 
         let root = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -171,6 +197,9 @@ impl PlayerBar {
 
         PlayerBar {
             root,
+            artwork_cache,
+            artwork_slot,
+            artwork_shown: RefCell::new(None),
             title,
             subtitle,
             status,
@@ -187,6 +216,8 @@ impl PlayerBar {
             autoplay,
             radio,
             stop,
+            lyrics,
+            queue,
             seeking,
             updating,
         }
@@ -202,6 +233,7 @@ impl PlayerBar {
         ));
         self.subtitle.set_label(&now_playing_subtitle(track));
         self.status.set_label(&player.status);
+        self.show_artwork(track.and_then(|track| track.thumbnail.clone()));
 
         let idle = player.transition() == PlaybackTransition::Idle;
         let playing = player.confirmed && !player.paused;
@@ -267,6 +299,50 @@ impl PlayerBar {
             .set_sensitive(idle && player.lease.owner != Owner::None);
         self.updating.set(false);
     }
+
+    /// Reflects which side panels are open, without that counting as a click.
+    pub fn set_panels(&self, lyrics: bool, queue: bool) {
+        self.updating.set(true);
+        self.lyrics.set_active(lyrics);
+        self.queue.set_active(queue);
+        self.updating.set(false);
+    }
+
+    fn show_artwork(&self, thumbnail: Option<String>) {
+        if *self.artwork_shown.borrow() == thumbnail {
+            return;
+        }
+        while let Some(child) = self.artwork_slot.first_child() {
+            self.artwork_slot.remove(&child);
+        }
+        let frame = placeholder_artwork();
+        if let Some(image) = frame
+            .child()
+            .and_downcast::<gtk::Overlay>()
+            .and_then(|overlay| overlay.last_child())
+            .and_downcast::<gtk::Image>()
+        {
+            self.artwork_cache.show(thumbnail.as_deref(), &image);
+        }
+        self.artwork_slot.append(&frame);
+        *self.artwork_shown.borrow_mut() = thumbnail;
+    }
+}
+
+/// A note in a frame, with an empty image laid over it for the artwork to fill.
+fn placeholder_artwork() -> gtk::Frame {
+    let overlay = gtk::Overlay::builder()
+        .child(&gtk::Label::new(Some("♪")))
+        .build();
+    overlay.add_overlay(&gtk::Image::builder().pixel_size(ARTWORK_SIZE).build());
+    let frame = gtk::Frame::builder()
+        .child(&overlay)
+        .width_request(ARTWORK_SIZE)
+        .height_request(ARTWORK_SIZE)
+        .valign(gtk::Align::Center)
+        .build();
+    frame.set_overflow(gtk::Overflow::Hidden);
+    frame
 }
 
 fn icon_button(icon: &str, tooltip: &str) -> gtk::Button {
