@@ -335,23 +335,34 @@
                                                FontSize="12" Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                                TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                                <Grid Grid.Row="1" Margin="0,-4,0,-10" ColumnSpacing="8">
+                                <!--
+                                    The position line. Drawn here rather than with a Slider: a
+                                    slider's template needs a 32-pixel frame, which overflowed the
+                                    pill and cut its thumb off. Pressing anywhere on it seeks, and
+                                    dragging scrubs.
+                                -->
+                                <Grid Grid.Row="1" Margin="0,3,0,0" ColumnSpacing="8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock x:Name="PillElapsed" Grid.Column="0" Text="{x:Bind Model.PositionText, Mode=OneWay}"
-                                               FontSize="11" VerticalAlignment="Center" Opacity="0"
+                                               FontSize="10" VerticalAlignment="Center" Visibility="Collapsed"
                                                Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                                    <Slider x:Name="PlaybackProgress" Grid.Column="1" Minimum="0" StepFrequency="1"
-                                            Style="{StaticResource PillProgressStyle}"
-                                            Maximum="{x:Bind Model.PlaybackDuration, Mode=OneWay}"
-                                            Value="{x:Bind Model.PlaybackPosition, Mode=OneWay}"
-                                            IsEnabled="{x:Bind Model.IsSeekable, Mode=OneWay}"
-                                            AutomationProperties.Name="Position" />
+                                    <Grid x:Name="PlaybackProgress" Grid.Column="1" Height="12" Background="Transparent"
+                                          AutomationProperties.Name="Position"
+                                          PointerPressed="OnProgressPressed" PointerMoved="OnProgressMoved"
+                                          PointerReleased="OnProgressReleased" PointerCaptureLost="OnProgressCaptureLost"
+                                          SizeChanged="OnProgressSizeChanged">
+                                        <Border x:Name="PillTrack" Height="3" CornerRadius="1.5" VerticalAlignment="Center"
+                                                Background="{ThemeResource GoosicRaisedStrongBrush}" />
+                                        <Border x:Name="PillFill" Height="3" CornerRadius="1.5" VerticalAlignment="Center"
+                                                HorizontalAlignment="Left" Width="0"
+                                                Background="{ThemeResource TextFillColorPrimaryBrush}" Opacity="0.85" />
+                                    </Grid>
                                     <TextBlock x:Name="PillRemaining" Grid.Column="2" Text="{x:Bind Model.RemainingText, Mode=OneWay}"
-                                               FontSize="11" VerticalAlignment="Center" Opacity="0"
+                                               FontSize="10" VerticalAlignment="Center" Visibility="Collapsed"
                                                Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                                 </Grid>
                             </Grid>

@@ -314,14 +314,14 @@ public sealed partial class MainWindow : Window
     /// <summary>Pointing at the pill shows the times either side of the position line.</summary>
     private void OnPillPointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        PillElapsed.Opacity = 1;
-        PillRemaining.Opacity = 1;
+        PillElapsed.Visibility = Visibility.Visible;
+        PillRemaining.Visibility = Visibility.Visible;
     }
 
     private void OnPillPointerExited(object sender, PointerRoutedEventArgs e)
     {
-        PillElapsed.Opacity = 0;
-        PillRemaining.Opacity = 0;
+        PillElapsed.Visibility = Visibility.Collapsed;
+        PillRemaining.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>Pointing at the cover shows that clicking it opens the full-screen player.</summary>
@@ -1174,31 +1174,71 @@ public sealed partial class MainWindow : Window
 
     // ---- Transport gestures -----------------------------------------------------------------
 
-    /// <summary>
-    /// Wires the position slider's pointer events, including those the slider itself handles.
-    /// </summary>
-    /// <remarks>
-    /// A Slider marks pointer presses and releases on its thumb and track as handled, so handlers
-    /// attached in markup never run -- which is why seeking did nothing. Registering with
-    /// handledEventsToo is how a page observes a gesture a control has already consumed.
-    /// </remarks>
+    private double _scrubPosition;
+
+    /// <summary>Keeps the position line in step with what the page confirmed.</summary>
     private void WireSeekGestures()
     {
-        PlaybackProgress.AddHandler(UIElement.PointerPressedEvent,
-            new PointerEventHandler(OnSeekStarted), handledEventsToo: true);
-        PlaybackProgress.AddHandler(UIElement.PointerReleasedEvent,
-            new PointerEventHandler(OnSeekCompleted), handledEventsToo: true);
-        PlaybackProgress.AddHandler(UIElement.PointerCaptureLostEvent,
-            new PointerEventHandler(OnSeekCompleted), handledEventsToo: true);
+        Model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is nameof(ShellViewModel.PlaybackPosition) or nameof(ShellViewModel.PlaybackDuration))
+            {
+                DrawProgress(_seeking ? _scrubPosition : Model.PlaybackPosition);
+            }
+        };
     }
 
-    private void OnSeekStarted(object sender, PointerRoutedEventArgs e)
+    private void DrawProgress(double position)
     {
+        var width = PlaybackProgress.ActualWidth;
+        var duration = Model.PlaybackDuration;
+        PillFill.Width = duration > 0 && width > 0 ? Math.Clamp(position / duration, 0, 1) * width : 0;
+    }
+
+    private double PositionAt(PointerRoutedEventArgs e)
+    {
+        var x = e.GetCurrentPoint(PlaybackProgress).Position.X;
+        var width = Math.Max(1, PlaybackProgress.ActualWidth);
+        return Math.Clamp(x / width, 0, 1) * Model.PlaybackDuration;
+    }
+
+    private void OnProgressSizeChanged(object sender, SizeChangedEventArgs e) =>
+        DrawProgress(_seeking ? _scrubPosition : Model.PlaybackPosition);
+
+    private void OnProgressPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!Model.IsSeekable)
+        {
+            return;
+        }
+
         _seeking = true;
         Model.IsScrubbing = true;
+        PlaybackProgress.CapturePointer(e.Pointer);
+        PillTrack.Height = PillFill.Height = 5;
+        _scrubPosition = PositionAt(e);
+        DrawProgress(_scrubPosition);
+        e.Handled = true;
     }
 
-    private async void OnSeekCompleted(object sender, PointerRoutedEventArgs e)
+    private void OnProgressMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_seeking)
+        {
+            _scrubPosition = PositionAt(e);
+            DrawProgress(_scrubPosition);
+        }
+    }
+
+    private async void OnProgressReleased(object sender, PointerRoutedEventArgs e)
+    {
+        PlaybackProgress.ReleasePointerCapture(e.Pointer);
+        await FinishSeekAsync();
+    }
+
+    private async void OnProgressCaptureLost(object sender, PointerRoutedEventArgs e) => await FinishSeekAsync();
+
+    private async Task FinishSeekAsync()
     {
         if (!_seeking)
         {
@@ -1207,9 +1247,10 @@ public sealed partial class MainWindow : Window
 
         _seeking = false;
         Model.IsScrubbing = false;
+        PillTrack.Height = PillFill.Height = 3;
         if (_playback is not null)
         {
-            await _playback.SeekAsync(PlaybackProgress.Value);
+            await _playback.SeekAsync(_scrubPosition);
         }
     }
 
