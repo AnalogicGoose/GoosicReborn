@@ -42,8 +42,14 @@ again and the staging deleted. Closing the window or letting it time out deletes
 twice, because WebKit's network process writes into the directory once more as it winds down — and
 leftovers are swept at startup. Switching, signing out and removing rebind the player only once Rust
 has confirmed, and removing an account deletes its profile after the player has let go of it. The
-sign-in window has been opened, shown Google's page, closed and cleaned up under the harness; a
-complete sign-in needs a real account and has not been run. The Library still says that reading an
+sign-in window has been opened, shown Google's page, closed and cleaned up under the harness. The
+first real sign-in then showed the account in the window and never in the app: the shared
+completion check was an older copy that looked for YouTube's `#avatar-btn` rather than YouTube
+Music's `ytmusic-settings-button`, and the wait gave up after thirty seconds without noticing
+YouTube Music's in-page navigation. The check is now the async one the Swift shell runs, called as an
+async function, restarted on every URI change, and never overlapped with itself; against a page
+imitating a signed-in YouTube Music it opens the account menu and is accepted, and against a
+signed-out one it waits. The Library still says that reading an
 account's playlists needs an account reader inside its web profile, which only macOS has, rather than
 passing guest shelves off as the account's own.
 

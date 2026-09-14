@@ -50,6 +50,11 @@ pub struct LoginHost {
     poll: RefCell<Option<glib::SourceId>>,
     closing: Cell<bool>,
     completed: Cell<bool>,
+    /// A check is still running in the page. The check may open the account menu and wait for it,
+    /// and a second one started meanwhile would click the menu shut again.
+    evaluating: Cell<bool>,
+    /// Whether a failing check has been reported, so a broken one is said once, not every tick.
+    failure_reported: Cell<bool>,
     handlers: LoginHandlers,
 }
 
@@ -93,6 +98,8 @@ impl LoginHost {
             poll: RefCell::new(None),
             closing: Cell::new(false),
             completed: Cell::new(false),
+            evaluating: Cell::new(false),
+            failure_reported: Cell::new(false),
             handlers,
         });
 
@@ -102,6 +109,15 @@ impl LoginHost {
                 if let Some(host) = weak.upgrade() {
                     host.watch_for_completion();
                 }
+            }
+        });
+        // YouTube Music moves between its pages without loading a document, so a finished load is
+        // not the only navigation there is: without this the deadline ran out while the user was
+        // still looking around a signed-in page.
+        let weak = Rc::downgrade(&host);
+        view.connect_uri_notify(move |_| {
+            if let Some(host) = weak.upgrade() {
+                host.watch_for_completion();
             }
         });
         let weak = Rc::downgrade(&host);
@@ -145,8 +161,8 @@ impl LoginHost {
         (self.handlers.on_cancelled)();
     }
 
-    /// Each finished load restarts the watch and its deadline: a second-factor prompt is a page of
-    /// its own, and it can take a minute of attention.
+    /// Each navigation restarts the watch and its deadline: a second-factor prompt is a page of its
+    /// own, and it can take a minute of attention.
     fn watch_for_completion(self: &Rc<Self>) {
         if self.closing.get() || self.completed.get() {
             return;
@@ -193,21 +209,35 @@ impl LoginHost {
         let Some(view) = view else {
             return glib::ControlFlow::Break;
         };
-        if view
+        let on_completion_origin = view
             .uri()
             .as_deref()
-            .is_some_and(login::is_exact_completion_origin)
-        {
+            .is_some_and(login::is_exact_completion_origin);
+        if on_completion_origin && !self.evaluating.replace(true) {
             let weak = Rc::downgrade(self);
-            view.evaluate_javascript(
+            // The shared check is the body of an async function — it opens the account menu and
+            // waits for it — so it is called as one, in the page's own world where `ytcfg` lives.
+            view.call_async_javascript_function(
                 COMPLETION_SCRIPT,
+                None,
                 None,
                 None,
                 None::<&gio::Cancellable>,
                 move |result| {
-                    if let (Some(host), Ok(value)) = (weak.upgrade(), result) {
-                        if value.is_string() {
+                    let Some(host) = weak.upgrade() else {
+                        return;
+                    };
+                    host.evaluating.set(false);
+                    match result {
+                        Ok(value) if value.is_string() => {
                             host.consider(token, deadline, value.to_str().as_str());
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            // The page's exception, never the page's URL or content.
+                            if !host.failure_reported.replace(true) {
+                                eprintln!("goosic login: the completion check failed: {error}");
+                            }
                         }
                     }
                 },
