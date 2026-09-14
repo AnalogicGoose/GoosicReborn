@@ -28,7 +28,7 @@ fn the_shell_hears_the_service_answer_on_a_main_loop() {
     assert!(
         path.is_file(),
         "no service at {} — run `cargo build -p goosic-service` at the repository root, \
-        or set GOOSIC_SERVICE_PATH",
+         or set GOOSIC_SERVICE_PATH",
         path.display()
     );
     let client = ServiceClientBuilder::new(path)

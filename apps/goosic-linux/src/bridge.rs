@@ -17,10 +17,10 @@ pub fn request(
     command: &str,
     payload: RequestPayload,
 ) -> impl Future<Output = Result<ResponseEnvelope, TransportError>> {
-    // One slot is enough: the client calls a completion exactly once
+    // One slot is enough: the client calls a completion exactly once.
     let (answer, answered) = async_channel::bounded(1);
     client.send(command, payload, move |result| {
-        // Nobody may be waiting any more — the window that asked cou
+        // Nobody may be waiting any more — the window that asked could be gone. That is not an
         // error worth reporting from a client thread.
         let _ = answer.send_blocking(result);
     });
