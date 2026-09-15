@@ -144,6 +144,16 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         AlbumId = card.AlbumId;
     }
 
+    /// <summary>Represents an already-imported local file in the common now-playing UI.</summary>
+    internal TrackViewModel(DownloadedTrackViewModel download)
+    {
+        Title = download.Title;
+        Subtitle = download.Artist;
+        Duration = "";
+        VideoId = download.VideoId;
+        Thumbnail = null;
+    }
+
     private TrackViewModel(TrackViewModel source)
     {
         Title = source.Title;
@@ -197,6 +207,10 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     public string Title { get; }
     public string Subtitle { get; }
     public string Duration { get; }
+
+    /// <summary>What a screen reader announces for the row: title, artist and length together.</summary>
+    public string AccessibleName => string.Join(", ",
+        new[] { Title, Subtitle, Duration }.Where(part => !string.IsNullOrWhiteSpace(part)));
     public bool Explicit { get; }
     internal string? VideoId { get; }
     internal string? Thumbnail { get; }
@@ -292,6 +306,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private string _pageTitle = "Home";
     private string _pageSubtitle = "Live from YouTube Music, browsed as a guest";
     private string _status = "";
+    private BitmapImage? _pageArtwork;
+    private string? _pageArtworkFor;
     private string _accountInitials = "G";
     /// <summary>Separates the parts of a page key; it appears in no title, id or query.</summary>
     internal const string KeySeparator = "\u001f";
@@ -337,12 +353,25 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private double _playbackDuration;
     private double _volume = 1;
     private bool _isMuted;
+    private bool _isAdvertisement;
 
     /// <summary>The filters `catalog.search` accepts, in the order they are offered.</summary>
     public IReadOnlyList<string> SearchFilters { get; } = ["all", "songs", "albums", "artists", "playlists"];
 
     public string PageTitle { get => _pageTitle; private set => Set(ref _pageTitle, value); }
     public string PageSubtitle { get => _pageSubtitle; private set => Set(ref _pageSubtitle, value); }
+    public BitmapImage? PageArtwork
+    {
+        get => _pageArtwork;
+        private set
+        {
+            if (Set(ref _pageArtwork, value))
+            {
+                OnPropertyChanged(nameof(HasPageArtwork));
+            }
+        }
+    }
+    public bool HasPageArtwork => PageArtwork is not null;
     public string AccountInitials { get => _accountInitials; private set => Set(ref _accountInitials, value); }
 
     public string Status
@@ -359,6 +388,25 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     public bool HasStatus => !string.IsNullOrEmpty(_status);
 
+    private async Task SetPageArtworkAsync(string? thumbnail)
+    {
+        _pageArtworkFor = thumbnail;
+        PageArtwork = null;
+        var file = await _artwork.LocalFileAsync(thumbnail).ConfigureAwait(true);
+        if (file is null || _pageArtworkFor != thumbnail)
+        {
+            return;
+        }
+
+        var image = new BitmapImage();
+        using var stream = File.OpenRead(file);
+        await image.SetSourceAsync(stream.AsRandomAccessStream());
+        if (_pageArtworkFor == thumbnail)
+        {
+            PageArtwork = image;
+        }
+    }
+
     private string _nowPlayingTitle = "Nothing playing";
     private string _nowPlayingSubtitle = "Choose a track to begin";
     private BitmapImage? _nowPlayingArtwork;
@@ -370,7 +418,19 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     public string AccountStatus { get => _accountStatus; private set => Set(ref _accountStatus, value); }
     public double PlaybackPosition { get => _playbackPosition; private set => Set(ref _playbackPosition, value); }
     public double PlaybackDuration { get => _playbackDuration; private set => Set(ref _playbackDuration, value); }
-    public bool IsSeekable => PlaybackDuration > 0;
+    public bool IsSeekable => PlaybackDuration > 0 && !IsAdvertisement;
+
+    public bool IsAdvertisement
+    {
+        get => _isAdvertisement;
+        private set
+        {
+            if (Set(ref _isAdvertisement, value))
+            {
+                OnPropertyChanged(nameof(IsSeekable));
+            }
+        }
+    }
     public double Volume
     {
         get => _volume;
@@ -523,6 +583,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         PlaybackDuration = Math.Max(0, sample.Duration);
+        IsAdvertisement = sample.IsAdvertisement;
         ReportNowPlayingDetails(
             !sample.IsAdvertisement && _pendingTrack?.VideoId == sample.VideoId ? _pendingTrack : null,
             IsScrubbing ? PlaybackPosition : sample.CurrentTime,
@@ -687,10 +748,11 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             Tracks.Clear();
             NextCursor = null;
             ForgetPersonalPage();
+            IsDownloadsPage = true;
             PageTitle = "Downloads";
             PageSubtitle = "Tracks saved by a previous Goosic";
             ShowPageHeader = true;
-            Status = "Playing downloaded files is not available in the Windows shell yet.";
+            await LoadDownloadsAsync().ConfigureAwait(true);
             return;
         }
 
@@ -701,6 +763,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         ShowPageHeader = route != "home";
         Shelves.Clear();
         Tracks.Clear();
+        _pageArtworkFor = null;
+        PageArtwork = null;
         NextCursor = null;
         ForgetPersonalPage();
         Status = $"Loading {PageTitle.ToLowerInvariant()}…";
@@ -795,6 +859,23 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         _currentRoute = key;
+        OnPropertyChanged(nameof(IsArtistEntityPage));
+    }
+
+    /// <summary>An artist detail page has Shuffle and Radio even though its songs live in shelves.</summary>
+    public bool IsArtistEntityPage => _currentRoute.StartsWith("entity" + KeySeparator + "artist" + KeySeparator,
+        StringComparison.Ordinal);
+
+    internal async Task<TrackViewModel?> PlayArtistPageAsync(bool radio)
+    {
+        var parts = _currentRoute.Split(KeySeparator);
+        if (parts is not ["entity", "artist", var id, ..])
+        {
+            return null;
+        }
+
+        var first = await PlayEntityAsync("artist", id, shuffle: !radio).ConfigureAwait(true);
+        return radio && first is not null ? await StartRadioAsync(first).ConfigureAwait(true) : first;
     }
 
     /// <summary>Opens an album, playlist or artist.</summary>
@@ -852,6 +933,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             {
                 PageSubtitle = page.Subtitle;
             }
+
+            _ = SetPageArtworkAsync(page.Thumbnail);
 
             NextCursor = page.NextCursor;
             foreach (var track in page.Tracks)

@@ -8,6 +8,11 @@ public partial class App : Application
 
     public App()
     {
+        UnhandledException += (_, args) =>
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "goosic-startup-error.txt"),
+                args.Exception.ToString());
+        };
         InitializeComponent();
     }
 
