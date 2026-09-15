@@ -153,7 +153,7 @@ public sealed class WinUiGlassRenderer : IDisposable
         if (visuals.FactoryKey != factoryKey)
         {
             var factory = Factory(factoryKey, () => BuildMaterial(material, frame.Quality, frame.Debug, chrome, lens, stack),
-                lens ? ["Lens.TransformMatrix"] : []);
+                lens ? ["Displacement.Amount"] : []);
             if (factory is null)
             {
                 visuals.Root.IsVisible = false;
@@ -255,22 +255,9 @@ public sealed class WinUiGlassRenderer : IDisposable
             return;
         }
 
-        // The bevel bends rays inwards, so the rim shows content from nearer the centre. A lens
-        // scaled about the centre, masked to the bevel's refraction profile, reproduces the
-        // proof of concept's peak displacement at the rim on every edge.
-        var halfWidth = frame.Width / 2f;
-        var halfHeight = frame.Height / 2f;
-        // A uniform compositor transform can approximate the shader only inside its SDF bevel.
-        // Keep the displacement tightly bounded: larger values turn a tall nine-grid surface into
-        // broad magnification bands even though the proof-of-concept's centre is perfectly flat.
-        var offset = (float)Math.Min(visuals.LensPeak, Math.Min(4, 0.08 * Math.Min(halfWidth, halfHeight)));
-        var scaleX = halfWidth / Math.Max(halfWidth - offset, 1f);
-        var scaleY = halfHeight / Math.Max(halfHeight - offset, 1f);
-        var center = new Vector2(halfWidth, halfHeight);
-        var matrix = Matrix3x2.CreateTranslation(-center)
-            * Matrix3x2.CreateScale(scaleX, scaleY)
-            * Matrix3x2.CreateTranslation(center);
-        brush.Properties.InsertMatrix3x2("Lens.TransformMatrix", matrix);
+        // D2D maps the [0, 1] channel range to [-Amount/2, Amount/2]. The baked texture is
+        // normalized to the proof-of-concept's peak ray offset, hence twice that peak here.
+        brush.Properties.InsertScalar("Displacement.Amount", (float)(2 * visuals.LensPeak));
         visuals.LensSize = size;
     }
 
@@ -524,10 +511,14 @@ public sealed class WinUiGlassRenderer : IDisposable
                 return Frost(material, quality);
             }
 
-            IGraphicsEffectSource shifted = new AlphaMaskEffect
+            IGraphicsEffectSource shifted = new DisplacementMapEffect
             {
-                Source = new Transform2DEffect { Name = "Lens", Source = Frost(material, quality) },
-                AlphaMask = new CompositionEffectSourceParameter("Lens"),
+                Name = "Displacement",
+                Source = Frost(material, quality),
+                Displacement = new CompositionEffectSourceParameter("Lens"),
+                Amount = 0,
+                XChannelSelect = EffectChannelSelect.Red,
+                YChannelSelect = EffectChannelSelect.Green,
             };
             if (stack)
             {
@@ -538,9 +529,7 @@ public sealed class WinUiGlassRenderer : IDisposable
                 };
             }
 
-            // The compositor accepts only tree-shaped effect graphs. Both branches deliberately
-            // own a blur node while still sampling the same named per-window backdrop.
-            return Over(Frost(material, quality), shifted);
+            return shifted;
         }
 
         IGraphicsEffectSource body = Tint(Refracted(), material);

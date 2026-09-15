@@ -143,6 +143,10 @@ public static class GlassTextureBaker
                 var index = (row * size + column) * 4;
                 var sd = Sd(x, y);
 
+                // D2D displacement maps use 0.5 as no movement. Keep every texel neutral until
+                // the SDF bevel below supplies a signed X/Y ray offset.
+                WriteDisplacement(lens, index, 0, 0);
+
                 // The outer half pixel is the burned outline; the glass body starts one pixel in.
                 var outer = GlassGeometry.HardCoverage(sd * scale + 0.5);
                 if (outer <= 0)
@@ -206,7 +210,10 @@ public static class GlassTextureBaker
 
                 if (peak > 0)
                 {
-                    WriteGray(lens, index, GlassGeometry.RefractionOffset(t, thickness, bezel) / peak * body);
+                    var displacement = GlassGeometry.RefractionOffset(t, thickness, bezel) / peak * body;
+                    // The shader's refracted ray bends toward the inside, opposite the outward SDF
+                    // normal. R/G carry signed normalized X/Y offsets for DisplacementMapEffect.
+                    WriteDisplacement(lens, index, -nx * displacement, -ny * displacement);
                 }
             }
         }
@@ -266,6 +273,15 @@ public static class GlassTextureBaker
     private static void WriteBlackAlpha(byte[] pixels, int index, double value)
     {
         pixels[index + 3] = ToByte(value);
+    }
+
+    private static void WriteDisplacement(byte[] pixels, int index, double x, double y)
+    {
+        // Upload format is BGRA8; the effect reads logical red and green channels.
+        pixels[index] = 128;
+        pixels[index + 1] = ToByte(0.5 + 0.5 * Math.Clamp(y, -1, 1));
+        pixels[index + 2] = ToByte(0.5 + 0.5 * Math.Clamp(x, -1, 1));
+        pixels[index + 3] = 255;
     }
 
     private static byte ToByte(double value) => (byte)Math.Clamp(Math.Round(value * 255), 0, 255);

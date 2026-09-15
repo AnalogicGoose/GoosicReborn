@@ -68,16 +68,13 @@ public static class GlassTokens
         {
             // Thin and Window are the "Clear" profile: frost 6 and a 15 % tint.
             GlassStyle.Thin => (6f, 0.15f, 0f),
-            GlassStyle.Window => (6f, 0.15f, 0f),
-            // These are the calibrated Regular/Dark profile values from the proof of concept.
-            // Weakening the tint exposes large cover-art colour fields almost raw through tall
-            // product surfaces, instead of preserving the Dark glass's stable luminosity.
-            GlassStyle.Control => (16f, 1f, 0.35f),
-            GlassStyle.Navigation => (16f, 1f, 0.6f),
-            GlassStyle.Player => (16f, 1f, 1f),
-            GlassStyle.Prominent => (22f, 1f, 0.8f),
-            GlassStyle.Menu => (22f, 1f, 1f),
-            _ => (16f, 1f, 1f),
+            GlassStyle.Window => (12f, 0.45f, 0f),
+            GlassStyle.Control => (16f, 0.35f, 0.35f),
+            GlassStyle.Navigation => (32f, 0.55f, 0.6f),
+            GlassStyle.Player => (16f, 0.25f, 1f),
+            GlassStyle.Prominent => (22f, 0.55f, 0.8f),
+            GlassStyle.Menu => (22f, 0.55f, 1f),
+            _ => (16f, 0.35f, 1f),
         };
 
         // Window chrome is a scroll edge, not an object: it has no rim to light and nothing to bend.
@@ -98,9 +95,8 @@ public static class GlassTokens
     public static GlassFeatures Features(GlassQuality quality) => quality switch
     {
         GlassQuality.Ultra => new(true, true, true, true, true, 1f, 1f, GlassBlurOptimization.Quality),
-        // The Windows 11 compositor can crash in dwmcorei.dll when the transform lens and live
-        // stack mask are compiled into the same sustained backdrop graph. Keep the calibrated
-        // lens in the normal desktop tier, but render overlap relief as a separate visual pass.
+        // High uses the SDF-derived Direct2D displacement map. The live overlap-response mask stays
+        // Ultra-only because this Windows compositor build crashes when both graphs remain active.
         GlassQuality.High => new(true, true, true, false, true, 0.5f, 1f, GlassBlurOptimization.Balanced),
         GlassQuality.Medium => new(true, false, false, false, true, 0.5f, 1f, GlassBlurOptimization.Speed),
         // Low follows the proof of concept: refraction goes first, and the frost is cheaper.
