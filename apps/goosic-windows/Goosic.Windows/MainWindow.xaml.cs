@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading.Tasks;
 using Goosic.Windows.Service;
 using Goosic.Windows.ViewModels;
-using Goosic.Windows.Glass;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -20,18 +19,13 @@ public sealed partial class MainWindow : Window
 {
     private readonly GoosicServiceClient? _client;
     private OfficialPlaybackHost? _playback;
-    private LocalPlaybackHost? _localPlayback;
     private SystemMediaControls? _media;
     private PersonalCatalogHost? _personal;
     private readonly Views.MeshBackground _fullPlayerMesh = new();
-    private readonly Views.ArtworkBackdropRenderer _backdropRenderer = new();
+    private readonly Views.MeshBackground _backdropMesh = new();
     private string? _paletteFor;
     private bool _fullPlayerSeeking;
     private bool _seeking;
-    private readonly System.Threading.SemaphoreSlim _rendererTransition = new(1, 1);
-    private DownloadedTrackViewModel? _activeDownload;
-    private TrackViewModel? _activeDownloadQueueEntry;
-    private GlassScene? _glassScene;
 
     public MainWindow()
     {
@@ -73,13 +67,10 @@ public sealed partial class MainWindow : Window
             // Both web surfaces live in one invisible host panel, and are rebuilt there whenever the
             // active account changes, because a WebView2 cannot move between profiles.
             _playback = new OfficialPlaybackHost(WebHost, _client);
-            _localPlayback = new LocalPlaybackHost(_client, DispatcherQueue);
             _personal = new PersonalCatalogHost(WebHost);
             Model.Playback = _playback;
-            Model.LocalPlayback = _localPlayback;
             Model.Personal = _personal;
             _playback.Status += message => Model.ReportStatus(message);
-            _localPlayback.Status += message => Model.ReportStatus(message);
             _playback.PageMovedOn += videoId =>
             {
                 // YouTube Music started a track of its own when the requested one finished; that is
@@ -116,14 +107,6 @@ public sealed partial class MainWindow : Window
                     _ = AdvanceAsync(forward: true, natural: true);
                 }
             };
-            _localPlayback.Sampled += sample =>
-            {
-                _media?.ReportSample(sample);
-                if (Model.ReportPlayback(sample))
-                {
-                    _ = AdvanceAsync(forward: true, natural: true);
-                }
-            };
             WireSystemMediaControls();
         }
 
@@ -133,25 +116,11 @@ public sealed partial class MainWindow : Window
             Model.ReportStatus(rules);
         }
 
-        Closed += (_, _) =>
-        {
-            _localPlayback?.Dispose();
-            _media?.Dispose();
-        };
+        Closed += (_, _) => _media?.Dispose();
         _ = Model.StartAsync();
     }
 
     public ShellViewModel Model { get; }
-
-    private void OnRootLoaded(object sender, RoutedEventArgs e)
-    {
-        _glassScene ??= GlassScene.Attach(RootGrid);
-        _glassScene.Register(TitleBarStrip, GlassStyle.Window);
-        SidebarSearch.Background = new GlassBrush { MaterialStyle = GlassStyle.Control };
-        _glassScene.Register(Sidebar, GlassStyle.Navigation);
-        _glassScene.Register(PlayerPill, GlassStyle.Player);
-        _glassScene.Register(SidePanel, GlassStyle.Prominent);
-    }
 
     /// <summary>
     /// Where the service binary is.
@@ -489,85 +458,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (Model.IsAdvertisement)
-        {
-            Model.ReportStatus("Track changes are unavailable while an advertisement is playing.");
-            return;
-        }
-
-        if (ReferenceEquals(entry, _activeDownloadQueueEntry) && _activeDownload is not null)
-        {
-            await PlayDownloadedAsync(_activeDownload);
-            return;
-        }
-
-        await _rendererTransition.WaitAsync();
-        try
-        {
-            _activeDownload = null;
-            _activeDownloadQueueEntry = null;
-            _localPlayback?.Stop();
-            _playback.RestoreVolume(Model.Volume, Model.IsMuted);
-            await _playback.PlayAsync(videoId);
-        }
-        finally
-        {
-            _rendererTransition.Release();
-        }
+        await _playback.PlayAsync(videoId);
     }
 
     private async void OnPlayPage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: false));
 
     private async void OnShufflePage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: true));
-
-    private async void OnShuffleArtist(object sender, RoutedEventArgs e) =>
-        await PlayEntryAsync(await Model.PlayArtistPageAsync(radio: false));
-
-    private async void OnRadioArtist(object sender, RoutedEventArgs e) =>
-        await PlayEntryAsync(await Model.PlayArtistPageAsync(radio: true));
-
-    private async void OnRefreshDownloads(object sender, RoutedEventArgs e) => await Model.LoadDownloadsAsync();
-
-    private async void OnImportDownloads(object sender, RoutedEventArgs e) => await Model.ImportLegacyDownloadsAsync();
-
-    private async void OnPlayDownloaded(object sender, RoutedEventArgs e)
-    {
-        if (Model.IsAdvertisement)
-        {
-            Model.ReportStatus("Downloaded-file playback is unavailable while an advertisement is playing.");
-            return;
-        }
-
-        if (sender is not FrameworkElement { DataContext: DownloadedTrackViewModel download }
-            || Model.SelectDownloaded(download) is not { } entry || _localPlayback is null)
-        {
-            return;
-        }
-
-        _activeDownload = download;
-        _activeDownloadQueueEntry = entry;
-        await PlayDownloadedAsync(download);
-    }
-
-    private async Task PlayDownloadedAsync(DownloadedTrackViewModel download)
-    {
-        if (_localPlayback is null)
-        {
-            return;
-        }
-
-        await _rendererTransition.WaitAsync();
-        try
-        {
-            _playback?.Stop();
-            _localPlayback.RestoreVolume(Model.Volume, Model.IsMuted);
-            await _localPlayback.PlayAsync(download);
-        }
-        finally
-        {
-            _rendererTransition.Release();
-        }
-    }
 
     private void OnShuffle(object sender, RoutedEventArgs e) => Model.ToggleShuffle();
 
@@ -578,15 +474,9 @@ public sealed partial class MainWindow : Window
     /// <summary>Restarts the track after its first few seconds, as every player does; otherwise goes back.</summary>
     private async Task PreviousAsync()
     {
-        if (Model.IsAdvertisement)
+        if (_playback is not null && Model.PlaybackPosition > 3)
         {
-            Model.ReportStatus("Track changes are unavailable while an advertisement is playing.");
-            return;
-        }
-
-        if ((_playback is not null || _localPlayback is not null) && Model.PlaybackPosition > 3)
-        {
-            await SeekActiveAsync(0);
+            await _playback.SeekAsync(0);
             return;
         }
 
@@ -597,12 +487,6 @@ public sealed partial class MainWindow : Window
 
     private async Task AdvanceAsync(bool forward, bool natural)
     {
-        if (Model.IsAdvertisement && !natural)
-        {
-            Model.ReportStatus("Track changes are unavailable while an advertisement is playing.");
-            return;
-        }
-
         if (forward && Model.CanExtendRadio && Model.Repeat != RepeatMode.One)
         {
             await Model.ExtendRadioAsync();
@@ -625,13 +509,13 @@ public sealed partial class MainWindow : Window
 
     private async Task TogglePauseAsync()
     {
-        if (_playback is null && _localPlayback is null)
+        if (_playback is null)
         {
             Model.ReportStatus("There is no service to claim playback from.");
             return;
         }
 
-        await ToggleActivePauseAsync();
+        await _playback.TogglePauseAsync();
     }
 
     // ---- Queue panel ------------------------------------------------------------------------
@@ -922,14 +806,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnDescribePagePlaylist(object sender, RoutedEventArgs e)
-    {
-        if (await PromptAsync("Set playlist description", "Description", "", "Save", privacy: false) is { } answer)
-        {
-            await Model.SetPagePlaylistDescriptionAsync(answer.Text);
-        }
-    }
-
     private async void OnPagePlaylistPrivacy(object sender, RoutedEventArgs e)
     {
         if (sender is MenuFlyoutItem { Tag: string privacy })
@@ -1019,6 +895,7 @@ public sealed partial class MainWindow : Window
     private void WireFullPlayer()
     {
         FullPlayerBackdrop.Children.Add(_fullPlayerMesh);
+        ArtworkBackdrop.Children.Insert(0, _backdropMesh);
         FullPlayerProgress.AddHandler(UIElement.PointerPressedEvent,
             new PointerEventHandler((_, _) => { _fullPlayerSeeking = true; Model.IsScrubbing = true; }), handledEventsToo: true);
         PointerEventHandler done = async (_, _) =>
@@ -1030,9 +907,9 @@ public sealed partial class MainWindow : Window
 
             _fullPlayerSeeking = false;
             Model.IsScrubbing = false;
-            if (_playback is not null || _localPlayback is not null)
+            if (_playback is not null)
             {
-                await SeekActiveAsync(FullPlayerProgress.Value);
+                await _playback.SeekAsync(FullPlayerProgress.Value);
             }
         };
         FullPlayerProgress.AddHandler(UIElement.PointerReleasedEvent, done, handledEventsToo: true);
@@ -1062,7 +939,7 @@ public sealed partial class MainWindow : Window
         {
             FullPlayerCover.Source = null;
             _fullPlayerMesh.SetPalette(null);
-            ArtworkBackdropImage.Source = null;
+            _backdropMesh.SetPalette(null);
             UpdateBackdrop();
             return;
         }
@@ -1073,28 +950,20 @@ public sealed partial class MainWindow : Window
             await image.SetSourceAsync(stream.AsRandomAccessStream());
         }
 
-        var paletteTask = Views.MeshBackground.PaletteAsync(file);
-        var backdropTask = _backdropRenderer.RenderAsync(file);
-        await Task.WhenAll(paletteTask, backdropTask);
+        var palette = await Views.MeshBackground.PaletteAsync(file);
         if (_paletteFor != thumbnail)
         {
             return;
         }
 
         FullPlayerCover.Source = image;
-        _fullPlayerMesh.SetPalette(await paletteTask);
-        if (await backdropTask is { } backdrop)
-        {
-            var backdropImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-            using var backdropStream = File.OpenRead(backdrop);
-            await backdropImage.SetSourceAsync(backdropStream.AsRandomAccessStream());
-            ArtworkBackdropImage.Source = backdropImage;
-        }
+        _fullPlayerMesh.SetPalette(palette);
+        _backdropMesh.SetPalette(palette);
         UpdateBackdrop();
     }
 
     private void UpdateBackdrop() =>
-        ArtworkBackdrop.Visibility = Model.ArtworkBackground && ArtworkBackdropImage.Source is not null
+        ArtworkBackdrop.Visibility = Model.ArtworkBackground && _paletteFor is not null
             ? Visibility.Visible
             : Visibility.Collapsed;
 
@@ -1160,9 +1029,9 @@ public sealed partial class MainWindow : Window
     /// <summary>Seeks to a synced line. Plain lyrics carry no times, so their lines do nothing.</summary>
     private async void OnLyricLineClicked(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: long at } && at > 0 && Model.IsSeekable)
+        if (sender is Button { Tag: long at } && at > 0 && _playback is not null && Model.IsSeekable)
         {
-            await SeekActiveAsync(at / 1000.0);
+            await _playback.SeekAsync(at / 1000.0);
         }
     }
 
@@ -1206,15 +1075,13 @@ public sealed partial class MainWindow : Window
         Accelerator(VirtualKey.Left, VirtualKeyModifiers.Control, () => _ = PreviousAsync());
         Accelerator(VirtualKey.Up, VirtualKeyModifiers.Control, () => _ = NudgeVolumeAsync(0.05));
         Accelerator(VirtualKey.Down, VirtualKeyModifiers.Control, () => _ = NudgeVolumeAsync(-0.05));
-        Accelerator(VirtualKey.M, VirtualKeyModifiers.Control, () => _ = ToggleActiveMutedAsync());
+        Accelerator(VirtualKey.M, VirtualKeyModifiers.Control, () => _ = _playback?.ToggleMutedAsync());
         Accelerator(VirtualKey.Right, VirtualKeyModifiers.Shift, () => _ = SeekByAsync(10));
         Accelerator(VirtualKey.Left, VirtualKeyModifiers.Shift, () => _ = SeekByAsync(-10));
         Accelerator(VirtualKey.S, VirtualKeyModifiers.Control, Model.ToggleShuffle);
         Accelerator(VirtualKey.R, VirtualKeyModifiers.Control, Model.CycleRepeat);
         Accelerator(VirtualKey.F, VirtualKeyModifiers.Control, OpenSearch);
-        Accelerator(VirtualKey.L, VirtualKeyModifiers.Control, () => _ = Model.ToggleNowPlayingRatingAsync("LIKE"));
-        Accelerator(VirtualKey.D, VirtualKeyModifiers.Control, () => _ = Model.ToggleNowPlayingRatingAsync("DISLIKE"));
-        Accelerator(VirtualKey.L, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, () =>
+        Accelerator(VirtualKey.L, VirtualKeyModifiers.Control, () =>
         {
             LyricsButton.IsChecked = LyricsButton.IsChecked != true;
             OnToggleLyrics(LyricsButton, new RoutedEventArgs());
@@ -1255,9 +1122,9 @@ public sealed partial class MainWindow : Window
     /// <summary>Moves ten seconds either way, as the web player's seek keys do.</summary>
     private async Task SeekByAsync(double seconds)
     {
-        if (Model.IsSeekable)
+        if (_playback is not null && Model.IsSeekable)
         {
-            await SeekActiveAsync(Math.Clamp(Model.PlaybackPosition + seconds, 0, Model.PlaybackDuration));
+            await _playback.SeekAsync(Math.Clamp(Model.PlaybackPosition + seconds, 0, Model.PlaybackDuration));
         }
     }
 
@@ -1291,7 +1158,10 @@ public sealed partial class MainWindow : Window
 
     private async Task NudgeVolumeAsync(double delta)
     {
-        await SetActiveVolumeAsync(Math.Clamp(Model.Volume + delta, 0, 1));
+        if (_playback is not null)
+        {
+            await _playback.SetVolumeAsync(Math.Clamp(Model.Volume + delta, 0, 1));
+        }
     }
 
     // ---- System media controls --------------------------------------------------------------
@@ -1325,7 +1195,7 @@ public sealed partial class MainWindow : Window
                     break;
             }
         };
-        _media.SeekRequested += seconds => _ = SeekActiveAsync(seconds);
+        _media.SeekRequested += seconds => _ = _playback?.SeekAsync(seconds);
         Model.NowPlayingChanged += async track =>
         {
             var artwork = await Model.ArtworkFileAsync(track);
@@ -1442,7 +1312,10 @@ public sealed partial class MainWindow : Window
         _seeking = false;
         Model.IsScrubbing = false;
         PillTrack.Height = PillFill.Height = 3;
-        await SeekActiveAsync(_scrubPosition);
+        if (_playback is not null)
+        {
+            await _playback.SeekAsync(_scrubPosition);
+        }
     }
 
     /// <summary>
@@ -1455,62 +1328,22 @@ public sealed partial class MainWindow : Window
     /// </remarks>
     private async void OnVolumeChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
-        if ((_playback is null && _localPlayback is null) || Math.Abs(e.NewValue - Model.VolumePercent) < 0.5)
+        if (_playback is null || Math.Abs(e.NewValue - Model.VolumePercent) < 0.5)
         {
             return;
         }
 
-        if (Model.IsAdvertisement)
-        {
-            Model.ReportStatus("Volume changes are unavailable while an advertisement is playing.");
-            return;
-        }
-
-        await SetActiveVolumeAsync(e.NewValue / 100.0);
-        Model.RememberVolume(e.NewValue / 100.0, ActiveMuted);
+        await _playback.SetVolumeAsync(e.NewValue / 100.0);
+        Model.RememberVolume(e.NewValue / 100.0, _playback.PreferredMuted);
     }
 
     private async void OnToggleMuted(object sender, RoutedEventArgs e)
     {
-        if (_playback is not null || _localPlayback is not null)
+        if (_playback is not null)
         {
-            await ToggleActiveMutedAsync();
-            Model.RememberVolume(Model.Volume, ActiveMuted);
+            await _playback.ToggleMutedAsync();
+            Model.RememberVolume(Model.Volume, _playback.PreferredMuted);
         }
-    }
-
-    private bool IsLocalPlayback => _localPlayback?.HasLoadedTrack == true;
-
-    private bool ActiveMuted => IsLocalPlayback
-        ? _localPlayback?.PreferredMuted ?? Model.IsMuted
-        : _playback?.PreferredMuted ?? Model.IsMuted;
-
-    private Task ToggleActivePauseAsync() => IsLocalPlayback
-        ? _localPlayback!.TogglePauseAsync()
-        : _playback?.TogglePauseAsync() ?? Task.CompletedTask;
-
-    private Task SeekActiveAsync(double seconds) => IsLocalPlayback
-        ? _localPlayback!.SeekAsync(seconds)
-        : Model.IsAdvertisement
-            ? BlockAdvertisementCommand("Seeking")
-            : _playback?.SeekAsync(seconds) ?? Task.CompletedTask;
-
-    private Task SetActiveVolumeAsync(double volume) => Model.IsAdvertisement
-        ? BlockAdvertisementCommand("Volume changes")
-        : IsLocalPlayback
-            ? _localPlayback!.SetVolumeAsync(volume)
-            : _playback?.SetVolumeAsync(volume) ?? Task.CompletedTask;
-
-    private Task ToggleActiveMutedAsync() => Model.IsAdvertisement
-        ? BlockAdvertisementCommand("Mute")
-        : IsLocalPlayback
-            ? _localPlayback!.ToggleMutedAsync()
-            : _playback?.ToggleMutedAsync() ?? Task.CompletedTask;
-
-    private Task BlockAdvertisementCommand(string command)
-    {
-        Model.ReportStatus($"{command} is unavailable while an advertisement is playing.");
-        return Task.CompletedTask;
     }
 
     // ---- Side panel -------------------------------------------------------------------------
@@ -1566,16 +1399,6 @@ public sealed partial class MainWindow : Window
         var visible = QueueButton.IsChecked == true;
         QueuePanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         ShowSidePanel(visible, "");
-    }
-
-    /// <summary>The close button on either panel; it leaves both toggles in the pill unchecked.</summary>
-    private void OnCloseSidePanel(object sender, RoutedEventArgs e)
-    {
-        LyricsButton.IsChecked = false;
-        QueueButton.IsChecked = false;
-        LyricsItems.Visibility = Visibility.Collapsed;
-        QueuePanel.Visibility = Visibility.Collapsed;
-        ShowSidePanel(false, "");
     }
 
     private void ShowSidePanel(bool visible, string message)

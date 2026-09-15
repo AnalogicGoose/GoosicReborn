@@ -49,7 +49,6 @@ internal sealed record CatalogPage
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("subtitle")] public string Subtitle { get; init; } = "";
-    [JsonPropertyName("thumbnail")] public string? Thumbnail { get; init; }
     [JsonPropertyName("shelves")] public IReadOnlyList<CatalogShelf> Shelves { get; init; } = [];
     [JsonPropertyName("tracks")] public IReadOnlyList<CatalogItem> Tracks { get; init; } = [];
 

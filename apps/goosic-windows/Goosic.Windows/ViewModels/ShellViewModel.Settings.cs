@@ -126,7 +126,6 @@ public sealed partial class ShellViewModel
             if (settings["volume"]?.GetValue<double>() is { } volume)
             {
                 Playback?.RestoreVolume(volume, settings["muted"]?.GetValue<bool>() ?? false);
-                LocalPlayback?.RestoreVolume(volume, settings["muted"]?.GetValue<bool>() ?? false);
             }
         }
         catch (Exception error)

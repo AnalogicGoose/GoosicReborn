@@ -116,7 +116,6 @@ public sealed partial class ShellViewModel
 
     internal PersonalCatalogHost? Personal { get; set; }
     internal OfficialPlaybackHost? Playback { get; set; }
-    internal LocalPlaybackHost? LocalPlayback { get; set; }
 
     public ObservableCollection<PlaylistSummaryViewModel> UserPlaylists { get; } = [];
 
@@ -187,7 +186,6 @@ public sealed partial class ShellViewModel
         _pagePlaylistId = null;
         _pageArtistId = null;
         IsLibraryPage = false;
-        IsDownloadsPage = false;
         IsSettingsPage = false;
         IsSearchPage = false;
         PageActionsChanged();
@@ -250,7 +248,6 @@ public sealed partial class ShellViewModel
     private async Task<ulong> QuiesceAsync()
     {
         Playback?.Stop();
-        LocalPlayback?.Stop();
         IsPlaying = false;
         var snapshot = await _client.RequestAsync("state.get").ConfigureAwait(true);
         var owner = snapshot?["state"]?["owner"]?.GetValue<string>() ?? "none";
@@ -522,7 +519,6 @@ public sealed partial class ShellViewModel
                 PageSubtitle = page.Subtitle;
             }
 
-            _ = SetPageArtworkAsync(page.Thumbnail);
             Fill(page);
             Status = Tracks.Count == 0 && Shelves.Count == 0 ? "Nothing here yet." : "";
         }
@@ -661,12 +657,6 @@ public sealed partial class ShellViewModel
     /// <summary>Toggles the like on the confirmed track, for the transport's button.</summary>
     internal Task ToggleNowPlayingRatingAsync(string rating)
     {
-        if (IsAdvertisement)
-        {
-            ReportStatus("Ratings are unavailable while an advertisement is playing.");
-            return Task.CompletedTask;
-        }
-
         if (_confirmedTrack is not { } track)
         {
             ReportStatus("Nothing is playing.");
@@ -736,15 +726,6 @@ public sealed partial class ShellViewModel
         _pagePlaylistId is { } playlist
             ? ChangeAsync("setPlaylistPrivacy", new JsonObject { ["playlistId"] = playlist, ["privacy"] = privacy },
                 $"This playlist is now {privacy.ToLowerInvariant()}.")
-            : Task.CompletedTask;
-
-    internal Task SetPagePlaylistDescriptionAsync(string description) =>
-        _pagePlaylistId is { } playlist
-            ? ChangeAsync("setPlaylistDescription", new JsonObject
-            {
-                ["playlistId"] = playlist,
-                ["description"] = description,
-            }, "Updated the playlist description.")
             : Task.CompletedTask;
 
     /// <summary>Deletes a playlist the account owns. There is no undo upstream; the view confirms first.</summary>
