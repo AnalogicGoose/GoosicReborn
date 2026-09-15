@@ -260,10 +260,7 @@ public sealed class WinUiGlassRenderer : IDisposable
         // proof of concept's peak displacement at the rim on every edge.
         var halfWidth = frame.Width / 2f;
         var halfHeight = frame.Height / 2f;
-        // A uniform compositor transform can approximate the shader only inside its SDF bevel.
-        // Keep the displacement tightly bounded: larger values turn a tall nine-grid surface into
-        // broad magnification bands even though the proof-of-concept's centre is perfectly flat.
-        var offset = (float)Math.Min(visuals.LensPeak, Math.Min(4, 0.08 * Math.Min(halfWidth, halfHeight)));
+        var offset = (float)Math.Min(visuals.LensPeak, Math.Min(18, 0.35 * Math.Min(halfWidth, halfHeight)));
         var scaleX = halfWidth / Math.Max(halfWidth - offset, 1f);
         var scaleY = halfHeight / Math.Max(halfHeight - offset, 1f);
         var center = new Vector2(halfWidth, halfHeight);
