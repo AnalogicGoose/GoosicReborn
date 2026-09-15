@@ -97,11 +97,8 @@ public static class GlassTokens
     public static GlassFeatures Features(GlassQuality quality) => quality switch
     {
         GlassQuality.Ultra => new(true, true, true, true, true, 1f, 1f, GlassBlurOptimization.Quality),
-        // The Windows 11 compositor can crash in dwmcorei.dll when a backdrop brush combines a
-        // transform lens and a live stack mask for a sustained period. Ultra remains available
-        // for explicit benchmarking; normal tiers use the stable shared frost and SDF edge path.
-        GlassQuality.High => new(true, false, true, false, true, 0.5f, 1f, GlassBlurOptimization.Balanced),
-        GlassQuality.Medium => new(true, false, false, false, true, 0.5f, 1f, GlassBlurOptimization.Speed),
+        GlassQuality.High => new(true, true, true, true, true, 0.5f, 1f, GlassBlurOptimization.Balanced),
+        GlassQuality.Medium => new(true, true, false, true, true, 0.5f, 1f, GlassBlurOptimization.Speed),
         // Low follows the proof of concept: refraction goes first, and the frost is cheaper.
         GlassQuality.Low => new(true, false, false, true, true, 0.25f, 0.6f, GlassBlurOptimization.Speed),
         _ => new(false, false, false, false, false, 0f, 0f, GlassBlurOptimization.Speed),
