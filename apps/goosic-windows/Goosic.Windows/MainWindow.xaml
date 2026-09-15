@@ -13,7 +13,7 @@
         of the content rather than a bar that takes a row of its own. The window's backdrop is
         Mica, and the playing cover's colours sit behind everything when Album Art Background is on.
     -->
-    <Grid x:Name="RootGrid" Background="Transparent">
+    <Grid x:Name="RootGrid" Background="{ThemeResource GoosicWindowBackgroundBrush}">
 
         <Grid x:Name="ArtworkBackdrop" Visibility="Collapsed" IsHitTestVisible="False">
             <Rectangle x:Name="ArtworkBackdropVeil" Fill="{ThemeResource GoosicWindowBackgroundBrush}" Opacity="0.6" />

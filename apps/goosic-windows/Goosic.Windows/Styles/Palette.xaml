@@ -5,17 +5,17 @@
 
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
-            <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#0D0D0F" />
+            <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#202020" />
             <SolidColorBrush x:Key="GoosicRailBrush" Color="#14141A" />
             <SolidColorBrush x:Key="GoosicChromeBrush" Color="#1A1A20" />
             <SolidColorBrush x:Key="GoosicRaisedBrush" Color="#FFFFFF" Opacity="0.06" />
             <SolidColorBrush x:Key="GoosicRaisedStrongBrush" Color="#FFFFFF" Opacity="0.11" />
             <SolidColorBrush x:Key="GoosicSecondaryTextBrush" Color="#9E9EA7" />
             <SolidColorBrush x:Key="GoosicHairlineBrush" Color="#FFFFFF" Opacity="0.09" />
-            <AcrylicBrush x:Key="GoosicSidebarAcrylicBrush" TintColor="#2A2A30" TintOpacity="0.45"
-                          TintLuminosityOpacity="0.55" FallbackColor="#232328" />
-            <AcrylicBrush x:Key="GoosicPillAcrylicBrush" TintColor="#3A3A40" TintOpacity="0.3"
-                          TintLuminosityOpacity="0.45" FallbackColor="#E62C2C32" />
+            <AcrylicBrush x:Key="GoosicSidebarAcrylicBrush" TintColor="#000000" TintOpacity="0.45"
+                          TintLuminosityOpacity="0.55" FallbackColor="#000000" />
+            <AcrylicBrush x:Key="GoosicPillAcrylicBrush" TintColor="#000000" TintOpacity="0.3"
+                          TintLuminosityOpacity="0.45" FallbackColor="#E6000000" />
             <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="#FFFFFF" Opacity="0.14" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="#FFFFFF" Opacity="0.10" />
         </ResourceDictionary>
