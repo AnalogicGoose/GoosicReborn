@@ -99,14 +99,17 @@ public sealed class WinUiGlassRenderer : IDisposable
         root.RelativeSizeAdjustment = Vector2.One;
         var shadow = _compositor.CreateSpriteVisual();
         var material = _compositor.CreateSpriteVisual();
+        var edgeBurn = _compositor.CreateSpriteVisual();
         var edge = _compositor.CreateSpriteVisual();
         material.RelativeSizeAdjustment = Vector2.One;
+        edgeBurn.RelativeSizeAdjustment = Vector2.One;
         edge.RelativeSizeAdjustment = Vector2.One;
         root.Children.InsertAtTop(shadow);
         root.Children.InsertAtTop(material);
+        root.Children.InsertAtTop(edgeBurn);
         root.Children.InsertAtTop(edge);
         ElementCompositionPreview.SetElementChildVisual(host, root);
-        var visuals = new GlassSurfaceVisuals(host, root, shadow, material, edge);
+        var visuals = new GlassSurfaceVisuals(host, root, shadow, material, edgeBurn, edge);
         _surfaces.Add(visuals);
         return visuals;
     }
@@ -121,6 +124,7 @@ public sealed class WinUiGlassRenderer : IDisposable
         ElementCompositionPreview.SetElementChildVisual(visuals.Host, null);
         Release(visuals);
         visuals.Material.Dispose();
+        visuals.EdgeBurn.Dispose();
         visuals.Edge.Dispose();
         visuals.Shadow.Dispose();
         visuals.Root.Dispose();
@@ -170,11 +174,13 @@ public sealed class WinUiGlassRenderer : IDisposable
         if (chrome)
         {
             visuals.Edge.IsVisible = false;
+            visuals.EdgeBurn.IsVisible = false;
             BindChrome(visuals, brush);
         }
         else
         {
             visuals.Edge.IsVisible = features.Edges;
+            visuals.EdgeBurn.IsVisible = features.Edges;
             BindGeometry(visuals, brush, material, frame);
         }
 
@@ -230,6 +236,8 @@ public sealed class WinUiGlassRenderer : IDisposable
         brush.SetSourceParameter("Shape", NineGrid(bake.Shape, key.InsetPixels, key.Scale));
         visuals.Edge.Brush?.Dispose();
         visuals.Edge.Brush = NineGrid(bake.EdgeAdd, key.InsetPixels, key.Scale);
+        visuals.EdgeBurn.Brush?.Dispose();
+        visuals.EdgeBurn.Brush = NineGrid(bake.EdgeBurn, key.InsetPixels, key.Scale);
         if (GlassTokens.Features(frame.Quality).Refraction && material.Refraction > 0)
         {
             brush.SetSourceParameter("Lens", NineGrid(bake.Lens, key.InsetPixels, key.Scale));
@@ -399,6 +407,8 @@ public sealed class WinUiGlassRenderer : IDisposable
         visuals.Brush = null;
         visuals.Edge.Brush?.Dispose();
         visuals.Edge.Brush = null;
+        visuals.EdgeBurn.Brush?.Dispose();
+        visuals.EdgeBurn.Brush = null;
         visuals.StackBrush?.Dispose();
         visuals.StackBrush = null;
         visuals.StackSurface?.Dispose();
@@ -870,12 +880,14 @@ public sealed class WinUiGlassRenderer : IDisposable
         ContainerVisual root,
         SpriteVisual shadow,
         SpriteVisual material,
+        SpriteVisual edgeBurn,
         SpriteVisual edge)
     {
         public Microsoft.UI.Xaml.UIElement Host { get; } = host;
         public ContainerVisual Root { get; } = root;
         public SpriteVisual Shadow { get; } = shadow;
         public SpriteVisual Material { get; } = material;
+        public SpriteVisual EdgeBurn { get; } = edgeBurn;
         public SpriteVisual Edge { get; } = edge;
         public CompositionEffectBrush? Brush { get; set; }
         public string? FactoryKey { get; set; }

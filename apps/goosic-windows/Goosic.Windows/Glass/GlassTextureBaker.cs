@@ -163,7 +163,7 @@ public static class GlassTextureBaker
                     GlassGeometry.SignedDistance(x - 1.25 * pixel, y, half - 0.75 * pixel, half - 0.75 * pixel,
                         radius - 0.75 * pixel, smoothing) * scale + 0.5) - body, 0);
                 var darkening = 1 - (1 - burn * ringAll) * (1 - burn * ringLeft) * (1 - burn * ringRight);
-                WriteGray(edgeBurn, index, darkening);
+                WriteBlackAlpha(edgeBurn, index, darkening);
 
                 if (body <= 0)
                 {
@@ -261,6 +261,11 @@ public static class GlassTextureBaker
         pixels[index + 1] = channel;
         pixels[index + 2] = channel;
         pixels[index + 3] = channel;
+    }
+
+    private static void WriteBlackAlpha(byte[] pixels, int index, double value)
+    {
+        pixels[index + 3] = ToByte(value);
     }
 
     private static byte ToByte(double value) => (byte)Math.Clamp(Math.Round(value * 255), 0, 255);
