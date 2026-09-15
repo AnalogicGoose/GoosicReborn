@@ -99,14 +99,11 @@ public sealed class WinUiGlassRenderer : IDisposable
         root.RelativeSizeAdjustment = Vector2.One;
         var shadow = _compositor.CreateSpriteVisual();
         var material = _compositor.CreateSpriteVisual();
-        var edge = _compositor.CreateSpriteVisual();
         material.RelativeSizeAdjustment = Vector2.One;
-        edge.RelativeSizeAdjustment = Vector2.One;
         root.Children.InsertAtTop(shadow);
         root.Children.InsertAtTop(material);
-        root.Children.InsertAtTop(edge);
         ElementCompositionPreview.SetElementChildVisual(host, root);
-        var visuals = new GlassSurfaceVisuals(host, root, shadow, material, edge);
+        var visuals = new GlassSurfaceVisuals(host, root, shadow, material);
         _surfaces.Add(visuals);
         return visuals;
     }
@@ -121,7 +118,6 @@ public sealed class WinUiGlassRenderer : IDisposable
         ElementCompositionPreview.SetElementChildVisual(visuals.Host, null);
         Release(visuals);
         visuals.Material.Dispose();
-        visuals.Edge.Dispose();
         visuals.Shadow.Dispose();
         visuals.Root.Dispose();
     }
@@ -169,12 +165,10 @@ public sealed class WinUiGlassRenderer : IDisposable
         var brush = visuals.Brush!;
         if (chrome)
         {
-            visuals.Edge.IsVisible = false;
             BindChrome(visuals, brush);
         }
         else
         {
-            visuals.Edge.IsVisible = features.Edges;
             BindGeometry(visuals, brush, material, frame);
         }
 
@@ -228,12 +222,11 @@ public sealed class WinUiGlassRenderer : IDisposable
         }
 
         brush.SetSourceParameter("Shape", NineGrid(bake.Shape, key.InsetPixels, key.Scale));
-        visuals.Edge.Brush?.Dispose();
-        visuals.Edge.Brush = NineGrid(bake.EdgeAdd, key.InsetPixels, key.Scale);
-        if (GlassTokens.Features(frame.Quality).Refraction && material.Refraction > 0)
-        {
-            brush.SetSourceParameter("Lens", NineGrid(bake.Lens, key.InsetPixels, key.Scale));
-        }
+        brush.SetSourceParameter("EdgeAdd", NineGrid(bake.EdgeAdd, key.InsetPixels, key.Scale));
+        brush.SetSourceParameter("EdgeBurn", NineGrid(bake.EdgeBurn, key.InsetPixels, key.Scale));
+        // Bound whether or not this graph refracts: an unused parameter is ignored, while one the
+        // graph reads and nobody set draws nothing at all.
+        brush.SetSourceParameter("Lens", NineGrid(bake.Lens, key.InsetPixels, key.Scale));
         visuals.LensPeak = bake.Textures.LensPeakOffset;
         visuals.BoundKey = key;
         visuals.LensSize = default;
@@ -397,8 +390,6 @@ public sealed class WinUiGlassRenderer : IDisposable
         visuals.ShadowBake = null;
         visuals.Brush?.Dispose();
         visuals.Brush = null;
-        visuals.Edge.Brush?.Dispose();
-        visuals.Edge.Brush = null;
         visuals.StackBrush?.Dispose();
         visuals.StackBrush = null;
         visuals.StackSurface?.Dispose();
@@ -468,18 +459,15 @@ public sealed class WinUiGlassRenderer : IDisposable
         try
         {
             factory = _compositor.CreateEffectFactory(build(), animatable);
-            // Loading is asynchronous on some Windows/driver combinations. A Pending factory is
-            // valid and its brush becomes live when compilation completes.
-            if (factory.LoadStatus != CompositionEffectFactoryLoadStatus.Success
-                && factory.LoadStatus != CompositionEffectFactoryLoadStatus.Pending)
+            if (factory.LoadStatus != CompositionEffectFactoryLoadStatus.Success)
             {
-                GlassSystem.ReportRendererWarning($"effect graph {key} failed to load: {factory.LoadStatus}");
+                GlassSystem.ReportRendererUnsupported($"effect graph {key} failed to load: {factory.LoadStatus}");
                 factory = null;
             }
         }
         catch (Exception error)
         {
-            GlassSystem.ReportRendererWarning($"effect graph {key} is not supported: {error.Message}");
+            GlassSystem.ReportRendererUnsupported($"effect graph {key} is not supported: {error.Message}");
             factory = null;
         }
 
@@ -504,40 +492,56 @@ public sealed class WinUiGlassRenderer : IDisposable
                 return Mask(Over(solid, Frost(material, quality)), shape);
         }
 
-        IGraphicsEffectSource Refracted()
+        var frost = Frost(material, quality);
+        IGraphicsEffectSource refracted = frost;
+        if (lens)
         {
-            if (!lens)
-            {
-                return Frost(material, quality);
-            }
-
             IGraphicsEffectSource shifted = new AlphaMaskEffect
             {
-                Source = new Transform2DEffect { Name = "Lens", Source = Frost(material, quality) },
+                // The frost is shared: the lens shifts the already-blurred backdrop, which is what
+                // the proof of concept samples too, so one blur serves both.
+                Source = new Transform2DEffect { Name = "Lens", Source = frost },
                 AlphaMask = new CompositionEffectSourceParameter("Lens"),
             };
             if (stack)
             {
-                shifted = new AlphaMaskEffect
-                {
-                    Source = shifted,
-                    AlphaMask = StackAlpha(-GlassTokens.StackRefractionRelief, 1),
-                };
+                shifted = new AlphaMaskEffect { Source = shifted, AlphaMask = StackAlpha(-GlassTokens.StackRefractionRelief, 1) };
             }
 
-            // The compositor accepts only tree-shaped effect graphs. Both branches deliberately
-            // own a blur node while still sampling the same named per-window backdrop.
-            return Over(Frost(material, quality), shifted);
+            refracted = Over(frost, shifted);
         }
 
-        IGraphicsEffectSource body = Tint(Refracted(), material);
-        // The shared backdrop already contains lower glass. Keeping a single refraction branch
-        // makes the graph fit the compositor's hardware limit; the blurred stack mask still
-        // suppresses repeated specular light below.
+        IGraphicsEffectSource body = Tint(refracted, material);
+        if (stack)
+        {
+            // Where glass is already beneath, most of the tint is given back so two tints never
+            // multiply into a muddy overlap.
+            body = Over(body, new AlphaMaskEffect { Source = refracted, AlphaMask = StackAlpha(GlassTokens.StackTintRelief, 0) });
+        }
 
-        // Edge textures are uploaded and cached with the geometry. They are kept outside this
-        // material graph because Windows Composition allows four named sources per factory; the
-        // backdrop, shape, lens and stack response are the four optical inputs that must remain.
+        if (!chrome)
+        {
+            IGraphicsEffectSource light = new CompositionEffectSourceParameter("EdgeAdd");
+            if (stack)
+            {
+                light = new AlphaMaskEffect { Source = light, AlphaMask = StackAlpha(-GlassTokens.StackSpecularRelief, 1) };
+            }
+
+            body = new ArithmeticCompositeEffect
+            {
+                Source1 = body,
+                Source2 = light,
+                MultiplyAmount = 0,
+                Source1Amount = 1,
+                Source2Amount = 1,
+                Offset = 0,
+            };
+            body = Over(body, new AlphaMaskEffect
+            {
+                Source = new ColorSourceEffect { Color = Color.FromArgb(255, 0, 0, 0) },
+                AlphaMask = new CompositionEffectSourceParameter("EdgeBurn"),
+            });
+        }
 
         if (debug == GlassDebugLayer.OverlapResponse && stack)
         {
@@ -548,7 +552,7 @@ public sealed class WinUiGlassRenderer : IDisposable
             });
         }
 
-        return Mask(body, shape);
+        return Mask(Over(solid, body), shape);
     }
 
     private static GaussianBlurEffect Frost(GlassMaterial material, GlassQuality quality) => new()
@@ -564,29 +568,28 @@ public sealed class WinUiGlassRenderer : IDisposable
         },
     };
 
-    /// <summary>The proof-of-concept tint folded into one affine, tree-shaped pass.</summary>
+    /// <summary>The "Fill + Shadow" tint of the proof of concept, as affine colour operations.</summary>
     private static IGraphicsEffectSource Tint(IGraphicsEffectSource input, GlassMaterial material)
     {
         var t = material.Tint;
         if (!material.DarkTint)
         {
-            var amount = 0.62f * t;
-            return new ColorMatrixEffect
+            // White at 70 % in Lighten, then #BFBFBF at 10 % in Darken.
+            var white = Mix(input, new ColorSourceEffect { Color = Color.FromArgb(255, 255, 255, 255) }, 0.7f * t);
+            var darkened = new BlendEffect
             {
-                Source = input,
-                ColorMatrix = new Matrix5x4
-                {
-                    M11 = 1 - amount, M22 = 1 - amount, M33 = 1 - amount, M44 = 1,
-                    M51 = amount, M52 = amount, M53 = amount,
-                },
+                Mode = BlendEffectMode.Darken,
+                Background = white,
+                Foreground = new ColorSourceEffect { Color = Color.FromArgb(255, 191, 191, 191) },
             };
+            return Mix(white, darkened, 0.1f * t);
         }
 
-        // Two dark luminosity fills collapse into this affine luminosity shift. Keeping the
-        // input on one path is required by Windows Composition's effect graph compiler.
+        // Two #1A1A1A fills at 50 % in Luminosity collapse into one affine luminosity shift
+        // (the W3C set-luminosity before its gamut clip), then #1A1A1A at 100 % in Lighten.
         const float target = 0.102f;
         var k = t - 0.25f * t * t;
-        return new ColorMatrixEffect
+        var luminosity = new ColorMatrixEffect
         {
             Source = input,
             ColorMatrix = new Matrix5x4
@@ -597,6 +600,13 @@ public sealed class WinUiGlassRenderer : IDisposable
                 M14 = 0, M24 = 0, M34 = 0, M44 = 1, M54 = 0,
             },
         };
+        var lightened = new BlendEffect
+        {
+            Mode = BlendEffectMode.Lighten,
+            Background = luminosity,
+            Foreground = new ColorSourceEffect { Color = Color.FromArgb(255, 26, 26, 26) },
+        };
+        return Mix(luminosity, lightened, t);
     }
 
     /// <summary>The stack mask's coverage mapped to <c>a * coverage + b</c> in its alpha.</summary>
@@ -869,14 +879,12 @@ public sealed class WinUiGlassRenderer : IDisposable
         Microsoft.UI.Xaml.UIElement host,
         ContainerVisual root,
         SpriteVisual shadow,
-        SpriteVisual material,
-        SpriteVisual edge)
+        SpriteVisual material)
     {
         public Microsoft.UI.Xaml.UIElement Host { get; } = host;
         public ContainerVisual Root { get; } = root;
         public SpriteVisual Shadow { get; } = shadow;
         public SpriteVisual Material { get; } = material;
-        public SpriteVisual Edge { get; } = edge;
         public CompositionEffectBrush? Brush { get; set; }
         public string? FactoryKey { get; set; }
         public object? BoundKey { get; set; }

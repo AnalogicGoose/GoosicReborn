@@ -69,14 +69,12 @@ public static class GlassTokens
             // Thin and Window are the "Clear" profile: frost 6 and a 15 % tint.
             GlassStyle.Thin => (6f, 0.15f, 0f),
             GlassStyle.Window => (6f, 0.15f, 0f),
-            // Dark WinUI content needs a lighter tint than the isolated Figma component. The
-            // backdrop supplies the colour; these values add hierarchy without turning it black.
-            GlassStyle.Control => (16f, 0.24f, 0.35f),
-            GlassStyle.Navigation => (16f, 0.20f, 0.6f),
-            GlassStyle.Player => (16f, 0.18f, 1f),
-            GlassStyle.Prominent => (22f, 0.28f, 0.8f),
-            GlassStyle.Menu => (22f, 0.30f, 1f),
-            _ => (16f, 0.24f, 1f),
+            GlassStyle.Control => (16f, 1f, 0.35f),
+            GlassStyle.Navigation => (16f, 1f, 0.6f),
+            GlassStyle.Player => (16f, 1f, 1f),
+            GlassStyle.Prominent => (22f, 1f, 0.8f),
+            GlassStyle.Menu => (22f, 1f, 1f),
+            _ => (16f, 1f, 1f),
         };
 
         // Window chrome is a scroll edge, not an object: it has no rim to light and nothing to bend.

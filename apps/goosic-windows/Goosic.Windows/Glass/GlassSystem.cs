@@ -81,8 +81,6 @@ public static class GlassSystem
 
     internal static void ReportRendererUnsupported(string reason)
     {
-        ReportRendererWarning(reason);
-
         if (!_rendererSupported)
         {
             return;
@@ -90,21 +88,7 @@ public static class GlassSystem
 
         _rendererSupported = false;
         UnsupportedReason = reason;
-        Goosic.Windows.Service.BridgeLog.Write($"glass renderer unsupported: {reason}");
         RefreshOnUiThread();
-    }
-
-    internal static void ReportRendererWarning(string reason)
-    {
-        try
-        {
-            System.IO.File.AppendAllText(
-                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "goosic-glass.log"),
-                $"{DateTimeOffset.Now:O} {reason}{Environment.NewLine}");
-        }
-        catch (Exception)
-        {
-        }
     }
 
     private static void RefreshOnUiThread()
@@ -142,11 +126,6 @@ public static class GlassSystem
         var quality = GlassQualityPolicy.Select(Current);
         var reducedMotion = GlassQualityPolicy.ReducedMotion(Current);
         var changed = quality != Quality || reducedMotion != ReducedMotion;
-        if (quality != Quality)
-        {
-            Goosic.Windows.Service.BridgeLog.Write($"glass quality {quality} (transparency={Current.TransparencyEffects}, "
-                + $"highContrast={Current.HighContrast}, battery={Current.OnBattery}, saver={Current.EnergySaver}, renderer={Current.RendererSupported})");
-        }
         Quality = quality;
         ReducedMotion = reducedMotion;
         if (changed)
