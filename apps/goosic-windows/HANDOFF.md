@@ -65,7 +65,7 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Videos / podcasts / episodes filters | Yes | ❌ |
 | Infinite scroll | Automatic | ✅ loads more near the end; "Load more" remains as fallback |
 | Shelf "More" (open full shelf) | Yes | ❌ shelf browse endpoints not in the protocol |
-| Album page | Tracks, play, shuffle, save | 🟡 no "save album to library" (needs audio-playlist id) |
+| Album page | Tracks, play, shuffle, save | 🟡 numbered rows, cover from the opening card, song count and length; no "save album to library" (needs audio-playlist id) |
 | Playlist page | Tracks, edit, reorder, description | 🟡 rename/privacy/delete/remove ✅; reorder ❌; description ❌ |
 | Artist page | Shelves, subscribe, shuffle, radio | 🟡 shelves + subscribe ✅; artist shuffle/radio buttons ❌ |
 | Library | Playlists/Songs/Albums/Artists/Subscriptions, sort | ✅ sections; sort ❌; Uploads ❌ |

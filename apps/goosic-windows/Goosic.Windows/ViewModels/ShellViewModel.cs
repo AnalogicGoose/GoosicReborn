@@ -194,14 +194,76 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     public Microsoft.UI.Xaml.Visibility CurrentMarker =>
         IsCurrent ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
+    /// <summary>An empty subtitle still takes a line, which would lift the title off centre.</summary>
+    public Microsoft.UI.Xaml.Visibility SubtitleVisibility => string.IsNullOrWhiteSpace(Subtitle)
+        ? Microsoft.UI.Xaml.Visibility.Collapsed
+        : Microsoft.UI.Xaml.Visibility.Visible;
+
+    private int _number;
+    private bool _isNowPlaying;
+    private bool _showsNumber;
+    private bool _showsArtwork = true;
+
+    /// <summary>The row's place on an ordered page, shown in place of a cover on an album.</summary>
+    public string NumberText => _number > 0 ? _number.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+
+    /// <summary>Whether this row is the track the player has confirmed, wherever the row lives.</summary>
+    public bool IsNowPlaying => _isNowPlaying;
+
+    public Microsoft.UI.Xaml.Visibility NumberVisibility =>
+        _showsNumber && !_isNowPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public Microsoft.UI.Xaml.Visibility PlayingVisibility =>
+        _isNowPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public Microsoft.UI.Xaml.Visibility LeadingColumnVisibility =>
+        _showsNumber || _isNowPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public Microsoft.UI.Xaml.Visibility ArtworkVisibility =>
+        _showsArtwork ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public Microsoft.UI.Xaml.Media.Brush TitleBrush => (Microsoft.UI.Xaml.Media.Brush)
+        Microsoft.UI.Xaml.Application.Current.Resources[_isNowPlaying ? "AccentTextFillColorPrimaryBrush" : "TextFillColorPrimaryBrush"];
+
+    /// <summary>Gives a row without a cover of its own the one its page shows, as an album's tracks need.</summary>
+    internal void UseArtworkIfMissing(BitmapImage? artwork)
+    {
+        if (Artwork is null && string.IsNullOrEmpty(Thumbnail) && artwork is not null)
+        {
+            Artwork = artwork;
+        }
+    }
+
+    /// <summary>Places the row on its page: its number, the page's layout, and whether it is playing.</summary>
+    internal void Present(int number, bool showsNumber, bool showsArtwork, bool isNowPlaying)
+    {
+        if (_number == number && _showsNumber == showsNumber && _showsArtwork == showsArtwork
+            && _isNowPlaying == isNowPlaying)
+        {
+            return;
+        }
+
+        _number = number;
+        _showsNumber = showsNumber;
+        _showsArtwork = showsArtwork;
+        _isNowPlaying = isNowPlaying;
+        foreach (var name in new[]
+        {
+            nameof(NumberText), nameof(IsNowPlaying), nameof(NumberVisibility), nameof(PlayingVisibility),
+            nameof(LeadingColumnVisibility), nameof(ArtworkVisibility), nameof(TitleBrush), nameof(AccessibleName),
+        })
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public string Title { get; }
     public string Subtitle { get; }
     public string Duration { get; }
-    public string AccessibleName => string.IsNullOrWhiteSpace(Duration)
-        ? $"{Title}, {Subtitle}"
-        : $"{Title}, {Subtitle}, {Duration}";
+    public string AccessibleName => (_isNowPlaying ? "Now playing, " : "")
+        + (string.IsNullOrWhiteSpace(Duration) ? $"{Title}, {Subtitle}" : $"{Title}, {Subtitle}, {Duration}");
     public bool Explicit { get; }
     internal string? VideoId { get; }
     internal string? Thumbnail { get; }
@@ -322,7 +384,20 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     internal ShellViewModel(GoosicServiceClient client)
     {
         _client = client;
-        Tracks.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasTracks));
+        Tracks.CollectionChanged += (_, change) =>
+        {
+            OnPropertyChanged(nameof(HasTracks));
+            // A page fills one row at a time; numbering only the new rows keeps a long list linear.
+            if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add
+                && change.NewStartingIndex + (change.NewItems?.Count ?? 0) == Tracks.Count)
+            {
+                PresentTracks(change.NewStartingIndex);
+            }
+            else
+            {
+                PresentTracks();
+            }
+        };
         Queue.CollectionChanged += (_, _) =>
         {
             if (!_syncingUpNext)
@@ -363,7 +438,17 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     public IReadOnlyList<string> SearchFilters { get; } = ["all", "songs", "albums", "artists", "playlists"];
 
     public string PageTitle { get => _pageTitle; private set => Set(ref _pageTitle, value); }
-    public string PageSubtitle { get => _pageSubtitle; private set => Set(ref _pageSubtitle, value); }
+    public string PageSubtitle
+    {
+        get => _pageSubtitle;
+        private set
+        {
+            if (Set(ref _pageSubtitle, value))
+            {
+                OnPropertyChanged(nameof(PageMeta));
+            }
+        }
+    }
     public BitmapImage? PageArtwork
     {
         get => _pageArtwork;
@@ -372,6 +457,10 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (Set(ref _pageArtwork, value))
             {
                 OnPropertyChanged(nameof(HasPageArtwork));
+                if (value is not null)
+                {
+                    PresentTracks();
+                }
             }
         }
     }
@@ -597,6 +686,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 _currentLyric = -1;
                 ConfirmedTrackChanged?.Invoke();
                 AnnounceConfirmed(pending);
+                PresentTracks();
             }
 
             FollowLyrics(sample.CurrentTime);
@@ -786,6 +876,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         Remember("route" + KeySeparator + route, rememberCurrentRoute);
+        // Liked Music is an ordered list like a playlist; the other routes are shelves or results.
+        PageKind = route == "liked" ? DetailKind.Playlist : DetailKind.Browse;
+        SetPageTruncated(false);
         var entry = RouteEntry.All.FirstOrDefault(candidate => candidate.Route == route);
         PageTitle = entry?.Title ?? route;
         // Home is shelves under the title bar, with no heading of its own, as on macOS.
@@ -924,6 +1017,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         Remember(string.Join(KeySeparator, "entity", kind, id, title), remember);
+        PageKind = DetailLayout.FromEntity(kind);
+        SetPageTruncated(false);
+        var hasEntityArtwork = SetEntityArtworkAsync(kind, id, artworkVersion);
         ShowPageHeader = true;
         PageTitle = title;
         PageSubtitle = kind switch { "album" => "Album", "playlist" => "Playlist", _ => "Artist" };
@@ -969,9 +1065,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
                 _ = row.LoadArtworkAsync(_artwork);
-                if (PageArtwork is null)
+                if (PageArtwork is null && Tracks.Count == 1)
                 {
-                    _ = SetPageArtworkAsync(row, artworkVersion);
+                    _ = FallBackToTrackArtworkAsync(hasEntityArtwork, row, artworkVersion);
                 }
             }
 
@@ -986,6 +1082,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             }
 
             Status = page.Truncated ? "This page was long, so only the first part is shown." : "";
+            SetPageTruncated(page.Truncated);
             PageState = Tracks.Count == 0 && Shelves.Count == 0
                 ? PageState.Empty(PageSubject.Entity, PageTitle)
                 : PageState.Content;
@@ -1022,6 +1119,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         NextCursor = null;
         ForgetPersonalPage();
         MarkSearchPage(trimmed);
+        PageKind = DetailKind.Search;
+        SetPageTruncated(false);
         Status = "";
         PageState = PageState.Loading;
 
@@ -1144,6 +1243,105 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         PageArtwork = null;
         return ++_pageArtworkVersion;
+    }
+
+    /// <summary>Covers of albums, playlists and artists as the card that opened them showed them.</summary>
+    /// <remarks>
+    /// A catalog page carries no artwork of its own, so the hero would otherwise borrow its first
+    /// track's, which for a playlist or an artist is a different picture. Kept per entity so Back
+    /// shows the same cover.
+    /// </remarks>
+    private readonly Dictionary<string, string> _entityThumbnails = [];
+
+    internal void RememberEntityThumbnail(string kind, string id, string? thumbnail)
+    {
+        if (!string.IsNullOrEmpty(thumbnail) && id.Length > 0)
+        {
+            _entityThumbnails[kind + KeySeparator + id] = thumbnail;
+        }
+    }
+
+    private async Task<bool> SetEntityArtworkAsync(string kind, string id, int version)
+    {
+        if (!_entityThumbnails.TryGetValue(kind + KeySeparator + id, out var thumbnail))
+        {
+            return false;
+        }
+
+        var file = await _artwork.LocalFileAsync(thumbnail).ConfigureAwait(true);
+        if (file is null || version != _pageArtworkVersion)
+        {
+            return false;
+        }
+
+        var image = new BitmapImage();
+        using var stream = File.OpenRead(file);
+        await image.SetSourceAsync(stream.AsRandomAccessStream());
+        if (version == _pageArtworkVersion)
+        {
+            PageArtwork = image;
+        }
+
+        return true;
+    }
+
+    // ---- Detail layout ----------------------------------------------------------------------
+
+    private DetailKind _pageKind = DetailKind.Browse;
+    private bool _pageTruncated;
+
+    public DetailKind PageKind
+    {
+        get => _pageKind;
+        private set
+        {
+            if (Set(ref _pageKind, value))
+            {
+                OnPropertyChanged(nameof(PageHeroCornerRadius));
+                PresentTracks();
+            }
+        }
+    }
+
+    public Microsoft.UI.Xaml.CornerRadius PageHeroCornerRadius => new(DetailLayout.HeroCornerRadius(_pageKind));
+
+    /// <summary>The line under the title: the page's own subtitle, then its songs and running time.</summary>
+    public string PageMeta => _pageKind is DetailKind.Album or DetailKind.Playlist
+        ? DetailLayout.Summary(PageSubtitle, Tracks.Select(track => track.Duration).ToList(), _pageTruncated)
+        : PageSubtitle;
+
+    private void SetPageTruncated(bool truncated)
+    {
+        _pageTruncated = truncated;
+        OnPropertyChanged(nameof(PageMeta));
+    }
+
+    /// <summary>Numbers the rows and marks the one playing, following the page's layout.</summary>
+    private void PresentTracks(int from = 0)
+    {
+        var numbered = DetailLayout.ShowsNumbers(_pageKind);
+        var artwork = DetailLayout.ShowsRowArtwork(_pageKind);
+        var playing = _confirmedTrack?.VideoId;
+        for (var i = Math.Max(0, from); i < Tracks.Count; i++)
+        {
+            var row = Tracks[i];
+            row.Present(i + 1, numbered, artwork, playing is not null && row.VideoId == playing);
+            if (_pageKind == DetailKind.Album)
+            {
+                row.UseArtworkIfMissing(PageArtwork);
+            }
+        }
+
+        OnPropertyChanged(nameof(PageMeta));
+    }
+
+    /// <summary>Uses the first track's cover only when the card that opened the page had none.</summary>
+    private async Task FallBackToTrackArtworkAsync(Task<bool> entityArtwork, TrackViewModel row, int version)
+    {
+        if (!await entityArtwork.ConfigureAwait(true))
+        {
+            await SetPageArtworkAsync(row, version).ConfigureAwait(true);
+        }
     }
 
     private async Task SetPageArtworkAsync(TrackViewModel row, int version)

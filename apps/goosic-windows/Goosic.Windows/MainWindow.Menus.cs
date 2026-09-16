@@ -27,6 +27,65 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // ---- Track row overflow -------------------------------------------------------------------
+
+    private void OnTrackRowPointerEntered(object sender, PointerRoutedEventArgs e) => ShowRowMore(sender, true);
+
+    private void OnTrackRowPointerExited(object sender, PointerRoutedEventArgs e) => ShowRowMore(sender, false);
+
+    /// <summary>
+    /// Keeps More visible while focus is anywhere in the row. Focus events bubble, so moving from
+    /// the row to its More button arrives here too.
+    /// </summary>
+    private void OnTrackRowFocusChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button row)
+        {
+            var focused = FocusManager.GetFocusedElement(RootGrid.XamlRoot) as DependencyObject;
+            ShowRowMore(row, focused is not null && (ReferenceEquals(focused, row) || IsDescendant(focused, row)));
+        }
+    }
+
+    private static void ShowRowMore(object sender, bool visible)
+    {
+        if (sender is DependencyObject row && FindMoreButton(row) is { } more)
+        {
+            more.Opacity = visible || more.FocusState != FocusState.Unfocused ? 1 : 0;
+        }
+    }
+
+    private static Button? FindMoreButton(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is Button { Tag: "more" } more)
+            {
+                return more;
+            }
+
+            if (FindMoreButton(child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsDescendant(DependencyObject node, DependencyObject ancestor)
+    {
+        for (var current = VisualTreeHelper.GetParent(node); current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void OnItemContextRequested(UIElement sender, ContextRequestedEventArgs args)
     {
         if (sender is not FrameworkElement element || BuildMenu(element.DataContext) is not { } menu)
@@ -100,7 +159,11 @@ public sealed partial class MainWindow : Window
                 Add(menu, "Shuffle", "", async () => await PlayEntryAsync(await Model.PlayEntityAsync(card.Kind, card.Id, shuffle: true)));
                 menu.Items.Add(new MenuFlyoutSeparator());
                 Add(menu, card.Kind == "artist" ? "Go to artist" : card.Kind == "album" ? "Go to album" : "Open playlist",
-                    "\uE8A7", async () => await OpenAsync(card.Kind, card.Id, card.Title));
+                    "\uE8A7", async () =>
+                    {
+                        Model.RememberEntityThumbnail(card.Kind, card.Id, card.Thumbnail);
+                        await OpenAsync(card.Kind, card.Id, card.Title);
+                    });
                 if (Model.IsSignedIn && card.Kind == "playlist")
                 {
                     if (Model.OwnsPlaylist(card.Id))

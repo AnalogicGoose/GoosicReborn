@@ -594,6 +594,7 @@ public sealed partial class ShellViewModel
         }
 
         NextCursor = page.NextCursor;
+        SetPageTruncated(page.Truncated);
     }
 
     /// <summary>Continues a page the account's reader issued, which only that reader understands.</summary>

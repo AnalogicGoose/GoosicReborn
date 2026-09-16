@@ -125,6 +125,11 @@ public sealed partial class MainWindow : Window
         var parts = tag.Split(ShellViewModel.KeySeparator);
         if (parts.Length == 3)
         {
+            if (((Button)sender).DataContext is CardViewModel card)
+            {
+                Model.RememberEntityThumbnail(card.Kind, card.Id, card.Thumbnail);
+            }
+
             await OpenAsync(parts[0], parts[1], parts[2]);
             return;
         }

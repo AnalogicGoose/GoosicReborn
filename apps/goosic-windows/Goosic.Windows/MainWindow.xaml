@@ -44,15 +44,21 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border x:Name="PageHeroArtwork" Width="148" Height="148" CornerRadius="10" Margin="0,0,22,0"
+                            <Border x:Name="PageHeroArtwork" Width="148" Height="148" Margin="0,0,22,0"
+                                    CornerRadius="{x:Bind Model.PageHeroCornerRadius, Mode=OneWay}"
                                     VerticalAlignment="Bottom" Background="{ThemeResource GoosicRaisedBrush}"
                                     Visibility="{x:Bind Model.HasPageArtwork, Mode=OneWay}">
                                 <Image Source="{x:Bind Model.PageArtwork, Mode=OneWay}" Stretch="UniformToFill" />
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Bottom">
+                            <!-- Two lines before trimming: long album titles are common and the first line alone often cuts the name. -->
                             <TextBlock Text="{x:Bind Model.PageTitle, Mode=OneWay}"
-                                       FontSize="36" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{x:Bind Model.PageSubtitle, Mode=OneWay}" TextWrapping="Wrap"
+                                       FontSize="36" FontWeight="Bold" TextWrapping="Wrap" MaxLines="2"
+                                       TextTrimming="CharacterEllipsis" LineHeight="42"
+                                       ToolTipService.ToolTip="{x:Bind Model.PageTitle, Mode=OneWay}"
+                                       AutomationProperties.HeadingLevel="Level1" />
+                            <TextBlock Text="{x:Bind Model.PageMeta, Mode=OneWay}" TextWrapping="Wrap" MaxLines="2"
+                                       TextTrimming="CharacterEllipsis"
                                        FontSize="14" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                             <ItemsControl Margin="0,12,0,0" ItemsSource="{x:Bind Model.SearchFilterChoices}"
                                           Visibility="{x:Bind Model.IsSearchPage, Mode=OneWay}">
@@ -83,33 +89,33 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                             <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
-                                <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage"
+                                <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage" AutomationProperties.Name="Play"
                                         Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Glyph="&#xE768;" FontSize="14" />
                                         <TextBlock Text="Play" />
                                     </StackPanel>
                                 </Button>
-                                <Button Click="OnShufflePage" Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
+                                <Button Click="OnShufflePage" AutomationProperties.Name="Shuffle" Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Glyph="&#xE8B1;" FontSize="14" />
                                         <TextBlock Text="Shuffle" />
                                     </StackPanel>
                                 </Button>
-                                <Button Visibility="{x:Bind Model.CanSavePagePlaylist, Mode=OneWay}" Click="OnSavePagePlaylist">
+                                <Button Visibility="{x:Bind Model.CanSavePagePlaylist, Mode=OneWay}" Click="OnSavePagePlaylist" AutomationProperties.Name="Save to library">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Glyph="&#xE8F4;" FontSize="14" />
                                         <TextBlock Text="Save to library" />
                                     </StackPanel>
                                 </Button>
-                                <Button Visibility="{x:Bind Model.CanFollowPageArtist, Mode=OneWay}" Click="OnFollowPageArtist">
+                                <Button Visibility="{x:Bind Model.CanFollowPageArtist, Mode=OneWay}" Click="OnFollowPageArtist" AutomationProperties.Name="Subscribe">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
                                         <FontIcon Glyph="&#xE8FA;" FontSize="14" />
                                         <TextBlock Text="Subscribe" />
                                     </StackPanel>
                                 </Button>
                                 <Button Visibility="{x:Bind Model.IsOwnedPlaylistPage, Mode=OneWay}"
-                                        ToolTipService.ToolTip="Edit playlist">
+                                        ToolTipService.ToolTip="Edit playlist" AutomationProperties.Name="Edit playlist">
                                     <FontIcon Glyph="&#xE712;" FontSize="14" />
                                     <Button.Flyout>
                                         <MenuFlyout>
@@ -297,37 +303,56 @@
                         <!-- Track rows: search results, and ordered lists on a detail page. -->
                         <ItemsControl ItemsSource="{x:Bind Model.Tracks, Mode=OneWay}"
                                       Visibility="{x:Bind Model.HasTracks, Mode=OneWay}"
-                                      MaxWidth="1120" HorizontalAlignment="Left">
+                                      MaxWidth="1120" HorizontalAlignment="Stretch">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:TrackViewModel">
+                                    <!-- The More button shows on hover or focus; it stays in the tab order and the
+                                         context menu key opens the same menu, so keyboard users lose nothing. -->
                                     <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
-                                            AutomationProperties.Name="{x:Bind AccessibleName}"
-                                            Click="OnPlayTrack" ContextRequested="OnItemContextRequested">
-                                        <Grid ColumnSpacing="11">
+                                            AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
+                                            Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
+                                            PointerEntered="OnTrackRowPointerEntered" PointerExited="OnTrackRowPointerExited"
+                                            GotFocus="OnTrackRowFocusChanged" LostFocus="OnTrackRowFocusChanged">
+                                        <Grid ColumnSpacing="11" MinHeight="40">
                                             <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <Border Grid.Column="0" Width="40" Height="40" CornerRadius="4"
-                                                    Background="{ThemeResource GoosicRaisedBrush}">
+                                            <Grid Grid.Column="0" Width="28" VerticalAlignment="Center"
+                                                  Visibility="{x:Bind LeadingColumnVisibility, Mode=OneWay}">
+                                                <TextBlock Text="{x:Bind NumberText, Mode=OneWay}" FontSize="13"
+                                                           HorizontalAlignment="Right"
+                                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                           Visibility="{x:Bind NumberVisibility, Mode=OneWay}" />
+                                                <FontIcon Glyph="&#xE995;" FontSize="16" HorizontalAlignment="Right"
+                                                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                                          Visibility="{x:Bind PlayingVisibility, Mode=OneWay}"
+                                                          AutomationProperties.AccessibilityView="Raw" />
+                                            </Grid>
+                                            <Border Grid.Column="1" Width="40" Height="40" CornerRadius="4"
+                                                    Background="{ThemeResource GoosicRaisedBrush}"
+                                                    Visibility="{x:Bind ArtworkVisibility, Mode=OneWay}">
                                                 <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
                                             </Border>
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
                                                 <TextBlock Text="{x:Bind Title}" FontSize="14"
+                                                           Foreground="{x:Bind TitleBrush, Mode=OneWay}"
                                                            TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Text="{x:Bind Subtitle}" FontSize="12"
+                                                           Visibility="{x:Bind SubtitleVisibility}"
                                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                                            TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
-                                            <TextBlock Grid.Column="2" Text="{x:Bind Duration}" FontSize="12"
+                                            <TextBlock Grid.Column="3" Text="{x:Bind Duration}" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                                            <Button Grid.Column="3" Style="{StaticResource TransportGlyphStyle}"
+                                            <Button Grid.Column="4" Style="{StaticResource TransportGlyphStyle}"
                                                     Content="&#xE712;" ToolTipService.ToolTip="More"
-                                                    AutomationProperties.Name="More options"
-                                                    Click="OnItemMore" />
+                                                    AutomationProperties.Name="More options" Opacity="0"
+                                                    Tag="more" Click="OnItemMore" />
                                         </Grid>
                                     </Button>
                                 </DataTemplate>
