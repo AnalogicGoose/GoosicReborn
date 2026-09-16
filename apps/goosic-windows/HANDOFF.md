@@ -73,8 +73,8 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Play, pause, seek, next, previous | Yes | ✅; previous restarts after 3 s |
 | Shuffle, repeat off/all/one | Yes | ✅ persisted in settings |
 | Autoplay at queue end | Yes | ✅ radio from last track; page's own auto-advance intercepted |
-| Queue: view, play next, add, remove, clear | Yes | ✅ |
-| Queue reorder by drag | Yes | ✅ (ListView reorder; not hand-tested) |
+| Queue: view, play next, add, remove, clear | Yes | ✅ Now playing / Up next split; Clear is immediate with Undo |
+| Queue reorder by drag | Yes | ✅ drag handle, or Alt+↑/↓ on a row (drag not hand-tested) |
 | Start radio | Yes | ✅ `catalog.radio`, extends itself |
 | Like / dislike | Shows current state | 🟡 works, but only ratings set this session show — current like state is never read |
 | Save to playlist, new playlist | Yes | ✅ |

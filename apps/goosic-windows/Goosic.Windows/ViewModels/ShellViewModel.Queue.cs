@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 
 namespace Goosic.Windows.ViewModels;
@@ -133,6 +135,124 @@ public sealed partial class ShellViewModel
     {
         OnPropertyChanged(nameof(HasQueue));
         OnPropertyChanged(nameof(QueueSummary));
+        OnPropertyChanged(nameof(NowPlayingEntry));
+        OnPropertyChanged(nameof(HasNowPlayingEntry));
+        OnPropertyChanged(nameof(HasUpNext));
+        OnPropertyChanged(nameof(HasNoUpNext));
+        OnPropertyChanged(nameof(UpNextSummary));
+        SyncUpNext();
+    }
+
+    /// <summary>The entry the queue is on, shown above Up Next.</summary>
+    public TrackViewModel? NowPlayingEntry => _current is not null && Queue.Contains(_current) ? _current : null;
+
+    public bool HasNowPlayingEntry => NowPlayingEntry is not null;
+
+    /// <summary>What plays after the current entry, in order. Reordering it reorders the queue.</summary>
+    public ObservableCollection<TrackViewModel> UpNext { get; } = [];
+
+    public bool HasUpNext => QueueLayout.UpNext(Queue, NowPlayingEntry).Count > 0;
+
+    public bool HasNoUpNext => HasQueue && !HasUpNext;
+
+    public string UpNextSummary => QueueLayout.UpNext(Queue, NowPlayingEntry).Count switch
+    {
+        0 => "Nothing after this",
+        1 => "1 track",
+        var count => $"{count} tracks",
+    } + (_radioSeed is null ? "" : " · Radio");
+
+    private bool _syncingUpNext;
+
+    /// <summary>Makes <see cref="UpNext"/> match the queue, touching it only where it differs.</summary>
+    private void SyncUpNext()
+    {
+        var wanted = QueueLayout.UpNext(Queue, NowPlayingEntry);
+        if (wanted.SequenceEqual(UpNext))
+        {
+            return;
+        }
+
+        _syncingUpNext = true;
+        try
+        {
+            UpNext.Clear();
+            foreach (var entry in wanted)
+            {
+                UpNext.Add(entry);
+            }
+        }
+        finally
+        {
+            _syncingUpNext = false;
+        }
+    }
+
+    /// <summary>
+    /// A drag in Up Next arrives as a removal then an insertion. The insertion completes the move,
+    /// and is when the queue takes the new order.
+    /// </summary>
+    private void OnUpNextChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (_syncingUpNext || e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+        {
+            return;
+        }
+
+        ApplyUpNextOrder();
+    }
+
+    /// <summary>Gives the queue Up Next's order, or resynchronises Up Next if the two disagree.</summary>
+    private bool ApplyUpNextOrder()
+    {
+        var reordered = QueueLayout.Reordered(Queue, NowPlayingEntry, UpNext);
+        if (reordered is null)
+        {
+            SyncUpNext();
+            return false;
+        }
+
+        _syncingUpNext = true;
+        try
+        {
+            for (var target = 0; target < reordered.Count; target++)
+            {
+                var from = Queue.IndexOf(reordered[target]);
+                if (from != target)
+                {
+                    Queue.Move(from, target);
+                }
+            }
+        }
+        finally
+        {
+            _syncingUpNext = false;
+        }
+
+        QueueChanged();
+        return true;
+    }
+
+    /// <summary>Moves an Up Next entry by <paramref name="delta"/> places, for keyboard reordering.</summary>
+    internal bool MoveUpNext(TrackViewModel entry, int delta)
+    {
+        var index = UpNext.IndexOf(entry);
+        if (QueueLayout.MoveTarget(index, UpNext.Count, delta) is not { } target)
+        {
+            return false;
+        }
+
+        _syncingUpNext = true;
+        try
+        {
+            UpNext.Move(index, target);
+        }
+        finally
+        {
+            _syncingUpNext = false;
+        }
+
+        return ApplyUpNextOrder();
     }
 
     /// <summary>
@@ -245,18 +365,52 @@ public sealed partial class ShellViewModel
         QueueChanged();
     }
 
-    /// <summary>Clears everything but the track that is playing.</summary>
-    internal void ClearUpcoming()
+    private ClearedQueue<TrackViewModel>? _lastCleared;
+    private (List<TrackViewModel>? Unshuffled, string? RadioSeed, string? RadioCursor) _clearedState;
+
+    /// <summary>Clears everything after the track that is playing, keeping it for Undo.</summary>
+    /// <remarks>Tracks already played stay, so Previous still reaches them.</remarks>
+    internal bool ClearUpcoming()
     {
-        foreach (var entry in Queue.Where(entry => !ReferenceEquals(entry, _current)).ToList())
+        var removed = QueueLayout.UpNext(Queue, NowPlayingEntry);
+        if (removed.Count == 0)
+        {
+            return false;
+        }
+
+        _lastCleared = new ClearedQueue<TrackViewModel>(NowPlayingEntry, removed, DateTimeOffset.Now);
+        _clearedState = (_unshuffled?.ToList(), _radioSeed, _radioCursor);
+        foreach (var entry in removed)
         {
             Queue.Remove(entry);
         }
 
-        _unshuffled = IsShuffled ? [] : null;
+        _unshuffled = IsShuffled ? _unshuffled?.Where(Queue.Contains).ToList() ?? [] : null;
         _radioSeed = null;
         _radioCursor = null;
         QueueChanged();
+        return true;
+    }
+
+    internal bool CanUndoClear => _lastCleared?.CanUndo(NowPlayingEntry, DateTimeOffset.Now) == true;
+
+    /// <summary>Puts back what the last Clear removed, after the track that is playing.</summary>
+    internal bool UndoClear()
+    {
+        if (_lastCleared is not { } cleared || !cleared.CanUndo(NowPlayingEntry, DateTimeOffset.Now))
+        {
+            return false;
+        }
+
+        foreach (var entry in cleared.ToRestore(Queue))
+        {
+            Queue.Add(entry);
+        }
+
+        (_unshuffled, _radioSeed, _radioCursor) = _clearedState;
+        _lastCleared = null;
+        QueueChanged();
+        return true;
     }
 
     internal void ToggleShuffle()

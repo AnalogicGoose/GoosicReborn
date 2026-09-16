@@ -52,6 +52,7 @@ public sealed class CardViewModel : INotifyPropertyChanged
 
     public string Title { get; }
     public string Subtitle { get; }
+    public string AccessibleName => string.IsNullOrWhiteSpace(Subtitle) ? Title : $"{Title}, {Subtitle}";
     internal string Id { get; }
     internal string Kind { get; }
     internal string? ArtistId { get; }
@@ -257,11 +258,15 @@ public sealed class LyricLineViewModel : INotifyPropertyChanged
 {
     private bool _isCurrent;
 
-    internal LyricLineViewModel(string text, long atMilliseconds)
+    internal LyricLineViewModel(string text, long atMilliseconds, bool synced)
     {
         Text = text;
         AtMilliseconds = atMilliseconds;
+        Synced = synced;
     }
+
+    /// <summary>Whether the document follows the song; unsynced lines have no current line.</summary>
+    public bool Synced { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -285,7 +290,7 @@ public sealed class LyricLineViewModel : INotifyPropertyChanged
     }
 
     /// <summary>The current line at full strength, the rest receding, as the reference does.</summary>
-    public double Emphasis => IsCurrent ? 1.0 : 0.45;
+    public double Emphasis => !Synced || IsCurrent ? 1.0 : 0.45;
 }
 
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
@@ -318,7 +323,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         _client = client;
         Tracks.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasTracks));
-        Queue.CollectionChanged += (_, _) => QueueChanged();
+        Queue.CollectionChanged += (_, _) =>
+        {
+            if (!_syncingUpNext)
+            {
+                QueueChanged();
+            }
+        };
+        UpNext.CollectionChanged += OnUpNextChanged;
         Lyrics.CollectionChanged += (_, _) =>
         {
             OnPropertyChanged(nameof(HasLyrics));
@@ -339,7 +351,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private TrackViewModel? _pendingTrack;
     private TrackViewModel? _confirmedTrack;
     private string? _advancedAfterEndVideoId;
-    private string _lyricsStatus = "Nothing playing.";
+    private LyricsState _lyricsState = LyricsState.NothingPlaying;
+    private int _lyricsRequestVersion;
     private PageState _pageState = PageState.Content;
     private double _playbackPosition;
     private double _playbackDuration;
@@ -386,19 +399,29 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     public string NowPlayingTitle { get => _nowPlayingTitle; private set => Set(ref _nowPlayingTitle, value); }
     public string NowPlayingSubtitle { get => _nowPlayingSubtitle; private set => Set(ref _nowPlayingSubtitle, value); }
     public BitmapImage? NowPlayingArtwork { get => _nowPlayingArtwork; private set => Set(ref _nowPlayingArtwork, value); }
-    public string LyricsStatus
+    /// <summary>What the lyrics panel says around, or instead of, the lines.</summary>
+    public LyricsState LyricsState
     {
-        get => _lyricsStatus;
+        get => _lyricsState;
         private set
         {
-            if (Set(ref _lyricsStatus, value))
+            if (Set(ref _lyricsState, value))
             {
+                OnPropertyChanged(nameof(LyricsStatus));
                 OnPropertyChanged(nameof(CanRetryLyrics));
+                OnPropertyChanged(nameof(IsLyricsLoading));
+                OnPropertyChanged(nameof(ShowsLyricsPlaceholder));
+                OnPropertyChanged(nameof(HasLyricLines));
             }
         }
     }
-    public bool CanRetryLyrics => _confirmedTrack is not null && Lyrics.Count == 0 &&
-        LyricsStatus.StartsWith("Lyrics are temporarily unavailable", StringComparison.Ordinal);
+
+    /// <summary>The one-line caption: where found lyrics came from, or why there are none.</summary>
+    public string LyricsStatus => _lyricsState.HasLines ? _lyricsState.Message : _lyricsState.Title;
+    public bool CanRetryLyrics => _lyricsState.CanRetry;
+    public bool IsLyricsLoading => _lyricsState.IsLoading;
+    public bool ShowsLyricsPlaceholder => _lyricsState.ShowsPlaceholder;
+    public bool HasLyricLines => _lyricsState.HasLines;
     public string AccountStatus { get => _accountStatus; private set => Set(ref _accountStatus, value); }
     public double PlaybackPosition { get => _playbackPosition; private set => Set(ref _playbackPosition, value); }
     public double PlaybackDuration { get => _playbackDuration; private set => Set(ref _playbackDuration, value); }
@@ -632,49 +655,57 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     internal async Task LoadLyricsAsync()
     {
         var track = _confirmedTrack;
-        if (track is null)
-        {
-            Lyrics.Clear();
-            LyricsStatus = "Nothing playing.";
-            return;
-        }
-
+        var request = ++_lyricsRequestVersion;
         Lyrics.Clear();
         _lyricsSynced = false;
         _currentLyric = -1;
-        LyricsStatus = $"Looking up lyrics for {track.Title}…";
+        if (track is null)
+        {
+            LyricsState = LyricsState.NothingPlaying;
+            return;
+        }
+
+        LyricsState = LyricsState.Loading;
+        LyricsState next;
         try
         {
             var query = new JsonObject { ["title"] = track.Title, ["artist"] = track.Subtitle };
             var answer = await _client.RequestAsync("lyrics.get", new JsonObject { ["lyrics"] = query })
                 .ConfigureAwait(true);
+            // A track change while this was on its way has already asked for its own lyrics.
+            if (request != _lyricsRequestVersion)
+            {
+                return;
+            }
+
             var document = answer.Deserialize<LyricsResponsePayload>(ServiceProtocol.Json)?.Document;
             if (document is null || document.Lines.Count == 0)
             {
-                LyricsStatus = "No lyrics were found for this track.";
+                LyricsState = LyricsState.NotFound;
                 return;
             }
 
             foreach (var line in document.Lines)
             {
-                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds));
+                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds, document.Synced));
             }
 
             _lyricsSynced = document.Synced;
-            LyricsStatus = document.Synced ? $"Synced lyrics from {document.Source}." : $"Lyrics from {document.Source}.";
-            if (document.Truncated)
-            {
-                LyricsStatus += " Only the first part is shown.";
-            }
+            next = LyricsState.Found(document.Synced, document.Source, document.Truncated);
         }
         catch (ServiceRefusedException refused) when (refused.Code == "lyricsNotFound")
         {
-            LyricsStatus = "No lyrics were found for this track.";
+            next = LyricsState.NotFound;
         }
         catch (Exception error)
         {
             BridgeLog.Write($"lyrics error {error.GetType().Name}: {error.Message}");
-            LyricsStatus = "Lyrics are temporarily unavailable. Try again.";
+            next = LyricsState.Unavailable;
+        }
+
+        if (request == _lyricsRequestVersion)
+        {
+            LyricsState = next;
         }
     }
 

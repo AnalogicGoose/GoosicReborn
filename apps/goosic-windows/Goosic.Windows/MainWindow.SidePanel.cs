@@ -28,11 +28,75 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnClearQueue(object sender, RoutedEventArgs e)
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _undoTimer;
+
+    /// <summary>Clears at once and offers Undo, rather than asking first.</summary>
+    private void OnClearQueue(object sender, RoutedEventArgs e)
     {
-        if (await ConfirmAsync("Clear Playing Next?", "Remove every upcoming track from the queue?", "Clear"))
+        var count = Model.UpNext.Count;
+        if (!Model.ClearUpcoming())
         {
-            Model.ClearUpcoming();
+            return;
+        }
+
+        QueueUndoText.Text = count == 1 ? "Removed 1 track" : $"Removed {count} tracks";
+        QueueUndoBar.Visibility = Visibility.Visible;
+        QueueUndoButton.Focus(FocusState.Programmatic);
+        _undoTimer ??= CreateUndoTimer();
+        _undoTimer.Stop();
+        _undoTimer.Start();
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateUndoTimer()
+    {
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = ClearedQueue<TrackViewModel>.UndoWindow;
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) => HideUndoBar();
+        return timer;
+    }
+
+    private void OnUndoClearQueue(object sender, RoutedEventArgs e)
+    {
+        if (!Model.UndoClear())
+        {
+            ReportUndoUnavailable();
+        }
+
+        HideUndoBar();
+        QueueItems.Focus(FocusState.Programmatic);
+    }
+
+    private void ReportUndoUnavailable() =>
+        Model.ReportStatus("The queue can’t be restored after the track changed.");
+
+    private void HideUndoBar()
+    {
+        _undoTimer?.Stop();
+        if (QueueUndoBar.FocusState != FocusState.Unfocused || QueueUndoButton.FocusState != FocusState.Unfocused)
+        {
+            QueueItems.Focus(FocusState.Programmatic);
+        }
+
+        QueueUndoBar.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>Alt+Up and Alt+Down move the focused Up Next row, so reordering needs no mouse.</summary>
+    private void OnQueueItemKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        var alt = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu)
+            & global::Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        if (!alt || e.Key is not (VirtualKey.Up or VirtualKey.Down)
+            || FocusManager.GetFocusedElement(RootGrid.XamlRoot) is not ListViewItem { Content: TrackViewModel entry })
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (Model.MoveUpNext(entry, e.Key == VirtualKey.Up ? -1 : 1)
+            && QueueItems.ContainerFromItem(entry) is ListViewItem moved)
+        {
+            moved.Focus(FocusState.Keyboard);
         }
     }
 
@@ -47,7 +111,7 @@ public sealed partial class MainWindow : Window
             fullLine.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.36, AnimationDesired = true });
         }
 
-        if (LyricsItems.Visibility != Visibility.Visible)
+        if (LyricsPanel.Visibility != Visibility.Visible)
         {
             return;
         }
@@ -107,16 +171,20 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Mirrors <see cref="_sidePanel"/> onto the toggles and the panel's contents.</summary>
+    /// <remarks>What each panel shows inside is bound to the model; this only picks the panel.</remarks>
     private void ApplySidePanel()
     {
         var lyrics = _sidePanel.Content == SidePanelContent.Lyrics;
         var queue = _sidePanel.Content == SidePanelContent.Queue;
         LyricsButton.IsChecked = lyrics;
         QueueButton.IsChecked = queue;
-        LyricsItems.Visibility = lyrics ? Visibility.Visible : Visibility.Collapsed;
-        LyricsEmptyState.Visibility = lyrics && Model.Lyrics.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LyricsPanel.Visibility = lyrics ? Visibility.Visible : Visibility.Collapsed;
         QueuePanel.Visibility = queue ? Visibility.Visible : Visibility.Collapsed;
-        SidePanelMessage.Text = lyrics ? Model.LyricsStatus : "";
+        if (!queue)
+        {
+            QueueUndoBar.Visibility = Visibility.Collapsed;
+        }
+
         SidePanel.Visibility = _sidePanel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
         ApplyInsets();
     }

@@ -374,6 +374,7 @@
                                                       <Button Style="{StaticResource CardButtonStyle}"
                                                               Margin="0,0,22,0"
                                                               Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                              AutomationProperties.Name="{x:Bind AccessibleName}"
                                                               ContextRequested="OnItemContextRequested">
                                                         <StackPanel Width="{StaticResource GoosicCardSize}" Spacing="6">
                                                             <Border Width="{StaticResource GoosicCardSize}"
@@ -794,68 +795,158 @@
                             Style="{StaticResource TransportGlyphStyle}" Content="&#xE711;" Canvas.ZIndex="2"
                             ToolTipService.ToolTip="Close inspector" AutomationProperties.Name="Close inspector"
                             Click="OnCloseSidePanel" />
-                    <StackPanel x:Name="LyricsEmptyState" VerticalAlignment="Center"
-                                HorizontalAlignment="Center" Spacing="14" MaxWidth="260">
-                        <TextBlock x:Name="SidePanelMessage" TextAlignment="Center"
-                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}"
-                                   Text="Nothing playing." TextWrapping="Wrap" />
-                        <Button Content="Try again" HorizontalAlignment="Center"
-                                Visibility="{x:Bind Model.CanRetryLyrics, Mode=OneWay}"
-                                AutomationProperties.Name="Try loading lyrics again"
-                                Click="OnRetryLyrics" />
-                    </StackPanel>
-                    <Grid x:Name="QueuePanel" Visibility="Collapsed" RowSpacing="10">
+                    <!-- Lyrics: a heading and caption, then the lines, a loading shape, or why there are none. -->
+                    <Grid x:Name="LyricsPanel" Visibility="Collapsed" RowSpacing="12">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <Grid>
+                        <StackPanel Spacing="1" Margin="0,0,48,0">
+                            <TextBlock Text="Lyrics" FontSize="17" FontWeight="Bold"
+                                       AutomationProperties.HeadingLevel="Level2" />
+                            <TextBlock x:Name="SidePanelMessage" FontSize="12" TextTrimming="CharacterEllipsis"
+                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                       Visibility="{x:Bind Model.HasLyricLines, Mode=OneWay}"
+                                       Text="{x:Bind Model.LyricsState.Message, Mode=OneWay}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="1" Spacing="18" Margin="0,8,0,0"
+                                    Visibility="{x:Bind Model.IsLyricsLoading, Mode=OneWay}"
+                                    AutomationProperties.Name="Looking up lyrics"
+                                    AutomationProperties.LiveSetting="Polite">
+                            <Border Height="18" Width="220" CornerRadius="6" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                            <Border Height="18" Width="260" CornerRadius="6" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                            <Border Height="18" Width="180" CornerRadius="6" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                            <Border Height="18" Width="240" CornerRadius="6" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                            <Border Height="18" Width="150" CornerRadius="6" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="LyricsEmptyState" Grid.Row="1" VerticalAlignment="Center"
+                                    HorizontalAlignment="Center" Spacing="10" MaxWidth="260"
+                                    Visibility="{x:Bind Model.ShowsLyricsPlaceholder, Mode=OneWay}">
+                            <FontIcon Glyph="&#xE90A;" FontSize="34"
+                                      Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                      AutomationProperties.AccessibilityView="Raw" />
+                            <TextBlock Text="{x:Bind Model.LyricsState.Title, Mode=OneWay}" FontSize="16"
+                                       FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" />
+                            <TextBlock Text="{x:Bind Model.LyricsState.Message, Mode=OneWay}" TextAlignment="Center"
+                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap" />
+                            <Button Content="Try again" HorizontalAlignment="Center" Margin="0,4,0,0"
+                                    Visibility="{x:Bind Model.CanRetryLyrics, Mode=OneWay}"
+                                    AutomationProperties.Name="Try loading lyrics again"
+                                    Click="OnRetryLyrics" />
+                        </StackPanel>
+
+                        <ScrollViewer x:Name="LyricsScroller" Grid.Row="1" VerticalScrollBarVisibility="Hidden"
+                                      Visibility="{x:Bind Model.HasLyricLines, Mode=OneWay}">
+                            <ItemsControl x:Name="LyricsItems" ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:LyricLineViewModel">
+                                        <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" FontSize="20"
+                                                   FontWeight="SemiBold" Margin="0,0,0,16"
+                                                   Opacity="{x:Bind Emphasis, Mode=OneWay}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+
+                    <!-- Queue: what is playing, then what plays next. Played tracks stay reachable through Previous. -->
+                    <Grid x:Name="QueuePanel" Visibility="Collapsed" RowSpacing="10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Queue" FontSize="17" FontWeight="Bold" Margin="0,4,48,0"
+                                   AutomationProperties.HeadingLevel="Level2" />
+
+                        <StackPanel Grid.Row="1" Spacing="6"
+                                    Visibility="{x:Bind Model.HasNowPlayingEntry, Mode=OneWay}">
+                            <TextBlock Text="Now playing" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                       AutomationProperties.HeadingLevel="Level3" />
+                            <Button x:Name="QueueNowPlaying" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                    Padding="8" CornerRadius="8" Background="{ThemeResource GoosicRaisedBrush}"
+                                    BorderThickness="0" Click="OnOpenFullPlayer"
+                                    ToolTipService.ToolTip="Open the player"
+                                    AutomationProperties.Name="{x:Bind Model.NowPlayingEntry.AccessibleName, Mode=OneWay, FallbackValue=''}">
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="48" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="48" Height="48" CornerRadius="6"
+                                            Background="{ThemeResource GoosicRaisedStrongBrush}">
+                                        <Image Source="{x:Bind Model.NowPlayingEntry.Artwork, Mode=OneWay, FallbackValue={x:Null}}"
+                                               Stretch="UniformToFill" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock Text="{x:Bind Model.NowPlayingEntry.Title, Mode=OneWay, FallbackValue=''}"
+                                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{x:Bind Model.NowPlayingEntry.Subtitle, Mode=OneWay, FallbackValue=''}"
+                                                   FontSize="12" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                        </StackPanel>
+
+                        <Grid Grid.Row="2" Margin="0,6,0,0">
                             <StackPanel Spacing="1">
-                                <TextBlock Text="Playing Next" FontSize="17" FontWeight="Bold" />
-                                <TextBlock Text="{x:Bind Model.QueueSummary, Mode=OneWay}" FontSize="12"
+                                <TextBlock Text="Up next" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                           AutomationProperties.HeadingLevel="Level3" />
+                                <TextBlock Text="{x:Bind Model.UpNextSummary, Mode=OneWay}" FontSize="12"
                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                             </StackPanel>
-                            <Button HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,48,0" Content="Clear"
-                                    Visibility="{x:Bind Model.HasQueue, Mode=OneWay}" Click="OnClearQueue" />
+                            <Button HorizontalAlignment="Right" VerticalAlignment="Center" Content="Clear"
+                                    ToolTipService.ToolTip="Remove everything after this track"
+                                    AutomationProperties.Name="Clear up next"
+                                    Visibility="{x:Bind Model.HasUpNext, Mode=OneWay}" Click="OnClearQueue" />
                         </Grid>
-                        <!-- Drag a row to reorder what plays next; click one to play it. -->
-                        <ListView x:Name="QueueItems" Grid.Row="1" ItemsSource="{x:Bind Model.Queue, Mode=OneWay}"
+
+                        <!-- Drag a row by its handle, or Alt+Up / Alt+Down, to reorder; click one to play it. -->
+                        <ListView x:Name="QueueItems" Grid.Row="3" ItemsSource="{x:Bind Model.UpNext, Mode=OneWay}"
                                   SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnQueueItemClick"
-                                  CanDragItems="True" CanReorderItems="True" AllowDrop="True">
+                                  CanDragItems="True" CanReorderItems="True" AllowDrop="True"
+                                  PreviewKeyDown="OnQueueItemKeyDown"
+                                  AutomationProperties.Name="Up next">
                             <ListView.ItemContainerStyle>
                                 <Style TargetType="ListViewItem">
-                                    <Setter Property="Padding" Value="6,4" />
+                                    <Setter Property="Padding" Value="0,4,6,4" />
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                 </Style>
                             </ListView.ItemContainerStyle>
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="vm:TrackViewModel">
-                                    <Grid ColumnSpacing="10" Background="Transparent" ContextRequested="OnItemContextRequested">
+                                    <Grid ColumnSpacing="8" Background="Transparent" ContextRequested="OnItemContextRequested"
+                                          AutomationProperties.Name="{x:Bind AccessibleName}">
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="20" />
                                             <ColumnDefinition Width="40" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="40" Height="40" CornerRadius="4"
+                                        <FontIcon Glyph="&#xE76F;" FontSize="14" Opacity="0.55"
+                                                  ToolTipService.ToolTip="Drag to reorder (Alt+Up / Alt+Down)"
+                                                  AutomationProperties.AccessibilityView="Raw" />
+                                        <Border Grid.Column="1" Width="40" Height="40" CornerRadius="4"
                                                 Background="{ThemeResource GoosicRaisedBrush}">
-                                            <Grid>
-                                                <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
-                                                <Border Background="#99000000"
-                                                        Visibility="{x:Bind CurrentMarker, Mode=OneWay}">
-                                                    <FontIcon Glyph="&#xE995;" FontSize="16" Foreground="White" />
-                                                </Border>
-                                            </Grid>
+                                            <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
                                         </Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
                                             <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{x:Bind Subtitle}" FontSize="12"
                                                        Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
-                                        <TextBlock Grid.Column="2" Text="{x:Bind Duration}" VerticalAlignment="Center"
+                                        <TextBlock Grid.Column="3" Text="{x:Bind Duration}" VerticalAlignment="Center"
                                                    Foreground="{ThemeResource GoosicSecondaryTextBrush}" FontSize="12" />
-                                        <Button Grid.Column="3" Style="{StaticResource TransportGlyphStyle}"
+                                        <Button Grid.Column="4" Style="{StaticResource TransportGlyphStyle}"
                                                 Content="&#xE711;" ToolTipService.ToolTip="Remove from queue"
                                                 AutomationProperties.Name="Remove from queue"
                                                 Click="OnRemoveFromQueue" />
@@ -863,19 +954,25 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
+
+                        <TextBlock Grid.Row="3" VerticalAlignment="Top" Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                   Visibility="{x:Bind Model.HasNoUpNext, Mode=OneWay}"
+                                   Text="Nothing is queued after this track. Use “Play next” or “Add to queue” on any song." />
+
+                        <!-- Clear is immediate; this is how to take it back. -->
+                        <Grid x:Name="QueueUndoBar" Grid.Row="4" Visibility="Collapsed" ColumnSpacing="8" Padding="12,8"
+                              CornerRadius="8" Background="{ThemeResource GoosicRaisedStrongBrush}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="QueueUndoText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                       AutomationProperties.LiveSetting="Assertive" />
+                            <Button x:Name="QueueUndoButton" Grid.Column="1" Content="Undo" Click="OnUndoClearQueue"
+                                    Style="{StaticResource AccentButtonStyle}" />
+                        </Grid>
                     </Grid>
-                    <ScrollViewer x:Name="LyricsScroller" Margin="0,44,0,0" VerticalScrollBarVisibility="Hidden">
-                        <ItemsControl x:Name="LyricsItems" Visibility="Collapsed"
-                                      ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:LyricLineViewModel">
-                                    <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" FontSize="20"
-                                               FontWeight="SemiBold" Margin="0,0,0,16"
-                                               Opacity="{x:Bind Emphasis, Mode=OneWay}" />
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
                 </Grid>
             </Border>
         </Grid>
