@@ -6,12 +6,13 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 
 namespace Goosic.Windows.ViewModels;
 
 /// <summary>One stored account, as the account menu lists it.</summary>
-public sealed class AccountViewModel
+public sealed class AccountViewModel : INotifyPropertyChanged
 {
     internal AccountViewModel(AccountSummary summary, bool active)
     {
@@ -19,19 +20,39 @@ public sealed class AccountViewModel
         WebProfileId = summary.WebProfileId;
         DisplayName = string.IsNullOrWhiteSpace(summary.DisplayName) ? "YouTube Music account" : summary.DisplayName;
         Detail = summary.Email ?? summary.Channel ?? "YouTube Music account";
+        AvatarUrl = summary.AvatarUrl;
         IsActive = active;
     }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     internal string Id { get; }
     internal string WebProfileId { get; }
     public string DisplayName { get; }
     public string Detail { get; }
+    private string? AvatarUrl { get; }
     public bool IsActive { get; }
     public string Initial => DisplayName[..1].ToUpperInvariant();
     public string ActiveMarker => IsActive ? "" : "";
 
     /// <summary>The account's id, for the view to hand back.</summary>
     public string Tag => Id;
+
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? Artwork { get; private set; }
+
+    internal async Task LoadArtworkAsync(ArtworkLoader loader)
+    {
+        if (await loader.LocalFileAsync(AvatarUrl).ConfigureAwait(true) is not { } file)
+        {
+            return;
+        }
+
+        var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+        using var stream = System.IO.File.OpenRead(file);
+        await image.SetSourceAsync(System.IO.WindowsRuntimeStreamExtensions.AsRandomAccessStream(stream));
+        Artwork = image;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Artwork)));
+    }
 }
 
 /// <summary>A playlist the signed-in account owns and may edit.</summary>
@@ -133,6 +154,7 @@ public sealed partial class ShellViewModel
     public bool IsGuest => _activeAccount is null;
 
     public string AccountName => _activeAccount?.DisplayName ?? "Guest";
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? AccountArtwork => _activeAccount?.Artwork;
 
     public string AccountDetail => _activeAccount?.Detail ?? "Sign in to see your library, likes and playlists";
 
@@ -220,13 +242,23 @@ public sealed partial class ShellViewModel
         Accounts.Clear();
         foreach (var account in snapshot.Accounts)
         {
-            Accounts.Add(new AccountViewModel(account, account.Id == snapshot.ActiveAccountId));
+            var model = new AccountViewModel(account, account.Id == snapshot.ActiveAccountId);
+            model.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(AccountViewModel.Artwork) && model.IsActive)
+                {
+                    OnPropertyChanged(nameof(AccountArtwork));
+                }
+            };
+            Accounts.Add(model);
+            _ = model.LoadArtworkAsync(_artwork);
         }
 
         var active = Accounts.FirstOrDefault(account => account.IsActive);
         var changed = active?.Id != _activeAccount?.Id;
         _activeAccount = active;
         AccountInitials = active?.Initial ?? "G";
+        OnPropertyChanged(nameof(AccountArtwork));
         AccountStatus = active?.DisplayName ?? "Browsing as a guest";
         Personal?.Bind(active?.WebProfileId);
         Playback?.BindProfile(active?.WebProfileId);
@@ -453,7 +485,7 @@ public sealed partial class ShellViewModel
         if (!IsSignedIn || Personal is null)
         {
             PageSubtitle = "Sign in to see this";
-            Status = "Sign in with your Google account to see your library, liked music and history.";
+            PageState = PageState.SignInRequired;
             return true;
         }
 
@@ -520,13 +552,20 @@ public sealed partial class ShellViewModel
             }
 
             Fill(page);
-            Status = Tracks.Count == 0 && Shelves.Count == 0 ? "Nothing here yet." : "";
+            Status = "";
+            PageState = Tracks.Count == 0 && Shelves.Count == 0
+                ? PageState.Empty(PageSubject.Library, source.Title)
+                : PageState.Content;
         }
         catch (Exception error)
         {
             if (_personalSource == source)
             {
-                Status = Describe(error);
+                PageState = FailureState(error, source.Title);
+            }
+            else
+            {
+                Describe(error);
             }
         }
     }
@@ -538,6 +577,10 @@ public sealed partial class ShellViewModel
             var row = new TrackViewModel(track);
             Tracks.Add(row);
             _ = row.LoadArtworkAsync(_artwork);
+            if (ShowPageHeader && PageArtwork is null)
+            {
+                _ = SetPageArtworkAsync(row, _pageArtworkVersion);
+            }
         }
 
         foreach (var shelf in page.Shelves)

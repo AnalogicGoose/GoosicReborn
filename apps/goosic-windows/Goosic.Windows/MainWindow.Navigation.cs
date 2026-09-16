@@ -1,0 +1,127 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
+using Goosic.Windows.Service;
+using Goosic.Windows.ViewModels;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Media;
+using Windows.System;
+
+namespace Goosic.Windows;
+
+public sealed partial class MainWindow : Window
+{
+    // ---- Navigation -------------------------------------------------------------------------
+
+    /// <summary>
+    /// A sidebar item: a route, or a library section written as <c>library:browseId</c>.
+    /// </summary>
+    private async void OnNavigate(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag })
+        {
+            return;
+        }
+
+        HighlightNavigation(tag);
+        DismissOverlaySidebar();
+        if (tag.StartsWith("library:", StringComparison.Ordinal))
+        {
+            await Model.OpenLibrarySectionAsync(tag["library:".Length..]);
+        }
+        else
+        {
+            await Model.LoadRouteAsync(tag);
+        }
+
+        ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
+    }
+
+    /// <summary>Marks the sidebar item for the page on screen, as the macOS sidebar selects its row.</summary>
+    private void HighlightNavigation(string? tag)
+    {
+        var selected = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GoosicSidebarSelectedBrush"];
+        foreach (var child in SidebarItems.Children)
+        {
+            if (child is Button { Tag: string itemTag } item)
+            {
+                item.Background = itemTag == tag ? selected : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
+        }
+    }
+
+    private void UpdateBackButton() =>
+        BackButton.Visibility = Model.CanGoBack ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Hides or shows the sidebar; the content takes the whole width while it is hidden.</summary>
+    private void OnToggleSidebar(object sender, RoutedEventArgs e) => ToggleSidebar();
+
+    private void ToggleSidebar()
+    {
+        Sidebar.Visibility = Sidebar.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        ApplyInsets();
+    }
+
+    /// <summary>
+    /// Closes the sidebar after a choice where it covers the page, so the choice is visible.
+    /// </summary>
+    private void DismissOverlaySidebar()
+    {
+        if (WindowLayout.ClosesSidebarAfterNavigation(_widthClass) && Sidebar.Visibility == Visibility.Visible)
+        {
+            ToggleSidebar();
+        }
+    }
+
+    private async void OnRetryPage(object sender, RoutedEventArgs e)
+    {
+        PageRetryButton.IsEnabled = false;
+        await Model.RetryPageAsync();
+        PageRetryButton.IsEnabled = true;
+    }
+
+    private void OpenSearch()
+    {
+        if (Sidebar.Visibility != Visibility.Visible)
+        {
+            ToggleSidebar();
+        }
+
+        SidebarSearch.Focus(FocusState.Programmatic);
+    }
+
+    private async void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        HighlightNavigation(null);
+        DismissOverlaySidebar();
+        await Model.SearchAsync(args.QueryText, "all");
+        ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
+    }
+
+    private async void OnBack(object sender, RoutedEventArgs e) => await GoBackAsync();
+
+    private async Task GoBackAsync()
+    {
+        await Model.GoBackAsync();
+        HighlightNavigation(Model.CurrentRouteName);
+        ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
+    }
+
+    private async Task OpenAsync(string kind, string id, string title)
+    {
+        HighlightNavigation(null);
+        await Model.OpenEntityAsync(kind, id, title);
+        ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
+    }
+}

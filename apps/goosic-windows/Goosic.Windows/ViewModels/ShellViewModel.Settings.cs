@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 
 namespace Goosic.Windows.ViewModels;
@@ -207,6 +208,7 @@ public sealed partial class ShellViewModel
         ShowPageHeader = true;
         PageSubtitle = "Playback, appearance and accounts";
         Status = "";
+        PageState = PageState.Content;
         IsSettingsPage = true;
         OnPropertyChanged(nameof(IsServiceConnected));
     }

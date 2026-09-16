@@ -16,6 +16,7 @@
     <Grid x:Name="RootGrid" Background="{ThemeResource GoosicWindowBackgroundBrush}">
 
         <Grid x:Name="ArtworkBackdrop" Visibility="Collapsed" IsHitTestVisible="False">
+            <Image x:Name="ArtworkBackdropImage" Stretch="UniformToFill" Opacity="0.72" />
             <Rectangle x:Name="ArtworkBackdropVeil" Fill="{ThemeResource GoosicWindowBackgroundBrush}" Opacity="0.6" />
         </Grid>
 
@@ -36,11 +37,23 @@
                 -->
                 <ScrollViewer x:Name="ContentScroller" ViewChanged="OnContentViewChanged">
                     <StackPanel x:Name="ContentStack" Spacing="22" Padding="314,56,34,128">
-                        <StackPanel Spacing="2" Visibility="{x:Bind Model.ShowPageHeader, Mode=OneWay}">
+                        <!-- No ColumnSpacing: it stays applied when the artwork collapses, and pushes the title
+                             out of line with the shelves. The artwork carries the gap instead. -->
+                        <Grid Visibility="{x:Bind Model.ShowPageHeader, Mode=OneWay}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="PageHeroArtwork" Width="148" Height="148" CornerRadius="10" Margin="0,0,22,0"
+                                    VerticalAlignment="Bottom" Background="{ThemeResource GoosicRaisedBrush}"
+                                    Visibility="{x:Bind Model.HasPageArtwork, Mode=OneWay}">
+                                <Image Source="{x:Bind Model.PageArtwork, Mode=OneWay}" Stretch="UniformToFill" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Bottom">
                             <TextBlock Text="{x:Bind Model.PageTitle, Mode=OneWay}"
-                                       FontSize="30" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Text="{x:Bind Model.PageSubtitle, Mode=OneWay}"
-                                       FontSize="13" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                       FontSize="36" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{x:Bind Model.PageSubtitle, Mode=OneWay}" TextWrapping="Wrap"
+                                       FontSize="14" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                             <ItemsControl Margin="0,12,0,0" ItemsSource="{x:Bind Model.SearchFilterChoices}"
                                           Visibility="{x:Bind Model.IsSearchPage, Mode=OneWay}">
                                 <ItemsControl.ItemsPanel>
@@ -116,7 +129,8 @@
                                     </Button.Flyout>
                                 </Button>
                             </StackPanel>
-                        </StackPanel>
+                            </StackPanel>
+                        </Grid>
 
                         <StackPanel Spacing="14" MaxWidth="720" HorizontalAlignment="Left"
                                     Visibility="{x:Bind Model.IsSettingsPage, Mode=OneWay}">
@@ -173,15 +187,121 @@
                             </Border>
                         </StackPanel>
 
+                        <!-- Loading: the shape of a page rather than a sentence about one. -->
+                        <StackPanel x:Name="PageSkeleton" Spacing="26" Opacity="0.9"
+                                    Visibility="{x:Bind Model.IsPageLoading, Mode=OneWay}"
+                                    AutomationProperties.Name="Loading" AutomationProperties.LiveSetting="Polite">
+                            <StackPanel Spacing="12">
+                                <Border Width="220" Height="18" CornerRadius="6" HorizontalAlignment="Left" Margin="0,15,0,15"
+                                        Background="{ThemeResource GoosicRaisedBrush}" />
+                                <StackPanel Orientation="Horizontal" Spacing="22">
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Spacing="12">
+                                <Border Width="160" Height="18" CornerRadius="6" HorizontalAlignment="Left" Margin="0,15,0,15"
+                                        Background="{ThemeResource GoosicRaisedBrush}" />
+                                <StackPanel Orientation="Horizontal" Spacing="22">
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                    <StackPanel Spacing="8">
+                                        <Border Width="{StaticResource GoosicCardSize}" Height="{StaticResource GoosicCardSize}" CornerRadius="10" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="140" Height="12" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                        <Border Width="96" Height="10" CornerRadius="4" HorizontalAlignment="Left" Background="{ThemeResource GoosicRaisedBrush}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Empty, offline, failed, unsupported, signed out: one panel, worded by PageState. -->
+                        <StackPanel x:Name="PageStatePanel" Spacing="10" MaxWidth="440" Margin="0,64,0,0"
+                                    HorizontalAlignment="Center"
+                                    Visibility="{x:Bind Model.ShowsPageStatePanel, Mode=OneWay}">
+                            <FontIcon Glyph="{x:Bind Model.PageState.Glyph, Mode=OneWay}" FontSize="44"
+                                      Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                      AutomationProperties.AccessibilityView="Raw" />
+                            <TextBlock Text="{x:Bind Model.PageState.Title, Mode=OneWay}" FontSize="20"
+                                       FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center"
+                                       TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2" />
+                            <TextBlock Text="{x:Bind Model.PageState.Message, Mode=OneWay}" FontSize="14"
+                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                       HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,8,0,0">
+                                <Button x:Name="PageRetryButton" Content="Try again" Style="{StaticResource AccentButtonStyle}"
+                                        Visibility="{x:Bind Model.PageState.CanRetry, Mode=OneWay}"
+                                        Click="OnRetryPage" />
+                                <Button Content="Sign in" Style="{StaticResource AccentButtonStyle}"
+                                        Visibility="{x:Bind Model.PageState.CanSignIn, Mode=OneWay}"
+                                        Click="OnSignIn" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Collapsed when idle: an empty child still takes the stack's spacing. -->
                         <InfoBar x:Name="StatusBar" IsOpen="{x:Bind Model.HasStatus, Mode=OneWay}"
+                                 Visibility="{x:Bind Model.HasStatus, Mode=OneWay}"
                                  Message="{x:Bind Model.Status, Mode=OneWay}" IsClosable="False"
                                  Severity="Informational" />
 
                         <!-- Track rows: search results, and ordered lists on a detail page. -->
-                        <ItemsControl ItemsSource="{x:Bind Model.Tracks, Mode=OneWay}">
+                        <ItemsControl ItemsSource="{x:Bind Model.Tracks, Mode=OneWay}"
+                                      Visibility="{x:Bind Model.HasTracks, Mode=OneWay}"
+                                      MaxWidth="1120" HorizontalAlignment="Left">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:TrackViewModel">
                                     <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
+                                            AutomationProperties.Name="{x:Bind AccessibleName}"
                                             Click="OnPlayTrack" ContextRequested="OnItemContextRequested">
                                         <Grid ColumnSpacing="11">
                                             <Grid.ColumnDefinitions>
@@ -218,20 +338,27 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ShelfViewModel">
                                     <StackPanel Spacing="12" Margin="0,0,0,26">
-                                        <Grid>
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
                                             <TextBlock Text="{x:Bind Title}" FontSize="20" FontWeight="SemiBold"
-                                                       VerticalAlignment="Center" />
-                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                       ToolTipService.ToolTip="{x:Bind Title}" />
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
                                                 <Button Style="{StaticResource ShelfArrowStyle}" Content="&#xE76B;"
-                                                        ToolTipService.ToolTip="Scroll left" Tag="-1"
+                                                        ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll shelf left" Tag="-1"
                                                         Click="OnShelfScroll" />
                                                 <Button Style="{StaticResource ShelfArrowStyle}" Content="&#xE76C;"
-                                                        ToolTipService.ToolTip="Scroll right" Tag="1"
+                                                        ToolTipService.ToolTip="Scroll right" AutomationProperties.Name="Scroll shelf right" Tag="1"
                                                         Click="OnShelfScroll" />
                                             </StackPanel>
                                         </Grid>
                                         <ScrollViewer HorizontalScrollMode="Auto"
                                                       HorizontalScrollBarVisibility="Hidden"
+                                                      HorizontalSnapPointsType="MandatorySingle"
+                                                      HorizontalSnapPointsAlignment="Near"
                                                       VerticalScrollMode="Disabled"
                                                       VerticalScrollBarVisibility="Disabled"
                                                       Loaded="OnCarouselLoaded" Unloaded="OnCarouselUnloaded">
@@ -239,12 +366,13 @@
                                             <ItemsControl ItemsSource="{x:Bind Items}">
                                                 <ItemsControl.ItemsPanel>
                                                     <ItemsPanelTemplate>
-                                                        <StackPanel Orientation="Horizontal" Spacing="22" />
+                                                        <ItemsStackPanel Orientation="Horizontal" />
                                                     </ItemsPanelTemplate>
                                                 </ItemsControl.ItemsPanel>
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate x:DataType="vm:CardViewModel">
                                                       <Button Style="{StaticResource CardButtonStyle}"
+                                                              Margin="0,0,22,0"
                                                               Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
                                                               ContextRequested="OnItemContextRequested">
                                                         <StackPanel Width="{StaticResource GoosicCardSize}" Spacing="6">
@@ -282,39 +410,51 @@
                     shelves scroll under it and show through, as the macOS player does.
                 -->
                 <Border x:Name="PlayerPill" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
-                        Height="62" Margin="304,0,24,18" CornerRadius="31"
+                        Height="72" MaxWidth="1200" Margin="304,0,24,14" CornerRadius="24"
                         Background="{ThemeResource GoosicPillAcrylicBrush}"
                         BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}"
                         PointerEntered="OnPillPointerEntered" PointerExited="OnPillPointerExited">
-                    <Grid Padding="14,0,16,0" ColumnSpacing="6">
+                    <Grid x:Name="PlayerGrid" Padding="14,0,16,0" ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="0" />
+                        </Grid.RowDefinitions>
 
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
+                        <StackPanel x:Name="TransportControls" Grid.Column="0" Orientation="Horizontal"
+                                    VerticalAlignment="Center" Spacing="2">
                             <ToggleButton x:Name="ShuffleButton" Style="{StaticResource PillToggleStyle}"
                                           Content="&#xE8B1;" IsChecked="{x:Bind Model.IsShuffled, Mode=OneWay}"
+                                          IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                           ToolTipService.ToolTip="{x:Bind Model.ShuffleLabel, Mode=OneWay}"
                                           AutomationProperties.Name="Shuffle" Click="OnShuffle" />
                             <Button x:Name="PreviousButton" Style="{StaticResource PillGlyphStyle}" FontSize="18"
-                                    Content="&#xEB9E;" ToolTipService.ToolTip="Previous" Click="OnPrevious" />
+                                    Content="&#xEB9E;" ToolTipService.ToolTip="Previous"
+                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                    AutomationProperties.Name="Previous" Click="OnPrevious" />
                             <Button x:Name="PlayButton" Style="{StaticResource PillGlyphStyle}" FontSize="24" Width="46"
                                     Content="{x:Bind Model.PlayPauseGlyph, Mode=OneWay}"
+                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
                                     AutomationProperties.Name="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
                                     Click="OnPlayPause" />
                             <Button x:Name="NextButton" Style="{StaticResource PillGlyphStyle}" FontSize="18"
-                                    Content="&#xEB9D;" ToolTipService.ToolTip="Next" Click="OnNext" />
+                                    Content="&#xEB9D;" ToolTipService.ToolTip="Next"
+                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                    AutomationProperties.Name="Next" Click="OnNext" />
                             <ToggleButton x:Name="RepeatButton" Style="{StaticResource PillToggleStyle}"
                                           Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
+                                          IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                           IsChecked="{x:Bind Model.IsRepeating, Mode=OneWay}"
                                           ToolTipService.ToolTip="{x:Bind Model.RepeatLabel, Mode=OneWay}"
                                           AutomationProperties.Name="Repeat" Click="OnRepeat" />
                         </StackPanel>
 
-                        <Grid Grid.Column="1" Margin="14,0,8,0" ColumnSpacing="12">
+                        <Grid x:Name="PlayerMetadata" Grid.Column="1" Margin="14,0,8,0" ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
@@ -323,6 +463,7 @@
                             <!-- The cover; pointing at it offers the full-screen player. -->
                             <Button x:Name="PillCoverButton" Padding="0" BorderThickness="0" Background="Transparent"
                                     Width="42" Height="42" CornerRadius="6" VerticalAlignment="Center"
+                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     ToolTipService.ToolTip="Full-screen player" Click="OnOpenFullPlayer"
                                     PointerEntered="OnCoverPointerEntered" PointerExited="OnCoverPointerExited">
                                 <Grid>
@@ -349,13 +490,8 @@
                                                FontSize="12" Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                                TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                                <!--
-                                    The position line. Drawn here rather than with a Slider: a
-                                    slider's template needs a 32-pixel frame, which overflowed the
-                                    pill and cut its thumb off. Pressing anywhere on it seeks, and
-                                    dragging scrubs.
-                                -->
-                                <Grid Grid.Row="1" Margin="0,3,0,0" ColumnSpacing="8">
+                                <Grid Grid.Row="1" Margin="0,3,0,0" ColumnSpacing="8"
+                                      Visibility="{x:Bind Model.HasPlayback, Mode=OneWay}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
@@ -365,7 +501,8 @@
                                                FontSize="10" VerticalAlignment="Center" Visibility="Collapsed"
                                                Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                                     <Grid x:Name="PlaybackProgress" Grid.Column="1" Height="12" Background="Transparent"
-                                          AutomationProperties.Name="Position"
+                                          AutomationProperties.Name="Playback position"
+                                          AutomationProperties.HelpText="Click or drag to seek"
                                           PointerPressed="OnProgressPressed" PointerMoved="OnProgressMoved"
                                           PointerReleased="OnProgressReleased" PointerCaptureLost="OnProgressCaptureLost"
                                           SizeChanged="OnProgressSizeChanged">
@@ -382,18 +519,26 @@
                             </Grid>
                         </Grid>
 
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="2">
+                        <StackPanel x:Name="PlayerUtilities" Grid.Column="2" Orientation="Horizontal"
+                                    VerticalAlignment="Center" Spacing="2">
                             <Button x:Name="PillMoreButton" Style="{StaticResource PillGlyphStyle}" Content="&#xE712;"
+                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     ToolTipService.ToolTip="More" AutomationProperties.Name="More options"
                                     Click="OnNowPlayingMore" />
                             <ToggleButton x:Name="LyricsButton" Style="{StaticResource PillToggleStyle}"
+                                          IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                           Content="&#xE90A;" ToolTipService.ToolTip="Lyrics"
+                                          AutomationProperties.Name="Lyrics"
                                           Click="OnToggleLyrics" />
                             <ToggleButton x:Name="QueueButton" Style="{StaticResource PillToggleStyle}"
+                                          IsEnabled="{x:Bind Model.HasQueue, Mode=OneWay}"
                                           Content="&#xE8FD;" ToolTipService.ToolTip="Playing Next"
+                                          AutomationProperties.Name="Playing Next"
                                           Click="OnToggleQueue" />
                             <Button x:Name="VolumeButton" Style="{StaticResource PillGlyphStyle}"
-                                    Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume">
+                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                    Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume"
+                                    AutomationProperties.Name="Volume">
                                 <Button.Flyout>
                                     <Flyout Placement="Top" FlyoutPresenterStyle="{StaticResource VolumeFlyoutStyle}">
                                         <StackPanel Width="44" Spacing="10" HorizontalAlignment="Center">
@@ -434,7 +579,7 @@
 
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
                         <StackPanel x:Name="SidebarItems" Spacing="1">
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="home" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="home" Click="OnNavigate" AutomationProperties.Name="Home">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE80F;" />
                                     <TextBlock Text="Home" />
@@ -442,25 +587,25 @@
                             </Button>
 
                             <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Discover" />
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="explore" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="explore" Click="OnNavigate" AutomationProperties.Name="Explore">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE774;" />
                                     <TextBlock Text="Explore" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="charts" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="charts" Click="OnNavigate" AutomationProperties.Name="Charts">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE9D2;" />
                                     <TextBlock Text="Charts" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="moodsAndGenres" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="moodsAndGenres" Click="OnNavigate" AutomationProperties.Name="Moods &amp; genres">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE8D6;" />
                                     <TextBlock Text="Moods &amp; genres" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="newReleases" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="newReleases" Click="OnNavigate" AutomationProperties.Name="New releases">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE734;" />
                                     <TextBlock Text="New releases" />
@@ -468,34 +613,40 @@
                             </Button>
 
                             <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Library" />
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="liked" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="liked" Click="OnNavigate" AutomationProperties.Name="Favourite Songs">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE8E1;" />
                                     <TextBlock Text="Favourite Songs" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_library_corpus_artists" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_library_corpus_artists" Click="OnNavigate" AutomationProperties.Name="Artists">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE77B;" />
                                     <TextBlock Text="Artists" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_liked_albums" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_liked_albums" Click="OnNavigate" AutomationProperties.Name="Albums">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE93C;" />
                                     <TextBlock Text="Albums" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="history" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="history" Click="OnNavigate" AutomationProperties.Name="History">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE81C;" />
                                     <TextBlock Text="History" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="downloads" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="downloads" Click="OnNavigate" AutomationProperties.Name="Downloads">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE896;" />
                                     <TextBlock Text="Downloads" />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="settings" Click="OnNavigate" AutomationProperties.Name="Settings">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE713;" />
+                                    <TextBlock Text="Settings" />
                                 </StackPanel>
                             </Button>
 
@@ -505,7 +656,7 @@
                                         VerticalAlignment="Bottom" Content="&#xE710;" ToolTipService.ToolTip="New playlist"
                                         Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnNewPlaylist" />
                             </Grid>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_liked_playlists" Click="OnNavigate">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_liked_playlists" Click="OnNavigate" AutomationProperties.Name="All Playlists">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xF0E2;" />
                                     <TextBlock Text="All Playlists" />
@@ -515,7 +666,9 @@
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:PlaylistSummaryViewModel">
                                         <Button Style="{StaticResource SidebarItemStyle}" Padding="8,5"
-                                                Tag="{x:Bind ActivationTag}" Click="OnSidebarPlaylist">
+                                                Tag="{x:Bind ActivationTag}" Click="OnSidebarPlaylist"
+                                                AutomationProperties.Name="{x:Bind Title}"
+                                                ToolTipService.ToolTip="{x:Bind Title}">
                                             <StackPanel Orientation="Horizontal" Spacing="10">
                                                 <Border Width="24" Height="24" CornerRadius="4"
                                                         Background="{ThemeResource GoosicRaisedStrongBrush}">
@@ -536,21 +689,26 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Button x:Name="AccountButton" Style="{StaticResource SidebarItemStyle}" Click="OnAccount">
+                        <Button x:Name="AccountButton" Style="{StaticResource SidebarItemStyle}" Click="OnAccount"
+                                AutomationProperties.Name="{x:Bind Model.AccountName, Mode=OneWay}"
+                                ToolTipService.ToolTip="{x:Bind Model.AccountName, Mode=OneWay}">
                             <Grid ColumnSpacing="10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Border Width="36" Height="36" CornerRadius="18" Background="{StaticResource GoosicAccentBrush}">
-                                    <TextBlock Text="{x:Bind Model.AccountInitials, Mode=OneWay}" Foreground="White"
-                                               FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <Grid>
+                                        <TextBlock Text="{x:Bind Model.AccountInitials, Mode=OneWay}" Foreground="White"
+                                                   FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <Image Source="{x:Bind Model.AccountArtwork, Mode=OneWay}" Stretch="UniformToFill" />
+                                    </Grid>
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}" FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{x:Bind Model.ConnectionLabel, Mode=OneWay}" FontSize="12"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                               TextTrimming="CharacterEllipsis" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                                 </StackPanel>
                             </Grid>
                             <Button.Flyout>
@@ -578,8 +736,11 @@
                                                             </Grid.ColumnDefinitions>
                                                             <Border Width="26" Height="26" CornerRadius="13"
                                                                     Background="{ThemeResource GoosicRaisedStrongBrush}">
-                                                                <TextBlock Text="{x:Bind Initial}" FontSize="11"
-                                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                                <Grid>
+                                                                    <TextBlock Text="{x:Bind Initial}" FontSize="11"
+                                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                                    <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
+                                                                </Grid>
                                                             </Border>
                                                             <StackPanel Grid.Column="1" Spacing="1">
                                                                 <TextBlock Text="{x:Bind DisplayName}" TextTrimming="CharacterEllipsis" />
@@ -619,22 +780,30 @@
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
-                        <Button Grid.Column="1" Style="{StaticResource SidebarGlyphStyle}" Tag="settings"
-                                Content="&#xE713;" ToolTipService.ToolTip="Settings" Click="OnNavigate" />
                     </Grid>
                 </Grid>
             </Border>
 
             <!-- Lyrics and Playing Next share this edge, as they do on macOS: one at a time. -->
             <Border x:Name="SidePanel" HorizontalAlignment="Right" Width="360" Visibility="Collapsed"
-                    Margin="8,48,8,8" CornerRadius="14"
+                    Margin="8,48,8,94" CornerRadius="14"
                     Background="{ThemeResource GoosicSidebarAcrylicBrush}"
                     BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}">
                 <Grid Margin="18">
-                    <TextBlock x:Name="SidePanelMessage" VerticalAlignment="Center"
-                               HorizontalAlignment="Center" TextAlignment="Center"
-                               Foreground="{ThemeResource GoosicSecondaryTextBrush}"
-                               Text="Nothing playing." TextWrapping="Wrap" />
+                    <Button x:Name="CloseSidePanelButton" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Style="{StaticResource TransportGlyphStyle}" Content="&#xE711;" Canvas.ZIndex="2"
+                            ToolTipService.ToolTip="Close inspector" AutomationProperties.Name="Close inspector"
+                            Click="OnCloseSidePanel" />
+                    <StackPanel x:Name="LyricsEmptyState" VerticalAlignment="Center"
+                                HorizontalAlignment="Center" Spacing="14" MaxWidth="260">
+                        <TextBlock x:Name="SidePanelMessage" TextAlignment="Center"
+                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                   Text="Nothing playing." TextWrapping="Wrap" />
+                        <Button Content="Try again" HorizontalAlignment="Center"
+                                Visibility="{x:Bind Model.CanRetryLyrics, Mode=OneWay}"
+                                AutomationProperties.Name="Try loading lyrics again"
+                                Click="OnRetryLyrics" />
+                    </StackPanel>
                     <Grid x:Name="QueuePanel" Visibility="Collapsed" RowSpacing="10">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -646,7 +815,7 @@
                                 <TextBlock Text="{x:Bind Model.QueueSummary, Mode=OneWay}" FontSize="12"
                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                             </StackPanel>
-                            <Button HorizontalAlignment="Right" VerticalAlignment="Center" Content="Clear"
+                            <Button HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,48,0" Content="Clear"
                                     Visibility="{x:Bind Model.HasQueue, Mode=OneWay}" Click="OnClearQueue" />
                         </Grid>
                         <!-- Drag a row to reorder what plays next; click one to play it. -->
@@ -666,6 +835,7 @@
                                             <ColumnDefinition Width="40" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <Border Width="40" Height="40" CornerRadius="4"
                                                 Background="{ThemeResource GoosicRaisedBrush}">
@@ -683,7 +853,9 @@
                                                        Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
-                                        <Button Grid.Column="2" Style="{StaticResource TransportGlyphStyle}"
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Duration}" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" FontSize="12" />
+                                        <Button Grid.Column="3" Style="{StaticResource TransportGlyphStyle}"
                                                 Content="&#xE711;" ToolTipService.ToolTip="Remove from queue"
                                                 AutomationProperties.Name="Remove from queue"
                                                 Click="OnRemoveFromQueue" />
@@ -692,7 +864,7 @@
                             </ListView.ItemTemplate>
                         </ListView>
                     </Grid>
-                    <ScrollViewer x:Name="LyricsScroller" VerticalScrollBarVisibility="Hidden">
+                    <ScrollViewer x:Name="LyricsScroller" Margin="0,44,0,0" VerticalScrollBarVisibility="Hidden">
                         <ItemsControl x:Name="LyricsItems" Visibility="Collapsed"
                                       ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
                             <ItemsControl.ItemTemplate>
@@ -714,12 +886,14 @@
         -->
         <Border x:Name="TitleBarStrip" Height="46" VerticalAlignment="Top" Margin="60,0,0,0"
                 Background="Transparent" />
-        <Button x:Name="SidebarToggle" Style="{StaticResource SidebarToggleStyle}" Content="&#xE89F;"
+        <Button x:Name="SidebarToggle" Style="{StaticResource SidebarToggleStyle}" Content="&#xE700;"
                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,7,0,0"
-                ToolTipService.ToolTip="Show or hide the sidebar (Ctrl+B)" Click="OnToggleSidebar" />
+                ToolTipService.ToolTip="Show or hide the sidebar (Ctrl+B)"
+                AutomationProperties.Name="Show or hide sidebar" Click="OnToggleSidebar" />
         <Button x:Name="BackButton" Style="{StaticResource SidebarToggleStyle}" Content="&#xE72B;"
                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="56,7,0,0"
-                Visibility="Collapsed" ToolTipService.ToolTip="Back (Alt+←)" Click="OnBack" />
+                Visibility="Collapsed" ToolTipService.ToolTip="Back (Alt+←)"
+                AutomationProperties.Name="Back" Click="OnBack" />
 
         <!--
             The official player.

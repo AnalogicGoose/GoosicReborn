@@ -123,6 +123,7 @@ public sealed partial class ShellViewModel
         _current = entry;
         entry.IsCurrent = true;
         _pendingTrack = entry;
+        OnPropertyChanged(nameof(HasPlayback));
         _advancedAfterEndVideoId = null;
         QueueChanged();
         return entry;
@@ -260,6 +261,11 @@ public sealed partial class ShellViewModel
 
     internal void ToggleShuffle()
     {
+        if (!HasPlayback)
+        {
+            return;
+        }
+
         if (IsShuffled)
         {
             // Put the upcoming entries back in the order they were queued.
@@ -309,6 +315,11 @@ public sealed partial class ShellViewModel
 
     internal void CycleRepeat()
     {
+        if (!HasPlayback)
+        {
+            return;
+        }
+
         Repeat = Repeat switch
         {
             RepeatMode.Off => RepeatMode.All,

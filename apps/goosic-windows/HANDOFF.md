@@ -26,7 +26,14 @@ is a separate toggle / F11 inside it) over a moving mesh of the cover's colours.
 
 | File | Owns |
 | --- | --- |
-| `MainWindow.xaml(.cs)` | All views, navigation, menus, keyboard, pill, full-screen player, insets |
+| `MainWindow.xaml` | All views |
+| `MainWindow.xaml.cs` | Construction, service wiring, shell-support check |
+| `MainWindow.Navigation.cs` / `.Layout.cs` | Routes, back, search; breakpoints, insets, carousels, minimum size |
+| `MainWindow.Player.cs` / `.FullPlayer.cs` | Pill, transport, seeking, volume; full-screen player |
+| `MainWindow.SidePanel.cs` | Queue and lyrics panel |
+| `MainWindow.Menus.cs` / `.Dialogs.cs` / `.Account.cs` | Context menus; confirm and prompt dialogs; account and playlist actions |
+| `MainWindow.Keyboard.cs` / `.SystemMedia.cs` | Accelerators; SMTC wiring |
+| `Presentation/` | UI-free rules the partials apply: breakpoints and insets, which side panel is open and where focus returns, key bindings and seek/volume arithmetic |
 | `ViewModels/ShellViewModel.cs` | Pages (route / search / entity), history, now-playing state, lyrics |
 | `ViewModels/ShellViewModel.Queue.cs` | Queue, shuffle, repeat, radio, entity play, continuations, links |
 | `ViewModels/ShellViewModel.Account.cs` | Accounts, personal pages, likes, playlists edits |
@@ -111,6 +118,15 @@ dotnet build -c Debug
 $env:GOOSIC_SERVICE_PATH="C:\DEV\GoosicReborn\target\debug\goosic-service.exe"
 .\bin\Debug\net9.0-windows10.0.26100.0\win-x64\Goosic.Windows.exe
 ```
+
+Presentation tests compile `Presentation/*.cs` directly and need no display:
+
+```pwsh
+dotnet test apps\goosic-windows\Goosic.Windows.Tests
+```
+
+A rule that decides something belongs in `Presentation/`, where a test can reach it; the
+`MainWindow.*.cs` partials only apply its answer to controls.
 
 If the app is running, the exe is locked: build with `-p:OutDir=<another folder>\` or close it.
 Logs: `%LOCALAPPDATA%\Goosic\logs\bridge.log` (host and path only, never credentials).

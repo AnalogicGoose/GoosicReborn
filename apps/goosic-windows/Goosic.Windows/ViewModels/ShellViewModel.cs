@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 using Microsoft.UI.Xaml.Media.Imaging;
 
@@ -197,6 +198,9 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     public string Title { get; }
     public string Subtitle { get; }
     public string Duration { get; }
+    public string AccessibleName => string.IsNullOrWhiteSpace(Duration)
+        ? $"{Title}, {Subtitle}"
+        : $"{Title}, {Subtitle}, {Duration}";
     public bool Explicit { get; }
     internal string? VideoId { get; }
     internal string? Thumbnail { get; }
@@ -291,6 +295,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private readonly ArtworkLoader _artwork = new();
     private string _pageTitle = "Home";
     private string _pageSubtitle = "Live from YouTube Music, browsed as a guest";
+    private BitmapImage? _pageArtwork;
+    private int _pageArtworkVersion;
     private string _status = "";
     private string _accountInitials = "G";
     /// <summary>Separates the parts of a page key; it appears in no title, id or query.</summary>
@@ -306,6 +312,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     private string _currentRoute = "route" + KeySeparator + "home";
     private readonly Stack<string> _routeHistory = new();
+    private int _pageRequestVersion;
 
     internal ShellViewModel(GoosicServiceClient client)
     {
@@ -333,6 +340,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private TrackViewModel? _confirmedTrack;
     private string? _advancedAfterEndVideoId;
     private string _lyricsStatus = "Nothing playing.";
+    private PageState _pageState = PageState.Content;
     private double _playbackPosition;
     private double _playbackDuration;
     private double _volume = 1;
@@ -343,6 +351,18 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     public string PageTitle { get => _pageTitle; private set => Set(ref _pageTitle, value); }
     public string PageSubtitle { get => _pageSubtitle; private set => Set(ref _pageSubtitle, value); }
+    public BitmapImage? PageArtwork
+    {
+        get => _pageArtwork;
+        private set
+        {
+            if (Set(ref _pageArtwork, value))
+            {
+                OnPropertyChanged(nameof(HasPageArtwork));
+            }
+        }
+    }
+    public bool HasPageArtwork => PageArtwork is not null;
     public string AccountInitials { get => _accountInitials; private set => Set(ref _accountInitials, value); }
 
     public string Status
@@ -366,7 +386,19 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     public string NowPlayingTitle { get => _nowPlayingTitle; private set => Set(ref _nowPlayingTitle, value); }
     public string NowPlayingSubtitle { get => _nowPlayingSubtitle; private set => Set(ref _nowPlayingSubtitle, value); }
     public BitmapImage? NowPlayingArtwork { get => _nowPlayingArtwork; private set => Set(ref _nowPlayingArtwork, value); }
-    public string LyricsStatus { get => _lyricsStatus; private set => Set(ref _lyricsStatus, value); }
+    public string LyricsStatus
+    {
+        get => _lyricsStatus;
+        private set
+        {
+            if (Set(ref _lyricsStatus, value))
+            {
+                OnPropertyChanged(nameof(CanRetryLyrics));
+            }
+        }
+    }
+    public bool CanRetryLyrics => _confirmedTrack is not null && Lyrics.Count == 0 &&
+        LyricsStatus.StartsWith("Lyrics are temporarily unavailable", StringComparison.Ordinal);
     public string AccountStatus { get => _accountStatus; private set => Set(ref _accountStatus, value); }
     public double PlaybackPosition { get => _playbackPosition; private set => Set(ref _playbackPosition, value); }
     public double PlaybackDuration { get => _playbackDuration; private set => Set(ref _playbackDuration, value); }
@@ -641,7 +673,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
         catch (Exception error)
         {
-            LyricsStatus = "Could not load lyrics: " + Describe(error);
+            BridgeLog.Write($"lyrics error {error.GetType().Name}: {error.Message}");
+            LyricsStatus = "Lyrics are temporarily unavailable. Try again.";
         }
     }
 
@@ -663,7 +696,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
         catch (Exception error)
         {
-            Status = Describe(error);
+            PageState = FailureState(error, "Goosic");
             return;
         }
 
@@ -674,6 +707,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// <summary>Loads one browse surface.</summary>
     internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true)
     {
+        var requestVersion = ++_pageRequestVersion;
+        ClearPageArtwork();
         if (route == "settings")
         {
             ShowSettingsPage();
@@ -690,7 +725,32 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             PageTitle = "Downloads";
             PageSubtitle = "Tracks saved by a previous Goosic";
             ShowPageHeader = true;
-            Status = "Playing downloaded files is not available in the Windows shell yet.";
+            Status = "";
+            PageState = PageState.Loading;
+            int? count;
+            try
+            {
+                var listed = await _client.RequestAsync("downloads.list").ConfigureAwait(true);
+                count = listed?["downloads"] is JsonArray downloads ? downloads.Count : 0;
+            }
+            catch (ServiceUnavailableException error)
+            {
+                if (requestVersion == _pageRequestVersion)
+                {
+                    PageState = FailureState(error, PageTitle);
+                }
+                return;
+            }
+            catch (Exception error)
+            {
+                Describe(error);
+                count = null;
+            }
+
+            if (requestVersion == _pageRequestVersion)
+            {
+                PageState = PageState.Downloads(count);
+            }
             return;
         }
 
@@ -703,7 +763,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Tracks.Clear();
         NextCursor = null;
         ForgetPersonalPage();
-        Status = $"Loading {PageTitle.ToLowerInvariant()}…";
+        Status = "";
+        PageState = PageState.Loading;
         if (await TryLoadPersonalRouteAsync(route).ConfigureAwait(true))
         {
             return;
@@ -719,10 +780,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 ["query"] = PageTitle,
             };
             var answer = await _client.RequestAsync("catalog.browse", payload).ConfigureAwait(true);
+            if (requestVersion != _pageRequestVersion)
+            {
+                return;
+            }
             var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
             if (page is null)
             {
-                Status = "The service answered without a page.";
+                PageState = PageState.Failure(PageFailure.Other, null, PageTitle, NetworkAvailable());
                 return;
             }
 
@@ -754,10 +819,17 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             Status = page.Truncated
                 ? "This page was long, so only the first part is shown."
                 : "";
+            PageState = Tracks.Count == 0 && Shelves.Count == 0
+                ? PageState.Empty(PageSubject.Browse, PageTitle)
+                : PageState.Content;
+        }
+        catch (Exception error) when (requestVersion == _pageRequestVersion)
+        {
+            PageState = FailureState(error, PageTitle);
         }
         catch (Exception error)
         {
-            Status = Describe(error);
+            Describe(error);
         }
     }
 
@@ -805,6 +877,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     internal async Task OpenEntityAsync(string kind, string id, string title, bool remember = true)
     {
+        var requestVersion = ++_pageRequestVersion;
+        var artworkVersion = ClearPageArtwork();
         var command = kind switch
         {
             "album" => "catalog.album",
@@ -814,7 +888,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         };
         if (command is null || id.Length == 0)
         {
-            Status = "That item cannot be opened.";
+            ReportStatus("That item cannot be opened.");
             return;
         }
 
@@ -826,7 +900,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Tracks.Clear();
         NextCursor = null;
         ForgetPersonalPage();
-        Status = $"Loading {title}…";
+        Status = "";
+        PageState = PageState.Loading;
         if (await TryOpenPersonalEntityAsync(kind, id, title).ConfigureAwait(true))
         {
             return;
@@ -836,10 +911,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         {
             var answer = await _client.RequestAsync(command, new JsonObject { ["catalogId"] = id })
                 .ConfigureAwait(true);
+            if (requestVersion != _pageRequestVersion)
+            {
+                return;
+            }
             var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
             if (page is null)
             {
-                Status = "The service answered without a page.";
+                PageState = PageState.Failure(PageFailure.Other, null, title, NetworkAvailable());
                 return;
             }
 
@@ -859,6 +938,10 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
                 _ = row.LoadArtworkAsync(_artwork);
+                if (PageArtwork is null)
+                {
+                    _ = SetPageArtworkAsync(row, artworkVersion);
+                }
             }
 
             foreach (var shelf in page.Shelves)
@@ -871,13 +954,18 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 }
             }
 
-            Status = Tracks.Count == 0 && Shelves.Count == 0
-                ? "This page came back empty."
-                : page.Truncated ? "This page was long, so only the first part is shown." : "";
+            Status = page.Truncated ? "This page was long, so only the first part is shown." : "";
+            PageState = Tracks.Count == 0 && Shelves.Count == 0
+                ? PageState.Empty(PageSubject.Entity, PageTitle)
+                : PageState.Content;
+        }
+        catch (Exception error) when (requestVersion == _pageRequestVersion)
+        {
+            PageState = FailureState(error, title);
         }
         catch (Exception error)
         {
-            Status = Describe(error);
+            Describe(error);
         }
     }
 
@@ -891,6 +979,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
+        var requestVersion = ++_pageRequestVersion;
+        ClearPageArtwork();
+
         Remember(string.Join(KeySeparator, "search", trimmed, filter), remember);
         ShowPageHeader = true;
         PageTitle = $"Results for “{trimmed}”";
@@ -900,16 +991,21 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         NextCursor = null;
         ForgetPersonalPage();
         MarkSearchPage(trimmed);
-        Status = "Searching…";
+        Status = "";
+        PageState = PageState.Loading;
 
         try
         {
             var payload = new JsonObject { ["query"] = trimmed, ["filter"] = filter };
             var answer = await _client.RequestAsync("catalog.search", payload).ConfigureAwait(true);
+            if (requestVersion != _pageRequestVersion)
+            {
+                return;
+            }
             var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
             if (page is null)
             {
-                Status = "The service answered without a page.";
+                PageState = PageState.Failure(PageFailure.Other, null, "Search", NetworkAvailable());
                 return;
             }
 
@@ -931,23 +1027,105 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 }
             }
 
-            Status = Tracks.Count == 0 && Shelves.Count == 0
-                ? $"Nothing matched “{trimmed}”."
-                : page.Truncated ? "This page was long, so only the first part is shown." : "";
+            Status = page.Truncated ? "This page was long, so only the first part is shown." : "";
+            PageState = Tracks.Count == 0 && Shelves.Count == 0
+                ? PageState.Empty(PageSubject.Search, trimmed)
+                : PageState.Content;
+        }
+        catch (Exception error) when (requestVersion == _pageRequestVersion)
+        {
+            PageState = FailureState(error, "Search");
         }
         catch (Exception error)
         {
-            Status = Describe(error);
+            Describe(error);
         }
     }
 
     /// <summary>Turns a transport or refusal into something worth reading on screen.</summary>
-    private static string Describe(Exception error) => error switch
+    private static string Describe(Exception error)
     {
-        ServiceRefusedException refused => refused.Message,
-        ServiceUnavailableException unavailable => unavailable.Message,
-        _ => error.Message,
-    };
+        BridgeLog.Write($"ui error {error.GetType().Name}: {error.Message}");
+        return error switch
+        {
+            ServiceUnavailableException => "Goosic’s playback service is unavailable. Reopen the app and try again.",
+            TimeoutException => "That took too long. Check your connection and try again.",
+            ServiceRefusedException => "That action is temporarily unavailable. Try again.",
+            _ => "Something went wrong. Try again.",
+        };
+    }
+
+    /// <summary>The page's state screen for a failed request.</summary>
+    private static PageState FailureState(Exception error, string subject)
+    {
+        Describe(error);
+        var (failure, code) = error switch
+        {
+            ServiceUnavailableException => (PageFailure.ServiceUnavailable, (string?)null),
+            TimeoutException or TaskCanceledException => (PageFailure.Timeout, null),
+            ServiceRefusedException refused => (PageFailure.Refused, refused.Code),
+            _ => (PageFailure.Other, null),
+        };
+        return PageState.Failure(failure, code, subject, NetworkAvailable());
+    }
+
+    private static bool NetworkAvailable() =>
+        System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable();
+
+    /// <summary>What the page area shows instead of, or while waiting for, its content.</summary>
+    public PageState PageState
+    {
+        get => _pageState;
+        private set
+        {
+            if (Set(ref _pageState, value))
+            {
+                OnPropertyChanged(nameof(IsPageLoading));
+                OnPropertyChanged(nameof(ShowsPageStatePanel));
+            }
+        }
+    }
+
+    public bool IsPageLoading => _pageState.Kind == PageStateKind.Loading;
+
+    public bool ShowsPageStatePanel => _pageState.ShowsPanel;
+
+    /// <summary>Loads the page on screen again, without adding it to history.</summary>
+    internal async Task RetryPageAsync()
+    {
+        var parts = _currentRoute.Split(KeySeparator);
+        switch (parts[0])
+        {
+            case "search" when parts.Length == 3:
+                await SearchAsync(parts[1], parts[2], remember: false).ConfigureAwait(true);
+                break;
+            case "entity" when parts.Length == 4:
+                await OpenEntityAsync(parts[1], parts[2], parts[3], remember: false).ConfigureAwait(true);
+                break;
+            default:
+                await LoadRouteAsync(parts.Length > 1 ? parts[1] : "home", rememberCurrentRoute: false)
+                    .ConfigureAwait(true);
+                break;
+        }
+    }
+
+    private int ClearPageArtwork()
+    {
+        PageArtwork = null;
+        return ++_pageArtworkVersion;
+    }
+
+    private async Task SetPageArtworkAsync(TrackViewModel row, int version)
+    {
+        await row.LoadArtworkAsync(_artwork).ConfigureAwait(true);
+        if (version == _pageArtworkVersion && PageArtwork is null)
+        {
+            PageArtwork = row.Artwork;
+        }
+    }
+
+    /// <summary>Whether transport controls have a selected or confirmed track to act on.</summary>
+    public bool HasPlayback => _pendingTrack is not null;
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
