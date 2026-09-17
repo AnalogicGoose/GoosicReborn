@@ -72,10 +72,10 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Liked songs, History | Yes | ✅; remove from history ❌ |
 | Play, pause, seek, next, previous | Yes | ✅; previous restarts after 3 s |
 | Shuffle, repeat off/all/one | Yes | ✅ persisted in settings |
-| Autoplay at queue end | Yes | ✅ radio from last track; page's own auto-advance intercepted |
+| Autoplay at queue end | Yes | ✅ appends recommendations after the queue (never replaces it), skipping queued and recently played songs; page's own auto-advance intercepted |
 | Queue: view, play next, add, remove, clear | Yes | ✅ Now playing / Up next split; Clear is immediate with Undo |
 | Queue reorder by drag | Yes | ✅ drag handle, or Alt+↑/↓ on a row (drag not hand-tested) |
-| Start radio | Yes | ✅ `catalog.radio`, extends itself |
+| Start radio | Yes | ✅ signed in: the account's own Up Next via `PersonalCatalog.js` `radio()`; guest: `catalog.radio`. A song card or search result starts a station; only albums, playlists and liked songs play in order (`Presentation/PlaybackOrder`) |
 | Like / dislike | Shows current state | 🟡 works, but only ratings set this session show — current like state is never read |
 | Save to playlist, new playlist | Yes | ✅ |
 | Go to artist / album, share link | Yes | ✅ copy link |

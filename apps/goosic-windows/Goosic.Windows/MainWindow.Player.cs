@@ -205,22 +205,21 @@ public sealed partial class MainWindow : Window
 
     private async Task AdvanceAsync(bool forward, bool natural)
     {
-        if (forward && Model.CanExtendRadio && Model.Repeat != RepeatMode.One)
+        var move = await Model.MoveAsync(forward, natural);
+        if (move.Entry is null)
         {
-            await Model.ExtendRadioAsync();
+            return;
         }
 
-        var entry = Model.Advance(forward, natural);
-        if (entry is null && natural)
+        // Previous on the first song starts it again. A natural end under repeat-one has to load
+        // the song afresh, because the page has already finished it.
+        if (move.Restart && !natural && _playback is not null)
         {
-            entry = await Model.AutoplayAfterAsync();
-            if (entry is null)
-            {
-                Model.ReportStatus("The queue has finished.");
-            }
+            await _playback.SeekAsync(0);
+            return;
         }
 
-        await PlayEntryAsync(entry);
+        await PlayEntryAsync(move.Entry);
     }
 
     private async void OnPlayPause(object sender, RoutedEventArgs e) => await TogglePauseAsync();

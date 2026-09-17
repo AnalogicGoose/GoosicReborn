@@ -111,7 +111,7 @@ public sealed partial class MainWindow : Window
     {
         if (Model.PageArtistId is { } id)
         {
-            await Model.FollowArtistAsync(id, Model.PageTitle, follow: true);
+            await Model.FollowArtistAsync(id, Model.PageTitle, follow: !Model.IsPageArtistSubscribed);
         }
     }
 

@@ -436,7 +436,11 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private string _accountStatus = "Checking account…";
     private TrackViewModel? _pendingTrack;
     private TrackViewModel? _confirmedTrack;
-    private string? _advancedAfterEndVideoId;
+    /// <summary>The current play has been heard playing, so an "ended" for it is real.</summary>
+    private bool _endArmed;
+
+    /// <summary>The current play's end has been acted on already.</summary>
+    private bool _endHandled;
     private LyricsState _lyricsState = LyricsState.NothingPlaying;
     private int _lyricsRequestVersion;
     private PageState _pageState = PageState.Content;
@@ -690,6 +694,11 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         {
             var changed = !ReferenceEquals(_confirmedTrack, pending);
             _confirmedTrack = pending;
+            if (sample.State == "playing" && !_endHandled)
+            {
+                _endArmed = true;
+            }
+
             if (changed)
             {
                 Lyrics.Clear();
@@ -731,24 +740,35 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// <returns>Whether this is the first end recorded for it, so the queue advances once.</returns>
     internal bool ConfirmEndedByPage(string videoId)
     {
-        if (_pendingTrack?.VideoId != videoId || _advancedAfterEndVideoId == videoId)
+        if (_pendingTrack?.VideoId != videoId || _endHandled)
         {
             return false;
         }
 
-        _advancedAfterEndVideoId = videoId;
+        _endHandled = true;
+        _endArmed = false;
         IsPlaying = false;
         return true;
     }
 
+    /// <summary>
+    /// Whether this sample is the current play's natural end, reported for the first time.
+    /// </summary>
+    /// <remarks>
+    /// Only an end for the track being played counts, and only once it has been heard playing:
+    /// the page keeps reporting "ended" for the previous song for a moment after the next is
+    /// chosen, and acting on that skipped the next song entirely.
+    /// </remarks>
     private bool MarkNaturalEnd(BridgeEvent sample)
     {
-        if (sample.IsAdvertisement || sample.State != "ended" || _advancedAfterEndVideoId == sample.VideoId)
+        if (sample.IsAdvertisement || sample.State != "ended" || _endHandled
+            || !PlaybackOrder.AcceptsEnd(sample.VideoId, _pendingTrack?.VideoId, _endArmed))
         {
             return false;
         }
 
-        _advancedAfterEndVideoId = sample.VideoId;
+        _endHandled = true;
+        _endArmed = false;
         return true;
     }
 

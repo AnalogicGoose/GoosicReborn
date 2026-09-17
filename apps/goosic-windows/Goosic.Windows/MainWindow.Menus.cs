@@ -117,7 +117,7 @@ public sealed partial class MainWindow : Window
         {
             case TrackViewModel track when Model.IsQueueEntry(track):
                 Add(menu, "Play", "", async () => await PlayEntryAsync(Model.JumpTo(track)));
-                Add(menu, "Start radio", "", async () => await PlayEntryAsync(await Model.StartRadioAsync(track)));
+                Add(menu, "Start radio", "", async () => await PlayEntryAsync(Model.StartStation(track)));
                 menu.Items.Add(new MenuFlyoutSeparator());
                 AddNavigation(menu, track.ArtistId, track.AlbumId, track.Subtitle, track.Title);
                 Add(menu, "Copy link", "", () => CopyLink(ShellViewModel.LinkFor(track)));
@@ -127,7 +127,7 @@ public sealed partial class MainWindow : Window
 
             case TrackViewModel track when !string.IsNullOrEmpty(track.VideoId):
                 Add(menu, "Play", "\uE768", async () => await PlayEntryAsync(Model.PlayFromPage(track)));
-                Add(menu, "Start radio", "\uEC05", async () => await PlayEntryAsync(await Model.StartRadioAsync(track)));
+                Add(menu, "Start radio", "\uEC05", async () => await PlayEntryAsync(Model.StartStation(track)));
                 menu.Items.Add(new MenuFlyoutSeparator());
                 Add(menu, "Play next", "\uE7AC", () => Model.Enqueue(track, next: true));
                 Add(menu, "Add to queue", "\uE710", () => Model.Enqueue(track, next: false));
@@ -144,7 +144,7 @@ public sealed partial class MainWindow : Window
 
             case CardViewModel card when !string.IsNullOrEmpty(card.VideoId):
                 Add(menu, "Play", "", async () => await PlayEntryAsync(Model.PlayFromShelf(card)));
-                Add(menu, "Start radio", "", async () => await PlayEntryAsync(await Model.StartRadioAsync(card)));
+                Add(menu, "Start radio", "", async () => await PlayEntryAsync(Model.StartStation(card)));
                 menu.Items.Add(new MenuFlyoutSeparator());
                 Add(menu, "Play next", "\uE7AC", () => Model.Enqueue(card, next: true));
                 Add(menu, "Add to queue", "\uE710", () => Model.Enqueue(card, next: false));

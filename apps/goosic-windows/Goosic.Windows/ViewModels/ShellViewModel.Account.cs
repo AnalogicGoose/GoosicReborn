@@ -216,6 +216,9 @@ public sealed partial class ShellViewModel
         OnPropertyChanged(nameof(CanSavePagePlaylist));
         OnPropertyChanged(nameof(CanFollowPageArtist));
         OnPropertyChanged(nameof(HasPageActions));
+        OnPropertyChanged(nameof(IsPageArtistSubscribed));
+        OnPropertyChanged(nameof(SubscribeLabel));
+        OnPropertyChanged(nameof(SubscribeGlyph));
     }
 
     private void ForgetPersonalPage()
@@ -825,10 +828,57 @@ public sealed partial class ShellViewModel
             ["saved"] = saved,
         }, saved ? $"Saved “{title}” to your library." : $"Removed “{title}” from your library.");
 
-    /// <summary>Subscribes to an artist's channel, or unsubscribes.</summary>
-    internal Task FollowArtistAsync(string channelId, string name, bool follow) =>
-        ChangeAsync("setSubscription", new JsonObject { ["channelId"] = channelId, ["subscribed"] = follow },
-            follow ? $"Subscribed to {name}." : $"Unsubscribed from {name}.");
+    /// <summary>Channels this session subscribed to or left, by channel id.</summary>
+    private readonly Dictionary<string, bool> _subscriptions = [];
+    private bool _subscriptionBusy;
+
+    public bool IsPageArtistSubscribed =>
+        _pageArtistId is { } id && _subscriptions.GetValueOrDefault(id);
+
+    public bool IsSubscriptionIdle => !_subscriptionBusy;
+
+    public string SubscribeLabel => IsPageArtistSubscribed ? "Subscribed" : "Subscribe";
+
+    /// <summary>Segoe Fluent Icons: a check once subscribed, a plus-person before.</summary>
+    public string SubscribeGlyph => IsPageArtistSubscribed ? "" : "";
+
+    /// <summary>Subscribes to an artist's channel, or unsubscribes, and shows the result on the button.</summary>
+    internal async Task FollowArtistAsync(string channelId, string name, bool follow)
+    {
+        if (_subscriptionBusy)
+        {
+            return;
+        }
+
+        SetSubscriptionBusy(true);
+        try
+        {
+            var answer = await ChangeAsync("setSubscription",
+                new JsonObject { ["channelId"] = channelId, ["subscribed"] = follow },
+                follow ? $"Subscribed to {name}." : $"Unsubscribed from {name}.").ConfigureAwait(true);
+            if (answer is not null)
+            {
+                _subscriptions[channelId] = follow;
+            }
+            else
+            {
+                BridgeLog.Write($"subscription change for a channel did not complete (follow={follow})");
+            }
+        }
+        finally
+        {
+            SetSubscriptionBusy(false);
+        }
+    }
+
+    private void SetSubscriptionBusy(bool busy)
+    {
+        _subscriptionBusy = busy;
+        OnPropertyChanged(nameof(IsSubscriptionIdle));
+        OnPropertyChanged(nameof(IsPageArtistSubscribed));
+        OnPropertyChanged(nameof(SubscribeLabel));
+        OnPropertyChanged(nameof(SubscribeGlyph));
+    }
 
     internal bool OwnsPlaylist(string playlistId)
     {

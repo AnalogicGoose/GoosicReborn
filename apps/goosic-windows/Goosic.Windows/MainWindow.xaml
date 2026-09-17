@@ -111,10 +111,14 @@
                                         <TextBlock Text="Save to library" />
                                     </StackPanel>
                                 </Button>
-                                <Button Visibility="{x:Bind Model.CanFollowPageArtist, Mode=OneWay}" Click="OnFollowPageArtist" AutomationProperties.Name="Subscribe">
+                                <!-- Shows the state this session knows of; the catalog does not say whether the
+                                     account already follows the artist, so it starts as Subscribe. -->
+                                <Button Visibility="{x:Bind Model.CanFollowPageArtist, Mode=OneWay}" Click="OnFollowPageArtist"
+                                        IsEnabled="{x:Bind Model.IsSubscriptionIdle, Mode=OneWay}"
+                                        AutomationProperties.Name="{x:Bind Model.SubscribeLabel, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="&#xE8FA;" FontSize="14" />
-                                        <TextBlock Text="Subscribe" />
+                                        <FontIcon Glyph="{x:Bind Model.SubscribeGlyph, Mode=OneWay}" FontSize="14" />
+                                        <TextBlock Text="{x:Bind Model.SubscribeLabel, Mode=OneWay}" />
                                     </StackPanel>
                                 </Button>
                                 <Button Visibility="{x:Bind Model.IsOwnedPlaylistPage, Mode=OneWay}"
