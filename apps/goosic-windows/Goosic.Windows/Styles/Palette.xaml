@@ -34,6 +34,23 @@
             <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="#000000" Opacity="0.10" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="#000000" Opacity="0.08" />
         </ResourceDictionary>
+        <!--
+            Contrast themes: every surface takes the user's system colours, and translucent fills
+            and acrylic give way to solid ones, which is what those themes promise to deliver.
+        -->
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicRailBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicChromeBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicRaisedBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicRaisedStrongBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicSecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="GoosicHairlineBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="GoosicSidebarAcrylicBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicPillAcrylicBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+        </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
     <!--

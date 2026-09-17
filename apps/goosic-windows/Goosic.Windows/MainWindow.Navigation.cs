@@ -58,6 +58,15 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>Every new page starts at its top, whichever path loaded it.</summary>
+    private void OnPageLoadingChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(ShellViewModel.IsPageLoading) && Model.IsPageLoading)
+        {
+            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        }
+    }
+
     private void UpdateBackButton() =>
         BackButton.Visibility = Model.CanGoBack ? Visibility.Visible : Visibility.Collapsed;
 

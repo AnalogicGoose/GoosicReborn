@@ -263,7 +263,18 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     public string Subtitle { get; }
     public string Duration { get; }
     public string AccessibleName => (_isNowPlaying ? "Now playing, " : "")
-        + (string.IsNullOrWhiteSpace(Duration) ? $"{Title}, {Subtitle}" : $"{Title}, {Subtitle}, {Duration}");
+        + (string.IsNullOrWhiteSpace(Duration) ? $"{Title}, {Subtitle}" : $"{Title}, {Subtitle}, {Duration}")
+        + (IsPlayable ? "" : ", unavailable");
+
+    /// <summary>
+    /// Whether the catalog gave this row something to play. A row without one stays listed, so an
+    /// album keeps its numbering, but is dimmed and skipped by Play and Shuffle.
+    /// </summary>
+    public bool IsPlayable => !string.IsNullOrEmpty(VideoId);
+
+    public double RowOpacity => IsPlayable ? 1 : 0.45;
+
+    public string? UnavailableTip => IsPlayable ? null : "This track isn’t available to play";
     public bool Explicit { get; }
     internal string? VideoId { get; }
     internal string? Thumbnail { get; }

@@ -35,7 +35,10 @@
                     padding, which cut the shelves off above the player pill. The page carries the
                     space instead, so it scrolls under the pill and the title bar and shows through.
                 -->
-                <ScrollViewer x:Name="ContentScroller" ViewChanged="OnContentViewChanged">
+                <!-- No scroll anchoring: a page replaces its skeleton wholesale, and anchoring would
+                     carry the old offset into the new content instead of starting at the top. -->
+                <ScrollViewer x:Name="ContentScroller" ViewChanged="OnContentViewChanged"
+                              VerticalAnchorRatio="NaN">
                     <StackPanel x:Name="ContentStack" Spacing="22" Padding="314,56,34,128">
                         <!-- No ColumnSpacing: it stays applied when the artwork collapses, and pushes the title
                              out of line with the shelves. The artwork carries the gap instead. -->
@@ -312,6 +315,8 @@
                                             AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
                                             Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
                                             PointerEntered="OnTrackRowPointerEntered" PointerExited="OnTrackRowPointerExited"
+                                            Opacity="{x:Bind RowOpacity}"
+                                            ToolTipService.ToolTip="{x:Bind UnavailableTip}"
                                             GotFocus="OnTrackRowFocusChanged" LostFocus="OnTrackRowFocusChanged">
                                         <Grid ColumnSpacing="11" MinHeight="40">
                                             <Grid.ColumnDefinitions>
