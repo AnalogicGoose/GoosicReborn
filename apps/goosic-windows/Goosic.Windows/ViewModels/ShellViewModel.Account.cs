@@ -129,6 +129,22 @@ public sealed partial class ShellViewModel
 {
     private AccountViewModel? _activeAccount;
     private bool _accountBusy;
+
+    /// <summary>A sign-in, sign-out or switch is under way; the account controls wait for it.</summary>
+    public bool IsAccountBusy
+    {
+        get => _accountBusy;
+        private set
+        {
+            if (Set(ref _accountBusy, value))
+            {
+                OnPropertyChanged(nameof(IsAccountIdle));
+                OnPropertyChanged(nameof(ConnectionLabel));
+            }
+        }
+    }
+
+    public bool IsAccountIdle => !_accountBusy;
     private (string BrowseId, string Title, string Shape)? _personalSource;
     private string? _pagePlaylistId;
     private string? _pageArtistId;
@@ -307,7 +323,7 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        _accountBusy = true;
+        IsAccountBusy = true;
         var window = new AccountLoginWindow();
         try
         {
@@ -371,7 +387,7 @@ public sealed partial class ShellViewModel
         finally
         {
             window.Close();
-            _accountBusy = false;
+            IsAccountBusy = false;
         }
     }
 
@@ -383,9 +399,14 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        _accountBusy = true;
+        IsAccountBusy = true;
+        var switchFailed = false;
         try
         {
+            // The page belongs to the account being left; show it loading rather than stale.
+            Shelves.Clear();
+            Tracks.Clear();
+            PageState = PageState.Loading;
             var generation = await QuiesceAsync().ConfigureAwait(true);
             var payload = new JsonObject { ["generation"] = generation };
             if (accountId is not null)
@@ -411,10 +432,17 @@ public sealed partial class ShellViewModel
         catch (Exception error)
         {
             ReportStatus("Could not switch account: " + Describe(error));
+            switchFailed = true;
         }
         finally
         {
-            _accountBusy = false;
+            IsAccountBusy = false;
+        }
+
+        // The page was cleared for the switch; put back what the unchanged account shows.
+        if (switchFailed)
+        {
+            await RetryPageAsync().ConfigureAwait(true);
         }
     }
 
@@ -428,7 +456,7 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        _accountBusy = true;
+        IsAccountBusy = true;
         try
         {
             if (Personal is not null)
@@ -460,7 +488,7 @@ public sealed partial class ShellViewModel
         }
         finally
         {
-            _accountBusy = false;
+            IsAccountBusy = false;
         }
     }
 

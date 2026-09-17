@@ -79,7 +79,7 @@ public sealed partial class ShellViewModel
     public bool ShowPageHeader { get => _showPageHeader; private set => Set(ref _showPageHeader, value); }
 
     /// <summary>What the sidebar's account row says under the name.</summary>
-    public string ConnectionLabel => IsSignedIn ? "Connected" : "Guest";
+    public string ConnectionLabel => IsAccountBusy ? "Switching…" : IsSignedIn ? "Connected" : "Guest";
 
     /// <summary>Whether there is an earlier page to go back to.</summary>
     internal bool CanGoBack => _routeHistory.Count > 0;

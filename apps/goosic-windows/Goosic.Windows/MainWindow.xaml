@@ -717,6 +717,7 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Button x:Name="AccountButton" Style="{StaticResource SidebarItemStyle}" Click="OnAccount"
+                                IsEnabled="{x:Bind Model.IsAccountIdle, Mode=OneWay}"
                                 AutomationProperties.Name="{x:Bind Model.AccountName, Mode=OneWay}"
                                 ToolTipService.ToolTip="{x:Bind Model.AccountName, Mode=OneWay}">
                             <Grid ColumnSpacing="10">
@@ -734,8 +735,15 @@
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                     <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}" FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{x:Bind Model.ConnectionLabel, Mode=OneWay}" FontSize="12"
-                                               TextTrimming="CharacterEllipsis" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <ProgressRing Width="12" Height="12" MinWidth="12" MinHeight="12"
+                                                      IsActive="{x:Bind Model.IsAccountBusy, Mode=OneWay}"
+                                                      Visibility="{x:Bind Model.IsAccountBusy, Mode=OneWay}"
+                                                      AutomationProperties.AccessibilityView="Raw" />
+                                        <TextBlock Text="{x:Bind Model.ConnectionLabel, Mode=OneWay}" FontSize="12"
+                                                   TextTrimming="CharacterEllipsis" Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                   AutomationProperties.LiveSetting="Polite" />
+                                    </StackPanel>
                                 </StackPanel>
                             </Grid>
                             <Button.Flyout>
