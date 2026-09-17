@@ -192,7 +192,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Restarts the track after its first few seconds, as every player does; otherwise goes back.</summary>
     private async Task PreviousAsync()
     {
-        if (_playback is not null && Model.PlaybackPosition > 3)
+        if (_playback is not null && Model.IsSeekable && Model.PlaybackPosition > 3)
         {
             await _playback.SeekAsync(0);
             return;
@@ -316,7 +316,8 @@ public sealed partial class MainWindow : Window
         _seeking = false;
         Model.IsScrubbing = false;
         PillTrack.Height = PillFill.Height = 3;
-        if (_playback is not null)
+        // An advertisement can start while the thumb is held; the seek is dropped then.
+        if (_playback is not null && Model.IsSeekable)
         {
             await _playback.SeekAsync(_scrubPosition);
         }
@@ -332,7 +333,7 @@ public sealed partial class MainWindow : Window
     /// </remarks>
     private async void OnVolumeChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
-        if (_playback is null || Math.Abs(e.NewValue - Model.VolumePercent) < 0.5)
+        if (_playback is null || Math.Abs(e.NewValue - Model.VolumePercent) < 0.5 || !Model.CanAdjustSound())
         {
             return;
         }
@@ -343,7 +344,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnToggleMuted(object sender, RoutedEventArgs e)
     {
-        if (_playback is not null)
+        if (_playback is not null && Model.CanAdjustSound())
         {
             await _playback.ToggleMutedAsync();
             Model.RememberVolume(Model.Volume, _playback.PreferredMuted);

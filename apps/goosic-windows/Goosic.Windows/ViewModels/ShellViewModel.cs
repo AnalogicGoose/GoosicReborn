@@ -529,7 +529,60 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     public string AccountStatus { get => _accountStatus; private set => Set(ref _accountStatus, value); }
     public double PlaybackPosition { get => _playbackPosition; private set => Set(ref _playbackPosition, value); }
     public double PlaybackDuration { get => _playbackDuration; private set => Set(ref _playbackDuration, value); }
-    public bool IsSeekable => PlaybackDuration > 0;
+    /// <summary>Seeking needs a real length, and is never offered during an advertisement.</summary>
+    public bool IsSeekable => PlaybackDuration > 0 && !_isAdvertisement;
+
+    private bool _isAdvertisement;
+
+    /// <summary>Whether the official player is showing an advertisement right now.</summary>
+    public bool IsAdvertisement
+    {
+        get => _isAdvertisement;
+        private set
+        {
+            if (Set(ref _isAdvertisement, value))
+            {
+                OnPropertyChanged(nameof(IsSeekable));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether the listener may move to another track now, saying why not when they may not.
+    /// </summary>
+    /// <remarks>
+    /// An advertisement is reported and played, never skipped: moving to another track during one
+    /// would be skipping it by another name. An account change is quiescing the player, and a
+    /// track started in the middle of it would belong to neither account.
+    /// </remarks>
+    internal bool CanChangeTrack()
+    {
+        if (IsAdvertisement)
+        {
+            ReportStatus("Track changes wait until the advertisement finishes.");
+            return false;
+        }
+
+        if (IsAccountBusy)
+        {
+            ReportStatus("Playback waits while the account changes.");
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether volume or mute may change now; they stay as they are during advertisements.</summary>
+    internal bool CanAdjustSound()
+    {
+        if (!IsAdvertisement)
+        {
+            return true;
+        }
+
+        ReportStatus("Volume and mute are unchanged during advertisements.");
+        return false;
+    }
     public double Volume
     {
         get => _volume;
@@ -674,6 +727,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     internal bool ReportPlayback(BridgeEvent sample)
     {
+        IsAdvertisement = sample.IsAdvertisement;
         var position = TimeSpan.FromSeconds(Math.Max(0, sample.CurrentTime));
         var total = TimeSpan.FromSeconds(Math.Max(0, sample.Duration));
         if (!IsScrubbing)

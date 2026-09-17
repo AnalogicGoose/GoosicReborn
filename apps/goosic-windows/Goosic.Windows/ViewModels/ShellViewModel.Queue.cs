@@ -126,6 +126,14 @@ public sealed partial class ShellViewModel
     /// <summary>Makes <paramref name="entry"/> the one the queue is on, and the one to confirm.</summary>
     private TrackViewModel Point(TrackViewModel entry)
     {
+        if (!ReferenceEquals(entry, _current))
+        {
+            // The last song's position would otherwise stand until the new one reports, and
+            // Previous would read it as "past the first seconds" and restart the new song.
+            PlaybackPosition = 0;
+            PlaybackDuration = 0;
+        }
+
         if (_current is not null)
         {
             _current.IsCurrent = false;
@@ -290,6 +298,11 @@ public sealed partial class ShellViewModel
     /// <param name="shuffle">Turns shuffle on for this queue, starting anywhere.</param>
     internal TrackViewModel? StartQueue(IEnumerable<TrackViewModel> tracks, TrackViewModel? start, bool shuffle = false)
     {
+        if (!CanChangeTrack())
+        {
+            return null;
+        }
+
         var playable = tracks.Where(track => !string.IsNullOrEmpty(track.VideoId)).ToList();
         if (start is not null && !playable.Contains(start) && !string.IsNullOrEmpty(start.VideoId))
         {
@@ -357,7 +370,7 @@ public sealed partial class ShellViewModel
 
     /// <summary>Moves to an entry already in the queue.</summary>
     internal TrackViewModel? JumpTo(TrackViewModel entry) =>
-        Queue.Contains(entry) ? Point(entry) : null;
+        Queue.Contains(entry) && CanChangeTrack() ? Point(entry) : null;
 
     internal bool IsQueueEntry(TrackViewModel track) => Queue.Contains(track);
 
@@ -380,7 +393,16 @@ public sealed partial class ShellViewModel
             Queue.Add(entry);
         }
 
-        _unshuffled?.Add(entry);
+        // Kept in the same place in the unshuffled order, so turning shuffle off leaves it next.
+        if (next)
+        {
+            _unshuffled?.Insert(0, entry);
+        }
+        else
+        {
+            _unshuffled?.Add(entry);
+        }
+
         QueueChanged();
         ReportStatus(next ? $"“{track.Title}” plays next." : $"“{track.Title}” was added to the queue.");
     }
@@ -539,6 +561,12 @@ public sealed partial class ShellViewModel
         if (_current is not { } current || Queue.Count == 0)
         {
             ReportStatus("Choose a track to begin.");
+            return default;
+        }
+
+        // A natural end is the page's doing and never happens inside an advertisement.
+        if (!natural && !CanChangeTrack())
+        {
             return default;
         }
 

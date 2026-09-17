@@ -38,7 +38,7 @@ public sealed partial class MainWindow : Window
 
             _fullPlayerSeeking = false;
             Model.IsScrubbing = false;
-            if (_playback is not null)
+            if (_playback is not null && Model.IsSeekable)
             {
                 await _playback.SeekAsync(FullPlayerProgress.Value);
             }

@@ -46,7 +46,12 @@ public sealed partial class MainWindow : Window
             case ShellCommand.Previous: _ = PreviousAsync(); break;
             case ShellCommand.VolumeUp: _ = NudgeVolumeAsync(ShellKeyboard.VolumeStep); break;
             case ShellCommand.VolumeDown: _ = NudgeVolumeAsync(-ShellKeyboard.VolumeStep); break;
-            case ShellCommand.ToggleMute: _ = _playback?.ToggleMutedAsync(); break;
+            case ShellCommand.ToggleMute:
+                if (Model.CanAdjustSound())
+                {
+                    _ = _playback?.ToggleMutedAsync();
+                }
+                break;
             case ShellCommand.SeekForward: _ = SeekByAsync(ShellKeyboard.SeekStepSeconds); break;
             case ShellCommand.SeekBackward: _ = SeekByAsync(-ShellKeyboard.SeekStepSeconds); break;
             case ShellCommand.ToggleShuffle: Model.ToggleShuffle(); break;
@@ -131,7 +136,7 @@ public sealed partial class MainWindow : Window
 
     private async Task NudgeVolumeAsync(double delta)
     {
-        if (_playback is not null && Model.HasPlayback)
+        if (_playback is not null && Model.HasPlayback && Model.CanAdjustSound())
         {
             await _playback.SetVolumeAsync(ShellKeyboard.NudgedVolume(Model.Volume, delta));
         }

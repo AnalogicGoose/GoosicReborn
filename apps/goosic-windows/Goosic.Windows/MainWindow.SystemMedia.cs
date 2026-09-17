@@ -49,7 +49,13 @@ public sealed partial class MainWindow : Window
                     break;
             }
         };
-        _media.SeekRequested += seconds => _ = _playback?.SeekAsync(seconds);
+        _media.SeekRequested += seconds =>
+        {
+            if (Model.IsSeekable)
+            {
+                _ = _playback?.SeekAsync(Math.Clamp(seconds, 0, Model.PlaybackDuration));
+            }
+        };
         Model.NowPlayingChanged += async track =>
         {
             var artwork = await Model.ArtworkFileAsync(track);
