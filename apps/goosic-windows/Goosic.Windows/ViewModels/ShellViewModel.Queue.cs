@@ -146,6 +146,7 @@ public sealed partial class ShellViewModel
         // A new play has to be heard playing before its end counts; see MarkNaturalEnd.
         _endArmed = false;
         _endHandled = false;
+        _pendingAlias = null;
         RememberPlayed(entry);
         QueueChanged();
         TopUpStation();
@@ -303,7 +304,7 @@ public sealed partial class ShellViewModel
             return null;
         }
 
-        var playable = tracks.Where(track => !string.IsNullOrEmpty(track.VideoId)).ToList();
+        var playable = tracks.Where(track => !string.IsNullOrEmpty(track.VideoId) && !IsRefused(track.VideoId)).ToList();
         if (start is not null && !playable.Contains(start) && !string.IsNullOrEmpty(start.VideoId))
         {
             playable.Insert(0, start);
@@ -722,7 +723,7 @@ public sealed partial class ShellViewModel
         }
 
         var fresh = PlaybackOrder.FreshRecommendations(page.Tracks, item => item.VideoId,
-            Queue.Select(entry => entry.VideoId).Concat(_recentlyPlayed));
+            Queue.Select(entry => entry.VideoId).Concat(_recentlyPlayed).Concat(_refusedVideos));
         foreach (var item in fresh)
         {
             var entry = new TrackViewModel(item);

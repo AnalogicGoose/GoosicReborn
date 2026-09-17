@@ -109,6 +109,18 @@ internal sealed class OfficialPlaybackHost
     /// </summary>
     internal event Action<string>? PageMovedOn;
 
+    /// <summary>Raised with the requested id when the page replaced it without playing it.</summary>
+    internal event Action<string>? PageRefused;
+
+    /// <summary>
+    /// Asked, before the requested track was ever heard, whether the page's replacement is the same
+    /// song under another id. Given the requested id, the page's id and the page's title.
+    /// </summary>
+    internal Func<string, string, string, bool>? IsSubstitute;
+
+    /// <summary>Whether the requested track has been heard playing under this load.</summary>
+    private bool _heardRequested;
+
     private int _strayReports;
 
     /// <summary>The volume and mute the listener last chose, or null before they chose one.</summary>
@@ -224,6 +236,7 @@ internal sealed class OfficialPlaybackHost
         _lastSequence = 0;
         _strayReports = 0;
         _movedOnHandled = false;
+        _heardRequested = false;
 
         BridgeLog.Write($"lease claimed generation={_generation}; preparing WebView2");
         await EnsureReadyAsync().ConfigureAwait(true);
@@ -693,6 +706,10 @@ internal sealed class OfficialPlaybackHost
         }
 
         _strayReports = 0;
+        if (verdict.Event is { State: "playing", Duration: > 0, IsAdvertisement: false })
+        {
+            _heardRequested = true;
+        }
 
         BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
             + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement}");
@@ -733,6 +750,57 @@ internal sealed class OfficialPlaybackHost
         }
 
         _movedOnHandled = true;
+        if (!_heardRequested)
+        {
+            // Nothing of the requested track has played, so this cannot be its end. It is either
+            // the same song under another id, or the page giving up on an unplayable one.
+            _ = ResolveEarlySwitchAsync(_videoId, described);
+            return;
+        }
+
+        StopMovedOnPage();
+    }
+
+    private async Task ResolveEarlySwitchAsync(string requested, string described)
+    {
+        var title = "";
+        try
+        {
+            var raw = await _view.CoreWebView2.ExecuteScriptAsync("""
+                (() => {
+                  const data = document.getElementById('movie_player')?.getVideoData?.();
+                  return data && data.video_id ? String(data.title || '') : '';
+                })();
+                """);
+            title = JsonSerializer.Deserialize<string>(raw) ?? "";
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"could not read the page's title: {error.GetType().Name}");
+        }
+
+        // The page may have been replaced while the title was read.
+        if (requested != _videoId)
+        {
+            return;
+        }
+
+        if (IsSubstitute?.Invoke(requested, described, title) == true)
+        {
+            BridgeLog.Write("the page swapped the requested song for another version of it; keeping it");
+            _videoId = described;
+            _strayReports = 0;
+            _movedOnHandled = false;
+            return;
+        }
+
+        BridgeLog.Write($"the page replaced a track that never played with {described} (\"{title}\"); treating it as unplayable");
+        PageRefused?.Invoke(requested);
+        StopMovedOnPage();
+    }
+
+    private void StopMovedOnPage()
+    {
         BridgeLog.Write("the page moved on to its own track; pausing it and advancing the queue");
         _ = _view.CoreWebView2?.ExecuteScriptAsync("""
             (() => {

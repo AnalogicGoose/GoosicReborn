@@ -342,6 +342,8 @@ public sealed partial class MainWindow : Window
         Model.RememberVolume(e.NewValue / 100.0, _playback.PreferredMuted);
     }
 
+    private void OnDismissToast(object sender, RoutedEventArgs e) => Model.DismissToast();
+
     private async void OnToggleMuted(object sender, RoutedEventArgs e)
     {
         if (_playback is not null && Model.CanAdjustSound())

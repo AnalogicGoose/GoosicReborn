@@ -319,8 +319,8 @@
                                             AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
                                             Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
                                             PointerEntered="OnTrackRowPointerEntered" PointerExited="OnTrackRowPointerExited"
-                                            Opacity="{x:Bind RowOpacity}"
-                                            ToolTipService.ToolTip="{x:Bind UnavailableTip}"
+                                            Opacity="{x:Bind RowOpacity, Mode=OneWay}"
+                                            ToolTipService.ToolTip="{x:Bind UnavailableTip, Mode=OneWay}"
                                             GotFocus="OnTrackRowFocusChanged" LostFocus="OnTrackRowFocusChanged">
                                         <Grid ColumnSpacing="11" MinHeight="40">
                                             <Grid.ColumnDefinitions>
@@ -439,6 +439,26 @@
                                 Visibility="{x:Bind Model.HasMore, Mode=OneWay}" Click="OnLoadMore" />
                     </StackPanel>
                 </ScrollViewer>
+
+                <!-- What the last action did, above the player; it clears itself. -->
+                <Border x:Name="ToastHost" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                        Margin="0,0,0,102" Padding="16,10,8,10" CornerRadius="12" MaxWidth="560"
+                        Background="{ThemeResource GoosicPillAcrylicBrush}"
+                        BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}"
+                        Visibility="{x:Bind Model.HasToast, Mode=OneWay}">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{x:Bind Model.Toast, Mode=OneWay}" TextWrapping="Wrap" MaxLines="3"
+                                   VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" />
+                        <Button Grid.Column="1" Style="{StaticResource TransportGlyphStyle}" Content="&#xE711;"
+                                FontSize="12" Width="28" Height="28" VerticalAlignment="Center"
+                                ToolTipService.ToolTip="Dismiss" AutomationProperties.Name="Dismiss message"
+                                Click="OnDismissToast" />
+                    </Grid>
+                </Border>
 
                 <!--
                     The floating player. A pill of acrylic over the bottom of the content, so the

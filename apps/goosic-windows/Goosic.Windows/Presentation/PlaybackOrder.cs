@@ -110,6 +110,49 @@ public static class PlaybackOrder
     /// </summary>
     public static bool AcceptsEnd(string? endedVideoId, string? currentVideoId, bool armed) =>
         armed && !string.IsNullOrEmpty(endedVideoId) && endedVideoId == currentVideoId;
+
+    /// <summary>
+    /// Whether the page's title names the song that was asked for.
+    /// </summary>
+    /// <remarks>
+    /// YouTube Music swaps a song for its other version -- the audio track for the music video,
+    /// or back -- before it starts. That is the same song under another id, not the page moving
+    /// on, and treating it as an end skipped the song. The titles differ only by decoration such
+    /// as "(Official Video)", so both are reduced to their words before comparing.
+    /// </remarks>
+    public static bool IsSameSong(string? requestedTitle, string? pageTitle)
+    {
+        var requested = SongWords(requestedTitle);
+        var page = SongWords(pageTitle);
+        // Whole words only, so "Down" is not found inside "Downtown".
+        return requested.Length > 0 && page.Length > 0
+            && ($" {page} ".Contains($" {requested} ", StringComparison.Ordinal)
+                || $" {requested} ".Contains($" {page} ", StringComparison.Ordinal));
+    }
+
+    private static string SongWords(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return "";
+        }
+
+        // Drop bracketed decoration: (Official Video), [Lyrics], (feat. …) and the like.
+        var text = System.Text.RegularExpressions.Regex.Replace(title, @"[\(\[][^\)\]]*[\)\]]", " ");
+        var words = new System.Text.StringBuilder();
+        foreach (var ch in text.ToLowerInvariant())
+        {
+            // An apostrophe joins a word rather than splitting it: "don't" and "dont" are one word.
+            if (ch is '\'' or '’')
+            {
+                continue;
+            }
+
+            words.Append(char.IsLetterOrDigit(ch) ? ch : ' ');
+        }
+
+        return string.Join(' ', words.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
 }
 
 /// <summary>Where recommendations come from, so a continuation is only used with its issuer.</summary>

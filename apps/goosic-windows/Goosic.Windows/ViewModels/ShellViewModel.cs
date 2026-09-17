@@ -270,7 +270,24 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     /// Whether the catalog gave this row something to play. A row without one stays listed, so an
     /// album keeps its numbering, but is dimmed and skipped by Play and Shuffle.
     /// </summary>
-    public bool IsPlayable => !string.IsNullOrEmpty(VideoId);
+    public bool IsPlayable => !string.IsNullOrEmpty(VideoId) && !_refused;
+
+    private bool _refused;
+
+    /// <summary>Marks a track the official player would not play, so it shows as unavailable.</summary>
+    internal void MarkRefused()
+    {
+        if (_refused)
+        {
+            return;
+        }
+
+        _refused = true;
+        foreach (var name in new[] { nameof(IsPlayable), nameof(RowOpacity), nameof(UnavailableTip), nameof(AccessibleName) })
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+    }
 
     public double RowOpacity => IsPlayable ? 1 : 0.45;
 
@@ -436,6 +453,29 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private string _accountStatus = "Checking account…";
     private TrackViewModel? _pendingTrack;
     private TrackViewModel? _confirmedTrack;
+    /// <summary>The id the page plays the pending track under, when it swapped in another version.</summary>
+    private string? _pendingAlias;
+
+    private bool IsPendingVideo(string? videoId) =>
+        !string.IsNullOrEmpty(videoId)
+        && (videoId == _pendingTrack?.VideoId || videoId == _pendingAlias);
+
+    /// <summary>
+    /// Whether the page's replacement for the requested track is the same song, and if so,
+    /// accepts its reports as that track's.
+    /// </summary>
+    internal bool AcceptSubstitute(string requested, string actual, string pageTitle)
+    {
+        if (_pendingTrack is not { } pending || pending.VideoId != requested
+            || !PlaybackOrder.IsSameSong(pending.Title, pageTitle))
+        {
+            return false;
+        }
+
+        _pendingAlias = actual;
+        return true;
+    }
+
     /// <summary>The current play has been heard playing, so an "ended" for it is real.</summary>
     private bool _endArmed;
 
@@ -737,14 +777,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
         PlaybackDuration = Math.Max(0, sample.Duration);
         ReportNowPlayingDetails(
-            !sample.IsAdvertisement && _pendingTrack?.VideoId == sample.VideoId ? _pendingTrack : null,
+            !sample.IsAdvertisement && IsPendingVideo(sample.VideoId) ? _pendingTrack : null,
             IsScrubbing ? PlaybackPosition : sample.CurrentTime,
             sample.Duration);
         Volume = Math.Clamp(sample.Volume, 0, 1);
         IsMuted = sample.Muted;
         IsPlaying = sample.State == "playing";
         OnPropertyChanged(nameof(IsSeekable));
-        if (!sample.IsAdvertisement && _pendingTrack is { } pending && pending.VideoId == sample.VideoId)
+        if (!sample.IsAdvertisement && _pendingTrack is { } pending && IsPendingVideo(sample.VideoId))
         {
             var changed = !ReferenceEquals(_confirmedTrack, pending);
             _confirmedTrack = pending;
@@ -792,9 +832,34 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// Records that the requested track finished because the page moved past it.
     /// </summary>
     /// <returns>Whether this is the first end recorded for it, so the queue advances once.</returns>
+    /// <summary>Songs the official player refused this session, by video id.</summary>
+    private readonly HashSet<string> _refusedVideos = [];
+
+    internal bool IsRefused(string? videoId) => videoId is not null && _refusedVideos.Contains(videoId);
+
+    /// <summary>
+    /// Records that the page would not play the requested track, marks it wherever it is shown,
+    /// and says so; the queue then moves past it like a finished track.
+    /// </summary>
+    internal void ReportRefused(string videoId)
+    {
+        if (!IsPendingVideo(videoId) || _pendingTrack is not { } refused)
+        {
+            return;
+        }
+
+        _refusedVideos.Add(videoId);
+        foreach (var row in Tracks.Concat(Queue).Where(row => row.VideoId == videoId))
+        {
+            row.MarkRefused();
+        }
+
+        ReportStatus($"“{refused.Title}” isn’t available to play here, so it was skipped.");
+    }
+
     internal bool ConfirmEndedByPage(string videoId)
     {
-        if (_pendingTrack?.VideoId != videoId || _endHandled)
+        if (!IsPendingVideo(videoId) || _endHandled)
         {
             return false;
         }
@@ -816,7 +881,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private bool MarkNaturalEnd(BridgeEvent sample)
     {
         if (sample.IsAdvertisement || sample.State != "ended" || _endHandled
-            || !PlaybackOrder.AcceptsEnd(sample.VideoId, _pendingTrack?.VideoId, _endArmed))
+            || !PlaybackOrder.AcceptsEnd(sample.VideoId, IsPendingVideo(sample.VideoId) ? sample.VideoId : null, _endArmed))
         {
             return false;
         }
@@ -889,7 +954,56 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         $"{(int)value.TotalMinutes:D2}:{value.Seconds:D2}";
 
     /// <summary>Says something on screen that did not come from the service.</summary>
-    internal void ReportStatus(string message) => Status = message;
+    /// <summary>
+    /// Says something about an action the listener just took, briefly, above the player.
+    /// </summary>
+    /// <remarks>
+    /// Page-level notices, such as a clamped page, go to <see cref="Status"/> and stay with the
+    /// page. An action's outcome is a toast: at the top of a scrolled page it would be missed,
+    /// and left there it would outlive the action by pages.
+    /// </remarks>
+    internal void ReportStatus(string message)
+    {
+        Toast = message;
+        if (message.Length > 0)
+        {
+            _ = ClearToastLaterAsync(++_toastVersion);
+        }
+    }
+
+    private string _toast = "";
+    private int _toastVersion;
+
+    public string Toast
+    {
+        get => _toast;
+        private set
+        {
+            if (Set(ref _toast, value))
+            {
+                OnPropertyChanged(nameof(HasToast));
+            }
+        }
+    }
+
+    public bool HasToast => _toast.Length > 0;
+
+    internal void DismissToast()
+    {
+        _toastVersion++;
+        Toast = "";
+    }
+
+    private async Task ClearToastLaterAsync(int version)
+    {
+        await Task.Delay(ToastLifetime).ConfigureAwait(true);
+        if (version == _toastVersion)
+        {
+            Toast = "";
+        }
+    }
+
+    private static readonly TimeSpan ToastLifetime = TimeSpan.FromSeconds(5);
 
     /// <summary>Greets the service, then loads the opening screen.</summary>
     internal async Task StartAsync()
