@@ -146,6 +146,7 @@ public sealed partial class ShellViewModel
         // A new play has to be heard playing before its end counts; see MarkNaturalEnd.
         _endArmed = false;
         _endHandled = false;
+        _listenerPaused = false;
         _pendingAlias = null;
         RememberPlayed(entry);
         QueueChanged();

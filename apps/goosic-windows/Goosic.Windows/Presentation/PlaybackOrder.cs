@@ -111,6 +111,21 @@ public static class PlaybackOrder
     public static bool AcceptsEnd(string? endedVideoId, string? currentVideoId, bool armed) =>
         armed && !string.IsNullOrEmpty(endedVideoId) && endedVideoId == currentVideoId;
 
+    /// <summary>How close to its length a stopped track has to be to count as finished.</summary>
+    public const double EndTolerance = 1.5;
+
+    /// <summary>
+    /// Whether a report says the track has finished.
+    /// </summary>
+    /// <remarks>
+    /// With Automix off, YouTube Music's page does not report "ended": it stops a fraction of a
+    /// second short of the length and reports "paused". A pause there is the end, unless the
+    /// listener paused it themselves.
+    /// </remarks>
+    public static bool IsFinished(string state, double position, double duration, bool listenerPaused) =>
+        state == "ended"
+        || (state == "paused" && !listenerPaused && duration > 0 && position >= duration - EndTolerance);
+
     /// <summary>
     /// Whether the page's title names the song that was asked for.
     /// </summary>

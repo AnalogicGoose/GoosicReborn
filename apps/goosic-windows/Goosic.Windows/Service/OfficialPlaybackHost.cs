@@ -118,6 +118,37 @@ internal sealed class OfficialPlaybackHost
     /// </summary>
     internal Func<string, string, string, bool>? IsSubstitute;
 
+    private string _lastState = "";
+
+    /// <summary>
+    /// Says so when YouTube Music paused the track to ask whether anyone is still listening.
+    /// </summary>
+    /// <remarks>
+    /// The prompt is the page's, and it is answered only by the listener pressing Play; this only
+    /// explains a pause nobody asked for.
+    /// </remarks>
+    private async Task NoticeIdlePromptAsync()
+    {
+        try
+        {
+            var shown = await _view.CoreWebView2.ExecuteScriptAsync("""
+                (() => {
+                  const prompt = document.querySelector('ytmusic-you-there-renderer');
+                  return !!prompt && prompt.offsetParent !== null;
+                })()
+                """);
+            if (shown == "true")
+            {
+                BridgeLog.Write("the page paused to ask whether anyone is still listening");
+                Status?.Invoke("YouTube Music paused to check you’re still listening. Press Play to continue.");
+            }
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"idle prompt check failed: {error.GetType().Name}");
+        }
+    }
+
     /// <summary>Whether the requested track has been heard playing under this load.</summary>
     private bool _heardRequested;
 
@@ -237,6 +268,7 @@ internal sealed class OfficialPlaybackHost
         _strayReports = 0;
         _movedOnHandled = false;
         _heardRequested = false;
+        _lastState = "";
 
         BridgeLog.Write($"lease claimed generation={_generation}; preparing WebView2");
         await EnsureReadyAsync().ConfigureAwait(true);
@@ -354,6 +386,7 @@ internal sealed class OfficialPlaybackHost
 
             await ProbePageAsync(core);
             await InstallObserverAsync(core);
+            await KeepAutomixOffAsync(core);
         };
 
         // Only the official host may run in here. A navigation anywhere else is cancelled rather
@@ -445,6 +478,51 @@ internal sealed class OfficialPlaybackHost
         }
     }
 
+    /// <summary>
+    /// Turns off the page's Automix, so a track plays to its end.
+    /// </summary>
+    /// <remarks>
+    /// With Automix on, YouTube Music fades into a track of its own choosing some seconds before
+    /// the requested one ends. The observer then sees another video, the page is paused, and the
+    /// queue moves on -- having cut the song's last seconds. With it off the page plays the track
+    /// through and reports its end, and Goosic's queue decides what follows, as it should. The
+    /// switch sits in the page's Up Next tab, which renders after the player, so it is looked for
+    /// for a while rather than once. This is the renderer's own page, in Goosic's own profile.
+    /// </remarks>
+    private async Task KeepAutomixOffAsync(CoreWebView2 core)
+    {
+        var token = _token;
+        for (var attempt = 0; attempt < 40 && token == _token; attempt++)
+        {
+            string outcome;
+            try
+            {
+                outcome = await core.ExecuteScriptAsync("""
+                    (() => {
+                      const toggle = document.getElementById('automix');
+                      if (!toggle || typeof toggle.checked !== 'boolean') return 'absent';
+                      if (!toggle.checked) return 'off';
+                      toggle.click();
+                      return toggle.checked ? 'still on' : 'turned off';
+                    })()
+                    """);
+            }
+            catch (Exception error)
+            {
+                BridgeLog.Write($"automix check failed: {error.GetType().Name}");
+                return;
+            }
+
+            if (outcome != "\"absent\"")
+            {
+                BridgeLog.Write($"automix {outcome}");
+                return;
+            }
+
+            await Task.Delay(500);
+        }
+    }
+
     /// <summary>The narrowly adapted message port that the shared WebKit observer requires.</summary>
     private static string WebView2BridgeShimScript()
     {
@@ -495,7 +573,14 @@ internal sealed class OfficialPlaybackHost
                 (() => {
                   const media = document.querySelector('audio,video');
                   if (!media) return 'no-media';
-                  if (media.paused) { void media.play(); return 'play-requested'; }
+                  if (media.paused) {
+                    // A resume the listener asked for also answers YouTube Music's
+                    // "still listening?" prompt, which otherwise pauses the track again.
+                    const prompt = document.querySelector('ytmusic-you-there-renderer');
+                    prompt?.querySelector('button, yt-button-renderer, tp-yt-paper-button')?.click();
+                    void media.play();
+                    return 'play-requested';
+                  }
                   media.pause(); return 'pause-requested';
                 })();
                 """);
@@ -710,6 +795,13 @@ internal sealed class OfficialPlaybackHost
         {
             _heardRequested = true;
         }
+
+        if (verdict.Event.State == "paused" && _lastState == "playing")
+        {
+            _ = NoticeIdlePromptAsync();
+        }
+
+        _lastState = verdict.Event.State;
 
         BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
             + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement}");

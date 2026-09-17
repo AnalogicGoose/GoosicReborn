@@ -91,6 +91,20 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Video mode (song ↔ video) | Yes | ❌ player is a 1 px renderer by design |
 | Advertisements | Played | ✅ reported as markers, never skipped (invariant) |
 
+## Playback notes worth knowing
+
+- **Automix is switched off in the renderer.** With it on, YouTube Music fades into its own next
+  track some seconds before the requested one ends; the host saw another video, paused, and the
+  song lost its ending. `OfficialPlaybackHost.KeepAutomixOffAsync` turns the page's `#automix`
+  switch off after each load (bridge.log: `automix "turned off"`). It is behaviour every shell
+  wants, so the script belongs in `goosic-shell-support` beside the observer once that crate's FFI
+  question is settled.
+- **A track replaced before it played is not an end.** The host reads the page's title: the same
+  song under another id is kept, anything else is reported as refused, dimmed, and skipped for the
+  session. Unreleased tracks on pre-release albums arrive from the catalog with a video id and no
+  play count, and are the usual case.
+- **Advertisements freeze track changes, seeking and volume**, as on macOS.
+
 ## What is left, in priority order
 
 1. **Hand-test** everything marked "not hand-tested": queue drag, volume primer at track start,

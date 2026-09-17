@@ -115,3 +115,17 @@ public class RadioStationTests
         Assert.True(new RadioStation("seed", null).UsableWith("anyone"));
     }
 }
+
+public class TrackEndTests
+{
+    [Theory]
+    [InlineData("ended", 10, 229, false, true)]
+    [InlineData("paused", 228.8, 229, false, true)]
+    [InlineData("paused", 228.8, 229, true, false)]
+    [InlineData("paused", 120, 229, false, false)]
+    [InlineData("paused", 0, 0, false, false)]
+    [InlineData("playing", 229, 229, false, false)]
+    public void APauseAtTheLastMomentIsTheEndUnlessTheListenerPaused(
+        string state, double position, double duration, bool listenerPaused, bool expected) =>
+        Assert.Equal(expected, PlaybackOrder.IsFinished(state, position, duration, listenerPaused));
+}

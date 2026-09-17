@@ -237,6 +237,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        Model.NoteListenerToggle();
         await _playback.TogglePauseAsync();
     }
 

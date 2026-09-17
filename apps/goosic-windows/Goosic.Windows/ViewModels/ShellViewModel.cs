@@ -476,6 +476,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         return true;
     }
 
+    /// <summary>The listener paused the current play; a pause near its end is theirs, not the end.</summary>
+    private bool _listenerPaused;
+
+    /// <summary>Records a pause or resume the listener asked for.</summary>
+    internal void NoteListenerToggle() => _listenerPaused = IsPlaying;
+
     /// <summary>The current play has been heard playing, so an "ended" for it is real.</summary>
     private bool _endArmed;
 
@@ -791,6 +797,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (sample.State == "playing" && !_endHandled)
             {
                 _endArmed = true;
+                _listenerPaused = false;
             }
 
             if (changed)
@@ -880,7 +887,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     private bool MarkNaturalEnd(BridgeEvent sample)
     {
-        if (sample.IsAdvertisement || sample.State != "ended" || _endHandled
+        if (sample.IsAdvertisement || _endHandled
+            || !PlaybackOrder.IsFinished(sample.State, sample.CurrentTime, sample.Duration, _listenerPaused)
             || !PlaybackOrder.AcceptsEnd(sample.VideoId, IsPendingVideo(sample.VideoId) ? sample.VideoId : null, _endArmed))
         {
             return false;
