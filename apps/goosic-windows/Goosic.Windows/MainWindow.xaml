@@ -490,7 +490,8 @@
                             <Button x:Name="PillCoverButton" Padding="0" BorderThickness="0" Background="Transparent"
                                     Width="42" Height="42" CornerRadius="6" VerticalAlignment="Center"
                                     IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                    ToolTipService.ToolTip="Full-screen player" Click="OnOpenFullPlayer"
+                                    ToolTipService.ToolTip="Full-screen player" AutomationProperties.Name="Open full-screen player"
+                                    Click="OnOpenFullPlayer"
                                     PointerEntered="OnCoverPointerEntered" PointerExited="OnCoverPointerExited">
                                 <Grid>
                                     <Border Background="{ThemeResource GoosicRaisedStrongBrush}" CornerRadius="6">
@@ -1033,18 +1034,29 @@
         -->
         <Grid x:Name="FullPlayer" Visibility="Collapsed" Background="Black" RequestedTheme="Dark">
             <Grid x:Name="FullPlayerBackdrop" />
+            <!-- The cover, blurred, over the moving colours: it ties the background to this track
+                 rather than to its palette alone. Skipped when Windows has transparency turned off. -->
+            <Image x:Name="FullPlayerBlur" Stretch="UniformToFill" Opacity="0.5" Visibility="Collapsed"
+                   IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw" />
             <Rectangle Fill="#000000" Opacity="0.35" IsHitTestVisible="False" />
 
-            <Grid x:Name="FullPlayerLayout" Padding="72,56,72,72" ColumnSpacing="72">
+            <!-- Split: cover beside lyrics. On a narrow window the lyrics toggle chooses between the
+                 cover and the lyrics, and the controls stay at the bottom either way. -->
+            <Grid x:Name="FullPlayerLayoutGrid" Padding="72,56,72,72" ColumnSpacing="72" RowSpacing="16">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" MaxWidth="560" />
+                    <ColumnDefinition x:Name="FullPlayerCoverColumn" Width="*" MaxWidth="560" />
                     <ColumnDefinition x:Name="FullPlayerLyricsColumn" Width="1.3*" />
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="14" MaxWidth="520">
+                <StackPanel x:Name="FullPlayerControls" Grid.Column="0" Grid.RowSpan="2" VerticalAlignment="Center"
+                            Spacing="14" MaxWidth="520">
                     <Button x:Name="FullPlayerCoverButton" Padding="0" BorderThickness="0" Background="Transparent"
                             HorizontalAlignment="Stretch" ToolTipService.ToolTip="Exit full-screen player"
-                            Click="OnCloseFullPlayer">
+                            AutomationProperties.Name="Exit full-screen player" Click="OnCloseFullPlayer">
                         <Border CornerRadius="12" Background="#22FFFFFF">
                             <Viewbox Stretch="Uniform">
                                 <Grid Width="520" Height="520">
@@ -1063,6 +1075,8 @@
                     </StackPanel>
 
                     <Slider x:Name="FullPlayerProgress" Minimum="0" StepFrequency="1"
+                            PreviewKeyDown="OnFullPlayerProgressKeyDown"
+                            ToolTipService.ToolTip="Arrow keys move 5 seconds; Page Up and Page Down a tenth"
                             Maximum="{x:Bind Model.PlaybackDuration, Mode=OneWay}"
                             Value="{x:Bind Model.PlaybackPosition, Mode=OneWay}"
                             IsEnabled="{x:Bind Model.IsSeekable, Mode=OneWay}"
@@ -1082,23 +1096,28 @@
                         </Grid.ColumnDefinitions>
                         <ToggleButton Grid.Column="0" Style="{StaticResource FullPlayerToggleStyle}" Content="&#xE8B1;"
                                       IsChecked="{x:Bind Model.IsShuffled, Mode=OneWay}"
+                                      AutomationProperties.Name="Shuffle"
                                       ToolTipService.ToolTip="{x:Bind Model.ShuffleLabel, Mode=OneWay}" Click="OnShuffle" />
                         <Button Grid.Column="1" Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xEB9E;"
-                                FontSize="24" ToolTipService.ToolTip="Previous" Click="OnPrevious" />
-                        <Button Grid.Column="2" Style="{StaticResource FullPlayerGlyphStyle}" FontSize="36"
-                                Width="64" Height="64"
+                                FontSize="24" ToolTipService.ToolTip="Previous" AutomationProperties.Name="Previous"
+                                Click="OnPrevious" />
+                        <Button x:Name="FullPlayerPlayButton" Grid.Column="2" Style="{StaticResource FullPlayerGlyphStyle}"
+                                FontSize="36" Width="64" Height="64"
                                 Content="{x:Bind Model.PlayPauseGlyph, Mode=OneWay}"
+                                AutomationProperties.Name="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
                                 ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}" Click="OnPlayPause" />
                         <Button Grid.Column="3" Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xEB9D;"
-                                FontSize="24" ToolTipService.ToolTip="Next" Click="OnNext" />
+                                FontSize="24" ToolTipService.ToolTip="Next" AutomationProperties.Name="Next"
+                                Click="OnNext" />
                         <ToggleButton Grid.Column="4" Style="{StaticResource FullPlayerToggleStyle}"
                                       Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
                                       IsChecked="{x:Bind Model.IsRepeating, Mode=OneWay}"
+                                      AutomationProperties.Name="Repeat"
                                       ToolTipService.ToolTip="{x:Bind Model.RepeatLabel, Mode=OneWay}" Click="OnRepeat" />
                     </Grid>
                 </StackPanel>
 
-                <Grid x:Name="FullPlayerLyrics" Grid.Column="1" VerticalAlignment="Stretch" MaxHeight="900">
+                <Grid x:Name="FullPlayerLyrics" Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Stretch" MaxHeight="900">
                     <StackPanel VerticalAlignment="Center" Spacing="10" Opacity="0.7"
                                 Visibility="{x:Bind Model.HasNoLyrics, Mode=OneWay}">
                         <FontIcon Glyph="&#xE90A;" FontSize="30" HorizontalAlignment="Left" />
@@ -1131,7 +1150,7 @@
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
                         Margin="0,48,24,0" Spacing="6">
                 <Button Style="{StaticResource FullPlayerGlyphStyle}" Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
-                        ToolTipService.ToolTip="Volume">
+                        ToolTipService.ToolTip="Volume" AutomationProperties.Name="Volume">
                     <Button.Flyout>
                         <Flyout Placement="Bottom" FlyoutPresenterStyle="{StaticResource VolumeFlyoutStyle}">
                                         <StackPanel Width="44" Spacing="10" HorizontalAlignment="Center">
@@ -1156,9 +1175,10 @@
                               AutomationProperties.Name="Fill the screen" Click="OnToggleWindowFullScreen" />
                 <ToggleButton x:Name="FullPlayerLyricsToggle" Style="{StaticResource FullPlayerToggleStyle}"
                               Content="&#xE90A;" IsChecked="True" ToolTipService.ToolTip="Show or hide lyrics"
-                              Click="OnToggleFullPlayerLyrics" />
+                              AutomationProperties.Name="Lyrics" Click="OnToggleFullPlayerLyrics" />
                 <Button Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xE73F;"
-                        ToolTipService.ToolTip="Exit full-screen player (Esc)" Click="OnCloseFullPlayer" />
+                        ToolTipService.ToolTip="Exit full-screen player (Esc)"
+                        AutomationProperties.Name="Exit full-screen player" Click="OnCloseFullPlayer" />
             </StackPanel>
         </Grid>
     </Grid>
