@@ -1,6 +1,7 @@
 # Builds the service and the Windows shell, then launches the shell against that service.
 # Usage (from anywhere): .\apps\goosic-windows\run.ps1
-$ErrorActionPreference = 'Stop'
+# Native tools print progress and warnings on stderr; failures are read from their exit codes.
+$ErrorActionPreference = 'Continue'
 $root = Resolve-Path "$PSScriptRoot\..\.."
 Set-Location $root
 
