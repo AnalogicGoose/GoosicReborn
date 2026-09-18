@@ -84,13 +84,6 @@ internal sealed class GoosicServiceClient : IAsyncDisposable
             StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
         };
 
-        // The service finds accounts and settings through APPDATA. A shell started from a
-        // terminal without it would otherwise open a service that sees no accounts at all.
-        if (string.IsNullOrEmpty(info.Environment["APPDATA"]))
-        {
-            info.Environment["APPDATA"] = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        }
-
         Process process;
         try
         {
