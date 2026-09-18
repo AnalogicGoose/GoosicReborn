@@ -155,6 +155,22 @@ public sealed partial class MainWindow : Window
         }
 
         var beside = Path.Combine(AppContext.BaseDirectory, "goosic-service.exe");
+        if (File.Exists(beside))
+        {
+            return beside;
+        }
+
+        // Run out of a build directory inside the repository: use the Cargo build beside it, so
+        // launching the executable directly still reaches the service (and its accounts).
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            var built = Path.Combine(directory.FullName, "target", "debug", "goosic-service.exe");
+            if (File.Exists(built))
+            {
+                return built;
+            }
+        }
+
         return beside;
     }
 
