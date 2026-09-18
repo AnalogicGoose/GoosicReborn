@@ -351,6 +351,11 @@ pub struct CatalogPage {
     /// Opaque cursor for the next page. The shell echoes it only to `catalog.continue`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
+    /// Where the complete list behind `tracks` lives when the page shows only its first few --
+    /// an artist's top songs, whose "Show all" opens every song. A playlist browse id; absent
+    /// when `tracks` is already the whole list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_tracks_id: Option<String>,
     /// True when the service clamped the upstream result set to stay inside the frame budget.
     #[serde(default, skip_serializing_if = "is_false")]
     pub truncated: bool,
