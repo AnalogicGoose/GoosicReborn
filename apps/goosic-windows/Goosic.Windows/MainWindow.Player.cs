@@ -194,7 +194,7 @@ public sealed partial class MainWindow : Window
     {
         if (_playback is not null && Model.IsSeekable && Model.PlaybackPosition > 3)
         {
-            await _playback.SeekAsync(0);
+            await SeekToAsync(0);
             return;
         }
 
@@ -215,7 +215,7 @@ public sealed partial class MainWindow : Window
         // the song afresh, because the page has already finished it.
         if (move.Restart && !natural && _playback is not null)
         {
-            await _playback.SeekAsync(0);
+            await SeekToAsync(0);
             return;
         }
 
@@ -320,7 +320,7 @@ public sealed partial class MainWindow : Window
         // An advertisement can start while the thumb is held; the seek is dropped then.
         if (_playback is not null && Model.IsSeekable)
         {
-            await _playback.SeekAsync(_scrubPosition);
+            await SeekToAsync(_scrubPosition);
         }
     }
 
@@ -344,6 +344,18 @@ public sealed partial class MainWindow : Window
     }
 
     private void OnDismissToast(object sender, RoutedEventArgs e) => Model.DismissToast();
+
+    /// <summary>Every seek goes through here, so the position line shows it before the player confirms it.</summary>
+    private async Task SeekToAsync(double target)
+    {
+        if (_playback is null)
+        {
+            return;
+        }
+
+        Model.BeginSeek(target);
+        await _playback.SeekAsync(target);
+    }
 
     private async void OnToggleMuted(object sender, RoutedEventArgs e)
     {

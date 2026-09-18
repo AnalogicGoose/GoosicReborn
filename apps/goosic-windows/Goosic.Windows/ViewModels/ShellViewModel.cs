@@ -476,6 +476,15 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         return true;
     }
 
+    private PendingSeek? _pendingSeek;
+
+    /// <summary>Shows a requested seek at once, and holds it until the player confirms it.</summary>
+    internal void BeginSeek(double target)
+    {
+        _pendingSeek = new PendingSeek(target, DateTimeOffset.Now);
+        PlaybackPosition = target;
+    }
+
     /// <summary>The listener paused the current play; a pause near its end is theirs, not the end.</summary>
     private bool _listenerPaused;
 
@@ -778,7 +787,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         var total = TimeSpan.FromSeconds(Math.Max(0, sample.Duration));
         if (!IsScrubbing)
         {
-            PlaybackPosition = Math.Max(0, sample.CurrentTime);
+            var (shown, settled) = SeekSettle.Show(Math.Max(0, sample.CurrentTime), _pendingSeek, DateTimeOffset.Now);
+            PlaybackPosition = shown;
+            if (settled)
+            {
+                _pendingSeek = null;
+            }
         }
 
         PlaybackDuration = Math.Max(0, sample.Duration);

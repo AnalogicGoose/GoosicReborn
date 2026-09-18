@@ -129,3 +129,24 @@ public class TrackEndTests
         string state, double position, double duration, bool listenerPaused, bool expected) =>
         Assert.Equal(expected, PlaybackOrder.IsFinished(state, position, duration, listenerPaused));
 }
+
+public class SeekSettleTests
+{
+    private static readonly DateTimeOffset At = new(2026, 9, 17, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void ARequestedSeekIsShownUntilThePlayerLandsNearIt()
+    {
+        var pending = new PendingSeek(120, At);
+        Assert.Equal((120d, false), SeekSettle.Show(30, pending, At.AddMilliseconds(300)));
+        Assert.Equal((119.5d, true), SeekSettle.Show(119.5, pending, At.AddMilliseconds(400)));
+    }
+
+    [Fact]
+    public void APlayerThatNeverLandsIsBelievedAfterASecond() =>
+        Assert.Equal((30d, true), SeekSettle.Show(30, new PendingSeek(120, At), At.AddSeconds(1)));
+
+    [Fact]
+    public void WithoutASeekThePlayerIsShown() =>
+        Assert.Equal((42d, true), SeekSettle.Show(42, null, At));
+}

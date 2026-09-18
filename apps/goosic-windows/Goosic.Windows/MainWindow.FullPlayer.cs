@@ -40,7 +40,7 @@ public sealed partial class MainWindow : Window
             Model.IsScrubbing = false;
             if (_playback is not null && Model.IsSeekable)
             {
-                await _playback.SeekAsync(FullPlayerProgress.Value);
+                await SeekToAsync(FullPlayerProgress.Value);
             }
         };
         FullPlayerProgress.AddHandler(UIElement.PointerReleasedEvent, done, handledEventsToo: true);
@@ -248,7 +248,7 @@ public sealed partial class MainWindow : Window
         if (_playback is not null && Model.IsSeekable
             && FullPlayerLayout.KeySeek(key, Model.PlaybackPosition, Model.PlaybackDuration) is { } target)
         {
-            await _playback.SeekAsync(target);
+            await SeekToAsync(target);
         }
     }
 
@@ -274,7 +274,7 @@ public sealed partial class MainWindow : Window
     {
         if (sender is Button { Tag: long at } && at > 0 && _playback is not null && Model.IsSeekable)
         {
-            await _playback.SeekAsync(at / 1000.0);
+            await SeekToAsync(at / 1000.0);
         }
     }
 

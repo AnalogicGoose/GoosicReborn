@@ -132,6 +132,7 @@ public sealed partial class ShellViewModel
             // Previous would read it as "past the first seconds" and restart the new song.
             PlaybackPosition = 0;
             PlaybackDuration = 0;
+            _pendingSeek = null;
         }
 
         if (_current is not null)

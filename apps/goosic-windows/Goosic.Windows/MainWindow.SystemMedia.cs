@@ -53,7 +53,7 @@ public sealed partial class MainWindow : Window
         {
             if (Model.IsSeekable)
             {
-                _ = _playback?.SeekAsync(Math.Clamp(seconds, 0, Model.PlaybackDuration));
+                _ = SeekToAsync(Math.Clamp(seconds, 0, Model.PlaybackDuration));
             }
         };
         Model.NowPlayingChanged += async track =>

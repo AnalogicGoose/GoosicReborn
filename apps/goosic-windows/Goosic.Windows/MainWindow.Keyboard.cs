@@ -97,7 +97,7 @@ public sealed partial class MainWindow : Window
         if (_playback is not null
             && ShellKeyboard.SeekTarget(Model.PlaybackPosition, Model.PlaybackDuration, seconds, Model.IsSeekable) is { } target)
         {
-            await _playback.SeekAsync(target);
+            await SeekToAsync(target);
         }
     }
 

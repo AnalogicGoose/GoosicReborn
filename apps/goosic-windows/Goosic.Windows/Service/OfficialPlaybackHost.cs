@@ -907,7 +907,10 @@ internal sealed class OfficialPlaybackHost
     /// <summary>Restores the chosen volume when a report shows the page has moved away from it.</summary>
     private void KeepPreferredVolume(BridgeEvent sample)
     {
-        if (_preferredVolume is not { } volume
+        // An advertisement's volume is left to the page, as on macOS: the listener's level is put
+        // back once the track itself is playing.
+        if (sample.IsAdvertisement
+            || _preferredVolume is not { } volume
             || (Math.Abs(sample.Volume - volume) < 0.02 && sample.Muted == _preferredMuted)
             || DateTime.UtcNow - _lastVolumeFix < TimeSpan.FromMilliseconds(900))
         {
