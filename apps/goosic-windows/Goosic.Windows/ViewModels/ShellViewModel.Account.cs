@@ -627,6 +627,7 @@ public sealed partial class ShellViewModel
         }
 
         NextCursor = page.NextCursor;
+        AllTracksId = page.AllTracksId;
         SetPageTruncated(page.Truncated);
     }
 

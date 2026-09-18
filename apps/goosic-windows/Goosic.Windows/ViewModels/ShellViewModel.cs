@@ -1077,6 +1077,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             Shelves.Clear();
             Tracks.Clear();
             NextCursor = null;
+            AllTracksId = null;
             ForgetPersonalPage();
             PageTitle = "Downloads";
             PageSubtitle = "Tracks saved by a previous Goosic";
@@ -1121,6 +1122,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
+        AllTracksId = null;
         ForgetPersonalPage();
         Status = "";
         PageState = PageState.Loading;
@@ -1155,6 +1157,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 : page.Subtitle;
 
             NextCursor = page.NextCursor;
+            AllTracksId = page.AllTracksId;
             foreach (var track in page.Tracks)
             {
                 var row = new TrackViewModel(track);
@@ -1261,6 +1264,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
+        AllTracksId = null;
         ForgetPersonalPage();
         Status = "";
         PageState = PageState.Loading;
@@ -1295,6 +1299,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             }
 
             NextCursor = page.NextCursor;
+            AllTracksId = page.AllTracksId;
             foreach (var track in page.Tracks)
             {
                 var row = new TrackViewModel(track);
@@ -1352,6 +1357,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
+        AllTracksId = null;
         ForgetPersonalPage();
         MarkSearchPage(trimmed);
         PageKind = DetailKind.Search;
@@ -1375,6 +1381,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             }
 
             NextCursor = page.NextCursor;
+            AllTracksId = page.AllTracksId;
             foreach (var track in page.Tracks)
             {
                 var row = new TrackViewModel(track);

@@ -367,6 +367,9 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <!-- An artist lists its top few songs; YouTube Music keeps the rest behind Show all. -->
+                        <Button Content="Show all" CornerRadius="16" Padding="16,6"
+                                Visibility="{x:Bind Model.HasAllTracks, Mode=OneWay}" Click="OnShowAllTracks" />
 
                         <ItemsControl ItemsSource="{x:Bind Model.Shelves, Mode=OneWay}">
                             <ItemsControl.ItemTemplate>

@@ -55,6 +55,9 @@ internal sealed record CatalogPage
     /// <summary>The opaque cursor for the next page, echoed only to <c>catalog.continue</c>.</summary>
     [JsonPropertyName("nextCursor")] public string? NextCursor { get; init; }
 
+    /// <summary>The playlist behind "Show all" when <see cref="Tracks"/> is only the first few, as on an artist.</summary>
+    [JsonPropertyName("allTracksId")] public string? AllTracksId { get; init; }
+
     /// <summary>
     /// Whether the service had to cut this page short.
     /// </summary>

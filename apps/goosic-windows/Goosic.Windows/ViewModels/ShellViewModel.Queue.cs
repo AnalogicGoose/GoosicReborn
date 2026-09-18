@@ -109,6 +109,23 @@ public sealed partial class ShellViewModel
 
     public bool HasMore => !string.IsNullOrEmpty(_nextCursor);
 
+    /// <summary>The playlist holding every song when the page shows only its top few, as an artist does.</summary>
+    internal string? AllTracksId
+    {
+        get => _allTracksId;
+        private set
+        {
+            if (Set(ref _allTracksId, string.IsNullOrEmpty(value) ? null : value))
+            {
+                OnPropertyChanged(nameof(HasAllTracks));
+            }
+        }
+    }
+
+    private string? _allTracksId;
+
+    public bool HasAllTracks => _allTracksId is not null;
+
     public bool HasTracks => Tracks.Count > 0;
 
     public bool HasQueue => Queue.Count > 0;

@@ -71,6 +71,19 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>Opens every song behind an artist's top few, as a playlist.</summary>
+    private async void OnShowAllTracks(object sender, RoutedEventArgs e)
+    {
+        if (Model.AllTracksId is not { } id)
+        {
+            return;
+        }
+
+        await Model.OpenEntityAsync("playlist", id, $"{Model.PageTitle}: songs");
+        ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        UpdateBackButton();
+    }
+
     private void UpdateBackButton() =>
         BackButton.Visibility = Model.CanGoBack ? Visibility.Visible : Visibility.Collapsed;
 
