@@ -415,6 +415,25 @@ final class OfficialPlaybackHost: NSObject {
         }
     }
 
+    /// Runs `OfficialBridge.automixOffScript` until the page answers, for this load only, so a
+    /// track plays to its end instead of fading into one YouTube Music chose.
+    func turnOffAutomix(token: String?, attempt: Int = 0) {
+        guard let webView, let token, token == expectedToken,
+              attempt < OfficialBridge.automixAttempts else { return }
+        webView.evaluateJavaScript(OfficialBridge.automixOffScript) { [weak self] value, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let answer = value as? String ?? "absent"
+                guard answer == "absent" else {
+                    Diagnostics.note(.officialPlayback, "automix", ["result": answer])
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.turnOffAutomix(token: token, attempt: attempt + 1)
+            }
+        }
+    }
+
     private func handleMessage(_ message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame else { return }
         let origin = message.frameInfo.securityOrigin
@@ -524,6 +543,7 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
                 "origin": Diagnostics.origin(of: webView.url),
             ])
             self?.probePage()
+            self?.turnOffAutomix(token: self?.expectedToken)
         }
     }
 
