@@ -132,6 +132,12 @@ struct NativeMacCatalogPage: SwiftUI.View {
                     NativeMacTrackList(tracks: page.tracks, model: model)
                         .padding(.leading, leadingInset + 24)
                         .padding(.trailing, 24)
+                    if let allTracksID = page.allTracksID {
+                        SwiftUI.Button("Show all") { model.show(.playlist(allTracksID)) }
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .padding(.leading, leadingInset + 24)
+                    }
                 }
                 SwiftUI.ForEach(page.shelves) { shelf in
                     NativeMacShelf(shelf: shelf, model: model, presentation: .preferred(for: key, shelf: shelf))
