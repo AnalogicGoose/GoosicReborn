@@ -193,10 +193,12 @@ public sealed partial class ShellViewModel
 
     public bool HasUpNext => QueueLayout.UpNext(Queue, NowPlayingEntry).Count > 0;
 
-    public bool HasNoUpNext => HasQueue && !HasUpNext;
+    /// <summary>Nothing follows, and nothing is on its way either.</summary>
+    public bool HasNoUpNext => HasQueue && !HasUpNext && _stationLoad is null;
 
     public string UpNextSummary => QueueLayout.UpNext(Queue, NowPlayingEntry).Count switch
     {
+        0 when _stationLoad is not null => "Finding songs like this…",
         0 => "Nothing after this",
         1 => "1 track",
         var count => $"{count} tracks",
@@ -673,6 +675,7 @@ public sealed partial class ShellViewModel
 
         var load = LoadStationPageAsync(station, _stationRevision);
         _stationLoad = load;
+        QueueChanged();
         try
         {
             return await load.ConfigureAwait(true);
@@ -682,6 +685,7 @@ public sealed partial class ShellViewModel
             if (ReferenceEquals(_stationLoad, load))
             {
                 _stationLoad = null;
+                QueueChanged();
             }
         }
     }

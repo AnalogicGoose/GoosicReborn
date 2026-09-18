@@ -105,12 +105,13 @@
     </Style>
 
     <!-- The round button at the top left that shows and hides the sidebar. -->
+    <!-- A small flat square, like the macOS sidebar button: no disc sitting over the panel's edge. -->
     <Style x:Key="SidebarToggleStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
-        <Setter Property="Width" Value="44" />
-        <Setter Property="Height" Value="44" />
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="30" />
         <Setter Property="FontSize" Value="15" />
-        <Setter Property="CornerRadius" Value="22" />
-        <Setter Property="Background" Value="{ThemeResource GoosicRaisedBrush}" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Background" Value="Transparent" />
     </Style>
 
     <!-- ===== The floating player pill ===== -->

@@ -488,19 +488,18 @@
                                           ToolTipService.ToolTip="{x:Bind Model.ShuffleLabel, Mode=OneWay}"
                                           AutomationProperties.Name="Shuffle" Click="OnShuffle" />
                             <Button x:Name="PreviousButton" Style="{StaticResource PillGlyphStyle}" FontSize="18"
-                                    Content="&#xEB9E;" ToolTipService.ToolTip="Previous"
+                                    ToolTipService.ToolTip="Previous"
                                     IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}"
-                                    AutomationProperties.Name="Previous" Click="OnPrevious" />
+                                    AutomationProperties.Name="Previous" Click="OnPrevious" ><Viewbox Width="18" Height="18"><PathIcon Width="24" Height="24" Data="M21,5.6 L12.6,12 L21,18.4 Z M12,5.6 L3.6,12 L12,18.4 Z" /></Viewbox></Button>
                             <Button x:Name="PlayButton" Style="{StaticResource PillGlyphStyle}" FontSize="24" Width="46"
-                                    Content="{x:Bind Model.PlayPauseGlyph, Mode=OneWay}"
                                     IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
                                     AutomationProperties.Name="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
-                                    Click="OnPlayPause" />
+                                    Click="OnPlayPause" ><Grid><Viewbox Width="24" Height="24" Visibility="{x:Bind Model.PlayIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.5,4.6 C7.5,3.9 8.2,3.5 8.8,3.9 L19.6,11.2 C20.1,11.6 20.1,12.4 19.6,12.8 L8.8,20.1 C8.2,20.5 7.5,20.1 7.5,19.4 Z" /></Viewbox><Viewbox Width="24" Height="24" Visibility="{x:Bind Model.PauseIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.2,4 H8.8 A1.2,1.2 0 0 1 10,5.2 V18.8 A1.2,1.2 0 0 1 8.8,20 H7.2 A1.2,1.2 0 0 1 6,18.8 V5.2 A1.2,1.2 0 0 1 7.2,4 Z M15.2,4 H16.8 A1.2,1.2 0 0 1 18,5.2 V18.8 A1.2,1.2 0 0 1 16.8,20 H15.2 A1.2,1.2 0 0 1 14,18.8 V5.2 A1.2,1.2 0 0 1 15.2,4 Z" /></Viewbox></Grid></Button>
                             <Button x:Name="NextButton" Style="{StaticResource PillGlyphStyle}" FontSize="18"
-                                    Content="&#xEB9D;" ToolTipService.ToolTip="Next"
+                                    ToolTipService.ToolTip="Next"
                                     IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}"
-                                    AutomationProperties.Name="Next" Click="OnNext" />
+                                    AutomationProperties.Name="Next" Click="OnNext" ><Viewbox Width="18" Height="18"><PathIcon Width="24" Height="24" Data="M3,5.6 L11.4,12 L3,18.4 Z M12,5.6 L20.4,12 L12,18.4 Z" /></Viewbox></Button>
                             <ToggleButton x:Name="RepeatButton" Style="{StaticResource PillToggleStyle}"
                                           Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
                                           IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
@@ -1046,7 +1045,7 @@
         -->
         <Border x:Name="TitleBarStrip" Height="46" VerticalAlignment="Top" Margin="60,0,0,0"
                 Background="Transparent" />
-        <Button x:Name="SidebarToggle" Style="{StaticResource SidebarToggleStyle}" Content="&#xE700;"
+        <Button x:Name="SidebarToggle" Style="{StaticResource SidebarToggleStyle}" Content="&#xE8A0;"
                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,7,0,0"
                 ToolTipService.ToolTip="Show or hide the sidebar (Ctrl+B)"
                 AutomationProperties.Name="Show or hide sidebar" Click="OnToggleSidebar" />
@@ -1075,7 +1074,9 @@
                  rather than to its palette alone. Skipped when Windows has transparency turned off. -->
             <Image x:Name="FullPlayerBlur" Stretch="UniformToFill" Opacity="0.5" Visibility="Collapsed"
                    IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw" />
-            <Rectangle Fill="#000000" Opacity="0.35" IsHitTestVisible="False" />
+            <!-- Blurs everything beneath it, so the moving colours read as a wash, as on macOS. -->
+            <Grid x:Name="FullPlayerBlurHost" IsHitTestVisible="False" />
+            <Rectangle Fill="#000000" Opacity="0.45" IsHitTestVisible="False" />
 
             <!-- Split: cover beside lyrics. On a narrow window the lyrics toggle chooses between the
                  cover and the lyrics, and the controls stay at the bottom either way. -->
@@ -1135,17 +1136,16 @@
                                       IsChecked="{x:Bind Model.IsShuffled, Mode=OneWay}"
                                       AutomationProperties.Name="Shuffle"
                                       ToolTipService.ToolTip="{x:Bind Model.ShuffleLabel, Mode=OneWay}" Click="OnShuffle" />
-                        <Button Grid.Column="1" Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xEB9E;"
+                        <Button Grid.Column="1" Style="{StaticResource FullPlayerGlyphStyle}"
                                 FontSize="24" ToolTipService.ToolTip="Previous" AutomationProperties.Name="Previous"
-                                IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}" Click="OnPrevious" />
+                                IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}" Click="OnPrevious" ><Viewbox Width="26" Height="26"><PathIcon Width="24" Height="24" Data="M21,5.6 L12.6,12 L21,18.4 Z M12,5.6 L3.6,12 L12,18.4 Z" /></Viewbox></Button>
                         <Button x:Name="FullPlayerPlayButton" Grid.Column="2" Style="{StaticResource FullPlayerGlyphStyle}"
                                 FontSize="36" Width="64" Height="64"
-                                Content="{x:Bind Model.PlayPauseGlyph, Mode=OneWay}"
                                 AutomationProperties.Name="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
-                                ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}" Click="OnPlayPause" />
-                        <Button Grid.Column="3" Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xEB9D;"
+                                ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}" Click="OnPlayPause" ><Grid><Viewbox Width="34" Height="34" Visibility="{x:Bind Model.PlayIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.5,4.6 C7.5,3.9 8.2,3.5 8.8,3.9 L19.6,11.2 C20.1,11.6 20.1,12.4 19.6,12.8 L8.8,20.1 C8.2,20.5 7.5,20.1 7.5,19.4 Z" /></Viewbox><Viewbox Width="34" Height="34" Visibility="{x:Bind Model.PauseIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.2,4 H8.8 A1.2,1.2 0 0 1 10,5.2 V18.8 A1.2,1.2 0 0 1 8.8,20 H7.2 A1.2,1.2 0 0 1 6,18.8 V5.2 A1.2,1.2 0 0 1 7.2,4 Z M15.2,4 H16.8 A1.2,1.2 0 0 1 18,5.2 V18.8 A1.2,1.2 0 0 1 16.8,20 H15.2 A1.2,1.2 0 0 1 14,18.8 V5.2 A1.2,1.2 0 0 1 15.2,4 Z" /></Viewbox></Grid></Button>
+                        <Button Grid.Column="3" Style="{StaticResource FullPlayerGlyphStyle}"
                                 FontSize="24" ToolTipService.ToolTip="Next" AutomationProperties.Name="Next"
-                                IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}" Click="OnNext" />
+                                IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}" Click="OnNext" ><Viewbox Width="26" Height="26"><PathIcon Width="24" Height="24" Data="M3,5.6 L11.4,12 L3,18.4 Z M12,5.6 L20.4,12 L12,18.4 Z" /></Viewbox></Button>
                         <ToggleButton Grid.Column="4" Style="{StaticResource FullPlayerToggleStyle}"
                                       Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
                                       IsChecked="{x:Bind Model.IsRepeating, Mode=OneWay}"

@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private void WireFullPlayer()
     {
         FullPlayerBackdrop.Children.Add(_fullPlayerMesh);
+        WireFullPlayerBlur();
         FullPlayerProgress.AddHandler(UIElement.PointerPressedEvent,
             new PointerEventHandler((_, _) => { _fullPlayerSeeking = true; Model.IsScrubbing = true; }), handledEventsToo: true);
         PointerEventHandler done = async (_, _) =>
@@ -57,6 +58,42 @@ public sealed partial class MainWindow : Window
                 UpdateBackdrop();
             }
         };
+    }
+
+    /// <summary>
+    /// Blurs everything drawn beneath <c>FullPlayerBlurHost</c>: the moving colours and the cover.
+    /// </summary>
+    /// <remarks>
+    /// The mesh is drawn as soft-edged blocks, and without a blur over it they read as blocks, not
+    /// as the wash of colour the macOS player shows. A backdrop blur keeps the mesh moving while it
+    /// is blurred, which a pre-rendered image could not.
+    /// </remarks>
+    private void WireFullPlayerBlur()
+    {
+        try
+        {
+            var compositor = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview
+                .GetElementVisual(FullPlayerBlurHost).Compositor;
+            var blur = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
+            {
+                Name = "Blur",
+                BlurAmount = 60f,
+                BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Hard,
+                Optimization = Microsoft.Graphics.Canvas.Effects.EffectOptimization.Balanced,
+                Source = new Microsoft.UI.Composition.CompositionEffectSourceParameter("Backdrop"),
+            };
+            var brush = compositor.CreateEffectFactory(blur).CreateBrush();
+            brush.SetSourceParameter("Backdrop", compositor.CreateBackdropBrush());
+            var visual = compositor.CreateSpriteVisual();
+            visual.Brush = brush;
+            visual.RelativeSizeAdjustment = System.Numerics.Vector2.One;
+            Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetElementChildVisual(FullPlayerBlurHost, visual);
+        }
+        catch (Exception error)
+        {
+            // Without the blur the player still works; it only looks as it did before.
+            BridgeLog.Write($"full-screen blur unavailable: {error.GetType().Name}");
+        }
     }
 
     /// <summary>Loads the cover at full size and samples its colours for both backgrounds.</summary>

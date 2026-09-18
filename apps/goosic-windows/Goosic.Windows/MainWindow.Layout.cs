@@ -94,7 +94,8 @@ public sealed partial class MainWindow : Window
         ContentStack.Padding = new Thickness(left, 56, right, compact ? 174 : 138);
         PlayerPill.Margin = new Thickness(LeftInset + 16, 0, RightInset + 16, 14);
         ToastHost.Margin = new Thickness(LeftInset + 16, 0, RightInset + 16, PlayerPill.Height + 26);
-        SidePanel.Margin = new Thickness(8, 48, 8, compact ? 138 : 94);
+        // Full height, as on macOS: the player pill sits beside the panel rather than under it.
+        SidePanel.Margin = new Thickness(8, 48, 8, 8);
         BackButton.Margin = new Thickness(56, 7, 0, 0);
         foreach (var carousel in _carousels)
         {

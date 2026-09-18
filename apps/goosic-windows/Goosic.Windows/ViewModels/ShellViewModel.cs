@@ -727,6 +727,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (Set(ref _isPlaying, value))
             {
                 OnPropertyChanged(nameof(PlayPauseGlyph));
+                OnPropertyChanged(nameof(PlayIconVisibility));
+                OnPropertyChanged(nameof(PauseIconVisibility));
                 OnPropertyChanged(nameof(PlayPauseLabel));
             }
         }
@@ -734,6 +736,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     /// <summary>Segoe Fluent Icons: Pause while playing, Play otherwise.</summary>
     public string PlayPauseGlyph => IsPlaying ? "\uE769" : "\uE768";
+
+    public Microsoft.UI.Xaml.Visibility PlayIconVisibility =>
+        IsPlaying ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+
+    public Microsoft.UI.Xaml.Visibility PauseIconVisibility =>
+        IsPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public string PlayPauseLabel => IsPlaying ? "Pause" : "Play";
 
