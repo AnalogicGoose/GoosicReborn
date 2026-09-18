@@ -72,6 +72,8 @@ struct CatalogPageView: Hashable {
     let shelves: [GoosicShelf]
     let tracks: [GoosicTrack]
     let nextCursor: String?
+    /// The playlist behind "Show all" when `tracks` is only the first few of a longer list.
+    let allTracksID: String?
     /// The service clamped this page to fit one protocol frame.
     let truncated: Bool
 
@@ -158,6 +160,7 @@ extension CatalogPageView {
             shelves: shelves,
             tracks: (page.tracks ?? []).compactMap(GoosicTrack.init(catalog:)),
             nextCursor: page.nextCursor,
+            allTracksID: page.allTracksId.flatMap { $0.isEmpty ? nil : $0 },
             truncated: page.truncated ?? false
         )
     }
@@ -185,6 +188,7 @@ extension CatalogPageView {
             shelves: mergedShelves,
             tracks: tracks + continuation.tracks,
             nextCursor: continuation.nextCursor,
+            allTracksID: allTracksID,
             truncated: truncated || continuation.truncated
         )
     }

@@ -109,6 +109,49 @@ internal sealed class OfficialPlaybackHost
     /// </summary>
     internal event Action<string>? PageMovedOn;
 
+    /// <summary>Raised with the requested id when the page replaced it without playing it.</summary>
+    internal event Action<string>? PageRefused;
+
+    /// <summary>
+    /// Asked, before the requested track was ever heard, whether the page's replacement is the same
+    /// song under another id. Given the requested id, the page's id and the page's title.
+    /// </summary>
+    internal Func<string, string, string, bool>? IsSubstitute;
+
+    private string _lastState = "";
+
+    /// <summary>
+    /// Says so when YouTube Music paused the track to ask whether anyone is still listening.
+    /// </summary>
+    /// <remarks>
+    /// The prompt is the page's, and it is answered only by the listener pressing Play; this only
+    /// explains a pause nobody asked for.
+    /// </remarks>
+    private async Task NoticeIdlePromptAsync()
+    {
+        try
+        {
+            var shown = await _view.CoreWebView2.ExecuteScriptAsync("""
+                (() => {
+                  const prompt = document.querySelector('ytmusic-you-there-renderer');
+                  return !!prompt && prompt.offsetParent !== null;
+                })()
+                """);
+            if (shown == "true")
+            {
+                BridgeLog.Write("the page paused to ask whether anyone is still listening");
+                Status?.Invoke("YouTube Music paused to check you’re still listening. Press Play to continue.");
+            }
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"idle prompt check failed: {error.GetType().Name}");
+        }
+    }
+
+    /// <summary>Whether the requested track has been heard playing under this load.</summary>
+    private bool _heardRequested;
+
     private int _strayReports;
 
     /// <summary>The volume and mute the listener last chose, or null before they chose one.</summary>
@@ -224,6 +267,8 @@ internal sealed class OfficialPlaybackHost
         _lastSequence = 0;
         _strayReports = 0;
         _movedOnHandled = false;
+        _heardRequested = false;
+        _lastState = "";
 
         BridgeLog.Write($"lease claimed generation={_generation}; preparing WebView2");
         await EnsureReadyAsync().ConfigureAwait(true);
@@ -341,6 +386,7 @@ internal sealed class OfficialPlaybackHost
 
             await ProbePageAsync(core);
             await InstallObserverAsync(core);
+            await KeepAutomixOffAsync(core);
         };
 
         // Only the official host may run in here. A navigation anywhere else is cancelled rather
@@ -432,6 +478,51 @@ internal sealed class OfficialPlaybackHost
         }
     }
 
+    /// <summary>
+    /// Turns off the page's Automix, so a track plays to its end.
+    /// </summary>
+    /// <remarks>
+    /// With Automix on, YouTube Music fades into a track of its own choosing some seconds before
+    /// the requested one ends. The observer then sees another video, the page is paused, and the
+    /// queue moves on -- having cut the song's last seconds. With it off the page plays the track
+    /// through and reports its end, and Goosic's queue decides what follows, as it should. The
+    /// switch sits in the page's Up Next tab, which renders after the player, so it is looked for
+    /// for a while rather than once. This is the renderer's own page, in Goosic's own profile.
+    /// </remarks>
+    private async Task KeepAutomixOffAsync(CoreWebView2 core)
+    {
+        var token = _token;
+        for (var attempt = 0; attempt < 40 && token == _token; attempt++)
+        {
+            string outcome;
+            try
+            {
+                outcome = await core.ExecuteScriptAsync("""
+                    (() => {
+                      const toggle = document.getElementById('automix');
+                      if (!toggle || typeof toggle.checked !== 'boolean') return 'absent';
+                      if (!toggle.checked) return 'off';
+                      toggle.click();
+                      return toggle.checked ? 'still on' : 'turned off';
+                    })()
+                    """);
+            }
+            catch (Exception error)
+            {
+                BridgeLog.Write($"automix check failed: {error.GetType().Name}");
+                return;
+            }
+
+            if (outcome != "\"absent\"")
+            {
+                BridgeLog.Write($"automix {outcome}");
+                return;
+            }
+
+            await Task.Delay(500);
+        }
+    }
+
     /// <summary>The narrowly adapted message port that the shared WebKit observer requires.</summary>
     private static string WebView2BridgeShimScript()
     {
@@ -482,7 +573,14 @@ internal sealed class OfficialPlaybackHost
                 (() => {
                   const media = document.querySelector('audio,video');
                   if (!media) return 'no-media';
-                  if (media.paused) { void media.play(); return 'play-requested'; }
+                  if (media.paused) {
+                    // A resume the listener asked for also answers YouTube Music's
+                    // "still listening?" prompt, which otherwise pauses the track again.
+                    const prompt = document.querySelector('ytmusic-you-there-renderer');
+                    prompt?.querySelector('button, yt-button-renderer, tp-yt-paper-button')?.click();
+                    void media.play();
+                    return 'play-requested';
+                  }
                   media.pause(); return 'pause-requested';
                 })();
                 """);
@@ -551,11 +649,13 @@ internal sealed class OfficialPlaybackHost
     /// Makes the next page start at the chosen volume instead of correcting it once it is playing.
     /// </summary>
     /// <remarks>
-    /// Correcting after the first report left each new track loud for a moment -- often at 100 --
-    /// before it dropped to the listener's level. Before the next document exists, this writes the
-    /// level into the player's own saved-volume entry, which it reads when it starts, and sets it
-    /// on every media element as it begins loading, so the first sound is already at that level.
-    /// It touches volume only; nothing about what plays, or any advertisement, is changed.
+    /// Correcting after the first report left each new track at 100 for about a second before it
+    /// dropped to the listener's level. Setting the level once as a media element loaded was not
+    /// enough either: the player applies its own volume afterwards. This is the macOS shell's
+    /// <c>OfficialVolumeBootstrap</c>: installed before the document runs, it holds every media
+    /// element's volume and mute setters and its <c>play</c> to the listener's level, so whatever
+    /// the page sets, the first sound is already at that level. The host changes the level through
+    /// <c>window.goosicSetVolumePreference</c>. An advertisement's volume is left to the page.
     /// </remarks>
     private async Task PrimeVolumeAsync(CoreWebView2 core)
     {
@@ -576,23 +676,57 @@ internal sealed class OfficialPlaybackHost
         {
             _volumePrimerId = await core.AddScriptToExecuteOnDocumentCreatedAsync($$"""
                 (() => {
-                  const level = {{level}}, muted = {{muted}};
                   if (location.hostname !== 'music.youtube.com') return;
+                  let preferred = {{level}}, intendedMute = {{muted}};
+                  // The player's own saved level, so its first choice is already the right one.
                   try {
                     const now = Date.now();
-                    const data = JSON.stringify({ volume: Math.round(level * 100), muted });
+                    const data = JSON.stringify({ volume: Math.round(preferred * 100), muted: intendedMute });
                     localStorage.setItem('yt-player-volume', JSON.stringify({ data, expiration: now + 2592000000, creation: now }));
                     sessionStorage.setItem('yt-player-volume', JSON.stringify({ data, creation: now }));
                   } catch (_) {}
-                  const apply = (event) => {
-                    const media = event.target;
-                    if (!(media instanceof HTMLMediaElement) || window.__goosicVolumePrimed === media) return;
-                    window.__goosicVolumePrimed = media;
-                    media.volume = level;
-                    media.muted = muted;
+                  const proto = HTMLMediaElement.prototype;
+                  const volume = Object.getOwnPropertyDescriptor(proto, 'volume');
+                  const muted = Object.getOwnPropertyDescriptor(proto, 'muted');
+                  const originalPlay = proto.play;
+                  const advertisement = () => !!document.querySelector('.ad-showing, .ad-interrupting');
+                  function apply(media) {
+                    if (advertisement()) return;
+                    if (volume.get.call(media) === preferred && muted.get.call(media) === intendedMute) return;
+                    muted.set.call(media, true);
+                    volume.set.call(media, preferred);
+                    muted.set.call(media, intendedMute);
+                  }
+                  Object.defineProperty(proto, 'volume', {
+                    ...volume,
+                    set(value) {
+                      if (advertisement()) { volume.set.call(this, value); return; }
+                      apply(this);
+                    }
+                  });
+                  Object.defineProperty(proto, 'muted', {
+                    ...muted,
+                    set(value) {
+                      if (advertisement()) { muted.set.call(this, value); return; }
+                      apply(this);
+                    }
+                  });
+                  proto.play = function(...args) { apply(this); return originalPlay.apply(this, args); };
+                  const applyAll = () => document.querySelectorAll('video, audio').forEach(apply);
+                  window.goosicSetVolumePreference = (value, mute) => {
+                    if (Number.isFinite(value)) preferred = Math.min(1, Math.max(0, value));
+                    if (typeof mute === 'boolean') intendedMute = mute;
+                    if (!advertisement()) applyAll();
                   };
-                  document.addEventListener('loadstart', apply, true);
-                  document.addEventListener('loadedmetadata', apply, true);
+                  for (const name of ['loadstart', 'loadedmetadata', 'play', 'volumechange']) {
+                    document.addEventListener(name, (event) => {
+                      if (event.target instanceof HTMLMediaElement) apply(event.target);
+                    }, true);
+                  }
+                  new MutationObserver(applyAll).observe(document, {
+                    subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'src']
+                  });
+                  applyAll();
                 })();
                 """);
         }
@@ -629,6 +763,11 @@ internal sealed class OfficialPlaybackHost
             await _view.CoreWebView2.ExecuteScriptAsync($$"""
                 (() => {
                   const level = {{level}}, muted = {{muted}};
+                  // The primer holds the media element to its preference; tell it the new one
+                  // first, or it would put the old level straight back.
+                  if (typeof window.goosicSetVolumePreference === 'function') {
+                    window.goosicSetVolumePreference(level, muted);
+                  }
                   const player = document.getElementById('movie_player');
                   if (player && typeof player.setVolume === 'function') {
                     player.setVolume(Math.round(level * 100));
@@ -693,9 +832,20 @@ internal sealed class OfficialPlaybackHost
         }
 
         _strayReports = 0;
+        if (verdict.Event is { State: "playing", Duration: > 0, IsAdvertisement: false })
+        {
+            _heardRequested = true;
+        }
+
+        if (verdict.Event.State == "paused" && _lastState == "playing")
+        {
+            _ = NoticeIdlePromptAsync();
+        }
+
+        _lastState = verdict.Event.State;
 
         BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
-            + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement}");
+            + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement} vol={verdict.Event.Volume:F2}");
         _lastSequence = verdict.Event.Sequence;
         _lastMuted = verdict.Event.Muted;
         KeepPreferredVolume(verdict.Event);
@@ -733,6 +883,57 @@ internal sealed class OfficialPlaybackHost
         }
 
         _movedOnHandled = true;
+        if (!_heardRequested)
+        {
+            // Nothing of the requested track has played, so this cannot be its end. It is either
+            // the same song under another id, or the page giving up on an unplayable one.
+            _ = ResolveEarlySwitchAsync(_videoId, described);
+            return;
+        }
+
+        StopMovedOnPage();
+    }
+
+    private async Task ResolveEarlySwitchAsync(string requested, string described)
+    {
+        var title = "";
+        try
+        {
+            var raw = await _view.CoreWebView2.ExecuteScriptAsync("""
+                (() => {
+                  const data = document.getElementById('movie_player')?.getVideoData?.();
+                  return data && data.video_id ? String(data.title || '') : '';
+                })();
+                """);
+            title = JsonSerializer.Deserialize<string>(raw) ?? "";
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"could not read the page's title: {error.GetType().Name}");
+        }
+
+        // The page may have been replaced while the title was read.
+        if (requested != _videoId)
+        {
+            return;
+        }
+
+        if (IsSubstitute?.Invoke(requested, described, title) == true)
+        {
+            BridgeLog.Write("the page swapped the requested song for another version of it; keeping it");
+            _videoId = described;
+            _strayReports = 0;
+            _movedOnHandled = false;
+            return;
+        }
+
+        BridgeLog.Write($"the page replaced a track that never played with {described} (\"{title}\"); treating it as unplayable");
+        PageRefused?.Invoke(requested);
+        StopMovedOnPage();
+    }
+
+    private void StopMovedOnPage()
+    {
         BridgeLog.Write("the page moved on to its own track; pausing it and advancing the queue");
         _ = _view.CoreWebView2?.ExecuteScriptAsync("""
             (() => {
@@ -747,7 +948,10 @@ internal sealed class OfficialPlaybackHost
     /// <summary>Restores the chosen volume when a report shows the page has moved away from it.</summary>
     private void KeepPreferredVolume(BridgeEvent sample)
     {
-        if (_preferredVolume is not { } volume
+        // An advertisement's volume is left to the page, as on macOS: the listener's level is put
+        // back once the track itself is playing.
+        if (sample.IsAdvertisement
+            || _preferredVolume is not { } volume
             || (Math.Abs(sample.Volume - volume) < 0.02 && sample.Muted == _preferredMuted)
             || DateTime.UtcNow - _lastVolumeFix < TimeSpan.FromMilliseconds(900))
         {

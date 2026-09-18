@@ -26,7 +26,14 @@ is a separate toggle / F11 inside it) over a moving mesh of the cover's colours.
 
 | File | Owns |
 | --- | --- |
-| `MainWindow.xaml(.cs)` | All views, navigation, menus, keyboard, pill, full-screen player, insets |
+| `MainWindow.xaml` | All views |
+| `MainWindow.xaml.cs` | Construction, service wiring, shell-support check |
+| `MainWindow.Navigation.cs` / `.Layout.cs` | Routes, back, search; breakpoints, insets, carousels, minimum size |
+| `MainWindow.Player.cs` / `.FullPlayer.cs` | Pill, transport, seeking, volume; full-screen player |
+| `MainWindow.SidePanel.cs` | Queue and lyrics panel |
+| `MainWindow.Menus.cs` / `.Dialogs.cs` / `.Account.cs` | Context menus; confirm and prompt dialogs; account and playlist actions |
+| `MainWindow.Keyboard.cs` / `.SystemMedia.cs` | Accelerators; SMTC wiring |
+| `Presentation/` | UI-free rules the partials apply: breakpoints and insets, which side panel is open and where focus returns, key bindings and seek/volume arithmetic |
 | `ViewModels/ShellViewModel.cs` | Pages (route / search / entity), history, now-playing state, lyrics |
 | `ViewModels/ShellViewModel.Queue.cs` | Queue, shuffle, repeat, radio, entity play, continuations, links |
 | `ViewModels/ShellViewModel.Account.cs` | Accounts, personal pages, likes, playlists edits |
@@ -58,17 +65,17 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Videos / podcasts / episodes filters | Yes | ❌ |
 | Infinite scroll | Automatic | ✅ loads more near the end; "Load more" remains as fallback |
 | Shelf "More" (open full shelf) | Yes | ❌ shelf browse endpoints not in the protocol |
-| Album page | Tracks, play, shuffle, save | 🟡 no "save album to library" (needs audio-playlist id) |
+| Album page | Tracks, play, shuffle, save | 🟡 numbered rows, cover from the opening card, song count and length; no "save album to library" (needs audio-playlist id) |
 | Playlist page | Tracks, edit, reorder, description | 🟡 rename/privacy/delete/remove ✅; reorder ❌; description ❌ |
 | Artist page | Shelves, subscribe, shuffle, radio | 🟡 shelves + subscribe ✅; artist shuffle/radio buttons ❌ |
 | Library | Playlists/Songs/Albums/Artists/Subscriptions, sort | ✅ sections; sort ❌; Uploads ❌ |
 | Liked songs, History | Yes | ✅; remove from history ❌ |
 | Play, pause, seek, next, previous | Yes | ✅; previous restarts after 3 s |
 | Shuffle, repeat off/all/one | Yes | ✅ persisted in settings |
-| Autoplay at queue end | Yes | ✅ radio from last track; page's own auto-advance intercepted |
-| Queue: view, play next, add, remove, clear | Yes | ✅ |
-| Queue reorder by drag | Yes | ✅ (ListView reorder; not hand-tested) |
-| Start radio | Yes | ✅ `catalog.radio`, extends itself |
+| Autoplay at queue end | Yes | ✅ appends recommendations after the queue (never replaces it), skipping queued and recently played songs; page's own auto-advance intercepted |
+| Queue: view, play next, add, remove, clear | Yes | ✅ Now playing / Up next split; Clear is immediate with Undo |
+| Queue reorder by drag | Yes | ✅ drag handle, or Alt+↑/↓ on a row (drag not hand-tested) |
+| Start radio | Yes | ✅ signed in: the account's own Up Next via `PersonalCatalog.js` `radio()`; guest: `catalog.radio`. A song card or search result starts a station; only albums, playlists and liked songs play in order (`Presentation/PlaybackOrder`) |
 | Like / dislike | Shows current state | 🟡 works, but only ratings set this session show — current like state is never read |
 | Save to playlist, new playlist | Yes | ✅ |
 | Go to artist / album, share link | Yes | ✅ copy link |
@@ -83,6 +90,20 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Downloads / offline | Mobile only | ❌ Downloads page is a placeholder; local-file host not built |
 | Video mode (song ↔ video) | Yes | ❌ player is a 1 px renderer by design |
 | Advertisements | Played | ✅ reported as markers, never skipped (invariant) |
+
+## Playback notes worth knowing
+
+- **Automix is switched off in the renderer.** With it on, YouTube Music fades into its own next
+  track some seconds before the requested one ends; the host saw another video, paused, and the
+  song lost its ending. `OfficialPlaybackHost.KeepAutomixOffAsync` turns the page's `#automix`
+  switch off after each load (bridge.log: `automix "turned off"`). It is behaviour every shell
+  wants, so the script belongs in `goosic-shell-support` beside the observer once that crate's FFI
+  question is settled.
+- **A track replaced before it played is not an end.** The host reads the page's title: the same
+  song under another id is kept, anything else is reported as refused, dimmed, and skipped for the
+  session. Unreleased tracks on pre-release albums arrive from the catalog with a video id and no
+  play count, and are the usual case.
+- **Advertisements freeze track changes, seeking and volume**, as on macOS.
 
 ## What is left, in priority order
 
@@ -111,6 +132,15 @@ dotnet build -c Debug
 $env:GOOSIC_SERVICE_PATH="C:\DEV\GoosicReborn\target\debug\goosic-service.exe"
 .\bin\Debug\net9.0-windows10.0.26100.0\win-x64\Goosic.Windows.exe
 ```
+
+Presentation tests compile `Presentation/*.cs` directly and need no display:
+
+```pwsh
+dotnet test apps\goosic-windows\Goosic.Windows.Tests
+```
+
+A rule that decides something belongs in `Presentation/`, where a test can reach it; the
+`MainWindow.*.cs` partials only apply its answer to controls.
 
 If the app is running, the exe is locked: build with `-p:OutDir=<another folder>\` or close it.
 Logs: `%LOCALAPPDATA%\Goosic\logs\bridge.log` (host and path only, never credentials).

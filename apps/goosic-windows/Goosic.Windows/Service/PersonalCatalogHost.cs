@@ -30,10 +30,17 @@ namespace Goosic.Windows.Service;
 /// long enough that paying it per request would make every library screen slow. It is muted: it
 /// is a reader, never a player.
 /// </para>
+/// <para>
+/// Between reads it costs as little as a loaded page can: it asks WebView2 for its low memory
+/// target, is suspended once nothing has been asked of it for a while, and is closed altogether
+/// after a longer quiet spell, to be loaded again by the next read.
+/// </para>
 /// </remarks>
 internal sealed class PersonalCatalogHost
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan SuspendAfter = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan CloseAfter = TimeSpan.FromMinutes(5);
     private static string? _program;
 
     private readonly Panel _container;
@@ -41,10 +48,22 @@ internal sealed class PersonalCatalogHost
     private string? _profileName;
     private TaskCompletionSource<CoreWebView2>? _page;
     private readonly Dictionary<string, Task<JsonNode?>> _inFlight = new();
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _suspendTimer;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _closeTimer;
+    private int _running;
 
     internal PersonalCatalogHost(Panel container)
     {
         _container = container;
+        var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _suspendTimer = queue.CreateTimer();
+        _suspendTimer.Interval = SuspendAfter;
+        _suspendTimer.IsRepeating = false;
+        _suspendTimer.Tick += async (_, _) => await SuspendAsync();
+        _closeTimer = queue.CreateTimer();
+        _closeTimer.Interval = CloseAfter;
+        _closeTimer.IsRepeating = false;
+        _closeTimer.Tick += (_, _) => CloseIdlePage();
     }
 
     internal bool IsSignedIn => _profileName is not null;
@@ -62,12 +81,9 @@ internal sealed class PersonalCatalogHost
         _page?.TrySetException(new InvalidOperationException("The active account changed while the library was loading."));
         _page = null;
         _inFlight.Clear();
-        if (_view is not null)
-        {
-            _container.Children.Remove(_view);
-            _view.Close();
-            _view = null;
-        }
+        _suspendTimer.Stop();
+        _closeTimer.Stop();
+        DropView();
 
         if (name is not null)
         {
@@ -129,13 +145,33 @@ internal sealed class PersonalCatalogHost
 
         var program = Program();
         var profile = _profileName;
-        var core = await WithTimeout(PageAsync());
+        _running++;
+        _suspendTimer.Stop();
+        _closeTimer.Stop();
+        string? json;
+        try
+        {
+            var core = await WithTimeout(PageAsync());
+            if (core.IsSuspended)
+            {
+                core.Resume();
+            }
 
-        // Arguments cross as one JSON literal, spread into the call, so no value is ever spliced
-        // into the program as source text.
-        var expression = "(async () => {\n" + program + "\nconst __args = " + arguments.ToJsonString()
-            + ";\nreturn await GoosicPersonalCatalog." + function + "(...__args);\n})()";
-        var json = await WithTimeout(WebProfiles.EvaluateAsync(core, expression));
+            // Arguments cross as one JSON literal, spread into the call, so no value is ever
+            // spliced into the program as source text.
+            var expression = "(async () => {\n" + program + "\nconst __args = " + arguments.ToJsonString()
+                + ";\nreturn await GoosicPersonalCatalog." + function + "(...__args);\n})()";
+            json = await WithTimeout(WebProfiles.EvaluateAsync(core, expression));
+        }
+        finally
+        {
+            if (--_running == 0 && _page is not null)
+            {
+                _suspendTimer.Start();
+                _closeTimer.Start();
+            }
+        }
+
         if (profile != _profileName)
         {
             throw new InvalidOperationException("The active account changed while the library was loading.");
@@ -196,6 +232,8 @@ internal sealed class PersonalCatalogHost
 
             var core = view.CoreWebView2;
             core.IsMuted = true;
+            // A reader never needs its caches warm; the next read is a fetch, not a repaint.
+            core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low;
             core.Settings.AreDefaultScriptDialogsEnabled = false;
             core.Settings.IsWebMessageEnabled = false;
             core.NewWindowRequested += (_, args) => args.Handled = true;
@@ -216,7 +254,14 @@ internal sealed class PersonalCatalogHost
             }
 
             BridgeLog.Write("personal catalog page ready");
+            // Hidden rather than transparent, which is what lets WebView2 suspend it when idle.
+            view.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
             page.TrySetResult(core);
+            if (_running == 0)
+            {
+                _suspendTimer.Start();
+                _closeTimer.Start();
+            }
         }
         catch (Exception error)
         {
@@ -227,6 +272,46 @@ internal sealed class PersonalCatalogHost
             }
 
             page.TrySetException(error);
+        }
+    }
+
+    private async Task SuspendAsync()
+    {
+        if (_running > 0 || _view?.CoreWebView2 is not { IsSuspended: false } core)
+        {
+            return;
+        }
+
+        try
+        {
+            await core.TrySuspendAsync();
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"personal catalog page could not be suspended: {error.Message}");
+        }
+    }
+
+    /// <summary>Unloads the reader after a long quiet spell; the next read loads it again.</summary>
+    private void CloseIdlePage()
+    {
+        if (_running > 0 || _page is not { Task.IsCompletedSuccessfully: true })
+        {
+            return;
+        }
+
+        _page = null;
+        DropView();
+        BridgeLog.Write("personal catalog page closed while idle");
+    }
+
+    private void DropView()
+    {
+        if (_view is not null)
+        {
+            _container.Children.Remove(_view);
+            _view.Close();
+            _view = null;
         }
     }
 
