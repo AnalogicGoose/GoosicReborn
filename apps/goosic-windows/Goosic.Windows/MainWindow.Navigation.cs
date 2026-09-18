@@ -65,6 +65,10 @@ public sealed partial class MainWindow : Window
         {
             ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         }
+        else if (args.PropertyName == nameof(ShellViewModel.IsPageLoading))
+        {
+            PlayPageEntrance();
+        }
     }
 
     private void UpdateBackButton() =>
