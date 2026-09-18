@@ -1047,6 +1047,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
         catch (Exception error)
         {
+            BridgeLog.Write($"service start failed: {error}");
             PageState = FailureState(error, "Goosic");
             return;
         }

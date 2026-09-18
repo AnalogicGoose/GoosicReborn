@@ -245,6 +245,7 @@ public sealed partial class ShellViewModel
         }
         catch (Exception error)
         {
+            BridgeLog.Write($"accounts.get failed: {error}");
             AccountStatus = "Account unavailable: " + Describe(error);
         }
     }
@@ -255,6 +256,7 @@ public sealed partial class ShellViewModel
         var snapshot = response.Deserialize<AccountsResponsePayload>(ServiceProtocol.Json)?.Accounts;
         if (snapshot is null)
         {
+            BridgeLog.Write($"account snapshot unreadable: {response?.ToJsonString()}");
             return;
         }
 
