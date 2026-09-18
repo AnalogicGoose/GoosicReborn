@@ -649,11 +649,13 @@ internal sealed class OfficialPlaybackHost
     /// Makes the next page start at the chosen volume instead of correcting it once it is playing.
     /// </summary>
     /// <remarks>
-    /// Correcting after the first report left each new track loud for a moment -- often at 100 --
-    /// before it dropped to the listener's level. Before the next document exists, this writes the
-    /// level into the player's own saved-volume entry, which it reads when it starts, and sets it
-    /// on every media element as it begins loading, so the first sound is already at that level.
-    /// It touches volume only; nothing about what plays, or any advertisement, is changed.
+    /// Correcting after the first report left each new track at 100 for about a second before it
+    /// dropped to the listener's level. Setting the level once as a media element loaded was not
+    /// enough either: the player applies its own volume afterwards. This is the macOS shell's
+    /// <c>OfficialVolumeBootstrap</c>: installed before the document runs, it holds every media
+    /// element's volume and mute setters and its <c>play</c> to the listener's level, so whatever
+    /// the page sets, the first sound is already at that level. The host changes the level through
+    /// <c>window.goosicSetVolumePreference</c>. An advertisement's volume is left to the page.
     /// </remarks>
     private async Task PrimeVolumeAsync(CoreWebView2 core)
     {
@@ -674,23 +676,57 @@ internal sealed class OfficialPlaybackHost
         {
             _volumePrimerId = await core.AddScriptToExecuteOnDocumentCreatedAsync($$"""
                 (() => {
-                  const level = {{level}}, muted = {{muted}};
                   if (location.hostname !== 'music.youtube.com') return;
+                  let preferred = {{level}}, intendedMute = {{muted}};
+                  // The player's own saved level, so its first choice is already the right one.
                   try {
                     const now = Date.now();
-                    const data = JSON.stringify({ volume: Math.round(level * 100), muted });
+                    const data = JSON.stringify({ volume: Math.round(preferred * 100), muted: intendedMute });
                     localStorage.setItem('yt-player-volume', JSON.stringify({ data, expiration: now + 2592000000, creation: now }));
                     sessionStorage.setItem('yt-player-volume', JSON.stringify({ data, creation: now }));
                   } catch (_) {}
-                  const apply = (event) => {
-                    const media = event.target;
-                    if (!(media instanceof HTMLMediaElement) || window.__goosicVolumePrimed === media) return;
-                    window.__goosicVolumePrimed = media;
-                    media.volume = level;
-                    media.muted = muted;
+                  const proto = HTMLMediaElement.prototype;
+                  const volume = Object.getOwnPropertyDescriptor(proto, 'volume');
+                  const muted = Object.getOwnPropertyDescriptor(proto, 'muted');
+                  const originalPlay = proto.play;
+                  const advertisement = () => !!document.querySelector('.ad-showing, .ad-interrupting');
+                  function apply(media) {
+                    if (advertisement()) return;
+                    if (volume.get.call(media) === preferred && muted.get.call(media) === intendedMute) return;
+                    muted.set.call(media, true);
+                    volume.set.call(media, preferred);
+                    muted.set.call(media, intendedMute);
+                  }
+                  Object.defineProperty(proto, 'volume', {
+                    ...volume,
+                    set(value) {
+                      if (advertisement()) { volume.set.call(this, value); return; }
+                      apply(this);
+                    }
+                  });
+                  Object.defineProperty(proto, 'muted', {
+                    ...muted,
+                    set(value) {
+                      if (advertisement()) { muted.set.call(this, value); return; }
+                      apply(this);
+                    }
+                  });
+                  proto.play = function(...args) { apply(this); return originalPlay.apply(this, args); };
+                  const applyAll = () => document.querySelectorAll('video, audio').forEach(apply);
+                  window.goosicSetVolumePreference = (value, mute) => {
+                    if (Number.isFinite(value)) preferred = Math.min(1, Math.max(0, value));
+                    if (typeof mute === 'boolean') intendedMute = mute;
+                    if (!advertisement()) applyAll();
                   };
-                  document.addEventListener('loadstart', apply, true);
-                  document.addEventListener('loadedmetadata', apply, true);
+                  for (const name of ['loadstart', 'loadedmetadata', 'play', 'volumechange']) {
+                    document.addEventListener(name, (event) => {
+                      if (event.target instanceof HTMLMediaElement) apply(event.target);
+                    }, true);
+                  }
+                  new MutationObserver(applyAll).observe(document, {
+                    subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'src']
+                  });
+                  applyAll();
                 })();
                 """);
         }
@@ -727,6 +763,11 @@ internal sealed class OfficialPlaybackHost
             await _view.CoreWebView2.ExecuteScriptAsync($$"""
                 (() => {
                   const level = {{level}}, muted = {{muted}};
+                  // The primer holds the media element to its preference; tell it the new one
+                  // first, or it would put the old level straight back.
+                  if (typeof window.goosicSetVolumePreference === 'function') {
+                    window.goosicSetVolumePreference(level, muted);
+                  }
                   const player = document.getElementById('movie_player');
                   if (player && typeof player.setVolume === 'function') {
                     player.setVolume(Math.round(level * 100));
@@ -804,7 +845,7 @@ internal sealed class OfficialPlaybackHost
         _lastState = verdict.Event.State;
 
         BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
-            + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement}");
+            + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement} vol={verdict.Event.Volume:F2}");
         _lastSequence = verdict.Event.Sequence;
         _lastMuted = verdict.Event.Muted;
         KeepPreferredVolume(verdict.Event);
