@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window
         {
             // Without the service there is no catalog and no playback, so the window opens and
             // says why rather than presenting an empty screen that looks like an empty catalog.
+            BridgeLog.Write($"startup: service unavailable: {error.Message}");
             _client = null;
             Model = new ShellViewModel(GoosicServiceClient.Unavailable(error.Message));
         }
@@ -132,6 +133,7 @@ public sealed partial class MainWindow : Window
         }
 
         Closed += (_, _) => _media?.Dispose();
+        BridgeLog.Write($"startup: window ready, service {(_client is null ? "unavailable" : "started")}");
         _ = Model.StartAsync();
     }
 

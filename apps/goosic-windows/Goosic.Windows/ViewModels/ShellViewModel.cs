@@ -1039,9 +1039,11 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// <summary>Greets the service, then loads the opening screen.</summary>
     internal async Task StartAsync()
     {
+        BridgeLog.Write("startup: asking the service hello");
         try
         {
             await _client.RequestAsync("hello").ConfigureAwait(true);
+            BridgeLog.Write("startup: hello answered");
             Status = "";
             await LoadSettingsAsync().ConfigureAwait(true);
         }
@@ -1052,7 +1054,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
+        BridgeLog.Write("startup: reading accounts");
         await RefreshAccountsAsync().ConfigureAwait(true);
+        BridgeLog.Write($"startup: {Accounts.Count} account(s), active {_activeAccount?.DisplayName ?? "none"}");
         await LoadRouteAsync("home").ConfigureAwait(true);
     }
 
