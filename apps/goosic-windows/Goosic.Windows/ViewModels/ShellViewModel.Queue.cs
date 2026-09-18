@@ -144,6 +144,7 @@ public sealed partial class ShellViewModel
         entry.IsCurrent = true;
         _pendingTrack = entry;
         OnPropertyChanged(nameof(HasPlayback));
+        OnPropertyChanged(nameof(CanSkip));
         // A new play has to be heard playing before its end counts; see MarkNaturalEnd.
         _endArmed = false;
         _endHandled = false;

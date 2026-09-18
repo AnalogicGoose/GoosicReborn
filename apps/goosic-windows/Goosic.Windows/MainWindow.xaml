@@ -489,7 +489,7 @@
                                           AutomationProperties.Name="Shuffle" Click="OnShuffle" />
                             <Button x:Name="PreviousButton" Style="{StaticResource PillGlyphStyle}" FontSize="18"
                                     Content="&#xEB9E;" ToolTipService.ToolTip="Previous"
-                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                    IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}"
                                     AutomationProperties.Name="Previous" Click="OnPrevious" />
                             <Button x:Name="PlayButton" Style="{StaticResource PillGlyphStyle}" FontSize="24" Width="46"
                                     Content="{x:Bind Model.PlayPauseGlyph, Mode=OneWay}"
@@ -499,7 +499,7 @@
                                     Click="OnPlayPause" />
                             <Button x:Name="NextButton" Style="{StaticResource PillGlyphStyle}" FontSize="18"
                                     Content="&#xEB9D;" ToolTipService.ToolTip="Next"
-                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                    IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}"
                                     AutomationProperties.Name="Next" Click="OnNext" />
                             <ToggleButton x:Name="RepeatButton" Style="{StaticResource PillToggleStyle}"
                                           Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
@@ -1137,7 +1137,7 @@
                                       ToolTipService.ToolTip="{x:Bind Model.ShuffleLabel, Mode=OneWay}" Click="OnShuffle" />
                         <Button Grid.Column="1" Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xEB9E;"
                                 FontSize="24" ToolTipService.ToolTip="Previous" AutomationProperties.Name="Previous"
-                                Click="OnPrevious" />
+                                IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}" Click="OnPrevious" />
                         <Button x:Name="FullPlayerPlayButton" Grid.Column="2" Style="{StaticResource FullPlayerGlyphStyle}"
                                 FontSize="36" Width="64" Height="64"
                                 Content="{x:Bind Model.PlayPauseGlyph, Mode=OneWay}"
@@ -1145,7 +1145,7 @@
                                 ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}" Click="OnPlayPause" />
                         <Button Grid.Column="3" Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xEB9D;"
                                 FontSize="24" ToolTipService.ToolTip="Next" AutomationProperties.Name="Next"
-                                Click="OnNext" />
+                                IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}" Click="OnNext" />
                         <ToggleButton Grid.Column="4" Style="{StaticResource FullPlayerToggleStyle}"
                                       Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
                                       IsChecked="{x:Bind Model.IsRepeating, Mode=OneWay}"

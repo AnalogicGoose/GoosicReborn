@@ -598,6 +598,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (Set(ref _isAdvertisement, value))
             {
                 OnPropertyChanged(nameof(IsSeekable));
+                OnPropertyChanged(nameof(CanSkip));
             }
         }
     }
@@ -1576,6 +1577,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     /// <summary>Whether transport controls have a selected or confirmed track to act on.</summary>
     public bool HasPlayback => _pendingTrack is not null;
+
+    /// <summary>Whether Next and Previous are offered: there is playback, and no advertisement.</summary>
+    public bool CanSkip => HasPlayback && !_isAdvertisement;
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
