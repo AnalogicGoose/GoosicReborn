@@ -622,7 +622,7 @@
             <Border x:Name="Sidebar" HorizontalAlignment="Left" Width="280" Margin="8"
                     CornerRadius="14" Background="{ThemeResource GoosicSidebarAcrylicBrush}"
                     BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}">
-                <Grid Padding="10,44,10,10" RowSpacing="8">
+                <Grid Padding="10,48,10,10" RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -1046,11 +1046,11 @@
         <Border x:Name="TitleBarStrip" Height="46" VerticalAlignment="Top" Margin="60,0,0,0"
                 Background="Transparent" />
         <Button x:Name="SidebarToggle" Style="{StaticResource SidebarToggleStyle}" Content="&#xE8A0;"
-                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,7,0,0"
+                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="18,14,0,0"
                 ToolTipService.ToolTip="Show or hide the sidebar (Ctrl+B)"
                 AutomationProperties.Name="Show or hide sidebar" Click="OnToggleSidebar" />
         <Button x:Name="BackButton" Style="{StaticResource SidebarToggleStyle}" Content="&#xE72B;"
-                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="56,7,0,0"
+                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="58,14,0,0"
                 Visibility="Collapsed" ToolTipService.ToolTip="Back (Alt+←)"
                 AutomationProperties.Name="Back" Click="OnBack" />
 
