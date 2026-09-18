@@ -44,11 +44,16 @@
   -->
   <PropertyGroup>
     <GoosicRepoRoot>$(MSBuildProjectDirectory)\..\..\..\</GoosicRepoRoot>
-    <GoosicFfiLibrary>$(GoosicRepoRoot)target\debug\goosic_shell_support_ffi.dll</GoosicFfiLibrary>
+    <!-- A Release build of the app takes the release build of the rules, so a packaged copy
+         does not ship a debug library. -->
+    <GoosicCargoProfile Condition="'$(Configuration)' == 'Release'">release</GoosicCargoProfile>
+    <GoosicCargoProfile Condition="'$(GoosicCargoProfile)' == ''">debug</GoosicCargoProfile>
+    <GoosicCargoFlags Condition="'$(GoosicCargoProfile)' == 'release'">--release</GoosicCargoFlags>
+    <GoosicFfiLibrary>$(GoosicRepoRoot)target\$(GoosicCargoProfile)\goosic_shell_support_ffi.dll</GoosicFfiLibrary>
   </PropertyGroup>
 
   <Target Name="BuildShellSupportFfi" BeforeTargets="PrepareForBuild">
-    <Exec Command="cargo build -p goosic-shell-support-ffi" WorkingDirectory="$(GoosicRepoRoot)" />
+    <Exec Command="cargo build $(GoosicCargoFlags) -p goosic-shell-support-ffi" WorkingDirectory="$(GoosicRepoRoot)" />
   </Target>
 
   <!--
