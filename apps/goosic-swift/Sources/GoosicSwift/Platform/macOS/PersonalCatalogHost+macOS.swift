@@ -29,7 +29,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
     }
 
     private static let program: String? = {
-        guard let url = Bundle.module.url(forResource: "PersonalCatalog", withExtension: "js") else { return nil }
+        guard let url = GoosicResources.bundle.url(forResource: "PersonalCatalog", withExtension: "js") else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
     }()
 

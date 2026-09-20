@@ -83,9 +83,18 @@ final class GoosicServiceClient: @unchecked Sendable {
     /// property worth proving is that a slow answer does not delay a fast one, and the real
     /// service is only slow when a third-party host is, which is not something a test may depend
     /// on. Production passes nothing and the environment decides, as before.
+    /// A packaged app carries the service beside its own executable, and is opened from Finder
+    /// with neither `GOOSIC_SERVICE_PATH` nor a `PATH` that reaches it.
+    private static func serviceBesideExecutable() -> String? {
+        guard let directory = Bundle.main.executableURL?.deletingLastPathComponent() else { return nil }
+        let candidate = directory.appendingPathComponent("goosic-service").path
+        return FileManager.default.isExecutableFile(atPath: candidate) ? candidate : nil
+    }
+
     init(executablePath: String? = nil) throws {
         let configuredPath = executablePath
             ?? ProcessInfo.processInfo.environment["GOOSIC_SERVICE_PATH"]
+            ?? Self.serviceBesideExecutable()
             ?? "goosic-service"
         process = Process()
         if configuredPath.contains("/") {

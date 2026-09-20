@@ -73,7 +73,12 @@ make test           # Rust workspace tests plus the Swift test target, all offli
 make test-rust-live # opt-in: hits music.youtube.com to check the catalog parser against reality
 make build-swift    # builds the shell for the host platform
 make run-swift      # builds the service and launches the shell against it
+make package-macos  # builds Goosic.app, the download a tester installs
 ```
+
+A build for someone who is not working on Goosic is a *test build*, not a deployment:
+[docs/RELEASING.md](docs/RELEASING.md) explains how one is cut, and what each operating system
+asks a tester to click past when the download is not signed by a paying developer.
 
 `make run-swift` is the whole story on both platforms: it builds `goosic-service`, points `GOOSIC_SERVICE_PATH` at it, and launches the shell, which spawns the service itself. On Linux the result is a GTK 4 window, on Wayland or X11 alike.
 
