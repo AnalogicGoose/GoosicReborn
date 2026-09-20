@@ -232,9 +232,14 @@ jobs:
 
             # The package declares swift-tools-version 6.0. An older Xcode fails on the
             # manifest itself, with an error that says nothing about the actual code.
+            #
+            # Pinned rather than latest-stable: Xcode 26.6's compiler (Swift 6.3.3) aborts in IR
+            # generation on `NativeMacApp.swift`, inside a thunk it generates itself -- a crash in
+            # the compiler, not a diagnostic about this code, and one the build cache hid until
+            # the file was recompiled. Raise this once a newer Xcode compiles the shell again.
             -   uses: maxim-lobanov/setup-xcode@v1
                 with:
-                    xcode-version: latest-stable
+                    xcode-version: '26.4'
             
             -   name: Restore the Swift build
                 id: swift-build-cache

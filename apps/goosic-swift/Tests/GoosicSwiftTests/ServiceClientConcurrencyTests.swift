@@ -70,24 +70,25 @@ final class ServiceClientConcurrencyTests: XCTestCase {
         let slowAnswered = expectation(description: "the slow request is eventually answered")
         let fastAnswered = expectation(description: "the fast request is answered")
         let started = Date()
-        nonisolated(unsafe) var fastElapsed: TimeInterval?
 
         client.send(command: "slow.browse") { result in
             if case .failure(let error) = result { XCTFail("slow request failed: \(error)") }
             slowAnswered.fulfill()
         }
+        // Timed and judged inside the answer rather than through a variable the test reads
+        // afterwards: that variable is written on the transport's thread and read on this one,
+        // which is a data race whatever the timing makes of it.
         client.send(command: "playback.sample") { result in
             if case .failure(let error) = result { XCTFail("fast request failed: \(error)") }
-            fastElapsed = Date().timeIntervalSince(started)
+            let elapsed = Date().timeIntervalSince(started)
+            XCTAssertLessThan(
+                elapsed, 1,
+                "the transport command waited \(elapsed)s behind a 2s read instead of being answered at once"
+            )
             fastAnswered.fulfill()
         }
 
         wait(for: [fastAnswered], timeout: 5)
-        let elapsed = try XCTUnwrap(fastElapsed)
-        XCTAssertLessThan(
-            elapsed, 1,
-            "the transport command waited \(elapsed)s behind a 2s read instead of being answered at once"
-        )
         wait(for: [slowAnswered], timeout: 10)
     }
 
