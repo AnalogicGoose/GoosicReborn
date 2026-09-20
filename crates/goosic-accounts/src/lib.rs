@@ -374,8 +374,7 @@ impl AccountStore {
         // Persist is an atomic same-directory rename. Sync the directory entry as well so a
         // crash cannot leave a successfully returned mutation pointing at the old inode. Some
         // platforms reject directory fsync; only that narrowly classified case is skipped.
-        #[cfg(not(unix))]
-        let directory_sync_supported = false;
+        // Nothing outside Unix has a directory handle to sync, so there is no flag to carry.
         let mut temporary =
             tempfile::NamedTempFile::new_in(parent).map_err(AccountError::Unwritable)?;
         #[cfg(unix)]
