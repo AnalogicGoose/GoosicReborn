@@ -4,8 +4,10 @@ name: Release
 # from its own commit, so a release is built from exactly the tree it names -- which for a build
 # carrying the Windows shell means tagging a ref that has it, today `platform/windows`.
 #
-# The result is a draft release. Nothing becomes public until a person opens it and presses
-# publish, because a download handed to testers is the one thing here that leaves the repository.
+# The tag publishes the release outright, marked as a pre-release: the point of a test build is a
+# link anyone can open, and this repository is public, so the downloads are too. Deleting a release
+# does not unsend what someone already downloaded -- tag when the tree is one you are happy to hand
+# over.
 on:
     push:
         tags: ['v*']
@@ -59,8 +61,8 @@ jobs:
                     name: windows
                     path: dist/*.zip
 
-    draft:
-        name: Collect the downloads into a draft release
+    publish:
+        name: Publish the downloads
         needs: [macos, windows]
         runs-on: ubuntu-latest
         steps:
@@ -69,7 +71,6 @@ jobs:
                     path: downloads
             -   uses: softprops/action-gh-release@v2
                 with:
-                    draft: true
                     prerelease: true
                     name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
                     tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}

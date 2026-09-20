@@ -21,10 +21,11 @@ git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2
 git push origin v0.1.0-alpha.2
 ```
 
-`.github/workflows/release.yml` runs from the tagged commit, builds both downloads, and collects
-them into a **draft** release. Nothing is public until a person opens the draft and presses
-publish. That gate is deliberate: everything else in this repository stays inside it, and a
-download does not.
+`.github/workflows/release.yml` runs from the tagged commit, builds both downloads, and publishes
+them as a pre-release. The repository is public, so the release is: the link works for anyone who
+finds it, not only the people it is sent to. Pushing the tag is therefore the decision to hand the
+build out, and it is the only step here that cannot be taken back -- a deleted release does not
+unsend a download someone already has.
 
 The two halves are built by scripts that also work locally, which is how they are debugged:
 
