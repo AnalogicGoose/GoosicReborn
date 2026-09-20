@@ -249,6 +249,11 @@ jobs:
                     key: swift-macos-${{ hashFiles('apps/goosic-swift/Package.resolved') }}
                     restore-keys: swift-macos-
 
+            # TEMPORARY: is the crash particular to the debug build? Removed once answered.
+            -   name: Probe a release build
+                continue-on-error: true
+                run: SCUI_DEFAULT_BACKEND=AppKitBackend swift build -c release --package-path apps/goosic-swift --scratch-path ~/Library/Caches/goosic-swift-release
+
             -   run: make build-swift
             -   run: make test-swift
 
