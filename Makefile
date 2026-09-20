@@ -1,4 +1,4 @@
-.PHONY: build-service test-rust test-rust-live build-swift test-swift test-ui-macos debug-bundle-macos run-service run-swift test
+.PHONY: build-service test-rust test-rust-live build-swift test-swift test-ui-macos debug-bundle-macos package-macos run-service run-swift test
 
 build-service:
 	cargo build -p goosic-service
@@ -43,6 +43,11 @@ test-ui-macos:
 debug-bundle-macos:
 	@test "$(UNAME_S)" = Darwin || (echo "Debug bundles require macOS" >&2; exit 2)
 	sh tools/debug-bundle-macos.sh
+
+# The download a tester installs. See docs/RELEASING.md.
+package-macos:
+	@test "$(UNAME_S)" = Darwin || (echo "macOS app bundles are built on macOS" >&2; exit 2)
+	sh tools/package-macos.sh $(VERSION)
 
 test: test-rust test-swift
 

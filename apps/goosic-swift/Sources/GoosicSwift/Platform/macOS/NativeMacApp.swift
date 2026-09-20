@@ -39,7 +39,7 @@ struct GoosicMacApp: SwiftUI.App {
 @MainActor
 private enum NativeMacApplicationIcon {
     static func install() {
-        guard let url = Bundle.module.url(
+        guard let url = GoosicResources.bundle.url(
             forResource: "Icon-iOS-Default-1024@1x", withExtension: "png", subdirectory: "AppIcons"
         ), let image = NSImage(contentsOf: url) else {
             return

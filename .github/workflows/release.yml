@@ -1,0 +1,84 @@
+name: Release
+
+# Builds the downloads a tester installs, for a tag like v0.1.0-alpha.2. A tag runs the workflow
+# from its own commit, so a release is built from exactly the tree it names -- which for a build
+# carrying the Windows shell means tagging a ref that has it, today `platform/windows`.
+#
+# The result is a draft release. Nothing becomes public until a person opens it and presses
+# publish, because a download handed to testers is the one thing here that leaves the repository.
+on:
+    push:
+        tags: ['v*']
+    workflow_dispatch:
+        inputs:
+            version:
+                description: Version name for a build made without a tag
+                required: true
+                default: 0.1.0-alpha.2
+
+permissions:
+    contents: write
+
+jobs:
+    macos:
+        name: Goosic.app (macOS, universal)
+        runs-on: macos-latest
+        steps:
+            -   uses: actions/checkout@v4
+            -   uses: maxim-lobanov/setup-xcode@v1
+                with:
+                    xcode-version: latest-stable
+            -   uses: dtolnay/rust-toolchain@stable
+                with:
+                    targets: aarch64-apple-darwin,x86_64-apple-darwin
+            -   name: Build the app bundle
+                run: sh tools/package-macos.sh "${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}"
+            -   uses: actions/upload-artifact@v4
+                with:
+                    name: macos
+                    path: dist/*.zip
+
+    windows:
+        name: Goosic (Windows, x64)
+        runs-on: windows-latest
+        steps:
+            -   uses: actions/checkout@v4
+            -   uses: dtolnay/rust-toolchain@stable
+            # The WinUI shell lives on `platform/windows` until it lands on the trunk, so a tag
+            # cut elsewhere has no Windows app to build and says so rather than failing.
+            -   name: Look for the Windows shell
+                id: shell
+                shell: bash
+                run: test -f apps/goosic-windows/package.ps1 && echo present=true >>"$GITHUB_OUTPUT" || echo present=false >>"$GITHUB_OUTPUT"
+            -   name: Build the package
+                if: steps.shell.outputs.present == 'true'
+                run: ./apps/goosic-windows/package.ps1 -Version "${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}"
+            -   uses: actions/upload-artifact@v4
+                if: steps.shell.outputs.present == 'true'
+                with:
+                    name: windows
+                    path: dist/*.zip
+
+    draft:
+        name: Collect the downloads into a draft release
+        needs: [macos, windows]
+        runs-on: ubuntu-latest
+        steps:
+            -   uses: actions/download-artifact@v4
+                with:
+                    path: downloads
+            -   uses: softprops/action-gh-release@v2
+                with:
+                    draft: true
+                    prerelease: true
+                    name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
+                    tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
+                    files: downloads/*/*.zip
+                    body: |
+                        A test build. Neither download is signed with a paid developer certificate,
+                        so each operating system asks once before it will open it -- see
+                        [docs/RELEASING.md](docs/RELEASING.md) for what a tester has to click.
+
+                        **macOS** — universal, macOS 14 or later.
+                        **Windows** — x64, Windows 10 1809 or later. Nothing to install: unzip it
+                        and run `Goosic.Windows.exe`.

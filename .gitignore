@@ -7,3 +7,6 @@ apps/goosic-swift/.swiftpm/
 # Editor configuration is per-machine: the Swift extension needs an absolute build path
 # and a backend that differs by platform, so it cannot be shared.
 .vscode/
+
+# Packaged builds (tools/package-macos.sh, apps/goosic-windows/package.ps1)
+/dist/
