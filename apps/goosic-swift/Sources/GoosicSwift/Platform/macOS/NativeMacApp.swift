@@ -7,7 +7,7 @@ import SwiftUI
 #if !GOOSIC_UI_TEST_HOST
 @main
 struct GoosicMacApp: SwiftUI.App {
-    @StateObject private var store = NativeMacModelStore()
+    @SwiftUI.StateObject private var store = NativeMacModelStore()
 
     init() {
         // `swift run` is not wrapped in an .app bundle, so explicitly opt into a foreground
@@ -92,7 +92,7 @@ final class NativeMacModelStore: Combine.ObservableObject {
 /// Public only for the dedicated Xcode UI-test host. It renders the production root with a
 /// launch-selected local fixture, rather than duplicating the sidebar in a test-only screen.
 public struct GoosicMacUITestHost: SwiftUI.View {
-    @StateObject private var store = NativeMacModelStore()
+    @SwiftUI.StateObject private var store = NativeMacModelStore()
 
     public init() {}
 
@@ -117,7 +117,7 @@ public struct GoosicMacUITestHost: SwiftUI.View {
 private struct NativeMacRootView: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var sidebarVisible = true
+    @SwiftUI.State private var sidebarVisible = true
 
     private var model: GoosicAppModel { store.model }
     private var leadingInset: CGFloat { sidebarVisible ? NativeMacSidebar.width : 0 }
@@ -663,12 +663,12 @@ private struct NativeMacSidebarArtwork: SwiftUI.View {
 private struct NativeMacPlayerBar: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scrubPosition: Double = 0
-    @State private var isScrubbing = false
-    @State private var statusVisible = false
-    @State private var volumeExpanded = false
-    @State private var progressHovered = false
-    @State private var playerHovered = false
+    @SwiftUI.State private var scrubPosition: Double = 0
+    @SwiftUI.State private var isScrubbing = false
+    @SwiftUI.State private var statusVisible = false
+    @SwiftUI.State private var volumeExpanded = false
+    @SwiftUI.State private var progressHovered = false
+    @SwiftUI.State private var playerHovered = false
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
@@ -1130,7 +1130,7 @@ private struct NativeMacExpandableArtwork: SwiftUI.View {
     let enabled: Bool
     let action: () -> Void
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovered = false
+    @SwiftUI.State private var hovered = false
 
     private var highlighted: Bool { hovered && enabled }
 
@@ -1504,7 +1504,7 @@ private extension SwiftUI.Color {
 /// calling `connect()`, so previews never start the Rust child or touch account WebKit state.
 @MainActor
 private struct NativeMacAppPreview: SwiftUI.View {
-    @StateObject private var store = NativeMacModelStore()
+    @SwiftUI.StateObject private var store = NativeMacModelStore()
     let colorScheme: SwiftUI.ColorScheme?
     let height: CGFloat
 
