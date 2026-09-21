@@ -5,7 +5,7 @@
 # the Windows App SDK travel inside it, and WebView2 is part of Windows. The service and the rules
 # library sit beside Goosic.Windows.exe, which is where the app looks for them.
 param(
-    [string]$Version = '0.1.0',
+    [ValidatePattern('^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$')][string]$Version = '0.1.0',
     [ValidateSet('x64', 'ARM64')][string]$Platform = 'x64'
 )
 # Native tools print progress and warnings on stderr; failures are read from their exit codes.
@@ -23,7 +23,10 @@ cargo build --release --target $cargoTarget -p goosic-service -p goosic-shell-su
 if ($LASTEXITCODE -ne 0) { throw 'the Rust service failed to build' }
 
 # The project builds its own copy of the rules for the host; the release one from above is what ships.
-if (Test-Path $out) { Remove-Item -Recurse -Force $out -ErrorAction Stop }
+if (-not ([IO.Path]::GetFullPath($out).StartsWith([IO.Path]::GetFullPath($dist) + [IO.Path]::DirectorySeparatorChar))) {
+    throw 'Package output must be inside dist'
+}
+if (Test-Path $out) { Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction Stop }
 dotnet publish apps\goosic-windows\Goosic.Windows -c Release -r $rid -p:Platform=$Platform `
     -p:SelfContained=true -p:WindowsAppSDKSelfContained=true -p:Version=$($Version -replace '-.*$', '') `
     -p:InformationalVersion=$Version -o $out
@@ -31,6 +34,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Goosic.Windows failed to publish' }
 
 Copy-Item "target\$cargoTarget\release\goosic-service.exe" $out -Force
 Copy-Item "target\$cargoTarget\release\goosic_shell_support_ffi.dll" $out -Force
+Copy-Item LICENSE,LICENSE-GPL-3.0,THIRD_PARTY_NOTICES.md $out -ErrorAction Stop
 Get-ChildItem $out -Filter *.pdb -Recurse | Remove-Item -Force
 
 $zip = "$out.zip"
