@@ -1,0 +1,149 @@
+using System;
+using System.Runtime.InteropServices;
+
+namespace Goosic.Windows.Service;
+
+/// <summary>
+/// The platform-neutral rules, reached through <c>goosic-shell-support-ffi</c>.
+/// </summary>
+/// <remarks>
+/// These are not reimplemented here on purpose. <c>SHELL_CONTRACT.md</c> is explicit that a rule
+/// with three copies has three answers as soon as one of them is edited, and what crosses this
+/// boundary is the security-sensitive half: the JavaScript injected into the official page, and
+/// the checks that decide whether an event from it may be believed. A C# restatement of those
+/// would be a second place to get them subtly wrong.
+///
+/// Every string the native side returns is owned by this process and freed here.
+/// </remarks>
+internal static class ShellSupport
+{
+    private const string Library = "goosic_shell_support_ffi";
+
+    [DllImport(Library, EntryPoint = "goosic_string_free")]
+    private static extern void StringFree(IntPtr value);
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_allowed_host")]
+    private static extern IntPtr AllowedHostRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_handler_name")]
+    private static extern IntPtr HandlerNameRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_event_version")]
+    private static extern long EventVersionRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_max_body_bytes")]
+    private static extern nuint MaxBodyBytesRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_is_valid_video_id")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool IsValidVideoIdRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string videoId);
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_observer_script")]
+    private static extern IntPtr ObserverScriptRaw(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string token,
+        ulong generation,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string videoId);
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_media_session_guard_script")]
+    private static extern IntPtr MediaSessionGuardScriptRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_js_string_literal")]
+    private static extern IntPtr JsStringLiteralRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string value);
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_validate_event")]
+    private static extern IntPtr ValidateEventRaw(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string body,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string expectedToken,
+        ulong expectedGeneration,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string expectedVideoId,
+        ulong lastSequence);
+
+    [DllImport(Library, EntryPoint = "goosic_login_is_allowed_url")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool LoginIsAllowedUrlRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string url);
+
+    [DllImport(Library, EntryPoint = "goosic_login_is_completion_origin")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool LoginIsCompletionOriginRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string url);
+
+    [DllImport(Library, EntryPoint = "goosic_login_make_result")]
+    private static extern IntPtr LoginMakeResultRaw(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string accountId,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string profileId,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string metadata,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string pageUrl);
+
+    /// <summary>Takes ownership of a native string and frees it.</summary>
+    private static string Consume(IntPtr value)
+    {
+        if (value == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("goosic-shell-support returned no value");
+        }
+
+        try
+        {
+            return Marshal.PtrToStringUTF8(value) ?? "";
+        }
+        finally
+        {
+            StringFree(value);
+        }
+    }
+
+    /// <summary>The only host the official playback surface may load.</summary>
+    internal static string AllowedHost { get; } = Consume(AllowedHostRaw());
+
+    /// <summary>The name the page posts bridge messages to.</summary>
+    internal static string HandlerName { get; } = Consume(HandlerNameRaw());
+
+    /// <summary>The bridge event version this build speaks.</summary>
+    internal static long EventVersion { get; } = EventVersionRaw();
+
+    /// <summary>The largest bridge message body that will be read.</summary>
+    internal static int MaxBodyBytes { get; } = checked((int)MaxBodyBytesRaw());
+
+    /// <summary>Whether a value is shaped like a YouTube video id.</summary>
+    internal static bool IsValidVideoId(string videoId) => IsValidVideoIdRaw(videoId);
+
+    /// <summary>The per-load page observer, for one lease generation and one requested track.</summary>
+    internal static string ObserverScript(string token, ulong generation, string videoId) =>
+        Consume(ObserverScriptRaw(token, generation, videoId));
+
+    /// <summary>The script that stops the page installing its own media-session handlers.</summary>
+    internal static string MediaSessionGuardScript() => Consume(MediaSessionGuardScriptRaw());
+
+    /// <summary>Encodes a value as a JavaScript string literal.</summary>
+    internal static string JsStringLiteral(string value) => Consume(JsStringLiteralRaw(value));
+
+    /// <summary>
+    /// Decides whether one message from the page may be believed, returning the verdict as JSON.
+    /// </summary>
+    /// <remarks>
+    /// The whole decision crosses in one call rather than the shell fetching the parsed event and
+    /// then applying the checks: doing the latter here would be the third copy of the rules this
+    /// boundary exists to avoid.
+    /// </remarks>
+    internal static string ValidateEvent(
+        string body,
+        string expectedToken,
+        ulong expectedGeneration,
+        string expectedVideoId,
+        ulong lastSequence) =>
+        Consume(ValidateEventRaw(body, expectedToken, expectedGeneration, expectedVideoId, lastSequence));
+
+    /// <summary>Whether a sign-in window may navigate its main frame to <paramref name="url"/>.</summary>
+    internal static bool IsAllowedLoginUrl(string url) => LoginIsAllowedUrlRaw(url);
+
+    /// <summary>Whether a page is on the one origin a completed sign-in lands on.</summary>
+    internal static bool IsLoginCompletionOrigin(string url) => LoginIsCompletionOriginRaw(url);
+
+    /// <summary>
+    /// The cleaned account summary as JSON when the page's report completes a sign-in, else null.
+    /// </summary>
+    internal static string? LoginResult(string accountId, string profileId, string metadata, string pageUrl)
+    {
+        var value = LoginMakeResultRaw(accountId, profileId, metadata, pageUrl);
+        return value == IntPtr.Zero ? null : Consume(value);
+    }
+}

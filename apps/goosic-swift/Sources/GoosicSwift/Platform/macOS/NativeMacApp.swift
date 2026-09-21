@@ -117,7 +117,7 @@ public struct GoosicMacUITestHost: SwiftUI.View {
 private struct NativeMacRootView: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var sidebarVisible = true
+    @SwiftUI.State private var sidebarVisible = true
 
     private var model: GoosicAppModel { store.model }
     private var leadingInset: CGFloat { sidebarVisible ? NativeMacSidebar.width : 0 }
@@ -663,12 +663,12 @@ private struct NativeMacSidebarArtwork: SwiftUI.View {
 private struct NativeMacPlayerBar: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scrubPosition: Double = 0
-    @State private var isScrubbing = false
-    @State private var statusVisible = false
-    @State private var volumeExpanded = false
-    @State private var progressHovered = false
-    @State private var playerHovered = false
+    @SwiftUI.State private var scrubPosition: Double = 0
+    @SwiftUI.State private var isScrubbing = false
+    @SwiftUI.State private var statusVisible = false
+    @SwiftUI.State private var volumeExpanded = false
+    @SwiftUI.State private var progressHovered = false
+    @SwiftUI.State private var playerHovered = false
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
@@ -811,7 +811,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             }
             SwiftUI.HStack(spacing: 6) {
                 if volumeExpanded {
-                    SwiftUI.Slider(value: Binding(get: { model.isMuted ? 0 : model.volume }, set: model.setVolume), in: 0...1)
+                    SwiftUI.Slider(value: Binding(get: { model.isMuted ? 0 : model.volume }, set: { model.setVolume($0) }), in: 0...1)
                         .controlSize(.small)
                         .frame(width: 84)
                         .accessibilityLabel("Volume")
@@ -1130,7 +1130,7 @@ private struct NativeMacExpandableArtwork: SwiftUI.View {
     let enabled: Bool
     let action: () -> Void
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovered = false
+    @SwiftUI.State private var hovered = false
 
     private var highlighted: Bool { hovered && enabled }
 
@@ -1249,7 +1249,7 @@ private struct NativeMacSettingsView: SwiftUI.View {
                         "Autoplay",
                         detail: "Keep the music going with related recommendations.",
                         systemImage: "infinity",
-                        isOn: SwiftUI.Binding(get: { model.autoplay }, set: model.setAutoplay)
+                        isOn: SwiftUI.Binding(get: { model.autoplay }, set: { model.setAutoplay($0) })
                     )
                     SwiftUI.Divider().opacity(0.45)
                     settingToggle(
@@ -1268,7 +1268,7 @@ private struct NativeMacSettingsView: SwiftUI.View {
                         systemImage: "photo.fill",
                         isOn: SwiftUI.Binding(
                             get: { model.artworkBackground },
-                            set: model.setArtworkBackground
+                            set: { model.setArtworkBackground($0) }
                         )
                     )
                 }
