@@ -250,7 +250,7 @@ struct NativeMacLibraryPage: SwiftUI.View {
 private struct NativeMacShelf: SwiftUI.View {
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
     @SwiftUI.Environment(\.nativeMacLeadingInset) private var leadingInset
-    @State private var leadingCard: String?
+    @SwiftUI.State private var leadingCard: String?
     let shelf: GoosicShelf
     let model: GoosicAppModel
     let presentation: ShelfPresentation
@@ -354,7 +354,7 @@ private struct NativeMacTrackList: SwiftUI.View {
 
 private struct NativeMacCatalogCard: SwiftUI.View {
     @SwiftUI.Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hovering = false
+    @SwiftUI.State private var hovering = false
     let card: GoosicCard
     let model: GoosicAppModel
     let playbackContext: [GoosicTrack]
@@ -543,7 +543,6 @@ enum NativeMacLinks {
         pasteboard.setString(url.absoluteString, forType: .string)
     }
 }
-#endif
 
 
 /// The shape of a page, drawn before its content arrives.
@@ -619,3 +618,4 @@ struct NativeMacCatalogSkeleton: SwiftUI.View {
             .frame(width: width, height: height)
     }
 }
+#endif
