@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 
 namespace Goosic.Windows.ViewModels;
@@ -78,7 +79,7 @@ public sealed partial class ShellViewModel
     public bool ShowPageHeader { get => _showPageHeader; private set => Set(ref _showPageHeader, value); }
 
     /// <summary>What the sidebar's account row says under the name.</summary>
-    public string ConnectionLabel => IsSignedIn ? "Connected" : "Guest";
+    public string ConnectionLabel => IsAccountBusy ? "Switching…" : IsSignedIn ? "Connected" : "Guest";
 
     /// <summary>Whether there is an earlier page to go back to.</summary>
     internal bool CanGoBack => _routeHistory.Count > 0;
@@ -207,6 +208,7 @@ public sealed partial class ShellViewModel
         ShowPageHeader = true;
         PageSubtitle = "Playback, appearance and accounts";
         Status = "";
+        PageState = PageState.Content;
         IsSettingsPage = true;
         OnPropertyChanged(nameof(IsServiceConnected));
     }

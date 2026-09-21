@@ -90,6 +90,15 @@ internal sealed class SystemMediaControls : IDisposable
     /// <summary>Reflects an accepted sample: state, and at most once a second, position.</summary>
     internal void ReportSample(BridgeEvent sample)
     {
+        // Track changes are refused during an advertisement, so the overlay does not offer them;
+        // a button that is shown and then refused reads as a broken button.
+        var trackChangesAllowed = !sample.IsAdvertisement;
+        if (_controls.IsNextEnabled != trackChangesAllowed)
+        {
+            _controls.IsNextEnabled = trackChangesAllowed;
+            _controls.IsPreviousEnabled = trackChangesAllowed;
+        }
+
         _controls.PlaybackStatus = sample.State switch
         {
             "playing" => MediaPlaybackStatus.Playing,

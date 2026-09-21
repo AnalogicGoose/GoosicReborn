@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 
 namespace Goosic.Windows.ViewModels;
@@ -36,9 +38,18 @@ public sealed partial class ShellViewModel
     /// <summary>Upcoming entries in the order they were queued, kept while shuffle is on.</summary>
     private List<TrackViewModel>? _unshuffled;
 
-    /// <summary>The seed of a running radio, and the cursor for more of it.</summary>
-    private string? _radioSeed;
-    private string? _radioCursor;
+    /// <summary>The station whose recommendations follow the queue, when one is running.</summary>
+    private RadioStation? _station;
+
+    /// <summary>Bumped whenever the queue is replaced, so a late page for the old one is dropped.</summary>
+    private int _stationRevision;
+
+    /// <summary>A station page on its way; a second request joins it instead of repeating it.</summary>
+    private Task<int>? _stationLoad;
+
+    /// <summary>Songs played this session, newest last, kept out of recommendations.</summary>
+    private readonly List<string> _recentlyPlayed = [];
+    private const int RecentlyPlayedLimit = 200;
 
     /// <summary>Raised when the track the page confirmed changes, with that track.</summary>
     internal event Action<TrackViewModel>? NowPlayingChanged;
@@ -98,6 +109,23 @@ public sealed partial class ShellViewModel
 
     public bool HasMore => !string.IsNullOrEmpty(_nextCursor);
 
+    /// <summary>The playlist holding every song when the page shows only its top few, as an artist does.</summary>
+    internal string? AllTracksId
+    {
+        get => _allTracksId;
+        private set
+        {
+            if (Set(ref _allTracksId, string.IsNullOrEmpty(value) ? null : value))
+            {
+                OnPropertyChanged(nameof(HasAllTracks));
+            }
+        }
+    }
+
+    private string? _allTracksId;
+
+    public bool HasAllTracks => _allTracksId is not null;
+
     public bool HasTracks => Tracks.Count > 0;
 
     public bool HasQueue => Queue.Count > 0;
@@ -107,7 +135,7 @@ public sealed partial class ShellViewModel
         0 => "Nothing queued",
         1 => "1 track",
         var count => $"{count} tracks",
-    } + (_radioSeed is null ? "" : " · Radio");
+    } + (_station is null ? "" : " · Radio");
 
     /// <summary>The queue entry the page is confirming, if any.</summary>
     internal TrackViewModel? ConfirmedTrack => _confirmedTrack;
@@ -115,6 +143,15 @@ public sealed partial class ShellViewModel
     /// <summary>Makes <paramref name="entry"/> the one the queue is on, and the one to confirm.</summary>
     private TrackViewModel Point(TrackViewModel entry)
     {
+        if (!ReferenceEquals(entry, _current))
+        {
+            // The last song's position would otherwise stand until the new one reports, and
+            // Previous would read it as "past the first seconds" and restart the new song.
+            PlaybackPosition = 0;
+            PlaybackDuration = 0;
+            _pendingSeek = null;
+        }
+
         if (_current is not null)
         {
             _current.IsCurrent = false;
@@ -123,15 +160,158 @@ public sealed partial class ShellViewModel
         _current = entry;
         entry.IsCurrent = true;
         _pendingTrack = entry;
-        _advancedAfterEndVideoId = null;
+        OnPropertyChanged(nameof(HasPlayback));
+        OnPropertyChanged(nameof(CanSkip));
+        // A new play has to be heard playing before its end counts; see MarkNaturalEnd.
+        _endArmed = false;
+        _endHandled = false;
+        _listenerPaused = false;
+        _pendingAlias = null;
+        RememberPlayed(entry);
         QueueChanged();
+        TopUpStation();
         return entry;
+    }
+
+    private void RememberPlayed(TrackViewModel entry)
+    {
+        if (string.IsNullOrEmpty(entry.VideoId))
+        {
+            return;
+        }
+
+        _recentlyPlayed.Remove(entry.VideoId);
+        _recentlyPlayed.Add(entry.VideoId);
+        if (_recentlyPlayed.Count > RecentlyPlayedLimit)
+        {
+            _recentlyPlayed.RemoveAt(0);
+        }
     }
 
     private void QueueChanged()
     {
         OnPropertyChanged(nameof(HasQueue));
         OnPropertyChanged(nameof(QueueSummary));
+        OnPropertyChanged(nameof(NowPlayingEntry));
+        OnPropertyChanged(nameof(HasNowPlayingEntry));
+        OnPropertyChanged(nameof(HasUpNext));
+        OnPropertyChanged(nameof(HasNoUpNext));
+        OnPropertyChanged(nameof(UpNextSummary));
+        SyncUpNext();
+    }
+
+    /// <summary>The entry the queue is on, shown above Up Next.</summary>
+    public TrackViewModel? NowPlayingEntry => _current is not null && Queue.Contains(_current) ? _current : null;
+
+    public bool HasNowPlayingEntry => NowPlayingEntry is not null;
+
+    /// <summary>What plays after the current entry, in order. Reordering it reorders the queue.</summary>
+    public ObservableCollection<TrackViewModel> UpNext { get; } = [];
+
+    public bool HasUpNext => QueueLayout.UpNext(Queue, NowPlayingEntry).Count > 0;
+
+    /// <summary>Nothing follows, and nothing is on its way either.</summary>
+    public bool HasNoUpNext => HasQueue && !HasUpNext && _stationLoad is null;
+
+    public string UpNextSummary => QueueLayout.UpNext(Queue, NowPlayingEntry).Count switch
+    {
+        0 when _stationLoad is not null => "Finding songs like this…",
+        0 => "Nothing after this",
+        1 => "1 track",
+        var count => $"{count} tracks",
+    } + (_station is null ? "" : " · Radio");
+
+    private bool _syncingUpNext;
+
+    /// <summary>Makes <see cref="UpNext"/> match the queue, touching it only where it differs.</summary>
+    private void SyncUpNext()
+    {
+        var wanted = QueueLayout.UpNext(Queue, NowPlayingEntry);
+        if (wanted.SequenceEqual(UpNext))
+        {
+            return;
+        }
+
+        _syncingUpNext = true;
+        try
+        {
+            UpNext.Clear();
+            foreach (var entry in wanted)
+            {
+                UpNext.Add(entry);
+            }
+        }
+        finally
+        {
+            _syncingUpNext = false;
+        }
+    }
+
+    /// <summary>
+    /// A drag in Up Next arrives as a removal then an insertion. The insertion completes the move,
+    /// and is when the queue takes the new order.
+    /// </summary>
+    private void OnUpNextChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (_syncingUpNext || e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+        {
+            return;
+        }
+
+        ApplyUpNextOrder();
+    }
+
+    /// <summary>Gives the queue Up Next's order, or resynchronises Up Next if the two disagree.</summary>
+    private bool ApplyUpNextOrder()
+    {
+        var reordered = QueueLayout.Reordered(Queue, NowPlayingEntry, UpNext);
+        if (reordered is null)
+        {
+            SyncUpNext();
+            return false;
+        }
+
+        _syncingUpNext = true;
+        try
+        {
+            for (var target = 0; target < reordered.Count; target++)
+            {
+                var from = Queue.IndexOf(reordered[target]);
+                if (from != target)
+                {
+                    Queue.Move(from, target);
+                }
+            }
+        }
+        finally
+        {
+            _syncingUpNext = false;
+        }
+
+        QueueChanged();
+        return true;
+    }
+
+    /// <summary>Moves an Up Next entry by <paramref name="delta"/> places, for keyboard reordering.</summary>
+    internal bool MoveUpNext(TrackViewModel entry, int delta)
+    {
+        var index = UpNext.IndexOf(entry);
+        if (QueueLayout.MoveTarget(index, UpNext.Count, delta) is not { } target)
+        {
+            return false;
+        }
+
+        _syncingUpNext = true;
+        try
+        {
+            UpNext.Move(index, target);
+        }
+        finally
+        {
+            _syncingUpNext = false;
+        }
+
+        return ApplyUpNextOrder();
     }
 
     /// <summary>
@@ -141,7 +321,12 @@ public sealed partial class ShellViewModel
     /// <param name="shuffle">Turns shuffle on for this queue, starting anywhere.</param>
     internal TrackViewModel? StartQueue(IEnumerable<TrackViewModel> tracks, TrackViewModel? start, bool shuffle = false)
     {
-        var playable = tracks.Where(track => !string.IsNullOrEmpty(track.VideoId)).ToList();
+        if (!CanChangeTrack())
+        {
+            return null;
+        }
+
+        var playable = tracks.Where(track => !string.IsNullOrEmpty(track.VideoId) && !IsRefused(track.VideoId)).ToList();
         if (start is not null && !playable.Contains(start) && !string.IsNullOrEmpty(start.VideoId))
         {
             playable.Insert(0, start);
@@ -153,8 +338,8 @@ public sealed partial class ShellViewModel
             return null;
         }
 
-        _radioSeed = null;
-        _radioCursor = null;
+        _station = null;
+        _stationRevision++;
         _unshuffled = null;
         Queue.Clear();
         TrackViewModel? first = null;
@@ -175,32 +360,40 @@ public sealed partial class ShellViewModel
         }
 
         first ??= Queue[0];
-        Point(first);
         if (IsShuffled)
         {
-            ShuffleUpcoming();
+            // The chosen song leads and the rest are shuffled after it: a song placed before it
+            // would be one Previous reaches without it ever having played.
+            var order = PlaybackOrder.ShuffledStartingWith(Queue.ToList(), first, Shuffler);
+            _unshuffled = Queue.Where(entry => !ReferenceEquals(entry, first)).ToList();
+            Queue.Clear();
+            foreach (var entry in order)
+            {
+                Queue.Add(entry);
+            }
         }
+
+        Point(first);
 
         return first;
     }
 
-    /// <summary>Starts a queue of the rows on the page, from the one chosen.</summary>
-    internal TrackViewModel? PlayFromPage(TrackViewModel row) => StartQueue(Tracks, row);
+    /// <summary>
+    /// Plays a row chosen on the page: an album or playlist in its order, anything else as a
+    /// station that starts with the row.
+    /// </summary>
+    internal TrackViewModel? PlayFromPage(TrackViewModel row) =>
+        PlaybackOrder.LaunchFor(PageKind) == LaunchKind.Ordered ? StartQueue(Tracks, row) : StartStation(row);
 
-    /// <summary>Starts a queue from the playable cards on the chosen card's shelf.</summary>
-    internal TrackViewModel? PlayFromShelf(CardViewModel card)
-    {
-        var rows = card.Context
-            .Where(candidate => !string.IsNullOrEmpty(candidate.VideoId))
-            .Select(candidate => new TrackViewModel(candidate))
-            .ToList();
-        var start = rows.FirstOrDefault(row => row.VideoId == card.VideoId) ?? new TrackViewModel(card);
-        return StartQueue(rows, start);
-    }
+    /// <summary>
+    /// Plays a shelf card as a station. A shelf is a set of suggestions, not an order anyone chose;
+    /// queuing its neighbours is what turned "Listen again" into the queue.
+    /// </summary>
+    internal TrackViewModel? PlayFromShelf(CardViewModel card) => StartStation(new TrackViewModel(card));
 
     /// <summary>Moves to an entry already in the queue.</summary>
     internal TrackViewModel? JumpTo(TrackViewModel entry) =>
-        Queue.Contains(entry) ? Point(entry) : null;
+        Queue.Contains(entry) && CanChangeTrack() ? Point(entry) : null;
 
     internal bool IsQueueEntry(TrackViewModel track) => Queue.Contains(track);
 
@@ -223,7 +416,16 @@ public sealed partial class ShellViewModel
             Queue.Add(entry);
         }
 
-        _unshuffled?.Add(entry);
+        // Kept in the same place in the unshuffled order, so turning shuffle off leaves it next.
+        if (next)
+        {
+            _unshuffled?.Insert(0, entry);
+        }
+        else
+        {
+            _unshuffled?.Add(entry);
+        }
+
         QueueChanged();
         ReportStatus(next ? $"“{track.Title}” plays next." : $"“{track.Title}” was added to the queue.");
     }
@@ -244,22 +446,61 @@ public sealed partial class ShellViewModel
         QueueChanged();
     }
 
-    /// <summary>Clears everything but the track that is playing.</summary>
-    internal void ClearUpcoming()
+    private ClearedQueue<TrackViewModel>? _lastCleared;
+    private (List<TrackViewModel>? Unshuffled, RadioStation? Station) _clearedState;
+
+    /// <summary>Clears everything after the track that is playing, keeping it for Undo.</summary>
+    /// <remarks>Tracks already played stay, so Previous still reaches them.</remarks>
+    internal bool ClearUpcoming()
     {
-        foreach (var entry in Queue.Where(entry => !ReferenceEquals(entry, _current)).ToList())
+        var removed = QueueLayout.UpNext(Queue, NowPlayingEntry);
+        if (removed.Count == 0)
+        {
+            return false;
+        }
+
+        _lastCleared = new ClearedQueue<TrackViewModel>(NowPlayingEntry, removed, DateTimeOffset.Now);
+        _clearedState = (_unshuffled?.ToList(), _station);
+        foreach (var entry in removed)
         {
             Queue.Remove(entry);
         }
 
-        _unshuffled = IsShuffled ? [] : null;
-        _radioSeed = null;
-        _radioCursor = null;
+        _unshuffled = IsShuffled ? _unshuffled?.Where(Queue.Contains).ToList() ?? [] : null;
+        _station = null;
+        _stationRevision++;
         QueueChanged();
+        return true;
+    }
+
+    internal bool CanUndoClear => _lastCleared?.CanUndo(NowPlayingEntry, DateTimeOffset.Now) == true;
+
+    /// <summary>Puts back what the last Clear removed, after the track that is playing.</summary>
+    internal bool UndoClear()
+    {
+        if (_lastCleared is not { } cleared || !cleared.CanUndo(NowPlayingEntry, DateTimeOffset.Now))
+        {
+            return false;
+        }
+
+        foreach (var entry in cleared.ToRestore(Queue))
+        {
+            Queue.Add(entry);
+        }
+
+        (_unshuffled, _station) = _clearedState;
+        _lastCleared = null;
+        QueueChanged();
+        return true;
     }
 
     internal void ToggleShuffle()
     {
+        if (!HasPlayback)
+        {
+            return;
+        }
+
         if (IsShuffled)
         {
             // Put the upcoming entries back in the order they were queued.
@@ -309,6 +550,11 @@ public sealed partial class ShellViewModel
 
     internal void CycleRepeat()
     {
+        if (!HasPlayback)
+        {
+            return;
+        }
+
         Repeat = Repeat switch
         {
             RepeatMode.Off => RepeatMode.All,
@@ -318,66 +564,81 @@ public sealed partial class ShellViewModel
         SaveQueueModes();
     }
 
-    /// <summary>
-    /// Keeps the music going after the queue ends, with a radio from the track that just finished.
-    /// </summary>
-    /// <returns>The first new entry, or null when autoplay is off or nothing came back.</returns>
-    internal async Task<TrackViewModel?> AutoplayAfterAsync()
-    {
-        if (!Autoplay || _current is not { } last)
-        {
-            return null;
-        }
+    /// <summary>What a move decided: the entry to play, and whether it is the same one again.</summary>
+    internal readonly record struct MoveResult(TrackViewModel? Entry, bool Restart);
 
-        var seed = await StartRadioAsync(last).ConfigureAwait(true);
-        // The radio starts with its seed, which has just played; move on to what follows it.
-        return seed is null ? null : Advance(forward: true, natural: false);
-    }
+    private static QueueRepeat ToQueueRepeat(RepeatMode mode) => mode switch
+    {
+        RepeatMode.All => QueueRepeat.All,
+        RepeatMode.One => QueueRepeat.One,
+        _ => QueueRepeat.Off,
+    };
 
     /// <summary>
-    /// Chooses the entry to play after a command or a natural end.
+    /// Moves for Next, Previous or a natural end, continuing with recommendations when the queue
+    /// runs out going forward.
     /// </summary>
-    /// <param name="forward">Next rather than previous.</param>
-    /// <param name="natural">The track ended by itself, so repeat-one applies.</param>
-    /// <returns>The entry, or null when the queue has finished.</returns>
-    internal TrackViewModel? Advance(bool forward, bool natural)
+    /// <param name="natural">The track ended by itself, rather than being skipped.</param>
+    internal async Task<MoveResult> MoveAsync(bool forward, bool natural)
     {
-        if (Queue.Count == 0 || _current is null)
+        if (_current is not { } current || Queue.Count == 0)
         {
             ReportStatus("Choose a track to begin.");
-            return null;
+            return default;
         }
 
-        if (natural && Repeat == RepeatMode.One)
+        // A natural end is the page's doing and never happens inside an advertisement.
+        if (!natural && !CanChangeTrack())
         {
-            return Point(_current);
+            return default;
         }
 
-        var index = Queue.IndexOf(_current) + (forward ? 1 : -1);
-        if (index >= 0 && index < Queue.Count)
+        var decision = PlaybackOrder.Move(Queue.Count, Queue.IndexOf(current), forward, natural, ToQueueRepeat(Repeat));
+        switch (decision.Kind)
         {
-            return Point(Queue[index]);
+            case MoveKind.Play:
+                return new(Point(Queue[decision.Index]), false);
+            case MoveKind.Restart:
+                return new(Point(current), true);
         }
 
-        // A deliberate Previous at the top, or Next at the bottom, wraps when repeat says so; a
-        // natural end at the bottom without repeat finishes instead of starting over.
-        if (Repeat == RepeatMode.All || (!natural && _radioSeed is null))
+        // Out of songs going forward. A running station continues when skipped into, and on a
+        // natural end when autoplay is on; without one, autoplay starts one from this song.
+        var mayContinue = _station is not null ? Autoplay || !natural : Autoplay;
+        if (!mayContinue || current.VideoId is not { Length: > 0 } seed)
         {
-            return Point(Queue[(index + Queue.Count) % Queue.Count]);
+            ReportStatus("The queue has finished.");
+            return default;
         }
 
-        return null;
+        if (_station is null || !_station.UsableWith(_activeAccount?.Id))
+        {
+            _station = new RadioStation(seed, AccountForRadio());
+        }
+
+        var revision = _stationRevision;
+        var before = Queue.Count;
+        await ExtendStationAsync().ConfigureAwait(true);
+        if (revision != _stationRevision || !ReferenceEquals(current, _current))
+        {
+            // Something else was chosen while the recommendations loaded; that choice stands.
+            return default;
+        }
+
+        if (Queue.Count > before)
+        {
+            return new(Point(Queue[before]), false);
+        }
+
+        ReportStatus("The queue has finished.");
+        return default;
     }
 
-    /// <summary>Whether running out of queue should fetch more of a radio first.</summary>
-    internal bool CanExtendRadio => _radioSeed is not null && _current is not null
-        && Queue.IndexOf(_current) == Queue.Count - 1;
-
     /// <summary>
-    /// Replaces the queue with a radio seeded from <paramref name="seed"/>.
+    /// Plays <paramref name="seed"/> now and fills the queue after it with recommendations, as
+    /// YouTube Music's own radio does. The song does not wait for them.
     /// </summary>
-    /// <returns>The seed's own entry, which is played first.</returns>
-    internal async Task<TrackViewModel?> StartRadioAsync(TrackViewModel seed)
+    internal TrackViewModel? StartStation(TrackViewModel seed)
     {
         if (string.IsNullOrEmpty(seed.VideoId))
         {
@@ -385,74 +646,154 @@ public sealed partial class ShellViewModel
             return null;
         }
 
-        ReportStatus($"Starting a radio from “{seed.Title}”…");
-        try
+        var first = StartQueue([seed], seed);
+        if (first is null)
         {
-            var answer = await _client
-                .RequestAsync("catalog.radio", new JsonObject { ["catalogId"] = seed.VideoId })
-                .ConfigureAwait(true);
-            var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
-            var rows = (page?.Tracks ?? [])
-                .Where(item => !string.IsNullOrEmpty(item.VideoId) && item.VideoId != seed.VideoId)
-                .Select(item => new TrackViewModel(item))
-                .ToList();
-            rows.Insert(0, seed);
-            var first = StartQueue(rows, seed);
-            _radioSeed = seed.VideoId;
-            _radioCursor = page?.NextCursor;
-            QueueChanged();
-            LoadQueueArtwork();
-            ReportStatus(page?.Truncated == true ? "The radio was long, so only the first part is queued." : "");
-            return first;
-        }
-        catch (Exception error)
-        {
-            ReportStatus("Could not start a radio: " + Describe(error));
             return null;
+        }
+
+        _station = new RadioStation(seed.VideoId, AccountForRadio());
+        QueueChanged();
+        _ = ExtendStationAsync();
+        return first;
+    }
+
+    internal TrackViewModel? StartStation(CardViewModel card) => StartStation(new TrackViewModel(card));
+
+    /// <summary>
+    /// The account whose YouTube Music recommendations the radio uses: the signed-in one, whose
+    /// "Up next" is personal, or none for the anonymous catalog's.
+    /// </summary>
+    private string? AccountForRadio() => IsSignedIn && Personal is not null ? _activeAccount?.Id : null;
+
+    /// <summary>Keeps a few recommendations ahead of the song playing, so Next never waits.</summary>
+    private void TopUpStation()
+    {
+        if (_station is { CanLoadMore: true } && _current is not null && _stationLoad is null
+            && Queue.Count - Queue.IndexOf(_current) - 1 < 3)
+        {
+            _ = ExtendStationAsync();
         }
     }
 
-    internal Task<TrackViewModel?> StartRadioAsync(CardViewModel card) =>
-        StartRadioAsync(new TrackViewModel(card));
-
-    /// <summary>Appends the next part of the running radio.</summary>
-    internal async Task<bool> ExtendRadioAsync()
+    /// <summary>Appends the station's next page, or joins the one already on its way.</summary>
+    /// <returns>How many songs were added.</returns>
+    private async Task<int> ExtendStationAsync()
     {
-        if (_radioSeed is null || string.IsNullOrEmpty(_radioCursor))
+        if (_stationLoad is { } running)
         {
-            return false;
+            return await running.ConfigureAwait(true);
         }
 
+        if (_station is not { CanLoadMore: true } station)
+        {
+            return 0;
+        }
+
+        var load = LoadStationPageAsync(station, _stationRevision);
+        _stationLoad = load;
+        QueueChanged();
         try
         {
-            var payload = new JsonObject { ["catalogId"] = _radioSeed, ["continuation"] = _radioCursor };
-            var answer = await _client.RequestAsync("catalog.radio", payload).ConfigureAwait(true);
-            var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
-            var known = Queue.Select(entry => entry.VideoId).ToHashSet();
-            var added = 0;
-            foreach (var item in page?.Tracks ?? [])
+            return await load.ConfigureAwait(true);
+        }
+        finally
+        {
+            if (ReferenceEquals(_stationLoad, load))
             {
-                if (string.IsNullOrEmpty(item.VideoId) || !known.Add(item.VideoId))
-                {
-                    continue;
-                }
+                _stationLoad = null;
+                QueueChanged();
+            }
+        }
+    }
 
-                var entry = new TrackViewModel(item);
-                Queue.Add(entry);
-                _unshuffled?.Add(entry);
-                added++;
+    private async Task<int> LoadStationPageAsync(RadioStation station, int revision)
+    {
+        CatalogPage? page;
+        try
+        {
+            page = await FetchRadioAsync(station).ConfigureAwait(true);
+        }
+        catch (Exception error) when (station.IsPersonal && !station.Loaded)
+        {
+            // The account's reader could not answer; the anonymous catalog still can.
+            BridgeLog.Write($"personal radio failed, using the catalog's: {error.GetType().Name}");
+            if (revision != _stationRevision)
+            {
+                return 0;
             }
 
-            _radioCursor = page?.NextCursor;
-            QueueChanged();
-            LoadQueueArtwork();
-            return added > 0;
+            station = new RadioStation(station.Seed, AccountId: null);
+            _station = station;
+            try
+            {
+                page = await FetchRadioAsync(station).ConfigureAwait(true);
+            }
+            catch (Exception fallback)
+            {
+                ReportRadioFailure(fallback, revision);
+                return 0;
+            }
         }
         catch (Exception error)
         {
-            ReportStatus("Could not continue the radio: " + Describe(error));
-            return false;
+            ReportRadioFailure(error, revision);
+            return 0;
         }
+
+        if (revision != _stationRevision || !station.UsableWith(_activeAccount?.Id) || page is null)
+        {
+            return 0;
+        }
+
+        var fresh = PlaybackOrder.FreshRecommendations(page.Tracks, item => item.VideoId,
+            Queue.Select(entry => entry.VideoId).Concat(_recentlyPlayed).Concat(_refusedVideos));
+        foreach (var item in fresh)
+        {
+            var entry = new TrackViewModel(item);
+            Queue.Add(entry);
+            _unshuffled?.Add(entry);
+        }
+
+        _station = station.After(page.NextCursor);
+        QueueChanged();
+        LoadQueueArtwork();
+        BridgeLog.Write($"radio added {fresh.Count} of {page.Tracks.Count} ({(station.IsPersonal ? "account" : "catalog")})");
+        return fresh.Count;
+    }
+
+    private void ReportRadioFailure(Exception error, int revision)
+    {
+        if (revision == _stationRevision)
+        {
+            ReportStatus("Could not load recommendations: " + Describe(error));
+        }
+    }
+
+    /// <summary>
+    /// A page of recommendations: the account's own "Up next" when signed in, the anonymous
+    /// catalog's otherwise. The account's is read inside its profile, where its cookies live.
+    /// </summary>
+    private async Task<CatalogPage?> FetchRadioAsync(RadioStation station)
+    {
+        if (station.IsPersonal)
+        {
+            if (Personal is null)
+            {
+                throw new InvalidOperationException("The account's reader is not available.");
+            }
+
+            return await Personal.RadioAsync(station.Seed, station.Continuation).ConfigureAwait(true);
+        }
+
+        var payload = new JsonObject { ["catalogId"] = station.Seed };
+        if (station.Continuation is { } continuation)
+        {
+            payload["continuation"] = continuation;
+        }
+
+        var answer = await _client.RequestAsync("catalog.radio", payload).ConfigureAwait(true);
+        return answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
     }
 
     /// <summary>Fetches an album, playlist or artist and queues its tracks.</summary>

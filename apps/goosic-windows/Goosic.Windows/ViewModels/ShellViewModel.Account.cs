@@ -6,12 +6,13 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 
 namespace Goosic.Windows.ViewModels;
 
 /// <summary>One stored account, as the account menu lists it.</summary>
-public sealed class AccountViewModel
+public sealed class AccountViewModel : INotifyPropertyChanged
 {
     internal AccountViewModel(AccountSummary summary, bool active)
     {
@@ -19,19 +20,39 @@ public sealed class AccountViewModel
         WebProfileId = summary.WebProfileId;
         DisplayName = string.IsNullOrWhiteSpace(summary.DisplayName) ? "YouTube Music account" : summary.DisplayName;
         Detail = summary.Email ?? summary.Channel ?? "YouTube Music account";
+        AvatarUrl = summary.AvatarUrl;
         IsActive = active;
     }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     internal string Id { get; }
     internal string WebProfileId { get; }
     public string DisplayName { get; }
     public string Detail { get; }
+    private string? AvatarUrl { get; }
     public bool IsActive { get; }
     public string Initial => DisplayName[..1].ToUpperInvariant();
     public string ActiveMarker => IsActive ? "" : "";
 
     /// <summary>The account's id, for the view to hand back.</summary>
     public string Tag => Id;
+
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? Artwork { get; private set; }
+
+    internal async Task LoadArtworkAsync(ArtworkLoader loader)
+    {
+        if (await loader.LocalFileAsync(AvatarUrl).ConfigureAwait(true) is not { } file)
+        {
+            return;
+        }
+
+        var image = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+        using var stream = System.IO.File.OpenRead(file);
+        await image.SetSourceAsync(System.IO.WindowsRuntimeStreamExtensions.AsRandomAccessStream(stream));
+        Artwork = image;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Artwork)));
+    }
 }
 
 /// <summary>A playlist the signed-in account owns and may edit.</summary>
@@ -108,6 +129,22 @@ public sealed partial class ShellViewModel
 {
     private AccountViewModel? _activeAccount;
     private bool _accountBusy;
+
+    /// <summary>A sign-in, sign-out or switch is under way; the account controls wait for it.</summary>
+    public bool IsAccountBusy
+    {
+        get => _accountBusy;
+        private set
+        {
+            if (Set(ref _accountBusy, value))
+            {
+                OnPropertyChanged(nameof(IsAccountIdle));
+                OnPropertyChanged(nameof(ConnectionLabel));
+            }
+        }
+    }
+
+    public bool IsAccountIdle => !_accountBusy;
     private (string BrowseId, string Title, string Shape)? _personalSource;
     private string? _pagePlaylistId;
     private string? _pageArtistId;
@@ -133,6 +170,7 @@ public sealed partial class ShellViewModel
     public bool IsGuest => _activeAccount is null;
 
     public string AccountName => _activeAccount?.DisplayName ?? "Guest";
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? AccountArtwork => _activeAccount?.Artwork;
 
     public string AccountDetail => _activeAccount?.Detail ?? "Sign in to see your library, likes and playlists";
 
@@ -178,6 +216,9 @@ public sealed partial class ShellViewModel
         OnPropertyChanged(nameof(CanSavePagePlaylist));
         OnPropertyChanged(nameof(CanFollowPageArtist));
         OnPropertyChanged(nameof(HasPageActions));
+        OnPropertyChanged(nameof(IsPageArtistSubscribed));
+        OnPropertyChanged(nameof(SubscribeLabel));
+        OnPropertyChanged(nameof(SubscribeGlyph));
     }
 
     private void ForgetPersonalPage()
@@ -204,6 +245,7 @@ public sealed partial class ShellViewModel
         }
         catch (Exception error)
         {
+            BridgeLog.Write($"accounts.get failed: {error}");
             AccountStatus = "Account unavailable: " + Describe(error);
         }
     }
@@ -214,19 +256,30 @@ public sealed partial class ShellViewModel
         var snapshot = response.Deserialize<AccountsResponsePayload>(ServiceProtocol.Json)?.Accounts;
         if (snapshot is null)
         {
+            BridgeLog.Write($"account snapshot unreadable: {response?.ToJsonString()}");
             return;
         }
 
         Accounts.Clear();
         foreach (var account in snapshot.Accounts)
         {
-            Accounts.Add(new AccountViewModel(account, account.Id == snapshot.ActiveAccountId));
+            var model = new AccountViewModel(account, account.Id == snapshot.ActiveAccountId);
+            model.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(AccountViewModel.Artwork) && model.IsActive)
+                {
+                    OnPropertyChanged(nameof(AccountArtwork));
+                }
+            };
+            Accounts.Add(model);
+            _ = model.LoadArtworkAsync(_artwork);
         }
 
         var active = Accounts.FirstOrDefault(account => account.IsActive);
         var changed = active?.Id != _activeAccount?.Id;
         _activeAccount = active;
         AccountInitials = active?.Initial ?? "G";
+        OnPropertyChanged(nameof(AccountArtwork));
         AccountStatus = active?.DisplayName ?? "Browsing as a guest";
         Personal?.Bind(active?.WebProfileId);
         Playback?.BindProfile(active?.WebProfileId);
@@ -275,7 +328,7 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        _accountBusy = true;
+        IsAccountBusy = true;
         var window = new AccountLoginWindow();
         try
         {
@@ -339,7 +392,7 @@ public sealed partial class ShellViewModel
         finally
         {
             window.Close();
-            _accountBusy = false;
+            IsAccountBusy = false;
         }
     }
 
@@ -351,9 +404,14 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        _accountBusy = true;
+        IsAccountBusy = true;
+        var switchFailed = false;
         try
         {
+            // The page belongs to the account being left; show it loading rather than stale.
+            Shelves.Clear();
+            Tracks.Clear();
+            PageState = PageState.Loading;
             var generation = await QuiesceAsync().ConfigureAwait(true);
             var payload = new JsonObject { ["generation"] = generation };
             if (accountId is not null)
@@ -379,10 +437,17 @@ public sealed partial class ShellViewModel
         catch (Exception error)
         {
             ReportStatus("Could not switch account: " + Describe(error));
+            switchFailed = true;
         }
         finally
         {
-            _accountBusy = false;
+            IsAccountBusy = false;
+        }
+
+        // The page was cleared for the switch; put back what the unchanged account shows.
+        if (switchFailed)
+        {
+            await RetryPageAsync().ConfigureAwait(true);
         }
     }
 
@@ -396,7 +461,7 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        _accountBusy = true;
+        IsAccountBusy = true;
         try
         {
             if (Personal is not null)
@@ -428,7 +493,7 @@ public sealed partial class ShellViewModel
         }
         finally
         {
-            _accountBusy = false;
+            IsAccountBusy = false;
         }
     }
 
@@ -453,7 +518,7 @@ public sealed partial class ShellViewModel
         if (!IsSignedIn || Personal is null)
         {
             PageSubtitle = "Sign in to see this";
-            Status = "Sign in with your Google account to see your library, liked music and history.";
+            PageState = PageState.SignInRequired;
             return true;
         }
 
@@ -520,13 +585,20 @@ public sealed partial class ShellViewModel
             }
 
             Fill(page);
-            Status = Tracks.Count == 0 && Shelves.Count == 0 ? "Nothing here yet." : "";
+            Status = "";
+            PageState = Tracks.Count == 0 && Shelves.Count == 0
+                ? PageState.Empty(PageSubject.Library, source.Title)
+                : PageState.Content;
         }
         catch (Exception error)
         {
             if (_personalSource == source)
             {
-                Status = Describe(error);
+                PageState = FailureState(error, source.Title);
+            }
+            else
+            {
+                Describe(error);
             }
         }
     }
@@ -538,6 +610,10 @@ public sealed partial class ShellViewModel
             var row = new TrackViewModel(track);
             Tracks.Add(row);
             _ = row.LoadArtworkAsync(_artwork);
+            if (ShowPageHeader && PageArtwork is null)
+            {
+                _ = SetPageArtworkAsync(row, _pageArtworkVersion);
+            }
         }
 
         foreach (var shelf in page.Shelves)
@@ -551,6 +627,8 @@ public sealed partial class ShellViewModel
         }
 
         NextCursor = page.NextCursor;
+        AllTracksId = page.AllTracksId;
+        SetPageTruncated(page.Truncated);
     }
 
     /// <summary>Continues a page the account's reader issued, which only that reader understands.</summary>
@@ -753,10 +831,57 @@ public sealed partial class ShellViewModel
             ["saved"] = saved,
         }, saved ? $"Saved “{title}” to your library." : $"Removed “{title}” from your library.");
 
-    /// <summary>Subscribes to an artist's channel, or unsubscribes.</summary>
-    internal Task FollowArtistAsync(string channelId, string name, bool follow) =>
-        ChangeAsync("setSubscription", new JsonObject { ["channelId"] = channelId, ["subscribed"] = follow },
-            follow ? $"Subscribed to {name}." : $"Unsubscribed from {name}.");
+    /// <summary>Channels this session subscribed to or left, by channel id.</summary>
+    private readonly Dictionary<string, bool> _subscriptions = [];
+    private bool _subscriptionBusy;
+
+    public bool IsPageArtistSubscribed =>
+        _pageArtistId is { } id && _subscriptions.GetValueOrDefault(id);
+
+    public bool IsSubscriptionIdle => !_subscriptionBusy;
+
+    public string SubscribeLabel => IsPageArtistSubscribed ? "Subscribed" : "Subscribe";
+
+    /// <summary>Segoe Fluent Icons: a check once subscribed, a plus-person before.</summary>
+    public string SubscribeGlyph => IsPageArtistSubscribed ? "" : "";
+
+    /// <summary>Subscribes to an artist's channel, or unsubscribes, and shows the result on the button.</summary>
+    internal async Task FollowArtistAsync(string channelId, string name, bool follow)
+    {
+        if (_subscriptionBusy)
+        {
+            return;
+        }
+
+        SetSubscriptionBusy(true);
+        try
+        {
+            var answer = await ChangeAsync("setSubscription",
+                new JsonObject { ["channelId"] = channelId, ["subscribed"] = follow },
+                follow ? $"Subscribed to {name}." : $"Unsubscribed from {name}.").ConfigureAwait(true);
+            if (answer is not null)
+            {
+                _subscriptions[channelId] = follow;
+            }
+            else
+            {
+                BridgeLog.Write($"subscription change for a channel did not complete (follow={follow})");
+            }
+        }
+        finally
+        {
+            SetSubscriptionBusy(false);
+        }
+    }
+
+    private void SetSubscriptionBusy(bool busy)
+    {
+        _subscriptionBusy = busy;
+        OnPropertyChanged(nameof(IsSubscriptionIdle));
+        OnPropertyChanged(nameof(IsPageArtistSubscribed));
+        OnPropertyChanged(nameof(SubscribeLabel));
+        OnPropertyChanged(nameof(SubscribeGlyph));
+    }
 
     internal bool OwnsPlaylist(string playlistId)
     {
