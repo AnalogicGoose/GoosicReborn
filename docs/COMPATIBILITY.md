@@ -18,10 +18,12 @@ is worse than none, because it is believed.
 | `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.3.0` exactly | none bundled; resolved at launch |
 | `apps/goosic-swift` (Windows) | stubs only | `0.3.0` exactly | none bundled; resolved at launch |
 | `apps/goosic-linux` (GTK 4) | designed, not started | `0.3.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
-| `apps/goosic-windows` (WinUI 3) | not started | — | — |
+| `apps/goosic-windows` (WinUI 3) | 0.1.0 Windows x64 setup and ZIP | `0.3.0` exactly | private service and rules DLL bundled beside the executable |
 
-Product version is `0.1.0`, from the Cargo workspace. There are no packages, so there are no
-per-platform artifact revisions yet and nothing to publish a release manifest about. The
+Product version is `0.1.0`, from the Cargo workspace. Windows is the first packaged platform.
+The release includes SHA-256 checksums for the installer, ZIP, service and rules DLL. Its source
+is identified by the release tag; all bundled application binaries are built from that source.
+The
 `1.4.0+3` scheme in [the migration plan](NATIVE_SHELL_MIGRATION.md) describes where this table
 is going, not what it holds.
 
@@ -81,7 +83,7 @@ is a shell that will one day claim compatibility it does not have.
 
 ## The pairing gap
 
-Nothing is bundled today. The Swift shell resolves its service from `GOOSIC_SERVICE_PATH`, and
+The Swift shell has no bundled package today. It resolves its service from `GOOSIC_SERVICE_PATH`, and
 falls back to whatever `goosic-service` is first on `PATH`. In a development checkout that is the
 service you just built, which is why it has never caused trouble. It also means the shell has no
 idea what it launched, and the manifest cannot honestly say a shell ships with a particular
@@ -94,7 +96,7 @@ That is tolerable while the service is built from the same commit as the shell, 
 being tolerable the moment packages exist — which is why the plan puts a bundled private service
 inside every package, and why this section will be replaced rather than amended when they do.
 
-Linux is where it closes first. The GTK shell finds its service by path — `GOOSIC_SERVICE_PATH`
+Windows closes this gap with a bundled service resolved beside its executable. The planned GTK shell finds its service by path — `GOOSIC_SERVICE_PATH`
 as a developer's override, otherwise the `goosic-service` installed beside its own executable —
 and never searches `PATH`, so the Flatpak always runs the service it was built with. See
 [LINUX_SHELL.md](LINUX_SHELL.md).
@@ -107,6 +109,5 @@ version and checksum of the service binary inside it. A service or protocol chan
 a coordinated release: CI runs every supported shell against the new service, this table changes,
 and the affected packages ship together unless the protocol genuinely did not move.
 
-Until any of that exists, this document has one job, and it is the honest one: to say that there
-is exactly one protocol version, that both sides demand it exactly, and that no shell yet carries
-a service of its own.
+There is exactly one supported protocol version, demanded by both sides. Windows carries its
+paired service; the unbundled Swift builds continue to require explicit compatible service selection.
