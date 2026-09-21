@@ -50,7 +50,11 @@ Do not force UI state into Rust merely to remove Swift. Screens, focus, layout, 
 
 5. Build `apps/goosic-windows` around WinUI 3, WebView2, Windows media controls, and local audio. Do not claim Windows support until it passes the same fixtures and platform-host security checks.
 
-   *Deferred* until the Linux shell lands.
+   *Started*, ahead of the Linux shell rather than after it, because that is the platform being worked on. `apps/goosic-windows` is a WinUI 3 application in C#: the icon rail, the transport in the caption bar, the named sidebar drawn over the content, and the catalog shelves render against the live service. Its transport to `goosic-service` is C#, because what a replacement shell implements is the protocol and its fixtures rather than any particular language's client.
+
+   The rules are not restated in C#. `goosic-shell-support-ffi` exposes them over a C ABI the shell reaches through P/Invoke, which is step two's "only when a real use proves it valuable" arriving: the injected page scripts and the bridge validators are security-sensitive generated JavaScript and the checks that decide whether to believe the page, and a third copy of those is exactly the failure [SHELL_CONTRACT.md](SHELL_CONTRACT.md) describes. What crosses the boundary stays narrow -- the scripts and the validators, never screens, focus or layout.
+
+   Windows support is not claimed. There is no playback, search, account profile or media control yet, and the fixtures have not been run against it.
 
 6. Delete `apps/goosic-swift`, SwiftPM, `SCUI_DEFAULT_BACKEND`, and their CI caches only after all replacement shells pass conformance and package checks. Migrate every useful Swift test before deleting it.
 
