@@ -4,6 +4,16 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 
 ## What works today
 
+Version 0.1.0 distributes the native Windows x64 WinUI app as a setup executable and portable
+ZIP. Setup creates a Start menu shortcut and uninstaller, bundles .NET and the Windows App SDK,
+and installs WebView2 if missing (internet required). It is unsigned, so Windows may display
+an unknown-publisher warning. Download it from
+[GitHub Releases](https://github.com/AnalogicGoose/GoosicReborn/releases).
+The platform notes below otherwise describe the older Swift shell. The native Windows shell
+supports official WebView2 playback, sign-in, personal catalog, queue, lyrics and media controls;
+local downloaded-file playback and legacy preference import remain unavailable. Only Windows
+x64 binaries are distributed in 0.1.0; macOS/Linux playback acceptance is not claimed.
+
 - **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
 - **Personal content (macOS).** A signed-in Home and the Library's playlists, liked songs, albums, and artists are read inside the active account's isolated WebKit profile. Cookies never leave WebKit; the shared shell receives normalized public music metadata only. See [the content parity map](docs/CONTENT_PARITY.md) for the full old-Goosic comparison.
 - **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single web host — WKWebView on macOS, WebKitGTK on Linux. Advertisements are reported as informational markers and are never bypassed. Only macOS has been heard to play; see the limitations below for what that means on Linux.
@@ -93,9 +103,9 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
 - **Linux audio is written but unheard.** Both playback hosts now exist there — WebKitGTK for the official player, GStreamer for decoded files — and both claim the same Rust leases as their macOS counterparts. What is missing is a person confirming that sound comes out. The local host is the only one with runtime evidence: its tests open a real WAV and read the duration back, which they can do silently because a paused pipeline decodes without touching the audio device. The official host has never been past compiling. Treat a report that Linux does not play as a bug to investigate, not as an expected limitation.
 - **Decoded audio is stored as data, not cache.** Rust's WAV cache sits in the per-user data directory rather than the cache directory, so it is swept into backups and ignored by tools that free cache space. The move is planned for every platform in one change; see [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
-- **Windows has no audio at all.** `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs there. A stub reports the limitation rather than producing sound, so no renderer can bypass Rust's authority.
+- **The Swift Windows shell has playback stubs.** The native WinUI shell uses WebView2 for official playback under Rust authority; it has no local-file playback host yet.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
-- **Two download tests fail on Windows.** `goosic-downloads` builds and 13 of its 15 tests pass there, but path handling assumes Unix syntax and the legacy import returns `InvalidFilename`. CI reports it without blocking, because it is a real bug in shared code rather than an accepted platform limit.
+- **Windows distribution is x64.** Native ARM64 packaging has not been validated for this release.
 - Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
 
 `goosic-service` is a private, one-process-per-app, single-client child reached through inherited stdin/stdout. It is not a daemon or socket service; stdio must never be shared or multiplexed. Generation is freshness authorization within that boundary. Future multiplexing requires an unforgeable per-client capability and active-owner authorization before account resets.
@@ -122,7 +132,7 @@ The move to native shells, from [the migration plan](docs/NATIVE_SHELL_MIGRATION
 2. **Done** — `goosic-shell-support`: the transport and the platform-neutral rules in Rust.
 3. **In progress** — the native macOS shell.
 4. **Designed** — the GTK 4 shell for Linux, packaged as a Flatpak.
-5. **Deferred** — the WinUI 3 shell for Windows.
+5. **Implemented** — the WinUI 3 shell for Windows with an x64 installer and portable ZIP.
 6. **Waiting** — removing SwiftCrossUI, once every replacement shell passes conformance and packaging.
 
 ## Licensing
