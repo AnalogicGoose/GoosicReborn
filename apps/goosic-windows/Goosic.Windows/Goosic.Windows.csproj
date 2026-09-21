@@ -1,0 +1,73 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- The SDK this is compiled against has to be one that is actually installed: the XAML
+         compiler resolves its platform references from Windows Kits, and when that version is
+         absent it exits 1 having written nothing to stdout, stderr, or its output file.
+         10.0.17763.0 stays the oldest Windows the result runs on. -->
+    <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <RootNamespace>Goosic.Windows</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
+    <!-- A build with no runtime identifier leaves native assets under runtimes\<rid>\native, and
+         WebView2 loads WebView2Loader.dll by name from beside the executable. The playback host
+         then fails with "the specified module could not be found", or, through the default
+         initialisation path, simply never finishes. Pick the machine's own architecture when the
+         caller did not name one. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <!-- Unpackaged for development: `dotnet run` launches it directly, without deploying an
+         MSIX first. Packaging is step six of the migration plan and is not here yet. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <!-- Warnings are errors for the same reason the Swift shell builds in Swift 6 mode:
+         nullability and concurrency complaints here are defects, not style. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+  </ItemGroup>
+
+  <!--
+    The shell links the platform-neutral rules through a C ABI rather than restating them, so the
+    cdylib has to sit beside the executable. Built here rather than expected to be there, because
+    a stale copy of these rules is worse than a missing one: it fails at the point the rule
+    changed, not at the point the file is absent.
+  -->
+  <PropertyGroup>
+    <GoosicRepoRoot>$(MSBuildProjectDirectory)\..\..\..\</GoosicRepoRoot>
+    <!-- A Release build of the app takes the release build of the rules, so a packaged copy
+         does not ship a debug library. -->
+    <GoosicCargoProfile Condition="'$(Configuration)' == 'Release'">release</GoosicCargoProfile>
+    <GoosicCargoProfile Condition="'$(GoosicCargoProfile)' == ''">debug</GoosicCargoProfile>
+    <GoosicCargoFlags Condition="'$(GoosicCargoProfile)' == 'release'">--release</GoosicCargoFlags>
+    <GoosicFfiLibrary>$(GoosicRepoRoot)target\$(GoosicCargoProfile)\goosic_shell_support_ffi.dll</GoosicFfiLibrary>
+  </PropertyGroup>
+
+  <Target Name="BuildShellSupportFfi" BeforeTargets="PrepareForBuild">
+    <Exec Command="cargo build $(GoosicCargoFlags) -p goosic-shell-support-ffi" WorkingDirectory="$(GoosicRepoRoot)" />
+  </Target>
+
+  <!--
+    The personal catalog reader is the Swift shell's resource, linked rather than copied, so both
+    shells run one program against YouTube Music and a fix to it reaches both.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\goosic-swift\Sources\GoosicSwift\Resources\PersonalCatalog.js"
+             Link="Resources\PersonalCatalog.js" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(GoosicFfiLibrary)" Condition="Exists('$(GoosicFfiLibrary)')"
+          CopyToOutputDirectory="PreserveNewest" Link="goosic_shell_support_ffi.dll" />
+  </ItemGroup>
+
+</Project>

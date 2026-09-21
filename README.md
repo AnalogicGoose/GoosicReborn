@@ -4,6 +4,16 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 
 ## What works today
 
+Version 0.1.0 distributes the native Windows x64 WinUI app as a setup executable and portable
+ZIP. Setup creates a Start menu shortcut and uninstaller, bundles .NET and the Windows App SDK,
+and installs WebView2 if missing (internet required). It is unsigned, so Windows may display
+an unknown-publisher warning. Download it from
+[GitHub Releases](https://github.com/AnalogicGoose/GoosicReborn/releases).
+The platform notes below otherwise describe the older Swift shell. The native Windows shell
+supports official WebView2 playback, sign-in, personal catalog, queue, lyrics and media controls;
+local downloaded-file playback and legacy preference import remain unavailable. Only Windows
+x64 binaries are distributed in 0.1.0; macOS/Linux playback acceptance is not claimed.
+
 - **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
 - **Personal content (macOS).** A signed-in Home and the Library's playlists, liked songs, albums, and artists are read inside the active account's isolated WebKit profile. Cookies never leave WebKit; the shared shell receives normalized public music metadata only. See [the content parity map](docs/CONTENT_PARITY.md) for the full old-Goosic comparison.
 - **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single web host — WKWebView on macOS, WebKitGTK on Linux. Advertisements are reported as informational markers and are never bypassed. Only macOS has been heard to play; see the limitations below for what that means on Linux.
@@ -37,7 +47,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and
 
 ## Working in this repository
 
-Branches follow a five-branch model — `main` for deployments, `development` as the trunk, and one long-lived branch per platform. Which one a change is cut from depends on whether it would be wrong to leave out on another platform; [docs/BRANCHING.md](docs/BRANCHING.md) has the rule and the reasoning. [AGENTS.md](AGENTS.md) is the short version for AI coding agents, along with the invariants that are not open to change; [CLAUDE.md](CLAUDE.md) exists only to point Claude Code at it, so there is one file to keep current instead of two. Merges down the branch tree are automatic, and CI builds Rust on all three platforms plus the shell on Linux and macOS for every push.
+Branches follow a five-branch model — `main` for deployments, `development` as the trunk, and one long-lived branch per platform. Which one a change is cut from depends on whether it would be wrong to leave out on another platform; [docs/BRANCHING.md](docs/BRANCHING.md) has the rule and the reasoning. [AGENTS.md](AGENTS.md) is the short version for AI coding agents, along with the invariants that are not open to change; [CLAUDE.md](CLAUDE.md) exists only to point Claude Code at it, so there is one file to keep current instead of two. Merges down the branch tree are automatic, and CI builds Rust on all three platforms, the Swift package on macOS and on Linux, and — wherever `apps/goosic-linux` exists — the Rust GTK shell, for every push.
 
 ## Prerequisites
 
@@ -59,6 +69,7 @@ The Swift shell is built in the Swift 6 language mode and needs Swift 6.0+ and, 
 | --- | --- |
 | macOS 14.0+ | Xcode's toolchain; nothing further |
 | Linux | Development headers for GTK 4, WebKitGTK 6.0, GLib and GStreamer — `gtk4-devel webkitgtk6.0-devel glib2-devel gstreamer1-devel gstreamer1-plugins-base-devel` on Fedora, `libgtk-4-dev libwebkitgtk-6.0-dev libglib2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev` on Debian. `CGtk`, `CWebKitGTK`, `CGLib` and `CGStreamer` resolve them through `pkg-config`. GStreamer also needs its runtime plugins (`gstreamer1-plugins-good`, `gstreamer1-plugin-libav`) to decode anything, and WebKitGTK plays through the same ones |
+| Windows 10/11 | Visual Studio Build Tools with the C++ workload, for `link.exe` and the Windows SDK; the Windows App Runtime **1.5-preview1**, which the WinUI bindings require by version and which a newer 1.5 does not satisfy; and Git for Windows, whose bash runs the symlink repair below |
 
 Swift package resolution needs network access the first time because SwiftCrossUI is pinned to the official `0.9.0` tag.
 
@@ -77,6 +88,16 @@ make run-swift      # builds the service and launches the shell against it
 
 `make run-swift` is the whole story on both platforms: it builds `goosic-service`, points `GOOSIC_SERVICE_PATH` at it, and launches the shell, which spawns the service itself. On Linux the result is a GTK 4 window, on Wayland or X11 alike.
 
+Windows uses the scripts under `scripts/` instead, because the Makefile's `uname` branch does not cover it and `make` is not part of the toolchain:
+
+```bat
+scripts\windows-build.bat   :: builds the shell
+scripts\windows-test.bat    :: runs the Swift test target
+scripts\windows-run.bat     :: builds the service and launches the shell against it
+```
+
+They exist to carry three pieces of setup that are not obvious from any failure they cause. `vcvars64.bat` is called for `link.exe` and the Windows SDK, with the Visual Studio Installer directory added to `PATH` first so it can find `vswhere`; without that it aborts early and `swiftc` reports a missing `link` tool and then an unloadable standard library, neither of which names the cause. `SDKROOT` is set explicitly, because the toolchain installer writes it machine-wide and any shell opened beforehand inherits a stale environment. And Windows refuses to create symlinks without Developer Mode, so dependencies are checked out with `core.symlinks=false` and repaired afterwards by `scripts/windows-fix-symlinks.sh`, which the scripts run for you between resolving and building.
+
 The shell connects to the service on launch, so Home loads without any manual step. The sidebar button remains the way back if a transport failure drops the child process.
 
 To drive the authority without a shell at all, feed it compact JSON lines. Its stdout is protocol-only; diagnostics, if any, go to stderr.
@@ -93,9 +114,9 @@ echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","pay
 - **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
 - **Linux audio is written but unheard.** Both playback hosts now exist there — WebKitGTK for the official player, GStreamer for decoded files — and both claim the same Rust leases as their macOS counterparts. What is missing is a person confirming that sound comes out. The local host is the only one with runtime evidence: its tests open a real WAV and read the duration back, which they can do silently because a paused pipeline decodes without touching the audio device. The official host has never been past compiling. Treat a report that Linux does not play as a bug to investigate, not as an expected limitation.
 - **Decoded audio is stored as data, not cache.** Rust's WAV cache sits in the per-user data directory rather than the cache directory, so it is swept into backups and ignored by tools that free cache space. The move is planned for every platform in one change; see [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
-- **Windows has no audio at all.** `OfficialPlaybackHost` and `LocalPlaybackHost` are explicit stubs there. A stub reports the limitation rather than producing sound, so no renderer can bypass Rust's authority.
+- **The Swift Windows shell has playback stubs.** The native WinUI shell uses WebView2 for official playback under Rust authority; it has no local-file playback host yet.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
-- **Two download tests fail on Windows.** `goosic-downloads` builds and 13 of its 15 tests pass there, but path handling assumes Unix syntax and the legacy import returns `InvalidFilename`. CI reports it without blocking, because it is a real bug in shared code rather than an accepted platform limit.
+- **Windows distribution is x64.** Native ARM64 packaging has not been validated for this release.
 - Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
 
 `goosic-service` is a private, one-process-per-app, single-client child reached through inherited stdin/stdout. It is not a daemon or socket service; stdio must never be shared or multiplexed. Generation is freshness authorization within that boundary. Future multiplexing requires an unforgeable per-client capability and active-owner authorization before account resets.
@@ -122,7 +143,7 @@ The move to native shells, from [the migration plan](docs/NATIVE_SHELL_MIGRATION
 2. **Done** — `goosic-shell-support`: the transport and the platform-neutral rules in Rust.
 3. **In progress** — the native macOS shell.
 4. **Designed** — the GTK 4 shell for Linux, packaged as a Flatpak.
-5. **Deferred** — the WinUI 3 shell for Windows.
+5. **Implemented** — the WinUI 3 shell for Windows with an x64 installer and portable ZIP.
 6. **Waiting** — removing SwiftCrossUI, once every replacement shell passes conformance and packaging.
 
 ## Licensing
