@@ -1,0 +1,48 @@
+name: GoosicMacUITests
+options:
+  minimumXcodeGenVersion: 2.38.0
+packages:
+  SwiftCrossUI:
+    url: https://github.com/moreSwift/swift-cross-ui.git
+    exactVersion: 0.9.0
+targets:
+  GoosicDebugHost:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Host
+      - path: ../../apps/goosic-swift/Sources/GoosicSwift
+    dependencies:
+      - package: SwiftCrossUI
+        product: SwiftCrossUI
+      - package: SwiftCrossUI
+        product: DefaultBackend
+      - package: SwiftCrossUI
+        product: AppKitBackend
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goosic.debug-host
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: GOOSIC_UI_TEST_HOST
+  GoosicDebugHostUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources: [Tests]
+    dependencies:
+      - target: GoosicDebugHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.goosic.debug-host-uitests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  GoosicDebugHost:
+    build:
+      targets:
+        GoosicDebugHost: all
+        GoosicDebugHostUITests: [test]
+    test:
+      targets: [GoosicDebugHostUITests]

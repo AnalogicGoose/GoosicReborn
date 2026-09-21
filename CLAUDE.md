@@ -17,8 +17,12 @@ touch anything:
    `platform/<os>`. When unsure, choose `development`.
 2. **What is not yours to change.** `goosic-core` is the single playback authority, the
    service's stdout is protocol-only, catalog reads are anonymous, credentials never cross
-   the protocol, advertisements are reported and never bypassed, and no GPL source is copied
-   here.
-3. **`make test` must pass**, and CI repeats it on Linux, macOS, and Windows. Code behind a
+   the protocol, advertisements are reported and never bypassed, and code ported from the old
+   Goosic keeps its GPL notice.
+3. **Tidy the clone when the branch list gets noisy.** Merges propagate automatically and
+   finished branches are pruned from the remote, so local branches whose upstream is gone pile
+   up. `AGENTS.md` has the one-liner; it uses `git branch -d`, which refuses to delete
+   anything unmerged.
+4. **`make test` must pass**, and CI repeats it on Linux, macOS, and Windows. Code behind a
    `#if` is invisible to the compiler you are running, so a green local build proves less
    than it looks.

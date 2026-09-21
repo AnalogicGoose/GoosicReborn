@@ -5,7 +5,10 @@ change; it is short because everything in it is load-bearing.
 
 GoosicReborn is a native rewrite of Goosic: a Rust playback authority plus a SwiftCrossUI
 shell, built for macOS, Linux, and Windows out of one repository. Rust decides what is
-allowed; the shell renders and asks.
+allowed; the shell renders and asks. The SwiftCrossUI shell is being replaced by one native
+shell per platform — see [docs/NATIVE_SHELL_MIGRATION.md](docs/NATIVE_SHELL_MIGRATION.md) —
+and on Linux that is a GTK 4 application written in Rust, designed in
+[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
 
 ## 1. Check what branch you are on first
 
@@ -13,7 +16,10 @@ This repository uses a five-branch model, documented in full in
 [docs/BRANCHING.md](docs/BRANCHING.md). The part you must not get wrong:
 
 - `main` is **deployment only**. Never commit to it, never branch from it (except a
-  `hotfix/<slug>`), never merge into it outside a deployment.
+  `hotfix/<slug>`), never merge into it outside a deployment. The single exception is
+  `.github/workflows/ci.yml`: `main` is the default branch, only the default branch writes
+  the build cache, and only its own copy of a workflow is what a scheduled run executes, so
+  the file has to be current there. Nothing else earns that exception.
 - `development` is the trunk. Cross-platform work is cut from it and merges back to it.
 - `platform/macos`, `platform/linux`, `platform/windows` hold work that exists only to
   satisfy one operating system's API.
@@ -72,38 +78,144 @@ task seems to require breaking one, stop and say so instead of working around it
 - **Credentials never cross the protocol and never reach stdout.** Cookies, bridge tokens,
   signing keys, and media URLs stay in platform-secure storage.
 - **Advertisements are reported, never bypassed.** They are informational markers.
-- **No GPL source is copied into this repository.** The previous Goosic is read for
-  compatibility of formats and storage keys only — see
-  [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md). The legacy import reads old
-  data and never modifies or deletes it, and never carries credentials over.
+- **Code from the previous Goosic keeps its notice.** The previous Goosic is GPL-3.0 and may
+  be ported here directly — reuse working code rather than rewriting it — but a ported file
+  carries the GPL header and the original authors' copyright, and the combined program is
+  distributed under GPL-3.0 (`LICENSE-GPL-3.0`); see
+  [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md). Porting does not relax the
+  other invariants: ported fetch code runs where the cookies already live, inside the account's
+  WebKit profile, never through the service protocol. The legacy import reads old data and
+  never modifies or deletes it, and never carries credentials over.
 - **No downloader.** `goosic-downloads` imports finalized legacy files and decodes them. It
   contains no yt-dlp path and no account-cookie path, and must not grow one.
 - **A clamped catalog page says so.** Never present a partial list as complete.
 
 ## 4. Where platform-specific code lives
 
-The shell is shared except at its edges. Platform work belongs in these seams, behind the
-existing abstractions, not scattered through the screens:
+The directory says which platform a file belongs to, so nobody has to infer it from a name:
 
-| Concern | File | State |
-| --- | --- | --- |
-| Playback host abstraction | `PlatformPlaybackHost.swift` | shared; the extension point |
-| Official (web) playback | `OfficialPlaybackHost.swift` | macOS real, others stubbed |
-| Local decoded-file playback | `LocalPlaybackHost.swift` | macOS real, others stubbed |
-| System media controls | `SystemMediaControls.swift` | macOS real, others stubbed |
-| Window material | `MaterialSurface.swift` | macOS real, plain elsewhere |
-| Account WebKit profiles | `AccountLoginHost.swift` | macOS real, others stubbed |
+```
+Sources/GoosicSwift/
+    Core/                 compiled everywhere; no #if os(...) belongs here
+    Platform/macOS/       AppKit, WebKit, AVFoundation, MediaPlayer
+    Platform/Linux/       GTK 4, WebKitGTK
+    Platform/Stubs/       every platform without a real implementation
+```
+
+Files under `Platform/` carry their platform as a suffix — `OfficialPlaybackHost+macOS.swift`,
+`OfficialPlaybackHost+Unsupported.swift`. That is not decoration and not a second way of
+saying what the directory already says: SwiftPM derives each object file from the source's
+base name, so one target cannot hold two files called `OfficialPlaybackHost.swift`, and the
+build fails with `multiple producers` rather than anything that names the real cause.
+
+Each file still opens with the `#if os(...)` that makes it true. The directory is where a
+reader looks; the guard is what the compiler obeys. Keeping both means a misplaced file
+fails to compile instead of silently vanishing from a platform.
+
+Platform work belongs in these seams, behind the existing abstractions, not scattered through
+the screens:
+
+| Concern | Core | Platform | State |
+| --- | --- | --- | --- |
+| Playback host abstraction | `PlatformPlaybackHost.swift` | — | shared; the extension point |
+| Official (web) playback | `OfficialBridge.swift` | `OfficialPlaybackHost+*.swift`, `WebKitSurface+Linux.swift` | macOS real, Linux written but never yet heard, Windows stubbed |
+| Local decoded-file playback | `LocalPlaybackEvent.swift` | `LocalPlaybackHost+*.swift` | macOS AVFoundation, Linux GStreamer, Windows stubbed |
+| System media controls | `SystemMediaPlayback.swift` | `SystemMediaControls+*.swift` | macOS Now Playing, Linux MPRIS, Windows stubbed |
+| Window material | `MaterialSurfaceKind.swift` | `MaterialSurface+*.swift` | macOS real, plain elsewhere |
+| Account WebKit profiles | `AccountLoginModel.swift` | `AccountLoginHost+*.swift` | macOS and Linux real, Windows stubbed |
+
+The `Core` column is the half that decides things and the `Platform` column is the half that
+talks to an operating system. Rules, wire shapes, and validation belong in `Core` — those are
+the parts a test can reach on any machine, and splitting them out is what makes `may this
+play` have one answer rather than one per platform.
+
+Those platform-neutral rules now also live in Rust, in `goosic-shell-support` — login
+navigation policy, bridge event validation, media projection, catalog conversion, queue
+selection and the rest; the crate documentation has the table. Until the Swift shell consumes
+that crate, the two copies are held to the same test cases and nothing else keeps them in step,
+so a change to one of those rules is a change to both, in the same commit.
 
 A stub reports the limitation. It must never produce sound or silently succeed, because that
 would let a renderer escape Rust's authority. When you implement one for a platform, keep the
 others' behaviour unchanged.
 
-Two portability rules bite far from their cause: `URLSession` needs a
-`#if canImport(FoundationNetworking)` import off Darwin, and swift-corelibs-xctest aborts the
-whole run on a `@MainActor`-isolated `XCTestCase` subclass — put the isolation on the
-individual test method instead.
+Linux publishes its media controls over MPRIS, which is a bus interface rather than a system
+API, so two rules follow from that and not from taste. A method is declared in the
+introspection XML only when Goosic can honour it, because a declared method that refuses at
+runtime becomes a dead button in every panel on the desktop. And `Position` is deliberately
+left out of `PropertiesChanged`, as the specification asks: a player that announced every tick
+would wake every panel several times a second. Neither the MPRIS adapter nor the macOS one
+decides anything — a command from the bus is rechecked against
+`SystemMediaCommandAvailability` before it reaches the model, so a remote client cannot ask for
+a transition the app itself would refuse.
 
-## 5. Conventions
+The Linux local host is the one seam that is genuinely verified rather than merely compiled:
+`LocalPlaybackHostTests` opens a real WAV through GStreamer and reads back its duration.
+It can do that because `prepare` leaves the pipeline paused, which decodes without opening the
+audio device — silent, and needing no display, so it runs in CI like any other test.
+
+The Linux official host is the one entry above that compiles and passes its tests without
+anyone having heard it play. Treat "written" as exactly that: the wire contract is covered by
+`OfficialBridgeTests`, but nothing has yet confirmed that WebKitGTK reaches the player, so a
+report that it does not work is a bug to investigate rather than a surprise. Its account
+profiles are not isolated either — `bind(profile:)` says so out loud instead of pretending,
+because a caller that believes it is playing under an account would be playing under guest
+storage.
+
+Two portability rules bite far from their cause. `URLSession` needs a
+`#if canImport(FoundationNetworking)` import off Darwin. And swift-corelibs-xctest discovers
+tests by casting method signatures, so `@MainActor` anywhere in one is fatal: not only on the
+`XCTestCase` subclass but on an individual test method too, which the earlier version of this
+note got wrong. The failure is `Could not cast value of type '... -> @Swift.MainActor () throws
+-> ()'` followed by signal 6, and it takes the entire run with it rather than the one test.
+
+Leave the method unisolated and put the work in a `MainActor.run` body, which then has to be
+`async` — and remember the other half of the rule: that body must not touch `self`, so a
+fixture becomes `static`.
+
+### The GTK shell on Linux
+
+`apps/goosic-linux` is designed but not yet written, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md)
+holds the decisions. When you work on it, these are settled and not yours to reopen without
+asking:
+
+- It is its own Cargo workspace, not a member of the root one. CI runs
+  `cargo test --workspace` on macOS and Windows, and a member that needs GTK would fail there.
+- It links `goosic-shell-support` and `goosic-protocol` and nothing else from `crates/`. It
+  runs the `goosic-service` binary installed beside it, found by path and never on `PATH`;
+  it never links `goosic-core`.
+- It uses GTK 4 without libadwaita, so it takes each desktop's theme rather than GNOME's.
+- Its application ID is `io.github.analogicgoose.Goosic`. Storage stays under `goosic`, and
+  the media-player bus name stays `org.mpris.MediaPlayer2.goosic`.
+- Closing the window keeps the process and the music running; quitting is explicit.
+- It ships as a Flatpak on the GNOME runtime, which is what makes GTK 4.20 its floor.
+
+It lives on `platform/linux`. Anything it needs from `goosic-shell-support` or the protocol
+lands on `development` first.
+
+## 5. Keep the working copy tidy
+
+Merges down the branch tree are automatic and finished branches are pruned from the remote
+weekly, so a local clone accumulates branches whose upstream no longer exists. Clear them at
+the start of a session, or any time the branch list stops being readable:
+
+```sh
+git fetch --prune
+git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads \
+  | awk '$2 == "[gone]" { print $1 }' \
+  | xargs -r git branch -d
+```
+
+Two details matter. `-d` refuses to delete a branch whose commits are not already merged, so
+if something was never integrated it survives and says so — never reach for `-D` to make the
+error go away, because that is exactly the case worth reading. And `for-each-ref` is used
+instead of parsing `git branch -vv` because the latter marks the current branch with an
+asterisk, which ends up in the branch name and produces a confusing failure.
+
+This only touches your own clone. Deleting anything on the remote is the pruning workflow's
+job, and it only removes branches whose commits already live in their parent.
+
+## 6. Conventions
 
 - **Documentation is written, not suggested.** Markdown under `docs/`, the README, and this
   file are edited directly. If a code change makes a document wrong, fix the document in the

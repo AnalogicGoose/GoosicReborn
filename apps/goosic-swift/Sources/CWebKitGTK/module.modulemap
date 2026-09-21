@@ -1,0 +1,6 @@
+module CWebKitGTK [system] {
+    header "header.h"
+    link "webkitgtk-6.0"
+
+    export *
+}

@@ -1,0 +1,331 @@
+import Foundation
+
+/// Identifies one catalog page the shell has asked Rust for.
+///
+/// Pages are cached under this key, so a slow response can never land on the screen the user
+/// has since navigated away from — it lands on its own key and is simply not displayed.
+///
+/// That is the only staleness the key itself decides. Whether an answer is still the current
+/// answer *for its own key* — after a reload, or after the account it was asked for stopped being
+/// the active one — is `CatalogRequestLedger`'s question.
+enum CatalogKey: Hashable {
+    case route(GoosicRoute)
+    case search(query: String, filter: String)
+    case album(String)
+    case artist(String)
+    case playlist(String)
+    case library(String)
+
+    static func entity(_ reference: GoosicEntityReference) -> CatalogKey {
+        switch reference {
+        case .album(let id): return .album(id)
+        case .artist(let id): return .artist(id)
+        case .playlist(let id): return .playlist(id)
+        }
+    }
+}
+
+enum PersonalLibrarySection: String, CaseIterable, Identifiable {
+    case playlists = "Playlists"
+    case songs = "Songs"
+    case albums = "Albums"
+    case artists = "Artists"
+
+    var id: String { rawValue }
+
+    var browseID: String {
+        switch self {
+        case .playlists: return "FEmusic_liked_playlists"
+        case .songs: return "VLLM"
+        case .albums: return "FEmusic_liked_albums"
+        case .artists: return "FEmusic_library_corpus_artists"
+        }
+    }
+
+    var key: CatalogKey { .library(rawValue) }
+}
+
+extension CatalogKey {
+    /// Whether this page is a flat track list rather than shelves of cards. Used to draw the
+    /// right placeholder before the answer arrives — a shelf skeleton in front of a playlist
+    /// would be a second layout jump rather than a stand-in for the first.
+    var expectsTrackList: Bool {
+        switch self {
+        case .album, .playlist: return true
+        case .route, .search, .artist, .library: return false
+        }
+    }
+}
+
+enum CatalogLoadState {
+    case idle
+    case loading
+    case loaded(CatalogPageView)
+    case failed(code: String, message: String)
+}
+
+/// A catalog page in the shape the screens render.
+struct CatalogPageView: Hashable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let shelves: [GoosicShelf]
+    let tracks: [GoosicTrack]
+    let nextCursor: String?
+    /// The playlist behind "Show all" when `tracks` is only the first few of a longer list.
+    let allTracksID: String?
+    /// The service clamped this page to fit one protocol frame.
+    let truncated: Bool
+
+    var isEmpty: Bool { shelves.isEmpty && tracks.isEmpty }
+
+    /// Every playable row on the page, in display order, for queueing.
+    var playableTracks: [GoosicTrack] {
+        tracks + shelves.flatMap { shelf in
+            shelf.cards.compactMap { card in
+                if case .play(let track) = card.action { return track }
+                return nil
+            }
+        }
+    }
+}
+
+extension GoosicTrack {
+    /// Builds a track from a catalog row, or `nil` when the row is not directly playable.
+    init?(catalog item: GoosicCatalogItem) {
+        guard let videoID = item.videoId, !videoID.isEmpty else { return nil }
+        self.init(
+            id: videoID,
+            title: item.title,
+            subtitle: item.subtitle,
+            artist: item.artist ?? "",
+            artistID: item.artistId,
+            album: item.album ?? "",
+            albumID: item.albumId,
+            duration: item.duration ?? "",
+            videoID: videoID,
+            explicit: item.explicit ?? false,
+            thumbnail: item.thumbnail
+        )
+    }
+}
+
+extension GoosicCard {
+    init(catalog item: GoosicCatalogItem) {
+        let action: GoosicCardAction?
+        switch item.kind {
+        case .song, .video:
+            action = GoosicTrack(catalog: item).map(GoosicCardAction.play)
+        case .album:
+            action = .show(.album(item.id))
+        case .artist:
+            action = .show(.artist(item.id))
+        case .playlist:
+            action = .show(.playlist(item.id))
+        case .unknown:
+            // A row this build does not understand stays visible but inert rather than
+            // navigating somewhere the shell cannot render.
+            action = nil
+        }
+        self.init(
+            id: item.id,
+            title: item.title,
+            subtitle: item.subtitle,
+            action: action,
+            thumbnail: item.thumbnail
+        )
+    }
+}
+
+extension CatalogPageView {
+    init(wire page: GoosicCatalogPage) {
+        var seenShelfIDs = Set<String>()
+        let shelves: [GoosicShelf] = (page.shelves ?? []).enumerated().map { index, shelf in
+            // Upstream ids are not guaranteed unique within a page, and `ForEach` needs them to
+            // be, so collisions are disambiguated by position rather than silently merged.
+            var id = shelf.id
+            if !seenShelfIDs.insert(id).inserted {
+                id = "\(shelf.id)-\(index)"
+            }
+            return GoosicShelf(
+                id: id,
+                title: shelf.title,
+                cards: GoosicShelf.uniqued((shelf.items).map(GoosicCard.init(catalog:)))
+            )
+        }
+        self.init(
+            id: page.id,
+            title: page.title,
+            subtitle: page.subtitle ?? "",
+            shelves: shelves,
+            tracks: (page.tracks ?? []).compactMap(GoosicTrack.init(catalog:)),
+            nextCursor: page.nextCursor,
+            allTracksID: page.allTracksId.flatMap { $0.isEmpty ? nil : $0 },
+            truncated: page.truncated ?? false
+        )
+    }
+
+    func appending(_ continuation: CatalogPageView) -> CatalogPageView {
+        var seen = Set(shelves.map(\.id))
+        var mergedShelves = shelves
+        for shelf in continuation.shelves {
+            var candidate = shelf
+            var suffix = 2
+            while !seen.insert(candidate.id).inserted {
+                candidate = GoosicShelf(
+                    id: "\(shelf.id)-\(suffix)",
+                    title: shelf.title,
+                    cards: shelf.cards
+                )
+                suffix += 1
+            }
+            mergedShelves.append(candidate)
+        }
+        return CatalogPageView(
+            id: id,
+            title: title,
+            subtitle: subtitle,
+            shelves: mergedShelves,
+            tracks: tracks + continuation.tracks,
+            nextCursor: continuation.nextCursor,
+            allTracksID: allTracksID,
+            truncated: truncated || continuation.truncated
+        )
+    }
+}
+
+/// Whether a shelf is drawn as a row of artwork or as a list of tracks.
+///
+/// This depends on the page, which is why the shelf cannot decide it alone. The rule began as
+/// "every card is playable, so draw rows", written for search, where songs and albums come back
+/// in one page shape and songs read far better as a list. On Home the same test is true of any
+/// all-songs shelf — and there it is wrong: Home is a wall of artwork, and a shelf of songs
+/// collapsing into a text list is the one thing on the page that does not look like the rest of
+/// it. The context the rule always depended on was simply not available where it was written.
+enum ShelfPresentation: Equatable {
+    case cards
+    case rows([GoosicTrack])
+
+    static func preferred(for key: CatalogKey, shelf: GoosicShelf) -> ShelfPresentation {
+        guard case .search = key, let tracks = shelf.playableRows else { return .cards }
+        return .rows(tracks)
+    }
+}
+
+extension GoosicShelf {
+    /// The shelf as an ordered track list, when every row in it is playable.
+    var playableRows: [GoosicTrack]? {
+        let tracks = cards.compactMap { card -> GoosicTrack? in
+            if case .play(let track) = card.action { return track }
+            return nil
+        }
+        return tracks.count == cards.count && !tracks.isEmpty ? tracks : nil
+    }
+
+    /// Keeps the first card for each id. A search page can legitimately return the same album
+    /// twice, and duplicate `ForEach` ids render unpredictably.
+    static func uniqued(_ cards: [GoosicCard]) -> [GoosicCard] {
+        var seen = Set<String>()
+        return cards.filter { seen.insert($0.id).inserted }
+    }
+}
+
+/// The search filter tabs the shell offers, and their protocol names.
+enum CatalogSearchFilter: String, CaseIterable {
+    case all = "All"
+    case songs = "Songs"
+    case albums = "Albums"
+    case artists = "Artists"
+    case playlists = "Playlists"
+    case videos = "Videos"
+
+    /// The wire value understood by `catalog.search`.
+    var protocolName: String {
+        switch self {
+        case .all: return "all"
+        case .songs: return "songs"
+        case .albums: return "albums"
+        case .artists: return "artists"
+        case .playlists: return "playlists"
+        case .videos: return "videos"
+        }
+    }
+}
+
+extension CatalogLoadState {
+    /// Accessors so screens can branch with plain `if let` rather than pattern matching inside
+    /// a view builder.
+    var page: CatalogPageView? {
+        if case .loaded(let page) = self { return page }
+        return nil
+    }
+
+    var isLoading: Bool {
+        if case .loading = self { return true }
+        return false
+    }
+
+    var failure: (code: String, message: String)? {
+        if case .failed(let code, let message) = self { return (code, message) }
+        return nil
+    }
+}
+
+/// The subtitle for an album, artist, or playlist page.
+///
+/// Upstream headers often already lead with the kind ("Playlist • 2026"), so prefixing blindly
+/// produces "Playlist · Playlist • 2026".
+func detailSubtitle(kindLabel: String, pageSubtitle: String) -> String {
+    let trimmed = pageSubtitle.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { return kindLabel }
+    guard !trimmed.lowercased().hasPrefix(kindLabel.lowercased()) else { return trimmed }
+    return "\(kindLabel) · \(trimmed)"
+}
+
+/// Turns a service error code into something worth showing a person.
+func catalogFailureText(code: String, message: String, subject: String) -> (title: String, detail: String) {
+    switch code {
+    case "catalogEmpty":
+        return ("No results", "\(subject) returned nothing to show.")
+    case "catalogUnavailable":
+        return ("Catalog unreachable", "Could not reach YouTube Music. Check your connection and try again.")
+    case "catalogUpstreamError":
+        return ("Catalog rejected the request", message)
+    case "catalogDecodeError":
+        return ("Unreadable catalog response", "YouTube Music answered in a shape this build does not understand.")
+    case "offline":
+        return ("Service not connected", message)
+    default:
+        return ("Could not load", message)
+    }
+}
+
+/// Where a page's continuation stands.
+///
+/// The screen used to infer this from two facts that cannot express it: a cursor exists, and a
+/// key is or is not in a "loading" set. A continuation that failed looks exactly like one that has
+/// not started, so the row kept saying "Loading more…" over a request that had already given up,
+/// and every time it came back on screen it asked again — a spinner that never resolves in front
+/// of a retry loop nobody asked for. Failure has to be a state you can be in.
+enum CatalogContinuationState: Equatable {
+    /// There is more to fetch and nothing is fetching it.
+    case idle
+    case loading
+    /// Asked and refused. Nothing retries this but the user; the row says so and offers to.
+    case failed(String)
+}
+
+/// What a "load more" control says in each state.
+///
+/// Pure because the wrong answer here is the whole defect: the control read a boolean and so had
+/// no word for "this was refused", which is how a failed continuation came to sit under a label
+/// promising it was still loading.
+enum CatalogContinuationLabel {
+    static func text(for state: CatalogContinuationState) -> String {
+        switch state {
+        case .idle: return "Load more"
+        case .loading: return "Loading more…"
+        case .failed: return "Try again"
+        }
+    }
+}

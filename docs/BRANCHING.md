@@ -21,6 +21,19 @@ deployment, so its history is a list of releases rather than a list of changes. 
 `development` is the branch that matters: it is the one that must always build and pass its
 tests, because it is what every other branch is cut from and re-synced against.
 
+One exception exists, and it is narrow: `.github/workflows/ci.yml`. A branch may read a build
+cache written by itself or by the default branch and by nothing else, and only the default
+branch's own copy of a workflow is what a scheduled run executes. With `main` as the default
+branch, the workflow has to exist here in its current form or caching stops working for every
+branch at once. Workflow infrastructure that the default branch must carry may therefore land
+on `main` directly. Code and documentation still arrive only through a deployment.
+
+Such a commit leaves `main` one commit ahead of `development` and several behind, which looks
+like the start of a divergence and is not. The cascade merges `main` into `development` after
+every green run here, and that merge changes no files: `development` already contains
+everything that shipped, so the merge records the deployment commit and nothing else. The gap
+closes on the next run instead of accumulating.
+
 The three `platform/*` branches are long-lived on purpose. A platform port is not one
 change; it is a sequence of them that stays incomplete for a while, and merging half a port
 into `development` would leave the trunk claiming support it does not have. They collect the
@@ -67,6 +80,13 @@ ask whether that hunk belongs on `development` instead. It usually does. Files u
 `crates/` that are genuinely platform-gated (a `#[cfg(target_os = ...)]` block) are the
 exception, not the pattern.
 
+The native shells follow the same line. `apps/goosic-linux` exists only for Linux, so it lives
+on `platform/linux` and each slice of it is a `feature/linux/<slug>`; the crates it links are
+shared and change on `development`. A Windows shell will stand in the same relation to
+`platform/windows`. The Swift package is the case worth knowing about: it is one package
+compiled for more than one platform, so its `Core/` directory is shared work even though it
+sits under `apps/`.
+
 ## Work-branch names
 
 Long-lived branches are the five above. Everything else is short-lived, named for what it
@@ -86,6 +106,15 @@ alike from the outside.
 
 `<os>` is exactly `macos`, `linux`, or `windows`: the same spelling as the platform branch,
 lowercase, no version numbers.
+
+## Local workspace
+
+`GoosicReborn` is the canonical local checkout. Day-to-day work happens in that directory, and
+the repository must not accumulate sibling `GoosicReborn-*` worktree folders merely to isolate a
+small task. A separate worktree is created only when the user explicitly asks for one or when a
+concurrent task cannot safely share the working tree. Before it is removed, its uncommitted work
+must be merged or deliberately discarded with the user's approval; once that is settled, remove
+the worktree so the canonical checkout is the only GoosicReborn folder left in the workspace.
 
 ## Merge direction
 
@@ -113,9 +142,19 @@ sitting at and broken on another, and nobody finds out until someone with that m
 free. The Swift 6 language mode landed that way — two errors that only a Mac could see, each
 costing a round trip through a colleague.
 
-Three jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
-portable by construction and there is no excuse for it to break anywhere. The GTK 4 shell
-builds and tests on Linux. The AppKit shell builds and tests on macOS.
+Four jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
+portable by construction and there is no excuse for it to break anywhere. The Swift package
+builds and tests on macOS against AppKit, and on Linux through SwiftCrossUI as the reference the
+GTK shell is compared against until that shell ships. On a branch that contains
+`apps/goosic-linux` — `platform/linux` and its feature branches — the Rust GTK shell builds,
+passes clippy and runs its tests in a Fedora container, because `ubuntu-latest` ships a GTK
+older than the 4.20 that shell requires. The Flatpak builder on the GNOME runtime takes that job
+over once the shell has a manifest, since building the package users install is the better test.
+
+A change runs only the suites it can affect. Documentation runs nothing; the crates run the Rust
+workspace and the GTK shell, which links two of them and runs the service; `apps/goosic-linux`
+runs only the GTK shell and `apps/goosic-swift` only the Swift package; anything else runs
+everything.
 
 Windows is marked `continue-on-error`. The shell has never been built there and the hosts are
 stubs, so the job reports the state without blocking a merge on work nobody has started. When
@@ -192,6 +231,54 @@ times. In the same batch, a merge into the Linux playback work produced a new tr
 that combined WebKitGTK, the shared bridge, and the Swift 6 mode. Content hashing skips the
 first three and builds the fourth.
 
+## Who writes the build cache
+
+A repository gets 10 GB of Actions cache, and this one filled it: 34 entries, 12.7 GB, with
+every branch holding its own copy of the same dependency tree — 1.3 GB each across ten live
+branches, of which 5.9 GB was ten copies of one macOS Swift build. Nothing was broken;
+GitHub simply evicts the least recently used entries once you pass the limit, so the cost was
+paid as thrash rather than as an error.
+
+Copies accumulate because of how the scope works. A run may restore a cache written by its
+own branch or by the *default* branch, and by nothing else — a branch cannot read its
+parent's. So a branch that saves its own copy helps only itself, and the tree of branches
+this repository keeps guarantees one copy per branch. Only the default branch writes now, and
+every branch reads from it; the condition is derived from
+`github.event.repository.default_branch` rather than naming a branch, because which branch is
+default has already changed twice and a stale name here would silently stop all caching.
+
+That creates one problem worth stating plainly, because it is the reason the workflow has a
+schedule. The default branch is `main`, and `main` is deployment-only: it builds a few times
+a year. A cache only `main` may write, on a branch that almost never runs, is a cache nobody
+has. So CI also runs on a weekly schedule and on `workflow_dispatch`, and a run started
+either way ignores the passport — otherwise the tree would be recognised as already passed,
+every heavy job would skip, and the run would write nothing. Scheduled runs always use the
+default branch, which is exactly the branch that has to hold the cache.
+
+The keys are the hash of `Package.resolved`, so an entry stays correct until a dependency
+moves, and restoring counts as access, which keeps it from expiring. In practice `main`
+rebuilds the cache when the schedule notices a new key, and every other branch reads it.
+
+## Pruning finished branches
+
+A weekly workflow deletes work branches from the remote, on one condition: every commit on the
+branch is already an ancestor of its parent. That is what makes it safe rather than merely
+careful — deleting such a branch removes a label, not work, because the commits go on living
+in the parent.
+
+Age is never the reason. A branch untouched for months may hold the only copy of something
+half-finished, and "stale" is how you delete a colleague's work while believing you tidied up.
+Age is only a grace period on top: a branch merged less than a week ago is kept, so one merged
+this morning and still in use is not swept away this afternoon. A branch with an open pull
+request is kept too, because someone is still talking about it.
+
+The long-lived branches — `main`, `development`, and the three `platform/*` — are never
+candidates, whatever their state.
+
+Each deletion is logged with the branch's SHA, and GitHub can restore a deleted branch from
+its branch list. Run it manually from the Actions tab to see the list before anything happens;
+the manual run defaults to a dry run.
+
 ## Deployment
 
 A deployment is `development` → `main`, and nothing else reaches `main`. Before it:
@@ -205,11 +292,18 @@ A hotfix is the single exception to "nothing is cut from `main`": cut `hotfix/<s
 
 ## What this looks like in practice
 
-Porting the macOS playback hosts to Linux is Linux-only work: the WebKitGTK host and the
-local renderer exist to satisfy one platform's API. It is cut from `platform/linux` as
-`feature/linux/playback-hosts` and merges back there. When the Linux shell can actually play
-sound, `platform/linux` merges into `development`, and the README stops saying audio is
-macOS-only.
+Porting the macOS hosts to Linux was Linux-only work: WebKitGTK, GStreamer, MPRIS and
+per-account network sessions all exist to satisfy one platform's API. Each was cut from
+`platform/linux` as its own `feature/linux/<slug>` and merged back there, and `platform/linux`
+now holds the port as one coherent slice waiting to land on `development`.
+
+Two things in that port were not Linux-only, and telling them apart is the whole skill. The
+script that decides a sign-in finished and the list of hosts a login window may reach were
+private to the macOS file; Linux needed the same answers, and copying them would have
+produced two versions of a security rule. Both were cut from `development` instead, landed
+there, and synced down before the Linux work continued. The test for the second one lost its
+`#if os(macOS)` in the process and now runs everywhere, which is the sort of thing that only
+shows up once a second platform asks the same question.
 
 Authenticated catalog reads are the opposite: `goosic-catalog` is shared and every platform
 needs them. That is `feature/authenticated-catalog` off `development`, and the platform

@@ -1,0 +1,562 @@
+#if os(macOS) && !GOOSIC_PREVIEW_NO_WEBKIT
+import AppKit
+import AppKitBackend
+import Foundation
+import SwiftCrossUI
+import WebKit
+
+/// Stable mount point for the renderer. Rebinding replaces its one child in place, so SwiftUI
+/// layout churn cannot create a second media owner while an account profile changes.
+@MainActor
+final class OfficialPlaybackContainer: NSView {
+    override func layout() {
+        super.layout()
+        subviews.first?.frame = bounds
+    }
+}
+
+/// Owns the single WKWebView and the security boundary around its bridge.
+@MainActor
+final class OfficialPlaybackHost: NSObject {
+    private weak var webView: WKWebView?
+    private weak var container: OfficialPlaybackContainer?
+    private var messageProxy: ScriptMessageProxy?
+    private var expectedToken: String?
+    private var expectedGeneration: UInt64?
+    private var expectedVideoID: String?
+    /// Sequence from the current page document, used only to reject duplicate bridge events.
+    private var lastBridgeSequence: UInt64 = 0
+    /// Lease-wide sequence sent to Rust. Unlike the page sequence, it survives track reloads.
+    private var sampleSequence = OfficialSampleSequence()
+    private var advertisementActive = false
+    private var transport = MacMediaTransportRequest()
+    private var transportInFlight = false
+    private var activeProfile = OfficialPlaybackProfile.guest
+    private(set) var loadedVideoID: String?
+    private(set) var isLoading = false
+    var onEvent: ((OfficialPlaybackEvent) -> Void)?
+    var onStatus: ((String) -> Void)?
+    /// A plain description of what the official page currently is, for when playback does not
+    /// start and the reason is the page rather than the bridge.
+    var onDiagnostics: ((String) -> Void)?
+    /// The official app followed its own "up next" to a video Goosic did not request. Goosic
+    /// owns the queue, so the shell decides what actually plays instead.
+    var onPageAdvanced: ((String) -> Void)?
+
+    func makeWebView(profile: OfficialPlaybackProfile = .guest) -> WKWebView {
+        if let webView {
+            if activeProfile.identifier == profile.identifier {
+            // SwiftCrossUI may recreate the representable wrapper during layout. Reparent the
+            // existing renderer instead of creating a second media owner or crashing.
+            webView.removeFromSuperview()
+            container?.addSubview(webView)
+            return webView
+            }
+            destroyRenderer()
+        }
+        activeProfile = profile
+
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: profile.identifier)
+        configuration.preferences.isFraudulentWebsiteWarningEnabled = true
+        // YouTube Music refuses to run its player under WKWebView's bare user agent and shows
+        // "not optimized for your browser" instead. Naming a Safari version makes the default
+        // agent a complete Safari string, which is what this engine actually is.
+        configuration.applicationNameForUserAgent = OfficialBridge.safariUserAgentSuffix
+        // The user pressed play in Goosic; that gesture does not cross into the web view, so
+        // without this the host's own play request is blocked and no media element ever starts.
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+
+        let userContentController = WKUserContentController()
+        let proxy = ScriptMessageProxy(host: self)
+        userContentController.add(proxy, name: OfficialBridge.name)
+        // The observer is installed per load, in `load(videoID:generation:)`, because it carries
+        // that load's identity.
+        configuration.userContentController = userContentController
+        // The embedded page must not publish a competing Now Playing session. This runs before
+        // the page's own scripts; the short watchdog also clears handlers the app installs later.
+        userContentController.addUserScript(WKUserScript(
+            source: OfficialBridge.mediaSessionGuardScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.navigationDelegate = self
+        view.uiDelegate = self
+        view.allowsMagnification = false
+        webView = view
+        messageProxy = proxy
+        container?.addSubview(view)
+        return view
+    }
+
+    func makeContainer(profile: OfficialPlaybackProfile? = nil) -> OfficialPlaybackContainer {
+        let profile = profile ?? activeProfile
+        if let container {
+            self.container = container
+            _ = makeWebView(profile: profile)
+            return container
+        }
+        let container = OfficialPlaybackContainer(frame: .zero)
+        self.container = container
+        _ = makeWebView(profile: profile)
+        return container
+    }
+
+    /// Switches the WebKit data store only after the Rust lease has been released. The old
+    /// renderer is fully detached before the new one is created.
+    func bind(profile: OfficialPlaybackProfile) {
+        guard profile.identifier != activeProfile.identifier || webView == nil else { return }
+        destroyRenderer()
+        activeProfile = profile
+        if container != nil { _ = makeWebView(profile: profile) }
+    }
+
+    func load(videoID: String, generation: UInt64, volume: Double = 1, muted: Bool = false) {
+        guard let webView else {
+            onStatus?("Official host is not attached to the native view.")
+            return
+        }
+        guard OfficialBridge.isValidVideoID(videoID) else {
+            onStatus?("Enter a valid YouTube Music video ID (11 characters).")
+            return
+        }
+
+        // The nonce is injected into this load's observer script. It is not an auth credential:
+        // it prevents an old document's bridge messages from being accepted after a same-video
+        // reload. It is deliberately not a URL parameter, because the official app rewrites its
+        // own location and drops unknown query items.
+        transport.reset()
+        transportInFlight = false
+        let token = UUID().uuidString
+        expectedToken = token
+        expectedGeneration = generation
+        expectedVideoID = videoID
+        loadedVideoID = videoID
+        lastBridgeSequence = 0
+        sampleSequence.begin(generation: generation)
+        advertisementActive = false
+        isLoading = true
+
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = OfficialBridge.allowedHost
+        components.path = "/watch"
+        components.queryItems = [URLQueryItem(name: "v", value: videoID)]
+        guard let url = components.url else {
+            onStatus?("Could not create the official YouTube Music route.")
+            return
+        }
+
+        // Each load gets its own observer carrying this load's identity, so a document from a
+        // previous load can never satisfy the checks in `handleMessage`.
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        controller.addUserScript(WKUserScript(
+            source: OfficialVolumeBootstrap.script(volume: volume, muted: muted),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+        // `removeAllUserScripts` also removes the configuration-time guard, so restore it for
+        // every document before adding this load's identity-bound observer.
+        controller.addUserScript(WKUserScript(
+            source: OfficialBridge.mediaSessionGuardScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        ))
+        controller.addUserScript(WKUserScript(
+            source: OfficialBridge.observerScript(token: token, generation: generation, videoID: videoID),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+
+        webView.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy))
+        // A native card tap is the playback gesture. Queue the intent before navigation so the
+        // first observer event can start the media as soon as WebKit creates its element.
+        transport.request(paused: false)
+        onStatus?("Official host loading \(videoID)…")
+    }
+
+    func play() {
+        requestTransport(paused: false)
+    }
+
+    func pause() {
+        requestTransport(paused: true)
+    }
+
+    /// Requests a position change. Like play and pause, this is a request: the position is not
+    /// treated as moved until the player reports it back through the bridge.
+    func seek(to seconds: Double) {
+        guard seconds.isFinite, seconds >= 0 else { return }
+        guard !advertisementActive else {
+            onStatus?("Seeking is unavailable while the official player is showing an advertisement.")
+            return
+        }
+        guard let webView else {
+            onStatus?("Official host is not attached to the native view.")
+            return
+        }
+        let target = Self.javaScriptNumber(seconds)
+        let script = """
+        (() => {
+          const candidates = [
+            document.querySelector('#movie_player'),
+            document.querySelector('ytmusic-player'),
+            document.querySelector('ytmusic-player-bar')
+          ];
+          const player = candidates.find(candidate => candidate && typeof candidate.seekTo === 'function');
+          if (!player) return 'seek-unsupported';
+          player.seekTo(\(target), true);
+          return 'seek-requested';
+        })();
+        """
+        webView.evaluateJavaScript(script) { [weak self] value, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let error {
+                    self.onStatus?("Official player seek was rejected: \(error.localizedDescription)")
+                } else if value as? String == "seek-unsupported" {
+                    self.onStatus?("This official player page does not expose its supported seek API.")
+                }
+            }
+        }
+    }
+
+    func setVolume(_ volume: Double) {
+        guard volume.isFinite else { return }
+        guard !advertisementActive else {
+            onStatus?("Volume is unchanged while the official player is showing an advertisement.")
+            return
+        }
+        let target = Self.javaScriptNumber(min(max(volume, 0), 1))
+        evaluateMediaScript("media => { window.goosicSetVolumePreference?.(\(target), undefined); return 'volume-requested'; }")
+    }
+
+    func setMuted(_ muted: Bool) {
+        guard !advertisementActive else {
+            onStatus?("Mute is unavailable while the official player is showing an advertisement.")
+            return
+        }
+        evaluateMediaScript("media => { window.goosicSetVolumePreference?.(undefined, \(muted ? "true" : "false")); return 'mute-requested'; }")
+    }
+
+    /// Formats a validated, finite `Double` as a JavaScript numeric literal.
+    ///
+    /// The value is already range-checked by the callers above; this only guarantees the
+    /// literal is plain digits, with no locale separators and no exponent notation.
+    private static func javaScriptNumber(_ value: Double) -> String {
+        String(format: "%.3f", value)
+    }
+
+    func quiesce(completion: @escaping @MainActor () -> Void) {
+        guard let webView else {
+            completion()
+            return
+        }
+        var completed = false
+        let finish: @MainActor () -> Void = {
+            guard !completed else { return }
+            completed = true
+            completion()
+        }
+        let script = "Array.from(document.querySelectorAll('audio,video')).forEach(media => media.pause()); 'quiesced';"
+        webView.evaluateJavaScript(script) { _, _ in
+            Task { @MainActor in
+                finish()
+            }
+        }
+        // A crashed or hung WebContent process must not hold Rust's lease forever. Invalidating
+        // the bridge immediately after this bounded wait still prevents late samples from being
+        // accepted, while release remains available to the user.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            finish()
+        }
+    }
+
+    /// Clears the lease-bound event identity. Call after media is quiesced and before releasing
+    /// Rust's lease so a late event from the old document cannot be forwarded.
+    func invalidateExpectations() {
+        transport.reset()
+        transportInFlight = false
+        expectedToken = nil
+        expectedGeneration = nil
+        expectedVideoID = nil
+        lastBridgeSequence = 0
+        sampleSequence.reset()
+        advertisementActive = false
+        loadedVideoID = nil
+        isLoading = false
+    }
+
+    func detach(completion: (@MainActor () -> Void)? = nil) {
+        invalidateExpectations()
+        quiesce { [weak self] in
+            guard let self else { return }
+            self.destroyRenderer()
+            completion?()
+        }
+    }
+
+    func detach() { detach(completion: nil) }
+
+    private func destroyRenderer() {
+        invalidateExpectations()
+        webView?.stopLoading()
+        webView?.navigationDelegate = nil
+        webView?.uiDelegate = nil
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: OfficialBridge.name)
+        webView?.removeFromSuperview()
+        webView = nil
+        messageProxy = nil
+        loadedVideoID = nil
+        isLoading = false
+    }
+
+    private func requestTransport(paused: Bool) {
+        guard expectedToken != nil, webView != nil else {
+            onStatus?("Choose a track before controlling playback.")
+            return
+        }
+        transport.request(paused: paused)
+        drainTransport()
+    }
+
+    /// Keep an early click until a validated sample proves that the media element exists.
+    /// Results from a replaced document or superseded request cannot clear the latest intent.
+    private func drainTransport() {
+        guard !transportInFlight, let paused = transport.paused,
+              let token = expectedToken, let webView else { return }
+        let revision = transport.revision
+        transportInFlight = true
+        webView.callAsyncJavaScript("""
+            const media = \(OfficialBridge.activeMediaElementScript);
+            if (!media) return 'no-media';
+            if (paused) media.pause();
+            else await media.play();
+            return 'requested';
+            """, arguments: ["paused": paused], in: nil, in: .page) { [weak self] result in
+            guard let self, self.expectedToken == token else { return }
+            self.transportInFlight = false
+            guard self.transport.revision == revision else {
+                self.drainTransport()
+                return
+            }
+            switch result {
+            case .success(let value):
+                if value as? String == "no-media" {
+                    self.onStatus?("Waiting for the official player to become ready…")
+                } else {
+                    self.transport.complete(revision: revision)
+                }
+            case .failure:
+                self.transport.complete(revision: revision)
+                self.onStatus?("The official player could not start or pause playback. Try Play again.")
+            }
+        }
+    }
+
+    private func evaluateMediaScript(_ functionBody: String) {
+        guard let webView else {
+            onStatus?("Official host is not attached to the native view.")
+            return
+        }
+        let script = """
+        (() => {
+          const media = \(OfficialBridge.activeMediaElementScript);
+          if (!media) return 'no-media';
+          return (\(functionBody))(media);
+        })();
+        """
+        webView.evaluateJavaScript(script) { [weak self] value, error in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                if error != nil {
+                    self.onStatus?("The official player rejected this control. Try again once playback is ready.")
+                } else if value as? String == "no-media" {
+                    self.onStatus?("The official player is still loading. Try this control again shortly.")
+                }
+            }
+        }
+    }
+
+    /// Reports what the loaded page contains.
+    ///
+    /// When no bridge event ever arrives, the cause is almost always the page — a consent wall,
+    /// a sign-in redirect, or a player that never created a media element — and that is
+    /// invisible in a host rendered at one pixel.
+    func probePage() {
+        guard let webView else { return }
+        let script = """
+        (() => {
+          const media = document.querySelectorAll('audio,video');
+          const text = (document.body?.innerText || '').slice(0, 200).replace(/\\s+/g, ' ');
+          return JSON.stringify({
+            url: location.href,
+            title: document.title || '',
+            media: media.length,
+            readyState: media[0] ? media[0].readyState : -1,
+            paused: media[0] ? media[0].paused : null,
+            text
+          });
+        })();
+        """
+        webView.evaluateJavaScript(script) { [weak self] value, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let error {
+                    self.onDiagnostics?("Page probe failed: \(error.localizedDescription)")
+                } else {
+                    self.onDiagnostics?(value as? String ?? "Page probe returned nothing.")
+                }
+            }
+        }
+    }
+
+    private func handleMessage(_ message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame else { return }
+        let origin = message.frameInfo.securityOrigin
+        guard origin.protocol == "https", origin.host == OfficialBridge.allowedHost, origin.port == 0 || origin.port == 443 else {
+            onStatus?("Rejected a bridge message from an untrusted origin.")
+            return
+        }
+        guard JSONSerialization.isValidJSONObject(message.body),
+              let body = try? JSONSerialization.data(withJSONObject: message.body, options: []),
+              body.count <= OfficialBridge.maxBodyBytes,
+              let event = try? JSONDecoder().decode(OfficialBridge.Event.self, from: body) else {
+            onStatus?("Rejected an invalid official-player bridge message.")
+            return
+        }
+
+        // The official app has its own autoplay queue. A well-formed event for a different video
+        // means it moved on by itself; that is not a rejection to shrug at, it is a signal that
+        // Goosic's own queue must take over.
+        if event.version == 2,
+           event.token == expectedToken,
+           event.generation == expectedGeneration,
+           let expected = expectedVideoID,
+           event.videoID != expected,
+           !event.isAdvertisement,
+           !event.videoID.isEmpty {
+            onStatus?("The official app moved to its own next video; Goosic's queue decides instead.")
+            onPageAdvanced?(expected)
+            return
+        }
+
+        if let reason = OfficialBridge.rejectionReason(
+            for: event,
+            expectedToken: expectedToken,
+            expectedGeneration: expectedGeneration,
+            expectedVideoID: expectedVideoID,
+            lastSequence: lastBridgeSequence
+        ) {
+            // An opaque rejection is unactionable, and every one of these has a different fix.
+            onStatus?("Rejected an official-player bridge event: \(reason).")
+            Diagnostics.note(.officialPlayback, "event-rejected", ["reason": reason])
+            return
+        }
+        // "Requested", "ready", and "confirmed" are three different things, and only this one
+        // means the renderer is actually producing the track Goosic asked for. Without the
+        // distinction a load that silently never started looks identical to one that did.
+        if isLoading {
+            Diagnostics.note(.officialPlayback, "playback-confirmed", [
+                "generation": "\(event.generation)",
+                "sequence": "\(event.sequence)",
+                "advertisement": "\(event.isAdvertisement)",
+            ])
+        }
+        lastBridgeSequence = event.sequence
+        guard let leaseSequence = sampleSequence.issue(for: event.generation) else {
+            onStatus?("Rejected an official-player event with no active playback lease.")
+            return
+        }
+        advertisementActive = event.isAdvertisement
+        isLoading = false
+        drainTransport()
+        onEvent?(OfficialPlaybackEvent(
+            generation: event.generation,
+            videoID: event.videoID,
+            sequence: leaseSequence,
+            state: event.state,
+            currentTime: event.currentTime,
+            duration: event.duration,
+            isAdvertisement: event.isAdvertisement,
+            volume: event.volume,
+            isMuted: event.muted
+        ))
+    }
+
+    private final class ScriptMessageProxy: NSObject, WKScriptMessageHandler {
+        weak var host: OfficialPlaybackHost?
+
+        init(host: OfficialPlaybackHost) {
+            self.host = host
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            Task { @MainActor [weak host] in
+                host?.handleMessage(message)
+            }
+        }
+    }
+}
+
+extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        let decision = OfficialNavigationPolicy.decide(
+            url: navigationAction.request.url,
+            frame: NavigationFrame(navigationAction.targetFrame)
+        )
+        decisionHandler(decision == .allow ? .allow : .cancel)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { @MainActor [weak self] in
+            self?.isLoading = false
+            self?.onStatus?("Official host is ready; waiting for a validated player event.")
+            Diagnostics.note(.officialPlayback, "page-ready", [
+                "origin": Diagnostics.origin(of: webView.url),
+            ])
+            self?.probePage()
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        Task { @MainActor [weak self] in
+            self?.isLoading = false
+            self?.onStatus?("Official host navigation failed: \(error.localizedDescription)")
+        }
+    }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        // Official playback is single-renderer. Popups must not create a second media owner.
+        nil
+    }
+
+}
+
+struct OfficialPlaybackSurface: NSViewRepresentable {
+    let model: GoosicAppModel
+
+    func makeNSView(context: Context) -> OfficialPlaybackContainer {
+        model.officialPlaybackHost.makeContainer()
+    }
+
+    func updateNSView(_ nsView: OfficialPlaybackContainer, context: Context) {
+        nsView.wantsLayer = true
+        nsView.layer?.opacity = 0.01
+    }
+
+    nonisolated static func dismantleNSView(_ nsView: OfficialPlaybackContainer, coordinator: Void) {
+        // The model owns the host and performs asynchronous media quiescing before detachment.
+        // This is intentionally a no-op here; SwiftCrossUI may dismantle/recreate wrappers during
+        // layout, and a second WKWebView must never be created for the same model.
+    }
+}
+#endif

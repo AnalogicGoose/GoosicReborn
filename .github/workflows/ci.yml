@@ -38,6 +38,7 @@ jobs:
             tree: ${{ steps.tree.outputs.tree }}
             rust: ${{ steps.paths.outputs.rust }}
             swift: ${{ steps.paths.outputs.swift }}
+            linux: ${{ steps.paths.outputs.linux }}
         steps:
             -   uses: actions/checkout@v4
                 with:
@@ -69,29 +70,39 @@ jobs:
                         echo "Tree $TREE is new."
                     fi
 
-            # Documentation cannot break a build. Anything unclassifiable builds everything.
+            # Documentation cannot break a build. The Rust crates feed the Rust workspace and the
+            # GTK shell, which links two of them and runs the service; each shell's own directory
+            # builds only that shell. Anything unclassifiable builds everything.
             -   name: See which parts of the tree changed
                 id: paths
                 run: |
+                    RUST=false; SWIFT=false; LINUX=false
                     BEFORE="${{ github.event.before }}"
                     if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-                        echo "rust=true"  >> "$GITHUB_OUTPUT"
-                        echo "swift=true" >> "$GITHUB_OUTPUT"
-                        exit 0
-                    fi
-                    CHANGED=$(git diff --name-only "$BEFORE" HEAD)
-                    echo "$CHANGED"
-                    CODE=$(echo "$CHANGED" | grep -vE '^(docs/|\.claude/|[^/]*\.md$)' || true)
-                    if [ -z "$CODE" ]; then
-                        echo "rust=false"  >> "$GITHUB_OUTPUT"
-                        echo "swift=false" >> "$GITHUB_OUTPUT"
-                    elif echo "$CODE" | grep -qvE '^crates/'; then
-                        echo "rust=true"  >> "$GITHUB_OUTPUT"
-                        echo "swift=true" >> "$GITHUB_OUTPUT"
+                        RUST=true; SWIFT=true; LINUX=true
                     else
-                    echo "rust=true"   >> "$GITHUB_OUTPUT"
-                        echo "swift=false" >> "$GITHUB_OUTPUT"
+                        CHANGED=$(git diff --name-only "$BEFORE" HEAD)
+                        echo "$CHANGED"
+                        CODE=$(echo "$CHANGED" | grep -vE '^(docs/|\.claude/|[^/]*\.md$)' || true)
+                        while IFS= read -r FILE; do
+                            [ -z "$FILE" ] && continue
+                            case "$FILE" in
+                                crates/*|Cargo.toml|Cargo.lock) RUST=true; LINUX=true ;;
+                                apps/goosic-linux/*)            LINUX=true ;;
+                                apps/goosic-swift/*)            SWIFT=true ;;
+                                *)                              RUST=true; SWIFT=true; LINUX=true ;;
+                            esac
+                        done <<< "$CODE"
                     fi
+                    # The GTK shell lives on platform/linux and its feature branches. Where it does
+                    # not exist there is nothing to build, and a job failing on a missing directory
+                    # would be a red run about nothing.
+                    if [ ! -f apps/goosic-linux/Cargo.toml ]; then
+                        LINUX=false
+                    fi
+                    echo "rust=$RUST"   >> "$GITHUB_OUTPUT"
+                    echo "swift=$SWIFT" >> "$GITHUB_OUTPUT"
+                    echo "linux=$LINUX" >> "$GITHUB_OUTPUT"
 
     # The Rust workspace is portable by design: rusqlite is bundled and ureq uses rustls,
     # so there is no system SQLite or OpenSSL to install on any of the three.
@@ -115,10 +126,52 @@ jobs:
             # Not `make test-rust`: nmake on Windows is not GNU make.
             - run: cargo test --workspace
 
-    # The GTK 4 shell. `make test-swift` needs no display: the tests are units and open
-    # no window, which is checked and true.
+    # The Rust GTK 4 shell in `apps/goosic-linux`, which replaces the Swift build on Linux. Its
+    # floor is GTK 4.20 and the hosted Ubuntu image carries an older GTK, so it builds in a Fedora
+    # container whose GTK, WebKitGTK, GStreamer and Rust are all current; the Flatpak builder on
+    # the GNOME runtime takes over once the manifest exists. The service is built first because
+    # the shell's integration test runs it. Nothing here needs a display or a sound card: the
+    # GStreamer test decodes a WAV paused, and no test opens a window.
+    shell-gtk:
+        name: Shell (Linux, GTK 4, Rust)
+        needs: guard
+        if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.linux == 'true'
+        runs-on: ubuntu-latest
+        container: fedora:44
+        steps:
+            # Git before the checkout, so the checkout is a repository rather than a tarball.
+            -   name: Install GTK 4, WebKitGTK, GStreamer, libsoup and Rust
+                run: |
+                    dnf install -y --setopt=install_weak_deps=False \
+                        git gcc pkgconf-pkg-config \
+                        gtk4-devel webkitgtk6.0-devel libsoup3-devel \
+                        gstreamer1-devel gstreamer1-plugins-base-devel gstreamer1-plugins-good \
+                        rust cargo clippy
+
+            -   uses: actions/checkout@v4
+
+            -   uses: Swatinem/rust-cache@v2
+                with:
+                    workspaces: |
+                        . -> target
+                        apps/goosic-linux -> target
+                    save-if: ${{ env.IS_CACHE_WRITER == 'true' }}
+
+            -   run: cargo build -p goosic-service
+
+            -   name: Lint the shell
+                working-directory: apps/goosic-linux
+                run: cargo clippy --all-targets -- -D warnings
+
+            -   name: Test the shell
+                working-directory: apps/goosic-linux
+                run: cargo test
+
+    # The Swift package's Linux build through SwiftCrossUI. It is the conformance reference the
+    # GTK shell is compared against and is deleted once that shell ships, as docs/LINUX_SHELL.md
+    # says. `make test-swift` needs no display: the tests are units and open no window.
     shell-linux:
-        name: Shell (Linux, GTK 4)
+        name: Shell (Linux, SwiftCrossUI reference)
         needs: guard
         if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.swift == 'true'
         runs-on: ubuntu-latest
@@ -130,11 +183,15 @@ jobs:
                 run: |
                     sudo apt-get update
                     sudo apt-get install -y --no-install-recommends \
-                        libgtk-4-dev libwebkitgtk-6.0-dev pkg-config clang
+                        libgtk-4-dev libwebkitgtk-6.0-dev libglib2.0-dev \
+                        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+                        gstreamer1.0-plugins-good pkg-config clang
 
+            # 6.2, not 6.0: the pinned swift-log 1.15 declares swift-tools-version 6.2, and an
+            # older toolchain fails on that manifest before compiling anything of Goosic's.
             -   uses: swift-actions/setup-swift@v2
                 with:
-                    swift-version: "6.0"
+                    swift-version: "6.2"
 
             # Keyed on Package.resolved: dependencies are pinned, so the key only moves when
             # they do. The path is the scratch directory the Makefile uses on Linux.
@@ -201,7 +258,7 @@ jobs:
     # because just documentation moved is never claimed to have been built.
     seal:
         name: Stamp this tree as passing
-        needs: [guard, rust, shell-linux, shell-macos]
+        needs: [guard, rust, shell-gtk, shell-linux, shell-macos]
         if: >-
             always()
             && needs.guard.outputs.known-good == 'false'

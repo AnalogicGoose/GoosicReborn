@@ -343,13 +343,35 @@ pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
         .into_iter()
         .filter_map(queue_item)
         .collect();
-    if tracks.first().is_some_and(|first| first.id == seed_video_id) {
+    if tracks
+        .first()
+        .is_some_and(|first| first.id == seed_video_id)
+    {
         tracks.remove(0);
     }
     // Upstream can repeat a row across continuations; a queue with duplicates plays the same
     // track twice in a row.
     let mut seen = std::collections::HashSet::new();
     tracks.retain(|track| seen.insert(track.id.clone()));
+
+    // This cursor belongs to the watch queue itself. A whole-response continuation search can
+    // accidentally pick related content or lyrics, which is indistinguishable from a queue that
+    // starts recommending random music after its first page.
+    let next_cursor = json::first(response, "playlistPanelRenderer")
+        .or_else(|| json::first(response, "playlistPanelContinuation"))
+        .and_then(|panel| panel.get("continuations"))
+        .and_then(Value::as_array)
+        .and_then(|continuations| {
+            continuations.iter().find_map(|continuation| {
+                continuation
+                    .get("nextRadioContinuationData")
+                    .or_else(|| continuation.get("nextContinuationData"))
+                    .and_then(|data| data.get("continuation"))
+                    .and_then(Value::as_str)
+                    .filter(|token| !token.is_empty())
+                    .map(str::to_owned)
+            })
+        });
 
     CatalogPage {
         id: format!("radio:{seed_video_id}"),
@@ -358,7 +380,9 @@ pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
         shelves: Vec::new(),
         tracks,
         thumbnail: None,
+        next_cursor,
         truncated: false,
+        all_tracks_id: None,
     }
 }
 
@@ -403,7 +427,9 @@ pub fn search_page(query: &str, response: &Value) -> CatalogPage {
         shelves,
         tracks: Vec::new(),
         thumbnail: None,
+        next_cursor: None,
         truncated: false,
+        all_tracks_id: None,
     }
 }
 
@@ -448,10 +474,15 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
                     .unwrap_or_default()
             })
             .unwrap_or_default();
-        let items: Vec<CatalogItem> = json::collect(carousel, "musicTwoRowItemRenderer")
+        let mut items: Vec<CatalogItem> = json::collect(carousel, "musicTwoRowItemRenderer")
             .into_iter()
             .filter_map(two_row_item)
             .collect();
+        items.extend(
+            json::collect(carousel, "musicResponsiveListItemRenderer")
+                .into_iter()
+                .filter_map(responsive_item),
+        );
         if items.is_empty() {
             continue;
         }
@@ -465,7 +496,73 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
             items,
         });
     }
+
+    // Home's personalized "Quick picks" and several recommendation modules use a plain music
+    // shelf of responsive song rows rather than artwork cards. The old carousel-only parser
+    // silently discarded those entire sections.
+    for shelf in json::collect(response, "musicShelfRenderer") {
+        let title = shelf.get("title").map(json::runs_text).unwrap_or_default();
+        let items: Vec<CatalogItem> = json::collect(shelf, "musicResponsiveListItemRenderer")
+            .into_iter()
+            .filter_map(responsive_item)
+            .collect();
+        if items.is_empty() {
+            continue;
+        }
+        shelves.push(CatalogShelf {
+            id: format!("shelf-{}", shelves.len()),
+            title: if title.is_empty() {
+                format!("Shelf {}", shelves.len() + 1)
+            } else {
+                title
+            },
+            items,
+        });
+    }
+
+    // Library and browse continuations sometimes return a grid directly under the selected
+    // tab. Treat it as one shelf so those cards do not disappear just because the wrapper
+    // differs from Home's.
+    for grid in json::collect(response, "gridRenderer") {
+        let items: Vec<CatalogItem> = json::collect(grid, "musicTwoRowItemRenderer")
+            .into_iter()
+            .filter_map(two_row_item)
+            .collect();
+        if items.is_empty() {
+            continue;
+        }
+        shelves.push(CatalogShelf {
+            id: format!("grid-{}", shelves.len()),
+            title: "More".to_owned(),
+            items,
+        });
+    }
     shelves
+}
+
+/// Finds the next opaque browse cursor without interpreting or persisting it.
+pub fn continuation_token(response: &Value) -> Option<String> {
+    json::collect(response, "continuationItemRenderer")
+        .into_iter()
+        .find_map(|item| {
+            json::path(
+                item,
+                &["continuationEndpoint", "continuationCommand", "token"],
+            )
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned)
+        })
+        .or_else(|| {
+            json::collect(response, "nextContinuationData")
+                .into_iter()
+                .find_map(|item| {
+                    item.get("continuation")
+                        .and_then(Value::as_str)
+                        .filter(|token| !token.is_empty())
+                        .map(str::to_owned)
+                })
+        })
 }
 
 /// Builds a browse page of shelves.
@@ -477,7 +574,20 @@ pub fn browse_page(id: &str, title: &str, response: &Value) -> CatalogPage {
         shelves: browse_shelves(response),
         tracks: Vec::new(),
         thumbnail: None,
+        next_cursor: continuation_token(response),
         truncated: false,
+        all_tracks_id: None,
+    }
+}
+
+/// Builds the next chunk of a browse surface. Continuation responses contain the same shelf
+/// renderers as an initial browse, wrapped in append actions rather than a selected tab.
+pub fn browse_continuation_page(response: &Value) -> CatalogPage {
+    CatalogPage {
+        id: "continuation".to_owned(),
+        shelves: browse_shelves(response),
+        next_cursor: continuation_token(response),
+        ..Default::default()
     }
 }
 
@@ -532,7 +642,9 @@ pub fn track_list_page(id: &str, response: &Value) -> CatalogPage {
         shelves: Vec::new(),
         tracks,
         thumbnail: json::thumbnail(response, THUMBNAIL_BUDGET),
+        next_cursor: None,
         truncated: false,
+        all_tracks_id: None,
     }
 }
 
@@ -555,8 +667,29 @@ pub fn artist_page(id: &str, response: &Value) -> CatalogPage {
         shelves: browse_shelves(response),
         tracks,
         thumbnail: json::thumbnail(response, THUMBNAIL_BUDGET),
+        next_cursor: None,
+        all_tracks_id: all_tracks_id(response),
         truncated: false,
     }
+}
+
+/// The full song list behind an artist's top songs.
+///
+/// The songs shelf shows five rows and links the rest from its "Show all" button, and from its
+/// title on layouts that have no button. Either way the target is a playlist browse id.
+fn all_tracks_id(response: &Value) -> Option<String> {
+    json::collect(response, "musicShelfRenderer")
+        .into_iter()
+        .find_map(|shelf| {
+            shelf
+                .pointer("/bottomEndpoint/browseEndpoint/browseId")
+                .or_else(|| {
+                    shelf.pointer("/title/runs/0/navigationEndpoint/browseEndpoint/browseId")
+                })
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+        })
 }
 
 #[cfg(test)]
@@ -732,6 +865,46 @@ mod tests {
         assert_eq!(shelves[0].items[0].id, "MPREalbum");
     }
 
+    #[test]
+    fn browse_keeps_responsive_song_shelves_and_the_next_cursor() {
+        let response = json!({
+            "contents": [
+                {"musicShelfRenderer": {
+                    "title": {"runs": [{"text": "Quick picks"}]},
+                    "contents": [{"musicResponsiveListItemRenderer": song_row()}]
+                }},
+                {"continuationItemRenderer": {"continuationEndpoint": {
+                    "continuationCommand": {"token": "next-home-page"}
+                }}}
+            ]
+        });
+        let page = browse_page("FEmusic_home", "Home", &response);
+        assert_eq!(page.shelves.len(), 1);
+        assert_eq!(page.shelves[0].title, "Quick picks");
+        assert_eq!(page.shelves[0].items[0].id, "abcdefghijk");
+        assert_eq!(page.next_cursor.as_deref(), Some("next-home-page"));
+    }
+
+    #[test]
+    fn a_continuation_page_retains_shelves_and_its_following_cursor() {
+        let response = json!({
+            "onResponseReceivedActions": [{"appendContinuationItemsAction": {
+                "continuationItems": [
+                    {"musicShelfRenderer": {
+                        "title": {"runs": [{"text": "More for you"}]},
+                        "contents": [{"musicResponsiveListItemRenderer": song_row()}]
+                    }},
+                    {"continuationItemRenderer": {"continuationEndpoint": {
+                        "continuationCommand": {"token": "page-three"}
+                    }}}
+                ]
+            }}]
+        });
+        let page = browse_continuation_page(&response);
+        assert_eq!(page.shelves[0].title, "More for you");
+        assert_eq!(page.next_cursor.as_deref(), Some("page-three"));
+    }
+
     fn queue_row(video_id: &str, title: &str) -> Value {
         json!({
             "videoId": video_id,
@@ -761,7 +934,10 @@ mod tests {
         assert_eq!(item.video_id.as_deref(), Some("abcdefghijk"));
         assert_eq!(item.artist.as_deref(), Some("Signal Fires"));
         assert_eq!(item.duration.as_deref(), Some("3:42"));
-        assert_eq!(item.thumbnail.as_deref(), Some("https://example.test/q.jpg"));
+        assert_eq!(
+            item.thumbnail.as_deref(),
+            Some("https://example.test/q.jpg")
+        );
     }
 
     #[test]
@@ -799,8 +975,26 @@ mod tests {
         ]});
         let page = radio_page("seedvideoid", &response);
         assert_eq!(
-            page.tracks.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            page.tracks
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>(),
             ["aaaaaaaaaaa", "bbbbbbbbbbb"]
+        );
+    }
+
+    #[test]
+    fn radio_keeps_its_own_continuation_cursor() {
+        let response = json!({
+            "playlistPanelRenderer": {
+                "contents": [{"playlistPanelVideoRenderer": queue_row("nextvideoid", "The next one")}],
+                "continuations": [{"nextRadioContinuationData": {"continuation": "same-station"}}]
+            },
+            "unrelated": {"continuations": [{"nextContinuationData": {"continuation": "wrong"}}]}
+        });
+        assert_eq!(
+            radio_page("seedvideoid", &response).next_cursor.as_deref(),
+            Some("same-station")
         );
     }
 
@@ -834,5 +1028,37 @@ mod tests {
         assert_eq!(page.subtitle, "Signal Fires");
         assert_eq!(page.tracks.len(), 1);
         assert_eq!(page.tracks[0].video_id.as_deref(), Some("abcdefghijk"));
+    }
+
+    #[test]
+    fn an_artists_top_songs_link_their_full_list() {
+        let response = json!({"musicShelfRenderer": {
+            "title": {"runs": [{"text": "Top songs"}]},
+            "contents": [{"musicResponsiveListItemRenderer": song_row()}],
+            "bottomEndpoint": {"browseEndpoint": {"browseId": "VLOLAK5uy_every_song"}}
+        }});
+        let page = artist_page("UCartist", &response);
+        assert_eq!(page.all_tracks_id.as_deref(), Some("VLOLAK5uy_every_song"));
+    }
+
+    #[test]
+    fn a_songs_shelf_titled_as_a_link_still_leads_to_its_full_list() {
+        let response = json!({"musicShelfRenderer": {
+            "title": {"runs": [{
+                "text": "Songs",
+                "navigationEndpoint": {"browseEndpoint": {"browseId": "VLOLAK5uy_from_title"}}
+            }]},
+            "contents": [{"musicResponsiveListItemRenderer": song_row()}]
+        }});
+        let page = artist_page("UCartist", &response);
+        assert_eq!(page.all_tracks_id.as_deref(), Some("VLOLAK5uy_from_title"));
+    }
+
+    #[test]
+    fn a_complete_track_list_has_nothing_more_to_show() {
+        let response = json!({"musicShelfRenderer": {
+            "contents": [{"musicResponsiveListItemRenderer": song_row()}]
+        }});
+        assert_eq!(artist_page("UCartist", &response).all_tracks_id, None);
     }
 }

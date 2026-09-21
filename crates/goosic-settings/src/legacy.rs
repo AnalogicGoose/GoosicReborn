@@ -114,7 +114,7 @@ fn strip_credentials(value: &mut Value) {
 /// WebKit stores `localStorage` strings as UTF-16LE blobs. Values are JSON documents in most
 /// cases and bare strings in a few (`ytm-theme` is just `dark`), so both are accepted.
 fn decode(raw: &[u8]) -> Option<Value> {
-    let text = if raw.len() >= 2 && raw.len() % 2 == 0 && raw[1] == 0 {
+    let text = if raw.len() >= 2 && raw.len().is_multiple_of(2) && raw[1] == 0 {
         let units: Vec<u16> = raw
             .chunks_exact(2)
             .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
