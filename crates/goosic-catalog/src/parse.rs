@@ -382,6 +382,7 @@ pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
         thumbnail: None,
         next_cursor,
         truncated: false,
+        all_tracks_id: None,
     }
 }
 
@@ -428,6 +429,7 @@ pub fn search_page(query: &str, response: &Value) -> CatalogPage {
         thumbnail: None,
         next_cursor: None,
         truncated: false,
+        all_tracks_id: None,
     }
 }
 
@@ -574,6 +576,7 @@ pub fn browse_page(id: &str, title: &str, response: &Value) -> CatalogPage {
         thumbnail: None,
         next_cursor: continuation_token(response),
         truncated: false,
+        all_tracks_id: None,
     }
 }
 
@@ -641,6 +644,7 @@ pub fn track_list_page(id: &str, response: &Value) -> CatalogPage {
         thumbnail: json::thumbnail(response, THUMBNAIL_BUDGET),
         next_cursor: None,
         truncated: false,
+        all_tracks_id: None,
     }
 }
 
@@ -664,8 +668,28 @@ pub fn artist_page(id: &str, response: &Value) -> CatalogPage {
         tracks,
         thumbnail: json::thumbnail(response, THUMBNAIL_BUDGET),
         next_cursor: None,
+        all_tracks_id: all_tracks_id(response),
         truncated: false,
     }
+}
+
+/// The full song list behind an artist's top songs.
+///
+/// The songs shelf shows five rows and links the rest from its "Show all" button, and from its
+/// title on layouts that have no button. Either way the target is a playlist browse id.
+fn all_tracks_id(response: &Value) -> Option<String> {
+    json::collect(response, "musicShelfRenderer")
+        .into_iter()
+        .find_map(|shelf| {
+            shelf
+                .pointer("/bottomEndpoint/browseEndpoint/browseId")
+                .or_else(|| {
+                    shelf.pointer("/title/runs/0/navigationEndpoint/browseEndpoint/browseId")
+                })
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+        })
 }
 
 #[cfg(test)]
@@ -1004,5 +1028,37 @@ mod tests {
         assert_eq!(page.subtitle, "Signal Fires");
         assert_eq!(page.tracks.len(), 1);
         assert_eq!(page.tracks[0].video_id.as_deref(), Some("abcdefghijk"));
+    }
+
+    #[test]
+    fn an_artists_top_songs_link_their_full_list() {
+        let response = json!({"musicShelfRenderer": {
+            "title": {"runs": [{"text": "Top songs"}]},
+            "contents": [{"musicResponsiveListItemRenderer": song_row()}],
+            "bottomEndpoint": {"browseEndpoint": {"browseId": "VLOLAK5uy_every_song"}}
+        }});
+        let page = artist_page("UCartist", &response);
+        assert_eq!(page.all_tracks_id.as_deref(), Some("VLOLAK5uy_every_song"));
+    }
+
+    #[test]
+    fn a_songs_shelf_titled_as_a_link_still_leads_to_its_full_list() {
+        let response = json!({"musicShelfRenderer": {
+            "title": {"runs": [{
+                "text": "Songs",
+                "navigationEndpoint": {"browseEndpoint": {"browseId": "VLOLAK5uy_from_title"}}
+            }]},
+            "contents": [{"musicResponsiveListItemRenderer": song_row()}]
+        }});
+        let page = artist_page("UCartist", &response);
+        assert_eq!(page.all_tracks_id.as_deref(), Some("VLOLAK5uy_from_title"));
+    }
+
+    #[test]
+    fn a_complete_track_list_has_nothing_more_to_show() {
+        let response = json!({"musicShelfRenderer": {
+            "contents": [{"musicResponsiveListItemRenderer": song_row()}]
+        }});
+        assert_eq!(artist_page("UCartist", &response).all_tracks_id, None);
     }
 }

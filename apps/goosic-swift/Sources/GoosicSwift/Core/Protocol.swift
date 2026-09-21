@@ -221,6 +221,9 @@ struct GoosicCatalogPage: Codable {
     var tracks: [GoosicCatalogItem]?
     var thumbnail: String?
     var nextCursor: String?
+    /// The playlist holding every track when `tracks` shows only the first few, as an artist's
+    /// top songs do.
+    var allTracksId: String?
     /// True when the service clamped the upstream page to fit one protocol frame.
     var truncated: Bool?
 }
