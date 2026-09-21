@@ -46,11 +46,15 @@ Do not force UI state into Rust merely to remove Swift. Screens, focus, layout, 
 
 4. Build `apps/goosic-linux` beside the Swift shell. Start with catalog, search, queue, settings, and protocol transport. Then add WebKitGTK playback and account hosts, local audio, and media controls. The Swift Linux shell is only a temporary conformance reference and is deleted after GTK parity and packaging.
 
-   *Designed, not started.* [LINUX_SHELL.md](LINUX_SHELL.md) records the decisions: GTK 4 through `gtk4-rs` without libadwaita, so the shell follows each desktop's theme; its own Cargo workspace linking `goosic-shell-support`; the application ID `io.github.analogicgoose.Goosic`; a Flatpak on the GNOME runtime; and a process that keeps playing in the background, reachable from every desktop, when its window is closed.
+   *Feature-complete, not packaged,* on `feature/linux/complete-shell`. [LINUX_SHELL.md](LINUX_SHELL.md) records the decisions: GTK 4 through `gtk4-rs` without libadwaita, so the shell follows each desktop's theme; its own Cargo workspace linking `goosic-shell-support`; the application ID `io.github.analogicgoose.Goosic`; a Flatpak on the GNOME runtime; and a process that keeps playing in the background, reachable from every desktop, when its window is closed. The shell browses and plays the catalog through WebKitGTK, plays downloaded files through GStreamer, signs accounts in, publishes MPRIS and a status icon, and keeps playing with its window closed, and each of those was checked on a live desktop. The Flatpak, the lease-proof test, a CI job and the macOS-only account features are what is left; that document's *What is left* lists every item and the branch it belongs on.
 
 5. Build `apps/goosic-windows` around WinUI 3, WebView2, Windows media controls, and local audio. Do not claim Windows support until it passes the same fixtures and platform-host security checks.
 
-   *Deferred* until the Linux shell lands.
+   *Started*, ahead of the Linux shell rather than after it, because that is the platform being worked on. `apps/goosic-windows` is a WinUI 3 application in C#: the icon rail, the transport in the caption bar, the named sidebar drawn over the content, and the catalog shelves render against the live service. Its transport to `goosic-service` is C#, because what a replacement shell implements is the protocol and its fixtures rather than any particular language's client.
+
+   The rules are not restated in C#. `goosic-shell-support-ffi` exposes them over a C ABI the shell reaches through P/Invoke, which is step two's "only when a real use proves it valuable" arriving: the injected page scripts and the bridge validators are security-sensitive generated JavaScript and the checks that decide whether to believe the page, and a third copy of those is exactly the failure [SHELL_CONTRACT.md](SHELL_CONTRACT.md) describes. What crosses the boundary stays narrow -- the scripts and the validators, never screens, focus or layout.
+
+   Windows support is not claimed. There is no playback, search, account profile or media control yet, and the fixtures have not been run against it.
 
 6. Delete `apps/goosic-swift`, SwiftPM, `SCUI_DEFAULT_BACKEND`, and their CI caches only after all replacement shells pass conformance and package checks. Migrate every useful Swift test before deleting it.
 

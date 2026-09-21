@@ -14,7 +14,8 @@ final class OfficialPlaybackHost {
     private var expectedToken: String?
     private var expectedGeneration: UInt64?
     private var expectedVideoID: String?
-    private var lastSequence: UInt64 = 0
+    private var lastBridgeSequence: UInt64 = 0
+    private var sampleSequence = OfficialSampleSequence()
     private var advertisementActive = false
     private var activeProfile = OfficialPlaybackProfile.guest
     private(set) var loadedVideoID: String?
@@ -99,7 +100,7 @@ final class OfficialPlaybackHost {
         rebuildRenderer()
     }
 
-    func load(videoID: String, generation: UInt64) {
+    func load(videoID: String, generation: UInt64, volume: Double = 1, muted: Bool = false) {
         guard let widget else {
             onStatus?("Official host is not attached to the native view.")
             return
@@ -116,7 +117,8 @@ final class OfficialPlaybackHost {
         expectedGeneration = generation
         expectedVideoID = videoID
         loadedVideoID = videoID
-        lastSequence = 0
+        lastBridgeSequence = 0
+        sampleSequence.begin(generation: generation)
         advertisementActive = false
         isLoading = true
 
@@ -234,7 +236,8 @@ final class OfficialPlaybackHost {
         expectedToken = nil
         expectedGeneration = nil
         expectedVideoID = nil
-        lastSequence = 0
+        lastBridgeSequence = 0
+        sampleSequence.reset()
         advertisementActive = false
         loadedVideoID = nil
         isLoading = false
@@ -358,18 +361,22 @@ final class OfficialPlaybackHost {
             expectedToken: expectedToken,
             expectedGeneration: expectedGeneration,
             expectedVideoID: expectedVideoID,
-            lastSequence: lastSequence
+            lastSequence: lastBridgeSequence
         ) {
             onStatus?("Rejected an official-player bridge event: \(reason).")
             return
         }
-        lastSequence = event.sequence
+        lastBridgeSequence = event.sequence
+        guard let leaseSequence = sampleSequence.issue(for: event.generation) else {
+            onStatus?("Rejected an official-player event with no active playback lease.")
+            return
+        }
         advertisementActive = event.isAdvertisement
         isLoading = false
         onEvent?(OfficialPlaybackEvent(
             generation: event.generation,
             videoID: event.videoID,
-            sequence: event.sequence,
+            sequence: leaseSequence,
             state: event.state,
             currentTime: event.currentTime,
             duration: event.duration,

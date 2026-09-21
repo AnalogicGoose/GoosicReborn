@@ -160,7 +160,7 @@ impl LyricsClient {
                 request = request.query("album_name", query.album.trim());
             }
             if let Some(duration) = query.duration_seconds {
-                request = request.query("duration", &duration.to_string());
+                request = request.query("duration", duration.to_string());
             }
             match self.send(request) {
                 Ok(Some(record)) => return Ok(record),

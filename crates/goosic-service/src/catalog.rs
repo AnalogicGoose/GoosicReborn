@@ -114,14 +114,31 @@ fn respond(request_id: String, result: Result<CatalogPage, CatalogError>) -> Res
     }
 }
 
-fn catalog_id(payload: &RequestPayload, request_id: &str) -> Result<String, ResponseEnvelope> {
+fn catalog_id(
+    payload: &RequestPayload,
+    request_id: &str,
+) -> Result<String, Box<ResponseEnvelope>> {
     match payload.catalog_id.as_deref().map(str::trim) {
         Some(id) if !id.is_empty() => Ok(id.to_owned()),
-        _ => Err(failure(
+        _ => Err(Box::new(failure(
             request_id.to_owned(),
             "invalidRequest",
             "catalog command requires catalogId".into(),
-        )),
+        ))),
+    }
+}
+
+fn continuation(
+    payload: &RequestPayload,
+    request_id: &str,
+) -> Result<String, Box<ResponseEnvelope>> {
+    match payload.continuation.as_deref().map(str::trim) {
+        Some(cursor) if !cursor.is_empty() => Ok(cursor.to_owned()),
+        _ => Err(Box::new(failure(
+            request_id.to_owned(),
+            "invalidRequest",
+            "catalog.continue requires continuation".into(),
+        ))),
     }
 }
 
@@ -142,26 +159,35 @@ pub fn handle(
         "catalog.browse" => {
             let route = match catalog_id(payload, request_id) {
                 Ok(route) => route,
-                Err(response) => return Some(response),
+                Err(response) => return Some(*response),
             };
             let title = payload.query.clone().unwrap_or_else(|| route.clone());
             respond(id, catalog.browse_route(&route, &title))
         }
+        "catalog.continue" => match continuation(payload, request_id) {
+            Ok(cursor) => respond(id, catalog.browse_continuation(&cursor)),
+            Err(response) => *response,
+        },
         "catalog.album" => match catalog_id(payload, request_id) {
             Ok(browse_id) => respond(id, catalog.album(&browse_id)),
-            Err(response) => response,
+            Err(response) => *response,
         },
         "catalog.playlist" => match catalog_id(payload, request_id) {
             Ok(playlist_id) => respond(id, catalog.playlist(&playlist_id)),
-            Err(response) => response,
+            Err(response) => *response,
         },
         "catalog.radio" => match catalog_id(payload, request_id) {
-            Ok(video_id) => respond(id, catalog.radio(&video_id)),
-            Err(response) => response,
+            Ok(video_id) => match payload.continuation.as_deref() {
+                Some(continuation) => {
+                    respond(id, catalog.radio_continuation(&video_id, continuation))
+                }
+                None => respond(id, catalog.radio(&video_id)),
+            },
+            Err(response) => *response,
         },
         "catalog.artist" => match catalog_id(payload, request_id) {
             Ok(browse_id) => respond(id, catalog.artist(&browse_id)),
-            Err(response) => response,
+            Err(response) => *response,
         },
         _ => return None,
     })
@@ -282,6 +308,20 @@ mod tests {
     fn search_rejects_an_empty_query_without_network_access() {
         let catalog = Catalog::new();
         let response = handle(&catalog, "catalog.search", "1", &RequestPayload::default()).unwrap();
+        assert!(!response.ok);
+        assert_eq!(response.error.unwrap().code, "invalidRequest");
+    }
+
+    #[test]
+    fn continuation_rejects_a_missing_cursor_without_network_access() {
+        let catalog = Catalog::new();
+        let response = handle(
+            &catalog,
+            "catalog.continue",
+            "1",
+            &RequestPayload::default(),
+        )
+        .unwrap();
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "invalidRequest");
     }

@@ -4,10 +4,25 @@
 //! no machine in it comes from `goosic-shell-support`, and everything it knows about GTK stays
 //! here. See `docs/LINUX_SHELL.md` for why it is built this way.
 
+mod artwork;
+mod background;
 pub mod bridge;
+pub mod local_host;
+mod login_host;
+pub mod lyrics;
+mod mpris;
+pub mod official_host;
+pub mod pages;
+pub mod playback;
+mod player_bar;
 pub mod service;
 pub mod shell;
+mod side_panels;
+mod status_icon;
+pub mod theme;
+mod ui;
+mod web_profile;
 
 /// The application ID. It makes a second launch activate the running instance instead of starting
-/// another, and it is how the desktop, its portals and the media pan
+/// another, and it is how the desktop, its portals and the media panel recognise this program.
 pub const APP_ID: &str = "io.github.analogicgoose.Goosic";
