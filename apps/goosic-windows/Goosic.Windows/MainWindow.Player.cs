@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Goosic.Windows.Service;
 using Goosic.Windows.ViewModels;
@@ -100,12 +101,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Arrow → its StackPanel → the header Grid → the shelf, whose next child is the carousel.
+        // Arrow → its StackPanel → the header Grid → the shelf, which holds a card carousel and a
+        // row carousel; only the one matching the shelf's layout is visible.
         if (VisualTreeHelper.GetParent(button) is FrameworkElement arrows
             && VisualTreeHelper.GetParent(arrows) is FrameworkElement header
             && VisualTreeHelper.GetParent(header) is Panel shelf
-            && shelf.Children.Count > 1
-            && shelf.Children[1] is ScrollViewer carousel)
+            && shelf.Children.OfType<ScrollViewer>().FirstOrDefault(child => child.Visibility == Visibility.Visible)
+                is { } carousel)
         {
             var step = Math.Max(200, carousel.ViewportWidth * 0.8) * (direction == "-1" ? -1 : 1);
             carousel.ChangeView(Math.Max(0, carousel.HorizontalOffset + step), null, null);
