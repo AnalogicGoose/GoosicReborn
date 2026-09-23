@@ -336,10 +336,29 @@ public sealed class ShelfViewModel
         {
             item.Context = Items;
         }
+
+        IsList = shelf.Layout == "list";
+        Columns = IsList
+            ? ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)).ToList()
+            : [];
     }
 
     public string Title { get; }
     public ObservableCollection<CardViewModel> Items { get; }
+
+    /// <summary>Song rows, shown as YouTube Music shows Quick picks: columns of rows, not cards.</summary>
+    public bool IsList { get; }
+    public bool IsCards => !IsList;
+
+    /// <summary>The same cards as <see cref="Items"/>, in columns of four for a list shelf.</summary>
+    public IReadOnlyList<ShelfColumnViewModel> Columns { get; }
+}
+
+/// <summary>One column of a list shelf.</summary>
+public sealed class ShelfColumnViewModel(IReadOnlyList<CardViewModel> rows)
+{
+    public IReadOnlyList<CardViewModel> Rows { get; } = rows;
+    public double Width => ShelfColumns.ColumnWidth;
 }
 
 /// <summary>One line shown in the lyrics panel, never synthesized by the shell.</summary>
@@ -1057,8 +1076,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         BridgeLog.Write("startup: reading accounts");
         await RefreshAccountsAsync().ConfigureAwait(true);
         BridgeLog.Write($"startup: {Accounts.Count} account(s), active {_activeAccount?.DisplayName ?? "none"}");
-        await LoadRouteAsync("home").ConfigureAwait(true);
+        var opening = StartRoute.For(StartPage, LastRoute);
+        OpeningRouteChosen?.Invoke(opening);
+        await LoadRouteAsync(opening).ConfigureAwait(true);
     }
+
+    /// <summary>Raised with the page Goosic opens on, so the sidebar can highlight it.</summary>
+    internal event Action<string>? OpeningRouteChosen;
 
     /// <summary>Loads one browse surface.</summary>
     internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true)
@@ -1112,6 +1136,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         Remember("route" + KeySeparator + route, rememberCurrentRoute);
+        if (StartRoute.IsRemembered(route) && route != LastRoute)
+        {
+            // Rust keeps it, so "start on the page I was on last" survives a restart.
+            LastRoute = route;
+            _ = SaveAsync("lastRoute", route);
+        }
+
         // Liked Music is an ordered list like a playlist; the other routes are shelves or results.
         PageKind = route == "liked" ? DetailKind.Playlist : DetailKind.Browse;
         SetPageTruncated(false);
@@ -1158,14 +1189,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             NextCursor = page.NextCursor;
             AllTracksId = page.AllTracksId;
-            foreach (var track in page.Tracks)
+            foreach (var track in Listed(page.Tracks))
             {
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
                 _ = row.LoadArtworkAsync(_artwork);
             }
 
-            foreach (var shelf in page.Shelves)
+            foreach (var shelf in ListedShelves(page.Shelves))
             {
                 var model = new ShelfViewModel(shelf);
                 Shelves.Add(model);
@@ -1300,7 +1331,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             NextCursor = page.NextCursor;
             AllTracksId = page.AllTracksId;
-            foreach (var track in page.Tracks)
+            foreach (var track in Listed(page.Tracks))
             {
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
@@ -1311,7 +1342,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 }
             }
 
-            foreach (var shelf in page.Shelves)
+            foreach (var shelf in ListedShelves(page.Shelves))
             {
                 var model = new ShelfViewModel(shelf);
                 Shelves.Add(model);
@@ -1382,14 +1413,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             NextCursor = page.NextCursor;
             AllTracksId = page.AllTracksId;
-            foreach (var track in page.Tracks)
+            foreach (var track in Listed(page.Tracks))
             {
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
                 _ = row.LoadArtworkAsync(_artwork);
             }
 
-            foreach (var shelf in page.Shelves)
+            foreach (var shelf in ListedShelves(page.Shelves))
             {
                 var model = new ShelfViewModel(shelf);
                 Shelves.Add(model);
