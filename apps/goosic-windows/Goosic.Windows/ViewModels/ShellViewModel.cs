@@ -48,6 +48,8 @@ public sealed class CardViewModel : INotifyPropertyChanged
         Thumbnail = item.Thumbnail;
         ArtistId = item.ArtistId;
         AlbumId = item.AlbumId;
+        Artist = item.Artist;
+        Album = item.Album;
     }
 
     public string Title { get; }
@@ -57,6 +59,10 @@ public sealed class CardViewModel : INotifyPropertyChanged
     internal string Kind { get; }
     internal string? ArtistId { get; }
     internal string? AlbumId { get; }
+
+    /// <summary>The catalog's artist and album, which the subtitle only describes.</summary>
+    internal string? Artist { get; }
+    internal string? Album { get; }
 
     /// <summary>
     /// What activating the card means, as one string the view can hand back.
@@ -127,6 +133,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         Explicit = item.Explicit;
         ArtistId = item.ArtistId;
         AlbumId = item.AlbumId;
+        Artist = item.Artist;
+        Album = item.Album;
         EntryId = item.EntryId;
     }
 
@@ -144,6 +152,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         Artwork = card.Artwork;
         ArtistId = card.ArtistId;
         AlbumId = card.AlbumId;
+        Artist = card.Artist;
+        Album = card.Album;
     }
 
     private TrackViewModel(TrackViewModel source)
@@ -156,6 +166,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         Explicit = source.Explicit;
         ArtistId = source.ArtistId;
         AlbumId = source.AlbumId;
+        Artist = source.Artist;
+        Album = source.Album;
         Artwork = source.Artwork;
     }
 
@@ -171,6 +183,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
 
     internal string? ArtistId { get; }
     internal string? AlbumId { get; }
+    internal string? Artist { get; }
+    internal string? Album { get; }
 
     private bool _isCurrent;
 
@@ -937,23 +951,54 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         LyricsState = LyricsState.Loading;
-        LyricsState next;
+        var lookup = LyricsLookup.For(track.Title, track.Artist, track.Subtitle, track.Album, track.Duration);
+        var next = await RequestLyricsAsync(lookup, request).ConfigureAwait(true);
+        // One quiet retry: a lookup that timed out usually succeeds a moment later, once LRCLIB
+        // has fetched the song. Listeners had to close and reopen the panel to get that retry.
+        if (next == LyricsState.Unavailable && request == _lyricsRequestVersion)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(true);
+            if (request == _lyricsRequestVersion)
+            {
+                next = await RequestLyricsAsync(lookup, request).ConfigureAwait(true);
+            }
+        }
+
+        if (next is not null && request == _lyricsRequestVersion)
+        {
+            LyricsState = next;
+        }
+    }
+
+    /// <summary>Asks for one track's lyrics and shows them if found.</summary>
+    /// <returns>The panel's next state, or null when a newer request has taken over.</returns>
+    private async Task<LyricsState?> RequestLyricsAsync(LyricsLookup lookup, int request)
+    {
         try
         {
-            var query = new JsonObject { ["title"] = track.Title, ["artist"] = track.Subtitle };
+            var query = new JsonObject
+            {
+                ["title"] = lookup.Title,
+                ["artist"] = lookup.Artist,
+                ["album"] = lookup.Album,
+            };
+            if (lookup.DurationSeconds is { } seconds)
+            {
+                query["durationSeconds"] = seconds;
+            }
+
             var answer = await _client.RequestAsync("lyrics.get", new JsonObject { ["lyrics"] = query })
                 .ConfigureAwait(true);
             // A track change while this was on its way has already asked for its own lyrics.
             if (request != _lyricsRequestVersion)
             {
-                return;
+                return null;
             }
 
             var document = answer.Deserialize<LyricsResponsePayload>(ServiceProtocol.Json)?.Document;
             if (document is null || document.Lines.Count == 0)
             {
-                LyricsState = LyricsState.NotFound;
-                return;
+                return LyricsState.NotFound;
             }
 
             foreach (var line in document.Lines)
@@ -962,21 +1007,16 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             }
 
             _lyricsSynced = document.Synced;
-            next = LyricsState.Found(document.Synced, document.Source, document.Truncated);
+            return LyricsState.Found(document.Synced, document.Source, document.Truncated);
         }
         catch (ServiceRefusedException refused) when (refused.Code == "lyricsNotFound")
         {
-            next = LyricsState.NotFound;
+            return LyricsState.NotFound;
         }
         catch (Exception error)
         {
             BridgeLog.Write($"lyrics error {error.GetType().Name}: {error.Message}");
-            next = LyricsState.Unavailable;
-        }
-
-        if (request == _lyricsRequestVersion)
-        {
-            LyricsState = next;
+            return LyricsState.Unavailable;
         }
     }
 
