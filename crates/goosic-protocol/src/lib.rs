@@ -199,6 +199,16 @@ pub struct SettingsSnapshot {
     /// user turns it off. A shell with no way to draw it keeps the choice and ignores it.
     #[serde(default = "artwork_background_default")]
     pub artwork_background: bool,
+    /// Leave explicit tracks out of what the shell lists. Off unless the user turns it on.
+    #[serde(default)]
+    pub hide_explicit: bool,
+    /// Where the shell opens: `home`, `library`, `liked`, or `last` for `last_route`.
+    #[serde(default = "start_page_default")]
+    pub start_page: String,
+    /// Skip decorative motion — page entrances and panel slides. A shell also honours the
+    /// operating system's own setting; this is the in-app one.
+    #[serde(default)]
+    pub reduce_motion: bool,
     /// Whether preferences from a previous Goosic install have been imported.
     pub imported_from_legacy: bool,
     /// Whether a legacy store is present to import from. Never a credential store.
@@ -208,6 +218,10 @@ pub struct SettingsSnapshot {
 /// A snapshot from a service that predates the preference means the default, which is on.
 fn artwork_background_default() -> bool {
     true
+}
+
+fn start_page_default() -> String {
+    "home".into()
 }
 
 /// A partial preference update. Absent fields are left as they are.
@@ -232,6 +246,12 @@ pub struct PreferencesPatch {
     pub repeat_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artwork_background: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hide_explicit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_page: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reduce_motion: Option<bool>,
 }
 
 /// What to look lyrics up by.
@@ -332,6 +352,29 @@ pub struct CatalogShelf {
     pub id: String,
     pub title: String,
     pub items: Vec<CatalogItem>,
+    /// How YouTube Music presents the shelf. Absent means cards, which is also what a shell
+    /// that does not read this field shows, so older shells are unaffected.
+    #[serde(default, skip_serializing_if = "ShelfLayout::is_cards")]
+    pub layout: ShelfLayout,
+}
+
+/// Whether a shelf is a row of artwork cards or a list of song rows.
+///
+/// YouTube Music sends "Quick picks" and similar modules as song rows in a carousel, shown as a
+/// compact grid of four rows per column. Without this a shell can only guess from the items,
+/// and every shelf became a row of large cards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShelfLayout {
+    #[default]
+    Cards,
+    List,
+}
+
+impl ShelfLayout {
+    pub fn is_cards(&self) -> bool {
+        *self == Self::Cards
+    }
 }
 
 /// A whole catalog screen: shelves for browse surfaces, `tracks` for ordered track lists.

@@ -250,6 +250,7 @@ mod tests {
                     id: format!("shelf-{shelf}"),
                     title: format!("Shelf {shelf}"),
                     items: (0..90).map(track).collect(),
+                    layout: Default::default(),
                 })
                 .collect(),
             ..Default::default()
@@ -272,6 +273,7 @@ mod tests {
                 id: "shelf-0".into(),
                 title: "Albums".into(),
                 items: (0..5).map(track).collect(),
+                layout: Default::default(),
             }],
             tracks: (0..3_000).map(track).collect(),
             ..Default::default()

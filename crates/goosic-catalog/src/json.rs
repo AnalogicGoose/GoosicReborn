@@ -35,6 +35,37 @@ fn walk<'a>(value: &'a Value, key: &str, found: &mut Vec<&'a Value>) {
     }
 }
 
+/// Collects every object stored under any of `keys`, in document order, without descending
+/// into a match.
+///
+/// Collecting each key separately loses the order between them: a page's carousels all came
+/// before its list shelves, whatever order the page itself had.
+pub fn collect_any<'a, 'k>(value: &'a Value, keys: &[&'k str]) -> Vec<(&'k str, &'a Value)> {
+    let mut found = Vec::new();
+    walk_any(value, keys, &mut found);
+    found
+}
+
+fn walk_any<'a, 'k>(value: &'a Value, keys: &[&'k str], found: &mut Vec<(&'k str, &'a Value)>) {
+    match value {
+        Value::Object(map) => {
+            for (name, child) in map {
+                if let Some(key) = keys.iter().find(|key| **key == name) {
+                    found.push((key, child));
+                } else {
+                    walk_any(child, keys, found);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                walk_any(item, keys, found);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Returns the first object stored under `key` anywhere in the tree.
 pub fn first<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
     match value {
