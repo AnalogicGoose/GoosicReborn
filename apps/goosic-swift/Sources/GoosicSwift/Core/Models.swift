@@ -357,6 +357,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// The video whose end has already advanced the queue, so the player's repeated `ended`
     /// polls cannot skip several tracks at once.
     private var endedVideoID: String?
+    /// The listener paused the current track; a pause at its last second is theirs, not its end.
+    private var listenerPaused = false
     /// The preferred volume has not been pushed to this load's player yet. The page reports its
     /// own volume, so the preference is applied once per load rather than fought over.
     private var volumeAppliedForLoad = false
@@ -2264,6 +2266,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         if officialPlaybackHost.loadedVideoID != nil {
+            listenerPaused = !isPaused
             if isPaused {
                 playOfficialVideo()
             } else {
@@ -2528,6 +2531,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         duration = 0
         pendingSeek = nil
         endedVideoID = nil
+        listenerPaused = false
         isAdvertisement = false
         lastOfficialEventState = nil
         lastOfficialEventWasAdvertisement = nil
@@ -2644,7 +2648,14 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
             pendingSeek = nil
         }
-        if event.state == "ended", !event.isAdvertisement, endedVideoID != event.videoID {
+        if event.state == "playing", !event.isAdvertisement {
+            listenerPaused = false
+        }
+        if TrackEnd.shouldAdvance(
+            state: event.state, isAdvertisement: event.isAdvertisement, videoID: event.videoID,
+            position: event.currentTime, duration: event.duration,
+            lastEndedVideoID: endedVideoID, listenerPaused: listenerPaused
+        ) {
             endedVideoID = event.videoID
             advanceAfterEnd()
         }
