@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.2.0"
 #endif
 
 [Setup]
@@ -37,8 +37,16 @@ Name: "{userdesktop}\Goosic"; Filename: "{app}\Goosic.Windows.exe"; Tasks: deskt
 
 [Run]
 Filename: "{app}\Goosic.Windows.exe"; Description: "Launch Goosic"; Flags: nowait postinstall skipifsilent
+; The in-app updater runs Setup silently with /RELAUNCH=1 after closing Goosic, and expects it
+; back once the new files are in place.
+Filename: "{app}\Goosic.Windows.exe"; Flags: nowait; Check: RelaunchAfterUpdate
 
 [Code]
+function RelaunchAfterUpdate: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:RELAUNCH|0}') = '1');
+end;
+
 function HasWebView2: Boolean;
 var Version: String;
 begin

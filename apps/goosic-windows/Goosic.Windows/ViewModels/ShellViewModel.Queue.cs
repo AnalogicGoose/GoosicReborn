@@ -746,7 +746,7 @@ public sealed partial class ShellViewModel
             return 0;
         }
 
-        var fresh = PlaybackOrder.FreshRecommendations(page.Tracks, item => item.VideoId,
+        var fresh = PlaybackOrder.FreshRecommendations(Listed(page.Tracks).ToList(), item => item.VideoId,
             Queue.Select(entry => entry.VideoId).Concat(_recentlyPlayed).Concat(_refusedVideos));
         foreach (var item in fresh)
         {
@@ -817,12 +817,12 @@ public sealed partial class ShellViewModel
             var answer = await _client.RequestAsync(command, new JsonObject { ["catalogId"] = id })
                 .ConfigureAwait(true);
             var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
-            var rows = (page?.Tracks ?? []).Select(item => new TrackViewModel(item)).ToList();
+            var rows = Listed(page?.Tracks ?? []).Select(item => new TrackViewModel(item)).ToList();
             if (rows.Count == 0 && page is not null)
             {
                 // An artist page has no ordered list; its songs shelf is the closest real one.
                 rows = page.Shelves
-                    .SelectMany(shelf => shelf.Items)
+                    .SelectMany(shelf => Listed(shelf.Items))
                     .Where(item => !string.IsNullOrEmpty(item.VideoId))
                     .Select(item => new TrackViewModel(item))
                     .ToList();
@@ -885,14 +885,14 @@ public sealed partial class ShellViewModel
                 return;
             }
 
-            foreach (var track in page.Tracks)
+            foreach (var track in Listed(page.Tracks))
             {
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
                 _ = row.LoadArtworkAsync(_artwork);
             }
 
-            foreach (var shelf in page.Shelves)
+            foreach (var shelf in ListedShelves(page.Shelves))
             {
                 var model = new ShelfViewModel(shelf);
                 Shelves.Add(model);
