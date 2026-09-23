@@ -332,6 +332,29 @@ pub struct CatalogShelf {
     pub id: String,
     pub title: String,
     pub items: Vec<CatalogItem>,
+    /// How YouTube Music presents the shelf. Absent means cards, which is also what a shell
+    /// that does not read this field shows, so older shells are unaffected.
+    #[serde(default, skip_serializing_if = "ShelfLayout::is_cards")]
+    pub layout: ShelfLayout,
+}
+
+/// Whether a shelf is a row of artwork cards or a list of song rows.
+///
+/// YouTube Music sends "Quick picks" and similar modules as song rows in a carousel, shown as a
+/// compact grid of four rows per column. Without this a shell can only guess from the items,
+/// and every shelf became a row of large cards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShelfLayout {
+    #[default]
+    Cards,
+    List,
+}
+
+impl ShelfLayout {
+    pub fn is_cards(&self) -> bool {
+        *self == Self::Cards
+    }
 }
 
 /// A whole catalog screen: shelves for browse surfaces, `tracks` for ordered track lists.
