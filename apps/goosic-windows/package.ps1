@@ -1,11 +1,11 @@
 # Builds a self-contained Goosic for Windows and zips it, ready to hand to a tester.
-# Usage: .\apps\goosic-windows\package.ps1 [-Version 0.1.0] [-Platform x64|ARM64]
+# Usage: .\apps\goosic-windows\package.ps1 [-Version 0.2.0] [-Platform x64|ARM64]
 #
 # The folder runs on a Windows 10 (1809) or later machine with nothing else installed: .NET and
 # the Windows App SDK travel inside it, and WebView2 is part of Windows. The service and the rules
 # library sit beside Goosic.Windows.exe, which is where the app looks for them.
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$')][string]$Version = '0.1.0',
+    [ValidatePattern('^\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?$')][string]$Version = '0.2.0',
     [ValidateSet('x64', 'ARM64')][string]$Platform = 'x64'
 )
 # Native tools print progress and warnings on stderr; failures are read from their exit codes.
