@@ -170,6 +170,55 @@
                                                   OffContent="A plain background"
                                                   IsOn="{x:Bind Model.ArtworkBackground, Mode=OneWay}"
                                                   Toggled="OnArtworkBackgroundToggled" />
+                                    <ToggleSwitch Header="Reduce motion"
+                                                  OnContent="Pages and panels appear without animating"
+                                                  OffContent="Pages and panels slide and fade in"
+                                                  IsOn="{x:Bind Model.ReduceMotion, Mode=OneWay}"
+                                                  Toggled="OnReduceMotionToggled" />
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="Browsing" FontSize="16" FontWeight="SemiBold" />
+                                    <ComboBox x:Name="StartPageChoice" Header="Open Goosic on" MinWidth="240"
+                                              SelectionChanged="OnStartPageChanged" />
+                                    <ToggleSwitch Header="Hide explicit songs"
+                                                  OnContent="Explicit songs are left out of pages, searches and radio"
+                                                  OffContent="Explicit songs are shown"
+                                                  IsOn="{x:Bind Model.HideExplicit, Mode=OneWay}"
+                                                  Toggled="OnHideExplicitToggled" />
+                                    <TextBlock FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                               Text="Hiding explicit songs applies to pages opened after you change it." />
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="Windows" FontSize="16" FontWeight="SemiBold" />
+                                    <ToggleSwitch x:Name="CloseToTrayToggle" Header="Close to tray"
+                                                  OnContent="Closing the window keeps the music playing in the notification area"
+                                                  OffContent="Closing the window quits Goosic"
+                                                  Toggled="OnCloseToTrayToggled" />
+                                    <ToggleSwitch x:Name="LaunchAtStartupToggle" Header="Launch at startup"
+                                                  OnContent="Goosic starts quietly when you sign in to Windows"
+                                                  OffContent="Goosic starts only when you open it"
+                                                  Toggled="OnLaunchAtStartupToggled" />
+                                    <ToggleSwitch x:Name="NotificationsToggle" Header="Now-playing notifications"
+                                                  OnContent="A silent notification names each new song while Goosic is in the background"
+                                                  OffContent="No notifications"
+                                                  Toggled="OnNotificationsToggled" />
+                                    <ToggleSwitch x:Name="DiscordToggle" Header="Discord status"
+                                                  OnContent="Your Discord profile shows what you're listening to"
+                                                  OffContent="Nothing is shared with Discord"
+                                                  Toggled="OnDiscordToggled" />
+                                    <ToggleSwitch x:Name="RememberWindowToggle" Header="Remember window"
+                                                  OnContent="Goosic reopens at the same size, place and sidebar state"
+                                                  OffContent="Goosic opens at its default size"
+                                                  Toggled="OnRememberWindowToggled" />
+                                    <ToggleSwitch x:Name="EfficiencyToggle" Header="Efficiency mode"
+                                                  OnContent="Uses less power: Windows runs Goosic efficiently and animations are off"
+                                                  OffContent="Normal performance"
+                                                  Toggled="OnEfficiencyToggled" />
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">
@@ -413,6 +462,7 @@
                                                       HorizontalSnapPointsAlignment="Near"
                                                       VerticalScrollMode="Disabled"
                                                       VerticalScrollBarVisibility="Disabled"
+                                                      Visibility="{x:Bind IsCards}"
                                                       Loaded="OnCarouselLoaded" Unloaded="OnCarouselUnloaded">
                                           <Border Background="Transparent" PointerWheelChanged="OnCarouselWheel">
                                             <ItemsControl ItemsSource="{x:Bind Items}">
@@ -443,6 +493,63 @@
                                                                        TextTrimming="CharacterEllipsis" />
                                                         </StackPanel>
                                                       </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                          </Border>
+                                        </ScrollViewer>
+                                        <!-- Song-row shelves ("Quick picks"): columns of four compact rows, as
+                                             YouTube Music lays them out, scrolling sideways like the cards. -->
+                                        <ScrollViewer HorizontalScrollMode="Auto"
+                                                      HorizontalScrollBarVisibility="Hidden"
+                                                      HorizontalSnapPointsType="MandatorySingle"
+                                                      HorizontalSnapPointsAlignment="Near"
+                                                      VerticalScrollMode="Disabled"
+                                                      VerticalScrollBarVisibility="Disabled"
+                                                      Visibility="{x:Bind IsList}"
+                                                      Loaded="OnCarouselLoaded" Unloaded="OnCarouselUnloaded">
+                                          <Border Background="Transparent" PointerWheelChanged="OnCarouselWheel">
+                                            <ItemsControl ItemsSource="{x:Bind Columns}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <ItemsStackPanel Orientation="Horizontal" />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:ShelfColumnViewModel">
+                                                        <ItemsControl ItemsSource="{x:Bind Rows}" Width="{x:Bind Width}"
+                                                                      Margin="0,0,22,0">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="vm:CardViewModel">
+                                                                    <Button Style="{StaticResource CardButtonStyle}"
+                                                                            HorizontalAlignment="Stretch"
+                                                                            HorizontalContentAlignment="Stretch"
+                                                                            Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                                            AutomationProperties.Name="{x:Bind AccessibleName}"
+                                                                            ContextRequested="OnItemContextRequested">
+                                                                        <Grid Height="56" ColumnSpacing="12" Padding="0,4">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="48" />
+                                                                                <ColumnDefinition Width="*" />
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <Border Width="48" Height="48" CornerRadius="4"
+                                                                                    Background="{ThemeResource GoosicRaisedBrush}">
+                                                                                <Image Source="{x:Bind Artwork, Mode=OneWay}"
+                                                                                       Stretch="UniformToFill" />
+                                                                            </Border>
+                                                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                                                                <TextBlock Text="{x:Bind Title}" FontSize="14" FontWeight="Medium"
+                                                                                           TextTrimming="CharacterEllipsis"
+                                                                                           ToolTipService.ToolTip="{x:Bind Title}" />
+                                                                                <TextBlock Text="{x:Bind Subtitle}" FontSize="12"
+                                                                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                                                           TextTrimming="CharacterEllipsis" />
+                                                                            </StackPanel>
+                                                                        </Grid>
+                                                                    </Button>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>

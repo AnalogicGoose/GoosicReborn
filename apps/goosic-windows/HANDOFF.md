@@ -25,6 +25,28 @@ installer is unsigned it cannot show who published the release.
 updates itself. The relaunch is read by the Setup being installed, which is always the newer
 one, so it works from the first release that carries the updater.
 
+## Settings and the Home feed
+
+Settings has two kinds of switch, stored in two places on purpose. **Listening preferences**
+— Hide explicit songs, the page Goosic opens on, Reduce motion — are Rust's (`hideExplicit`,
+`startPage`, `reduceMotion` in `goosic-settings`) and shared with every shell; against an
+older service they read as their defaults and are not saved. The shell now also saves
+`lastRoute` for "The page I was on last". **Windows behaviour** — Close to tray, Launch at startup, Now-playing notifications,
+Discord status, Remember window, Efficiency mode — lives in `%LOCALAPPDATA%\Goosic\windows-shell.json`
+(`Service/ShellPreferences.cs`), except Launch at startup, whose truth is the per-user Run
+key so that Task Manager's Startup apps page stays in agreement.
+
+Efficiency mode is Windows' EcoQoS for this process plus no decorative motion. It does not set
+WebView2's low-memory target, which Microsoft intends for an inactive WebView; the player's is
+always playing. The tray icon is written against `Shell_NotifyIcon` directly (`Service/TrayIcon.cs`).
+Discord status talks to the Discord app's local IPC pipe and stays disabled until
+`DiscordPresence.ApplicationId` holds a registered Discord application's id. The window, tray
+and executable use the macOS app icon, converted to `Assets/Goosic.ico`.
+
+Home follows YouTube Music's layout: a shelf whose `layout` is `list` (Quick picks) is drawn
+as columns of four compact rows that scroll sideways, and every other shelf as cards. A shelf
+without the field, from an older service, is cards, as before.
+
 ## Read these first
 
 `AGENTS.md`, then `docs/NATIVE_SHELL_MIGRATION.md` (step 5 is this work) and
