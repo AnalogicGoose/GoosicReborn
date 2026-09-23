@@ -276,6 +276,9 @@ pub fn merge_preferences(
         shuffle: update.shuffle.or(pending.shuffle),
         repeat_mode: update.repeat_mode.or(pending.repeat_mode),
         artwork_background: update.artwork_background.or(pending.artwork_background),
+        hide_explicit: update.hide_explicit.or(pending.hide_explicit),
+        start_page: update.start_page.or(pending.start_page),
+        reduce_motion: update.reduce_motion.or(pending.reduce_motion),
     }
 }
 

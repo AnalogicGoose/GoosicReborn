@@ -352,8 +352,14 @@ mod tests {
                     id: "shelf".into(),
                     title: "One".into(),
                     items: vec![repeated.clone(), repeated.clone()],
+                    layout: Default::default(),
                 },
-                CatalogShelf { id: "shelf".into(), title: "Two".into(), items: vec![repeated] },
+                CatalogShelf {
+                    id: "shelf".into(),
+                    title: "Two".into(),
+                    items: vec![repeated],
+                    layout: Default::default(),
+                },
             ],
             ..Default::default()
         };
@@ -428,6 +434,7 @@ mod tests {
                 id: "s".into(),
                 title: "Songs".into(),
                 items: vec![item(CatalogItemKind::Song, "b", "B", Some("b"))],
+                layout: Default::default(),
             }],
             tracks: vec![item(CatalogItemKind::Song, "a", "A", Some("a"))],
             ..Default::default()

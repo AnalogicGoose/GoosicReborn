@@ -13,12 +13,16 @@ enum OfficialVolumeBootstrap {
           const muted = Object.getOwnPropertyDescriptor(proto, 'muted');
           const originalPlay = proto.play;
           const advertisement = () => !!document.querySelector('.ad-showing, .ad-interrupting');
+          // Changes only what differs, and never mutes on the way. Muting, setting the level and
+          // unmuting cut a playing song to silence and back on every step of the volume slider,
+          // which was heard as crackling. Muting goes first and unmuting last, so the old level
+          // is never heard at the new state.
           function apply(media) {
             if (advertisement()) return;
-            if (volume.get.call(media) === preferred && muted.get.call(media) === intendedMute) return;
-            muted.set.call(media, true);
-            volume.set.call(media, preferred);
-            muted.set.call(media, intendedMute);
+            const isMuted = muted.get.call(media);
+            if (intendedMute && !isMuted) muted.set.call(media, true);
+            if (volume.get.call(media) !== preferred) volume.set.call(media, preferred);
+            if (!intendedMute && isMuted) muted.set.call(media, false);
           }
           Object.defineProperty(proto, 'volume', {
             ...volume,
