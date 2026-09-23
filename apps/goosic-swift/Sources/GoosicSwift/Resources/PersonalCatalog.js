@@ -345,7 +345,9 @@ const GoosicPersonalCatalog = (() => {
       ? readRuns(card.header?.musicCardShelfHeaderBasicRenderer?.title)
       : readRuns(music.header?.musicCarouselShelfBasicHeaderRenderer?.title ?? music.title);
     const items = [];
+    let cards = 0;
     for (const c of music.contents ?? []) {
+      if (c.musicTwoRowItemRenderer) cards += 1;
       const mapped = c.musicTwoRowItemRenderer
         ? mapTwoRowItem(c.musicTwoRowItemRenderer)
         : c.musicResponsiveListItemRenderer
@@ -357,8 +359,11 @@ const GoosicPersonalCatalog = (() => {
       const featured = mapCardShelfFeatured(card);
       if (featured) items.unshift(featured);
     }
+    // Song rows ("Quick picks") are a list, whether they arrive in a carousel or a plain shelf;
+    // this is the protocol's CatalogShelf.layout, and matches goosic-catalog's browse_shelves.
+    const layout = !card && cards === 0 && items.length > 0 ? "list" : "cards";
     // An untitled shelf takes the page title further up, not a numbered placeholder.
-    return { title, items };
+    return { title, items, layout };
   }
 
   function collectResponsiveRows(root) {
@@ -499,7 +504,7 @@ const GoosicPersonalCatalog = (() => {
     const seenItems = new Set();
     const shelves = [];
     collectShelfNodes(sections).forEach((wrapper, i) => {
-      const { title, items } = mapShelfWrapper(wrapper);
+      const { title, items, layout } = mapShelfWrapper(wrapper);
       // Library responses repeat cards across "Recently added" and the main shelf; keep the
       // first occurrence in server order.
       const wire = items
@@ -515,7 +520,10 @@ const GoosicPersonalCatalog = (() => {
       const name = title || fallbackTitle;
       const seen = titleSeen.get(name) ?? 0;
       titleSeen.set(name, seen + 1);
-      shelves.push({ id: `${tag}-${name}${seen === 0 ? "" : `-${seen}`}`, title: name, items: wire });
+      const shelf = { id: `${tag}-${name}${seen === 0 ? "" : `-${seen}`}`, title: name, items: wire };
+      // Cards is the default and stays off the wire, as it does from Rust.
+      if (layout === "list") shelf.layout = "list";
+      shelves.push(shelf);
     });
     return shelves;
   }
