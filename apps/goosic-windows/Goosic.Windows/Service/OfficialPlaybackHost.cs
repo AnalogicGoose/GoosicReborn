@@ -690,12 +690,16 @@ internal sealed class OfficialPlaybackHost
                   const muted = Object.getOwnPropertyDescriptor(proto, 'muted');
                   const originalPlay = proto.play;
                   const advertisement = () => !!document.querySelector('.ad-showing, .ad-interrupting');
+                  // Changes only what differs, and never mutes on the way. Muting, setting the
+                  // level and unmuting cut a playing song to silence and back on every step of
+                  // the slider, which was heard as crackling while the volume moved. Muting
+                  // goes first and unmuting last, so the old level is never heard at the new state.
                   function apply(media) {
                     if (advertisement()) return;
-                    if (volume.get.call(media) === preferred && muted.get.call(media) === intendedMute) return;
-                    muted.set.call(media, true);
-                    volume.set.call(media, preferred);
-                    muted.set.call(media, intendedMute);
+                    const isMuted = muted.get.call(media);
+                    if (intendedMute && !isMuted) muted.set.call(media, true);
+                    if (volume.get.call(media) !== preferred) volume.set.call(media, preferred);
+                    if (!intendedMute && isMuted) muted.set.call(media, false);
                   }
                   Object.defineProperty(proto, 'volume', {
                     ...volume,
@@ -748,8 +752,40 @@ internal sealed class OfficialPlaybackHost
 
     internal bool PreferredMuted => _preferredMuted;
 
-    /// <summary>Puts the chosen volume and mute on the page that is loaded.</summary>
+    private bool _volumeApplying;
+    private bool _volumeApplyPending;
+
+    /// <summary>Puts the chosen volume and mute on the page, one script at a time.</summary>
+    /// <remarks>
+    /// A slider drag raises dozens of changes a second. Each used to queue its own page script, so
+    /// the page worked through stale levels after the thumb had stopped. While one is running,
+    /// later changes only mark the preference dirty, and the latest is sent once it finishes.
+    /// </remarks>
     private async Task ApplyPreferredVolumeAsync()
+    {
+        if (_volumeApplying)
+        {
+            _volumeApplyPending = true;
+            return;
+        }
+
+        _volumeApplying = true;
+        try
+        {
+            do
+            {
+                _volumeApplyPending = false;
+                await SendPreferredVolumeAsync();
+            }
+            while (_volumeApplyPending);
+        }
+        finally
+        {
+            _volumeApplying = false;
+        }
+    }
+
+    private async Task SendPreferredVolumeAsync()
     {
         if (!HasLoadedTrack || _preferredVolume is not { } volume)
         {

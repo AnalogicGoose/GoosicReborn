@@ -28,7 +28,18 @@
     <!-- Warnings are errors for the same reason the Swift shell builds in Swift 6 mode:
          nullability and concurrency complaints here are defects, not style. -->
     <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- package.ps1 stamps the release version. Without it the SDK would call a development
+         build 1.0.0, which the updater would take for newer than every release. -->
+    <Version>0.0.0</Version>
+    <!-- The macOS app's icon (AppIcons/Icon-iOS-Default), at every size Windows asks for. As the
+         executable's own icon it reaches the taskbar, Start menu, Setup's uninstaller entry and
+         the notification area. -->
+    <ApplicationIcon>Assets\Goosic.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\Goosic.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
