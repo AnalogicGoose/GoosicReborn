@@ -48,6 +48,8 @@ public sealed class CardViewModel : INotifyPropertyChanged
         Thumbnail = item.Thumbnail;
         ArtistId = item.ArtistId;
         AlbumId = item.AlbumId;
+        Artist = item.Artist;
+        Album = item.Album;
     }
 
     public string Title { get; }
@@ -57,6 +59,10 @@ public sealed class CardViewModel : INotifyPropertyChanged
     internal string Kind { get; }
     internal string? ArtistId { get; }
     internal string? AlbumId { get; }
+
+    /// <summary>The catalog's artist and album, which the subtitle only describes.</summary>
+    internal string? Artist { get; }
+    internal string? Album { get; }
 
     /// <summary>
     /// What activating the card means, as one string the view can hand back.
@@ -127,6 +133,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         Explicit = item.Explicit;
         ArtistId = item.ArtistId;
         AlbumId = item.AlbumId;
+        Artist = item.Artist;
+        Album = item.Album;
         EntryId = item.EntryId;
     }
 
@@ -144,6 +152,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         Artwork = card.Artwork;
         ArtistId = card.ArtistId;
         AlbumId = card.AlbumId;
+        Artist = card.Artist;
+        Album = card.Album;
     }
 
     private TrackViewModel(TrackViewModel source)
@@ -156,6 +166,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         Explicit = source.Explicit;
         ArtistId = source.ArtistId;
         AlbumId = source.AlbumId;
+        Artist = source.Artist;
+        Album = source.Album;
         Artwork = source.Artwork;
     }
 
@@ -171,6 +183,8 @@ public sealed class TrackViewModel : INotifyPropertyChanged
 
     internal string? ArtistId { get; }
     internal string? AlbumId { get; }
+    internal string? Artist { get; }
+    internal string? Album { get; }
 
     private bool _isCurrent;
 
@@ -336,10 +350,29 @@ public sealed class ShelfViewModel
         {
             item.Context = Items;
         }
+
+        IsList = shelf.Layout == "list";
+        Columns = IsList
+            ? ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)).ToList()
+            : [];
     }
 
     public string Title { get; }
     public ObservableCollection<CardViewModel> Items { get; }
+
+    /// <summary>Song rows, shown as YouTube Music shows Quick picks: columns of rows, not cards.</summary>
+    public bool IsList { get; }
+    public bool IsCards => !IsList;
+
+    /// <summary>The same cards as <see cref="Items"/>, in columns of four for a list shelf.</summary>
+    public IReadOnlyList<ShelfColumnViewModel> Columns { get; }
+}
+
+/// <summary>One column of a list shelf.</summary>
+public sealed class ShelfColumnViewModel(IReadOnlyList<CardViewModel> rows)
+{
+    public IReadOnlyList<CardViewModel> Rows { get; } = rows;
+    public double Width => ShelfColumns.ColumnWidth;
 }
 
 /// <summary>One line shown in the lyrics panel, never synthesized by the shell.</summary>
@@ -937,23 +970,54 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         LyricsState = LyricsState.Loading;
-        LyricsState next;
+        var lookup = LyricsLookup.For(track.Title, track.Artist, track.Subtitle, track.Album, track.Duration);
+        var next = await RequestLyricsAsync(lookup, request).ConfigureAwait(true);
+        // One quiet retry: a lookup that timed out usually succeeds a moment later, once LRCLIB
+        // has fetched the song. Listeners had to close and reopen the panel to get that retry.
+        if (next == LyricsState.Unavailable && request == _lyricsRequestVersion)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(true);
+            if (request == _lyricsRequestVersion)
+            {
+                next = await RequestLyricsAsync(lookup, request).ConfigureAwait(true);
+            }
+        }
+
+        if (next is not null && request == _lyricsRequestVersion)
+        {
+            LyricsState = next;
+        }
+    }
+
+    /// <summary>Asks for one track's lyrics and shows them if found.</summary>
+    /// <returns>The panel's next state, or null when a newer request has taken over.</returns>
+    private async Task<LyricsState?> RequestLyricsAsync(LyricsLookup lookup, int request)
+    {
         try
         {
-            var query = new JsonObject { ["title"] = track.Title, ["artist"] = track.Subtitle };
+            var query = new JsonObject
+            {
+                ["title"] = lookup.Title,
+                ["artist"] = lookup.Artist,
+                ["album"] = lookup.Album,
+            };
+            if (lookup.DurationSeconds is { } seconds)
+            {
+                query["durationSeconds"] = seconds;
+            }
+
             var answer = await _client.RequestAsync("lyrics.get", new JsonObject { ["lyrics"] = query })
                 .ConfigureAwait(true);
             // A track change while this was on its way has already asked for its own lyrics.
             if (request != _lyricsRequestVersion)
             {
-                return;
+                return null;
             }
 
             var document = answer.Deserialize<LyricsResponsePayload>(ServiceProtocol.Json)?.Document;
             if (document is null || document.Lines.Count == 0)
             {
-                LyricsState = LyricsState.NotFound;
-                return;
+                return LyricsState.NotFound;
             }
 
             foreach (var line in document.Lines)
@@ -962,21 +1026,16 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             }
 
             _lyricsSynced = document.Synced;
-            next = LyricsState.Found(document.Synced, document.Source, document.Truncated);
+            return LyricsState.Found(document.Synced, document.Source, document.Truncated);
         }
         catch (ServiceRefusedException refused) when (refused.Code == "lyricsNotFound")
         {
-            next = LyricsState.NotFound;
+            return LyricsState.NotFound;
         }
         catch (Exception error)
         {
             BridgeLog.Write($"lyrics error {error.GetType().Name}: {error.Message}");
-            next = LyricsState.Unavailable;
-        }
-
-        if (request == _lyricsRequestVersion)
-        {
-            LyricsState = next;
+            return LyricsState.Unavailable;
         }
     }
 
@@ -1057,8 +1116,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         BridgeLog.Write("startup: reading accounts");
         await RefreshAccountsAsync().ConfigureAwait(true);
         BridgeLog.Write($"startup: {Accounts.Count} account(s), active {_activeAccount?.DisplayName ?? "none"}");
-        await LoadRouteAsync("home").ConfigureAwait(true);
+        var opening = StartRoute.For(StartPage, LastRoute);
+        OpeningRouteChosen?.Invoke(opening);
+        await LoadRouteAsync(opening).ConfigureAwait(true);
     }
+
+    /// <summary>Raised with the page Goosic opens on, so the sidebar can highlight it.</summary>
+    internal event Action<string>? OpeningRouteChosen;
 
     /// <summary>Loads one browse surface.</summary>
     internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true)
@@ -1112,6 +1176,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         Remember("route" + KeySeparator + route, rememberCurrentRoute);
+        if (StartRoute.IsRemembered(route) && route != LastRoute)
+        {
+            // Rust keeps it, so "start on the page I was on last" survives a restart.
+            LastRoute = route;
+            _ = SaveAsync("lastRoute", route);
+        }
+
         // Liked Music is an ordered list like a playlist; the other routes are shelves or results.
         PageKind = route == "liked" ? DetailKind.Playlist : DetailKind.Browse;
         SetPageTruncated(false);
@@ -1158,14 +1229,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             NextCursor = page.NextCursor;
             AllTracksId = page.AllTracksId;
-            foreach (var track in page.Tracks)
+            foreach (var track in Listed(page.Tracks))
             {
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
                 _ = row.LoadArtworkAsync(_artwork);
             }
 
-            foreach (var shelf in page.Shelves)
+            foreach (var shelf in ListedShelves(page.Shelves))
             {
                 var model = new ShelfViewModel(shelf);
                 Shelves.Add(model);
@@ -1300,7 +1371,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             NextCursor = page.NextCursor;
             AllTracksId = page.AllTracksId;
-            foreach (var track in page.Tracks)
+            foreach (var track in Listed(page.Tracks))
             {
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
@@ -1311,7 +1382,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 }
             }
 
-            foreach (var shelf in page.Shelves)
+            foreach (var shelf in ListedShelves(page.Shelves))
             {
                 var model = new ShelfViewModel(shelf);
                 Shelves.Add(model);
@@ -1382,14 +1453,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             NextCursor = page.NextCursor;
             AllTracksId = page.AllTracksId;
-            foreach (var track in page.Tracks)
+            foreach (var track in Listed(page.Tracks))
             {
                 var row = new TrackViewModel(track);
                 Tracks.Add(row);
                 _ = row.LoadArtworkAsync(_artwork);
             }
 
-            foreach (var shelf in page.Shelves)
+            foreach (var shelf in ListedShelves(page.Shelves))
             {
                 var model = new ShelfViewModel(shelf);
                 Shelves.Add(model);

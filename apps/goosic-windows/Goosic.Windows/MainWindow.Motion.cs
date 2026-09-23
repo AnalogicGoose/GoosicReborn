@@ -1,5 +1,7 @@
 using System;
 using System.Numerics;
+using Goosic.Windows.Service;
+using Goosic.Windows.ViewModels;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Hosting;
@@ -15,7 +17,9 @@ namespace Goosic.Windows;
 /// costs nothing on the UI thread and keeps running smoothly while a page is loading. Showing and
 /// hiding stay plain <c>Visibility</c> changes in the rest of the window; the implicit show and
 /// hide animations attached here are what turn those into motion. When Windows' "Animation effects"
-/// setting is off, none are attached and everything appears at once, as it did before.
+/// setting is off, or Goosic's own Reduce motion or Efficiency mode is on, none are attached and
+/// everything appears at once. Those can change while the window is open, so the animations are
+/// attached and removed again rather than decided once.
 /// </remarks>
 public sealed partial class MainWindow
 {
@@ -25,20 +29,42 @@ public sealed partial class MainWindow
     private CompositionEasingFunction? _easeOut;
     private CompositionEasingFunction? _easeIn;
 
-    private bool AnimationsEnabled => _uiSettings.AnimationsEnabled;
+    /// <summary>
+    /// Decorative motion runs only when Windows allows it and neither Reduce motion nor
+    /// Efficiency mode asks Goosic to skip it.
+    /// </summary>
+    private bool AnimationsEnabled =>
+        _uiSettings.AnimationsEnabled && !Model.ReduceMotion && !ShellPreferences.EfficiencyMode;
+
+    private bool _motionAttached;
 
     private void WireMotion()
     {
-        if (!AnimationsEnabled)
-        {
-            return;
-        }
-
         _compositor = ElementCompositionPreview.GetElementVisual(RootGrid).Compositor;
         // Decelerating in and accelerating out, like the system's own flyouts.
         _easeOut = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.1f, 0.9f), new Vector2(0.2f, 1f));
         _easeIn = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.7f, 0f), new Vector2(1f, 0.5f));
+        ApplyMotion();
+        // Preferences arrive after the window, and the setting can change while it is open.
+        Model.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ShellViewModel.ReduceMotion))
+            {
+                ApplyMotion();
+            }
+        };
+    }
 
+    /// <summary>Attaches or removes the show and hide animations to match <see cref="AnimationsEnabled"/>.</summary>
+    private void ApplyMotion()
+    {
+        var enabled = AnimationsEnabled;
+        if (enabled == _motionAttached)
+        {
+            return;
+        }
+
+        _motionAttached = enabled;
         AttachShowHide(Sidebar, new Vector3(-20, 0, 0));
         AttachShowHide(SidePanel, new Vector3(28, 0, 0));
         AttachShowHide(QueuePanel, new Vector3(0, 10, 0));
@@ -56,6 +82,13 @@ public sealed partial class MainWindow
     {
         if (_compositor is null)
         {
+            return;
+        }
+
+        if (!_motionAttached)
+        {
+            ElementCompositionPreview.SetImplicitShowAnimation(element, null);
+            ElementCompositionPreview.SetImplicitHideAnimation(element, null);
             return;
         }
 
