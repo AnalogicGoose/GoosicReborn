@@ -3,6 +3,28 @@
 Written to be read once, start to finish, before touching anything. The last section is a prompt
 that can be pasted into another coding agent as-is.
 
+## In-app updates
+
+Settings → Updates checks this repository's latest GitHub release, and a copy installed by
+Setup also checks once, eight seconds after launch, and says so in a toast when a newer version
+exists. Installing downloads the release's `Goosic-<version>-windows-x64-setup.exe`, refuses it
+unless its SHA-256 matches the release's `SHA256SUMS.txt` and it came from this repository's
+release downloads, then runs it with `/SILENT /CLOSEAPPLICATIONS /RELAUNCH=1` and exits so
+Setup can replace the files; Setup reopens Goosic afterwards. The rules live in
+`Presentation/UpdateRules.cs` with their tests, and the network half in `Service/AppUpdater.cs`.
+
+This puts three requirements on every release. The tag is `v<major>.<minor>.<patch>`, and a
+pre-release is never offered. The Setup file keeps its name. And `SHA256SUMS.txt` is uploaded
+beside it: `build-installer.ps1` now writes it into `dist/`, where the 0.1.0 one was written by
+hand. The portable ZIP and development builds have no `unins000.exe` beside them, so they report
+available updates but never offer to install one; a development build is version 0.0.0 and is
+never told it is out of date. The checksum shows the download arrived intact, but because the
+installer is unsigned it cannot show who published the release.
+
+0.1.0 has no updater, so its users install the next release by hand once; from then on the app
+updates itself. The relaunch is read by the Setup being installed, which is always the newer
+one, so it works from the first release that carries the updater.
+
 ## Read these first
 
 `AGENTS.md`, then `docs/NATIVE_SHELL_MIGRATION.md` (step 5 is this work) and

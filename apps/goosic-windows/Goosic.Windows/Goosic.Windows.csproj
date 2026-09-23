@@ -28,6 +28,9 @@
     <!-- Warnings are errors for the same reason the Swift shell builds in Swift 6 mode:
          nullability and concurrency complaints here are defects, not style. -->
     <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- package.ps1 stamps the release version. Without it the SDK would call a development
+         build 1.0.0, which the updater would take for newer than every release. -->
+    <Version>0.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

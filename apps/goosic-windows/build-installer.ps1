@@ -22,4 +22,11 @@ if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notm
 }
 & $compiler "/DAppVersion=$Version" "$PSScriptRoot\installer.iss"
 if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
-Get-FileHash (Join-Path $repo "dist\Goosic-$Version-windows-x64-setup.exe") -Algorithm SHA256
+# The in-app updater installs a release's Setup only if its hash matches this file, so it is
+# written here rather than by hand. Upload it with the Setup and the portable ZIP.
+$dist = Join-Path $repo 'dist'
+$sums = @("Goosic-$Version-windows-x64-setup.exe", "Goosic-$Version-windows-x64.zip") |
+    Where-Object { Test-Path -LiteralPath (Join-Path $dist $_) } |
+    ForEach-Object { "$((Get-FileHash (Join-Path $dist $_) -Algorithm SHA256).Hash.ToLowerInvariant())  $_" }
+[IO.File]::WriteAllText((Join-Path $dist 'SHA256SUMS.txt'), (($sums -join "`n") + "`n"))
+Get-Content (Join-Path $dist 'SHA256SUMS.txt')
