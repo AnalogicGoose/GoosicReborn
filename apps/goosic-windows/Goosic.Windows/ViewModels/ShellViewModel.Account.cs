@@ -223,6 +223,8 @@ public sealed partial class ShellViewModel
 
     private void ForgetPersonalPage()
     {
+        // Leaving the page ends editing; its rows are about to be replaced anyway.
+        EndPlaylistEdit();
         _personalSource = null;
         _pagePlaylistId = null;
         _pageArtistId = null;
