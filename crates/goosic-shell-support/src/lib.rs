@@ -145,8 +145,8 @@ mod tests {
             TransportError::EndOfFile,
             TransportError::ResponseTooLarge,
             TransportError::ProtocolVersionMismatch {
-                expected: "0.3.0".into(),
-                actual: "0.4.0".into(),
+                expected: "0.4.0".into(),
+                actual: "0.5.0".into(),
             },
         ] {
             assert!(error.invalidates_connection(), "{error} should end the channel");

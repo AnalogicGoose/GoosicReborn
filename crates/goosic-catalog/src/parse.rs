@@ -239,6 +239,7 @@ pub fn responsive_item(node: &Value) -> Option<CatalogItem> {
         thumbnail: json::thumbnail(node, THUMBNAIL_BUDGET),
         video_id,
         explicit: is_explicit(node),
+        color: None,
     })
 }
 
@@ -292,6 +293,7 @@ pub fn two_row_item(node: &Value) -> Option<CatalogItem> {
         thumbnail: json::thumbnail(node, THUMBNAIL_BUDGET),
         video_id,
         explicit: is_explicit(node),
+        color: None,
     })
 }
 
@@ -333,6 +335,7 @@ pub fn queue_item(node: &Value) -> Option<CatalogItem> {
         thumbnail: json::thumbnail(node, THUMBNAIL_BUDGET),
         video_id: Some(video_id),
         explicit: is_explicit(node),
+        color: None,
     })
 }
 
@@ -439,6 +442,7 @@ fn top_result(card: &Value) -> Vec<CatalogItem> {
             thumbnail,
             video_id: Some(video_id),
             explicit: is_explicit(card),
+            color: None,
         })
     } else {
         title_destination.and_then(|destination| {
@@ -456,6 +460,7 @@ fn top_result(card: &Value) -> Vec<CatalogItem> {
                 thumbnail,
                 video_id: None,
                 explicit: false,
+                color: None,
             })
         })
     };
@@ -589,6 +594,54 @@ fn group_by_kind(items: Vec<CatalogItem>) -> Vec<CatalogShelf> {
         .collect()
 }
 
+/// Separates the browse id from its parameters inside a category's opaque id.
+///
+/// Neither half can contain it: browse ids are word characters and the parameters are URL-safe
+/// base64.
+pub const CATEGORY_SEPARATOR: char = '|';
+
+/// Normalizes one `musicNavigationButtonRenderer`, a mood or genre button on Moods & genres.
+///
+/// Opening one needs its browse id and its parameters together, so both travel in the item's id
+/// and only the service ever splits them again. The button's stripe colour is kept, so a shell
+/// can draw the page as YouTube Music does rather than as a wall of grey tiles.
+pub fn navigation_button_item(node: &Value) -> Option<CatalogItem> {
+    let title = node.get("buttonText").map(json::runs_text)?;
+    if title.is_empty() {
+        return None;
+    }
+    let browse = json::first(node.get("clickCommand")?, "browseEndpoint")?;
+    let browse_id = browse.get("browseId").and_then(Value::as_str)?;
+    let params = browse
+        .get("params")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let color = json::path(node, &["solid", "leftStripeColor"])
+        .and_then(Value::as_u64)
+        .map(|argb| format!("#{:06X}", argb & 0x00FF_FFFF));
+    Some(CatalogItem {
+        kind: CatalogItemKind::Category,
+        id: format!("{browse_id}{CATEGORY_SEPARATOR}{params}"),
+        title,
+        subtitle: String::new(),
+        artist: None,
+        artist_id: None,
+        album: None,
+        album_id: None,
+        duration: None,
+        thumbnail: None,
+        video_id: None,
+        explicit: false,
+        color,
+    })
+}
+
+/// Splits a category id made by [`navigation_button_item`] into its browse id and parameters.
+pub fn split_category_id(id: &str) -> Option<(&str, &str)> {
+    let (browse_id, params) = id.split_once(CATEGORY_SEPARATOR)?;
+    (!browse_id.trim().is_empty()).then_some((browse_id, params))
+}
+
 /// Reads every carousel of a browse response into shelves (home, explore, moods, charts).
 pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
     let mut shelves = Vec::new();
@@ -656,15 +709,25 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
             // Library and browse continuations sometimes return a grid directly under the
             // selected tab. Treat it as one shelf so those cards do not disappear just because
             // the wrapper differs from Home's.
-            _ => CatalogShelf {
-                id: format!("grid-{}", shelves.len()),
-                title: "More".to_owned(),
-                items: json::collect(section, "musicTwoRowItemRenderer")
+            // Moods & genres is two grids of navigation buttons under their own headings.
+            _ => {
+                let title = json::path(section, &["header", "gridHeaderRenderer", "title"])
+                    .map(json::runs_text)
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or_else(|| "More".to_owned());
+                let cards = json::collect(section, "musicTwoRowItemRenderer")
                     .into_iter()
-                    .filter_map(two_row_item)
-                    .collect(),
-                layout: ShelfLayout::Cards,
-            },
+                    .filter_map(two_row_item);
+                let buttons = json::collect(section, "musicNavigationButtonRenderer")
+                    .into_iter()
+                    .filter_map(navigation_button_item);
+                CatalogShelf {
+                    id: format!("grid-{}", shelves.len()),
+                    title,
+                    items: cards.chain(buttons).collect(),
+                    layout: ShelfLayout::Cards,
+                }
+            }
         };
         if !shelf.items.is_empty() {
             shelves.push(shelf);
@@ -1002,6 +1065,40 @@ mod tests {
         });
         let item = responsive_item(&row).unwrap();
         assert_eq!(item.kind, CatalogItemKind::Video);
+    }
+
+    #[test]
+    fn mood_buttons_become_categories_that_carry_their_parameters_and_colour() {
+        let response = json!({"gridRenderer": {
+            "header": {"gridHeaderRenderer": {"title": {"runs": [{"text": "Moods & moments"}]}}},
+            "items": [{"musicNavigationButtonRenderer": {
+                "buttonText": {"runs": [{"text": "Chill"}]},
+                "solid": {"leftStripeColor": 4288988671u64},
+                "clickCommand": {"browseEndpoint": {
+                    "browseId": "FEmusic_moods_and_genres_category",
+                    "params": "ggMPOg1uX1JOQWZFeDByc2Jm"
+                }}
+            }}]
+        }});
+        let shelves = browse_shelves(&response);
+        assert_eq!(shelves[0].title, "Moods & moments");
+        let chill = &shelves[0].items[0];
+        assert_eq!(chill.kind, CatalogItemKind::Category);
+        assert_eq!(chill.title, "Chill");
+        assert_eq!(chill.color.as_deref(), Some("#A4C5FF"));
+        assert_eq!(
+            split_category_id(&chill.id),
+            Some((
+                "FEmusic_moods_and_genres_category",
+                "ggMPOg1uX1JOQWZFeDByc2Jm"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_category_id_without_a_browse_id_is_refused() {
+        assert_eq!(split_category_id("|params"), None);
+        assert_eq!(split_category_id("no separator"), None);
     }
 
     #[test]
