@@ -61,13 +61,17 @@ public sealed partial class MainWindow : Window
         await Model.RefreshAccountsAsync();
     }
 
-    private async void OnLoadMore(object sender, RoutedEventArgs e) => await Model.LoadMoreAsync();
-
     /// <summary>Loads the next part of a long page as the reader nears its end, as YouTube Music does.</summary>
-    private async void OnContentViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    private async void OnContentViewChanged(object? sender, ScrollViewerViewChangedEventArgs e) =>
+        await LoadMoreIfNearEndAsync();
+
+    /// <summary>
+    /// Asks for more when the end of the page is in view — including when the page is too short
+    /// to scroll at all, which no scroll event would ever report. There is no button to press.
+    /// </summary>
+    private async Task LoadMoreIfNearEndAsync()
     {
-        if (Model.HasMore && ContentScroller.ScrollableHeight > 0
-            && ContentScroller.VerticalOffset > ContentScroller.ScrollableHeight - 900)
+        if (Model.HasMore && ContentScroller.VerticalOffset > ContentScroller.ScrollableHeight - 900)
         {
             await Model.LoadMoreAsync();
         }

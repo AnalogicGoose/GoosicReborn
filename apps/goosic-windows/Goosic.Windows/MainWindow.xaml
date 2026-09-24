@@ -598,13 +598,29 @@
                                                               Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
                                                               AutomationProperties.Name="{x:Bind AccessibleName}"
                                                               ContextRequested="OnItemContextRequested">
-                                                        <StackPanel Width="{StaticResource GoosicCardSize}" Spacing="6">
-                                                            <Border Width="{StaticResource GoosicCardSize}"
+                                                        <!-- A video's card is 16:9 at the same height, as YouTube Music draws it. -->
+                                                        <StackPanel Width="{x:Bind CardWidth}" Spacing="6">
+                                                            <Border Width="{x:Bind CardWidth}"
                                                                     Height="{StaticResource GoosicCardSize}"
                                                                     CornerRadius="6"
                                                                     Background="{ThemeResource GoosicRaisedBrush}">
-                                                                <Image Source="{x:Bind Artwork, Mode=OneWay}"
-                                                                       Stretch="UniformToFill" />
+                                                                <Grid>
+                                                                    <!-- Liked Music has no cover of its own on YouTube Music: a gradient and a thumbs-up. -->
+                                                                    <Rectangle Visibility="{x:Bind LikedMusicVisibility}">
+                                                                        <Rectangle.Fill>
+                                                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                                                <GradientStop Color="#FF8E2DE2" Offset="0" />
+                                                                                <GradientStop Color="#FF4A00E0" Offset="0.55" />
+                                                                                <GradientStop Color="#FF2B5BD8" Offset="1" />
+                                                                            </LinearGradientBrush>
+                                                                        </Rectangle.Fill>
+                                                                    </Rectangle>
+                                                                    <!-- Shows until the artwork arrives, and stays if it never does. -->
+                                                                    <FontIcon Glyph="{x:Bind PlaceholderGlyph}" FontSize="44" Opacity="0.6"
+                                                                              Foreground="White" />
+                                                                    <Image Source="{x:Bind Artwork, Mode=OneWay}"
+                                                                           Stretch="UniformToFill" />
+                                                                </Grid>
                                                             </Border>
                                                             <TextBlock Text="{x:Bind Title}" FontSize="14" Margin="0,6,0,0"
                                                                        FontWeight="Medium" TextTrimming="CharacterEllipsis" />
@@ -680,8 +696,10 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <Button HorizontalAlignment="Center" Content="Load more"
-                                Visibility="{x:Bind Model.HasMore, Mode=OneWay}" Click="OnLoadMore" />
+                        <!-- More of a long page loads by itself near the end; this only shows it happening. -->
+                        <ProgressRing HorizontalAlignment="Center" Width="28" Height="28" IsActive="True"
+                                      Visibility="{x:Bind Model.IsLoadingMore, Mode=OneWay}"
+                                      AutomationProperties.Name="Loading more" />
                     </StackPanel>
                 </ScrollViewer>
 

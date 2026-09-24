@@ -72,6 +72,21 @@ public sealed class CardViewModel : INotifyPropertyChanged
     /// joined by a unit separator -- a character no title or id carries, so the three parts come
     /// back apart exactly as they went in.
     /// </remarks>
+    /// <summary>A music video: YouTube Music shows these as wide 16:9 cards, not square covers.</summary>
+    public bool IsVideo => Kind == "video";
+
+    /// <summary>The card's artwork width; its height is always the square card's.</summary>
+    public double CardWidth => IsVideo ? Presentation.CardShape.VideoWidth : Presentation.CardShape.Size;
+
+    /// <summary>Liked Music, which YouTube Music draws as a gradient with a thumbs-up rather than a cover.</summary>
+    public bool IsLikedMusic => Id is "LM" or "VLLM";
+
+    /// <summary>What shows until, or instead of, the artwork.</summary>
+    public string PlaceholderGlyph => IsLikedMusic ? "" : "";
+
+    public Microsoft.UI.Xaml.Visibility LikedMusicVisibility =>
+        IsLikedMusic ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
     public string ActivationTag => VideoId is { Length: > 0 } video
         ? video
         : string.Join(ShellViewModel.KeySeparator, Kind, Id, Title);

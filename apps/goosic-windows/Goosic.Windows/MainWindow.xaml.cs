@@ -58,6 +58,8 @@ public sealed partial class MainWindow : Window
         RootGrid.SizeChanged += OnRootSizeChanged;
         Model.PropertyChanged += OnPageLoadingChanged;
         WireSeekGestures();
+        // A page that grows (or arrives) shorter than the window never scrolls, so it asks here too.
+        ContentStack.SizeChanged += async (_, _) => await LoadMoreIfNearEndAsync();
         WireKeyboard();
         WireFullPlayer();
         WireMotion();

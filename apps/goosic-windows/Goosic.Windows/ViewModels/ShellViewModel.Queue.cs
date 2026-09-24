@@ -867,6 +867,7 @@ public sealed partial class ShellViewModel
         }
 
         _loadingMore = true;
+        OnPropertyChanged(nameof(IsLoadingMore));
         var cursor = _nextCursor;
         try
         {
@@ -911,13 +912,25 @@ public sealed partial class ShellViewModel
         }
         catch (Exception error)
         {
-            ReportStatus("Could not load more: " + Describe(error));
+            // Loading more happens by itself as the page is scrolled, so a failure is not the
+            // listener's to deal with. The feed ends where it is instead of reporting an error and
+            // asking again on every scroll: YouTube Music now answers past the last page with an
+            // empty frame, which reached here as a failure several times a second.
+            BridgeLog.Write($"load more ended the feed: {error.GetType().Name}: {error.Message}");
+            if (_nextCursor == cursor)
+            {
+                NextCursor = null;
+            }
         }
         finally
         {
             _loadingMore = false;
+            OnPropertyChanged(nameof(IsLoadingMore));
         }
     }
+
+    /// <summary>Whether the next part of the page is on its way, for the spinner at the bottom.</summary>
+    public bool IsLoadingMore => _loadingMore;
 
     /// <summary>The public YouTube Music address of a track.</summary>
     internal static string LinkFor(TrackViewModel track) =>
