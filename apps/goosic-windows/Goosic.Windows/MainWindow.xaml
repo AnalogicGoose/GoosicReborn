@@ -151,7 +151,7 @@
 
                         <!-- Settings, grouped the way iOS Settings is: a small heading, then a rounded list of
                              rows, each an icon tile, a name with one line of explanation, and its control. -->
-                        <StackPanel MaxWidth="680" HorizontalAlignment="Left"
+                        <StackPanel MaxWidth="680" HorizontalAlignment="Center"
                                     Visibility="{x:Bind Model.IsSettingsPage, Mode=OneWay}">
 
                             <!-- The account comes first, as the Apple ID does. -->
