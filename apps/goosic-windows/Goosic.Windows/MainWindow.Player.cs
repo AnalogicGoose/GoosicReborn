@@ -225,6 +225,13 @@ public sealed partial class MainWindow : Window
 
     private async Task AdvanceAsync(bool forward, bool natural)
     {
+        // The sleep timer's "end of this song": the song has ended, so nothing follows it.
+        if (natural && TakeSleepAtEndOfSong())
+        {
+            Model.ReportStatus("Sleep timer: stopped at the end of the song.");
+            return;
+        }
+
         var move = await Model.MoveAsync(forward, natural);
         if (move.Entry is null)
         {

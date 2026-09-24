@@ -1528,6 +1528,9 @@
                                     </Flyout>
                     </Button.Flyout>
                 </Button>
+                <ToggleButton x:Name="MiniPlayerToggle" Style="{StaticResource FullPlayerToggleStyle}"
+                              Content="&#xEE49;" ToolTipService.ToolTip="Mini player, kept on top"
+                              AutomationProperties.Name="Mini player" Click="OnToggleMiniPlayer" />
                 <ToggleButton x:Name="FullPlayerWindowToggle" Style="{StaticResource FullPlayerToggleStyle}"
                               Content="&#xE740;" ToolTipService.ToolTip="Fill the screen (F11)"
                               AutomationProperties.Name="Fill the screen" Click="OnToggleWindowFullScreen" />
