@@ -114,10 +114,7 @@ fn respond(request_id: String, result: Result<CatalogPage, CatalogError>) -> Res
     }
 }
 
-fn catalog_id(
-    payload: &RequestPayload,
-    request_id: &str,
-) -> Result<String, Box<ResponseEnvelope>> {
+fn catalog_id(payload: &RequestPayload, request_id: &str) -> Result<String, Box<ResponseEnvelope>> {
     match payload.catalog_id.as_deref().map(str::trim) {
         Some(id) if !id.is_empty() => Ok(id.to_owned()),
         _ => Err(Box::new(failure(
@@ -189,6 +186,10 @@ pub fn handle(
             Ok(browse_id) => respond(id, catalog.artist(&browse_id)),
             Err(response) => *response,
         },
+        "catalog.category" => match catalog_id(payload, request_id) {
+            Ok(category_id) => respond(id, catalog.category(&category_id)),
+            Err(response) => *response,
+        },
         _ => return None,
     })
 }
@@ -212,6 +213,7 @@ mod tests {
             thumbnail: Some(format!("https://example.test/{index}/maxresdefault.jpg")),
             video_id: Some(format!("video-{index:05}")),
             explicit: false,
+            color: None,
         }
     }
 
