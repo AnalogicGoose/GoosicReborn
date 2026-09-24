@@ -25,11 +25,14 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnNavigate(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string tag })
+        if (sender is Button { Tag: string tag })
         {
-            return;
+            await NavigateAsync(tag);
         }
+    }
 
+    private async Task NavigateAsync(string tag)
+    {
         HighlightNavigation(tag);
         DismissOverlaySidebar();
         if (tag.StartsWith("library:", StringComparison.Ordinal))

@@ -19,6 +19,8 @@ public sealed record ShortcutEntry(string Action, string Keys)
         new("Lyrics", "Ctrl+L"),
         new("Queue", "Ctrl+Q"),
         new("Show or hide the sidebar", "Ctrl+B"),
+        new("Like the song playing", "Alt+Shift+B"),
+        new("Settings", "Ctrl+,"),
         new("Full-screen player", "Ctrl+Shift+F"),
         new("Full screen", "F11"),
         new("Back", "Alt+←"),
