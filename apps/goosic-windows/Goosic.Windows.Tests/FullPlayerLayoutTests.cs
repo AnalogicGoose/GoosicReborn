@@ -6,6 +6,24 @@ namespace Goosic.Windows.Tests;
 public class FullPlayerLayoutTests
 {
     [Theory]
+    // A tall window keeps the full-size cover.
+    [InlineData(1200, 56, 72, 520)]
+    // A wide, short window shrinks it so the controls still fit below.
+    [InlineData(700, 56, 72, 322)]
+    [InlineData(600, 56, 72, 222)]
+    // Too short for a useful cover: the controls alone.
+    [InlineData(450, 56, 72, 0)]
+    public void TheCoverNeverPushesTheControlsOffScreen(double height, double top, double bottom, double expected)
+    {
+        var cover = FullPlayerLayout.CoverSize(height, top, bottom);
+        Assert.Equal(expected, cover);
+        if (cover > 0)
+        {
+            Assert.True(top + cover + FullPlayerLayout.ControlsHeight + bottom <= height);
+        }
+    }
+
+    [Theory]
     [InlineData(1400, true, FullPlayerMode.Split)]
     [InlineData(900, true, FullPlayerMode.Split)]
     [InlineData(899, true, FullPlayerMode.Lyrics)]
