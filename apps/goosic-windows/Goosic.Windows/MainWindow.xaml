@@ -518,7 +518,7 @@
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate x:DataType="vm:CardViewModel">
                                                       <Button Style="{StaticResource CardButtonStyle}"
-                                                              Margin="0,0,22,0"
+                                                              Padding="8" Margin="-8,0,14,0"
                                                               Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
                                                               AutomationProperties.Name="{x:Bind AccessibleName}"
                                                               ContextRequested="OnItemContextRequested">
@@ -566,7 +566,7 @@
                                                             <ItemsControl.ItemTemplate>
                                                                 <DataTemplate x:DataType="vm:CardViewModel">
                                                                     <Button Style="{StaticResource CardButtonStyle}"
-                                                                            HorizontalAlignment="Stretch"
+                                                                            HorizontalAlignment="Stretch" Padding="8,2" Margin="-8,0,0,0"
                                                                             HorizontalContentAlignment="Stretch"
                                                                             Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
                                                                             AutomationProperties.Name="{x:Bind AccessibleName}"
