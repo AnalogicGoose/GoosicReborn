@@ -25,7 +25,9 @@ fn page_type_kind(page_type: &str) -> Option<CatalogItemKind> {
 fn token_kind(token: &str) -> Option<CatalogItemKind> {
     match token {
         "Song" => Some(CatalogItemKind::Song),
-        "Video" => Some(CatalogItemKind::Video),
+        // A podcast episode is a video in YouTube Music's player; filed as a song, it read as
+        // one in the Songs shelf of an unfiltered search.
+        "Video" | "Episode" => Some(CatalogItemKind::Video),
         "Album" | "Single" | "EP" => Some(CatalogItemKind::Album),
         "Artist" => Some(CatalogItemKind::Artist),
         "Playlist" | "Community playlist" => Some(CatalogItemKind::Playlist),
@@ -987,6 +989,19 @@ mod tests {
         let songs = &page.shelves[1];
         assert_eq!(songs.title, "Songs");
         assert!(songs.items.iter().all(|item| item.id != "dtmf"));
+    }
+
+    #[test]
+    fn podcast_episodes_are_filed_as_videos_not_songs() {
+        let row = json!({
+            "flexColumns": [
+                flex(json!({"runs": [{"text": "An episode"}]})),
+                flex(json!({"runs": [{"text": "Episode"}, {"text": " • "}, {"text": "Feb 11"}]}))
+            ],
+            "playlistItemData": {"videoId": "ep1"}
+        });
+        let item = responsive_item(&row).unwrap();
+        assert_eq!(item.kind, CatalogItemKind::Video);
     }
 
     #[test]
