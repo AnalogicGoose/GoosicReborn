@@ -55,6 +55,9 @@ internal sealed record CatalogPage
     [JsonPropertyName("shelves")] public IReadOnlyList<CatalogShelf> Shelves { get; init; } = [];
     [JsonPropertyName("tracks")] public IReadOnlyList<CatalogItem> Tracks { get; init; } = [];
 
+    /// <summary>The page's own cover, when it has one, such as a playlist's or Liked Music's.</summary>
+    [JsonPropertyName("thumbnail")] public string? Thumbnail { get; init; }
+
     /// <summary>The opaque cursor for the next page, echoed only to <c>catalog.continue</c>.</summary>
     [JsonPropertyName("nextCursor")] public string? NextCursor { get; init; }
 

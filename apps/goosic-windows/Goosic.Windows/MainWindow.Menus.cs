@@ -221,7 +221,7 @@ public sealed partial class MainWindow : Window
 
         menu.Items.Add(new MenuFlyoutSeparator());
         var rating = Model.RatingOf(videoId);
-        Add(menu, rating == "LIKE" ? "Remove from liked songs" : "Like", "\uE8E1",
+        Add(menu, rating == "LIKE" ? "Remove from liked songs" : "Like", "\uEB51",
             async () => await Model.RateAsync(videoId, title, rating == "LIKE" ? "INDIFFERENT" : "LIKE"));
         Add(menu, rating == "DISLIKE" ? "Remove dislike" : "Dislike", "\uE8E0",
             async () => await Model.RateAsync(videoId, title, rating == "DISLIKE" ? "INDIFFERENT" : "DISLIKE"));

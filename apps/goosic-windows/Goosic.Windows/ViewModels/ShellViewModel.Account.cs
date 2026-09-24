@@ -191,6 +191,23 @@ public sealed partial class ShellViewModel
     /// <summary>The rating chosen for the confirmed track in this session, for the transport's buttons.</summary>
     public bool IsNowPlayingLiked => _confirmedTrack?.VideoId is { } id && _ratings.GetValueOrDefault(id) == "LIKE";
 
+    /// <summary>Liking needs an account and a song; a guest's like would be stored nowhere.</summary>
+    public bool CanRateNowPlaying => IsSignedIn && !string.IsNullOrEmpty(_confirmedTrack?.VideoId);
+
+    public string LikeLabel => IsNowPlayingLiked ? "Remove from Liked Music" : "Like";
+
+    /// <summary>A filled heart once liked, an outline before: the state reads without colour.</summary>
+    public string LikeGlyph => IsNowPlayingLiked ? "" : "";
+
+    private void NowPlayingRatingChanged()
+    {
+        OnPropertyChanged(nameof(IsNowPlayingLiked));
+        OnPropertyChanged(nameof(IsNowPlayingDisliked));
+        OnPropertyChanged(nameof(CanRateNowPlaying));
+        OnPropertyChanged(nameof(LikeLabel));
+        OnPropertyChanged(nameof(LikeGlyph));
+    }
+
     public bool IsNowPlayingDisliked => _confirmedTrack?.VideoId is { } id && _ratings.GetValueOrDefault(id) == "DISLIKE";
 
     internal string? PagePlaylistId => _pagePlaylistId;
@@ -293,7 +310,10 @@ public sealed partial class ShellViewModel
             if (active is not null)
             {
                 _ = LoadUserPlaylistsAsync();
+                _ = LearnLikesAsync();
             }
+
+            NowPlayingRatingChanged();
         }
     }
 
@@ -607,15 +627,25 @@ public sealed partial class ShellViewModel
 
     private void Fill(CatalogPage page)
     {
+        // The page's own cover wins over its first song's: Liked Music and a playlist have one,
+        // and borrowing a song's made the page look like that song's album.
+        var cover = ShowPageHeader && PageArtwork is null && !string.IsNullOrEmpty(page.Thumbnail)
+            ? SetPageArtworkFromAsync(page.Thumbnail!, _pageArtworkVersion)
+            : null;
+        var first = true;
         foreach (var track in Listed(page.Tracks))
         {
             var row = new TrackViewModel(track);
             Tracks.Add(row);
             _ = row.LoadArtworkAsync(_artwork);
-            if (ShowPageHeader && PageArtwork is null)
+            if (first && ShowPageHeader && PageArtwork is null)
             {
-                _ = SetPageArtworkAsync(row, _pageArtworkVersion);
+                _ = cover is null
+                    ? SetPageArtworkAsync(row, _pageArtworkVersion)
+                    : FallBackToTrackArtworkAsync(cover, row, _pageArtworkVersion);
             }
+
+            first = false;
         }
 
         foreach (var shelf in ListedShelves(page.Shelves))
@@ -631,6 +661,10 @@ public sealed partial class ShellViewModel
         NextCursor = page.NextCursor;
         AllTracksId = page.AllTracksId;
         SetPageTruncated(page.Truncated);
+        if (_personalSource?.BrowseId == "VLLM")
+        {
+            LearnLikes(page.Tracks);
+        }
     }
 
     /// <summary>Continues a page the account's reader issued, which only that reader understands.</summary>
@@ -648,6 +682,45 @@ public sealed partial class ShellViewModel
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Reads the first page of Liked Music, so the like button is already lit on a song the
+    /// account liked before this session.
+    /// </summary>
+    /// <remarks>
+    /// The catalog does not say whether a song is liked; Liked Music does. Only its first page is
+    /// read: enough for the songs people actually play, without walking a list of thousands.
+    /// </remarks>
+    private async Task LearnLikesAsync()
+    {
+        if (Personal is null || !IsSignedIn)
+        {
+            return;
+        }
+
+        try
+        {
+            var page = await Personal.BrowseAsync("VLLM", "Liked Music", null, "tracks").ConfigureAwait(true);
+            LearnLikes(page.Tracks);
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"liked music not read: {error.GetType().Name}");
+        }
+    }
+
+    private void LearnLikes(IEnumerable<CatalogItem> tracks)
+    {
+        foreach (var track in tracks)
+        {
+            if (!string.IsNullOrEmpty(track.VideoId))
+            {
+                _ratings.TryAdd(track.VideoId, "LIKE");
+            }
+        }
+
+        NowPlayingRatingChanged();
     }
 
     // ---- Changes to the account -----------------------------------------------------------
@@ -725,8 +798,7 @@ public sealed partial class ShellViewModel
                 .ConfigureAwait(true) is not null)
         {
             _ratings[videoId] = rating;
-            OnPropertyChanged(nameof(IsNowPlayingLiked));
-            OnPropertyChanged(nameof(IsNowPlayingDisliked));
+            NowPlayingRatingChanged();
         }
     }
 

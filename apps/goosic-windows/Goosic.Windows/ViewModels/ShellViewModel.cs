@@ -29,7 +29,7 @@ public sealed record RouteEntry(string Route, string Title, string Glyph)
         new("moodsAndGenres", "Moods & genres", ""),
         new("newReleases", "New releases", ""),
         new("library", "Library", ""),
-        new("liked", "Liked Music", "\uE8E1"),
+        new("liked", "Liked Music", "\uEB51"),
         new("history", "History", "\uE81C"),
         new("downloads", "Downloads", ""),
         new("settings", "Settings", "\uE713"),
@@ -327,6 +327,7 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         {
             nameof(NumberText), nameof(IsNowPlaying), nameof(NumberVisibility), nameof(PlayingVisibility),
             nameof(LeadingColumnVisibility), nameof(ArtworkVisibility), nameof(TitleBrush), nameof(AccessibleName),
+            nameof(AlbumColumnWidth), nameof(AlbumText),
         })
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
@@ -334,6 +335,16 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// A playlist's rows name their album in a column of its own, as Spotify's and Apple Music's
+    /// do; an album page's rows all share one, so it is left off there.
+    /// </summary>
+    public Microsoft.UI.Xaml.GridLength AlbumColumnWidth => _showsArtwork && !string.IsNullOrWhiteSpace(Album)
+        ? new Microsoft.UI.Xaml.GridLength(2, Microsoft.UI.Xaml.GridUnitType.Star)
+        : new Microsoft.UI.Xaml.GridLength(0);
+
+    public string AlbumText => _showsArtwork ? Album ?? "" : "";
 
     public string Title { get; }
     public string Subtitle { get; }
@@ -825,6 +836,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(PlayIconVisibility));
                 OnPropertyChanged(nameof(PauseIconVisibility));
                 OnPropertyChanged(nameof(PlayPauseLabel));
+                PagePlaybackChanged();
             }
         }
     }
@@ -1362,6 +1374,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         _currentRoute = key;
+        PagePlaybackChanged();
     }
 
     /// <summary>Opens an album, playlist or artist.</summary>
@@ -1636,13 +1649,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task<bool> SetEntityArtworkAsync(string kind, string id, int version)
-    {
-        if (!_entityThumbnails.TryGetValue(kind + KeySeparator + id, out var thumbnail))
-        {
-            return false;
-        }
+    private Task<bool> SetEntityArtworkAsync(string kind, string id, int version) =>
+        _entityThumbnails.TryGetValue(kind + KeySeparator + id, out var thumbnail)
+            ? SetPageArtworkFromAsync(thumbnail, version)
+            : Task.FromResult(false);
 
+    private async Task<bool> SetPageArtworkFromAsync(string thumbnail, int version)
+    {
         var file = await _artwork.LocalFileAsync(thumbnail).ConfigureAwait(true);
         if (file is null || version != _pageArtworkVersion)
         {
@@ -1682,7 +1695,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     /// <summary>The line under the title: the page's own subtitle, then its songs and running time.</summary>
     public string PageMeta => _pageKind is DetailKind.Album or DetailKind.Playlist
-        ? DetailLayout.Summary(PageSubtitle, Tracks.Select(track => track.Duration).ToList(), _pageTruncated)
+        ? DetailLayout.Summary(
+            PageSubtitle,
+            Tracks.Select(track => track.Duration).ToList(),
+            // A list with more still to load is not the whole list: "100 songs" on a playlist of
+            // three hundred says something false.
+            _pageTruncated || !string.IsNullOrEmpty(_nextCursor))
         : PageSubtitle;
 
     private void SetPageTruncated(bool truncated)

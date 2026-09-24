@@ -103,6 +103,7 @@ public sealed partial class ShellViewModel
             if (Set(ref _nextCursor, value))
             {
                 OnPropertyChanged(nameof(HasMore));
+                OnPropertyChanged(nameof(PageMeta));
             }
         }
     }
@@ -213,13 +214,16 @@ public sealed partial class ShellViewModel
     /// <summary>Nothing follows, and nothing is on its way either.</summary>
     public bool HasNoUpNext => HasQueue && !HasUpNext && _stationLoad is null;
 
-    public string UpNextSummary => QueueLayout.UpNext(Queue, NowPlayingEntry).Count switch
-    {
-        0 when _stationLoad is not null => "Finding songs like this…",
-        0 => "Nothing after this",
-        1 => "1 track",
-        var count => $"{count} tracks",
-    } + (_station is null ? "" : " · Radio");
+    /// <summary>Where the queue came from and how much is left, as "From Liked Music · 99 songs".</summary>
+    /// <remarks>Spotify and Apple Music both name the source; a bare count says nothing about it.</remarks>
+    public string UpNextSummary => (_queueSource.Length > 0 ? $"From {_queueSource} · " : "")
+        + QueueLayout.UpNext(Queue, NowPlayingEntry).Count switch
+        {
+            0 when _stationLoad is not null => "Finding songs like this…",
+            0 => "Nothing after this",
+            1 => "1 song",
+            var count => $"{count} songs",
+        };
 
     private bool _syncingUpNext;
 
@@ -374,8 +378,43 @@ public sealed partial class ShellViewModel
         }
 
         Point(first);
+        var fromPage = ReferenceEquals(tracks, Tracks);
+        SetQueueSource(fromPage ? _currentRoute : null, fromPage ? PageTitle : "");
 
         return first;
+    }
+
+    private string? _queueRoute;
+    private string _queueSource = "";
+
+    /// <summary>What the queue was started from, for "Playing from" above it.</summary>
+    public string QueueSource => _queueSource;
+
+    public bool HasQueueSource => _queueSource.Length > 0;
+
+    private void SetQueueSource(string? route, string title)
+    {
+        _queueRoute = route;
+        _queueSource = title;
+        OnPropertyChanged(nameof(QueueSource));
+        OnPropertyChanged(nameof(UpNextSummary));
+        OnPropertyChanged(nameof(HasQueueSource));
+        PagePlaybackChanged();
+    }
+
+    /// <summary>Whether the queue is this page's list, so its Play button controls it instead.</summary>
+    public bool IsPageQueued => _queueRoute is not null && _queueRoute == _currentRoute;
+
+    /// <summary>A page whose list is already playing offers Pause, as Apple Music and Spotify do.</summary>
+    public string PagePlayLabel => IsPageQueued && IsPlaying ? "Pause" : "Play";
+
+    public string PagePlayGlyph => IsPageQueued && IsPlaying ? "" : "";
+
+    private void PagePlaybackChanged()
+    {
+        OnPropertyChanged(nameof(IsPageQueued));
+        OnPropertyChanged(nameof(PagePlayLabel));
+        OnPropertyChanged(nameof(PagePlayGlyph));
     }
 
     /// <summary>
@@ -653,6 +692,7 @@ public sealed partial class ShellViewModel
         }
 
         _station = new RadioStation(seed.VideoId, AccountForRadio());
+        SetQueueSource(null, $"{seed.Title} radio");
         QueueChanged();
         _ = ExtendStationAsync();
         return first;
@@ -830,6 +870,7 @@ public sealed partial class ShellViewModel
 
             IsShuffled = false;
             var first = StartQueue(rows, null, shuffle);
+            SetQueueSource(null, page?.Title ?? "");
             LoadQueueArtwork();
             return first;
         }
@@ -949,8 +990,7 @@ public sealed partial class ShellViewModel
 
     private void AnnounceConfirmed(TrackViewModel track)
     {
-        OnPropertyChanged(nameof(IsNowPlayingLiked));
-        OnPropertyChanged(nameof(IsNowPlayingDisliked));
+        NowPlayingRatingChanged();
         NowPlayingChanged?.Invoke(track);
     }
 }

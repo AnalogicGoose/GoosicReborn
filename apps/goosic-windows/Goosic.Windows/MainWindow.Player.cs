@@ -189,7 +189,17 @@ public sealed partial class MainWindow : Window
         await _playback.PlayAsync(videoId);
     }
 
-    private async void OnPlayPage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: false));
+    private async void OnPlayPage(object sender, RoutedEventArgs e)
+    {
+        // The list already playing is paused and resumed from here rather than restarted.
+        if (Model.IsPageQueued)
+        {
+            await TogglePauseAsync();
+            return;
+        }
+
+        await PlayEntryAsync(Model.PlayPage(shuffle: false));
+    }
 
     private async void OnShufflePage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: true));
 

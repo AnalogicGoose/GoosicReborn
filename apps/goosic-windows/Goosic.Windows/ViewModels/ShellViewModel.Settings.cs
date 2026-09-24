@@ -82,6 +82,7 @@ public sealed partial class ShellViewModel
     [
         new("All", "all"),
         new("Songs", "songs"),
+        new("Videos", "videos"),
         new("Albums", "albums"),
         new("Artists", "artists"),
         new("Playlists", "playlists"),

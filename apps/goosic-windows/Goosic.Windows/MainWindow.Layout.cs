@@ -75,6 +75,7 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(TransportControls, 0);
         Grid.SetRow(PlayerUtilities, compact ? 1 : 0);
         Grid.SetColumn(PlayerUtilities, 2);
+        PillVolumeInline.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>
