@@ -378,8 +378,7 @@ public sealed partial class ShellViewModel
         }
 
         Point(first);
-        var fromPage = ReferenceEquals(tracks, Tracks);
-        SetQueueSource(fromPage ? _currentRoute : null, fromPage ? PageTitle : "");
+        SetQueueSource(null, "");
 
         return first;
     }
@@ -422,7 +421,7 @@ public sealed partial class ShellViewModel
     /// station that starts with the row.
     /// </summary>
     internal TrackViewModel? PlayFromPage(TrackViewModel row) =>
-        PlaybackOrder.LaunchFor(PageKind) == LaunchKind.Ordered ? StartQueue(Tracks, row) : StartStation(row);
+        PlaybackOrder.LaunchFor(PageKind) == LaunchKind.Ordered ? StartPageQueue(row) : StartStation(row);
 
     /// <summary>
     /// Plays a shelf card as a station. A shelf is a set of suggestions, not an order anyone chose;
@@ -885,7 +884,19 @@ public sealed partial class ShellViewModel
     internal TrackViewModel? PlayPage(bool shuffle)
     {
         IsShuffled = false;
-        return StartQueue(Tracks, null, shuffle);
+        return StartPageQueue(null, shuffle);
+    }
+
+    /// <summary>Queues the rows on screen, in the order on screen, as coming from this page.</summary>
+    private TrackViewModel? StartPageQueue(TrackViewModel? start, bool shuffle = false)
+    {
+        var first = StartQueue(VisibleTracks.ToList(), start, shuffle);
+        if (first is not null)
+        {
+            SetQueueSource(_currentRoute, PageTitle);
+        }
+
+        return first;
     }
 
     private void LoadQueueArtwork()
@@ -967,6 +978,11 @@ public sealed partial class ShellViewModel
         {
             _loadingMore = false;
             OnPropertyChanged(nameof(IsLoadingMore));
+            // Rows that just arrived join a sorted list in their sorted place.
+            if (_trackSort != "custom")
+            {
+                ReorderTracks();
+            }
         }
     }
 

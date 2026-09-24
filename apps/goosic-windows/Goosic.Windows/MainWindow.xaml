@@ -124,6 +124,22 @@
                                         <TextBlock Text="{x:Bind Model.SubscribeLabel, Mode=OneWay}" />
                                     </StackPanel>
                                 </Button>
+                                <!-- Sort and find, as a Spotify or Apple Music playlist offers: views over the
+                                     loaded rows that never change the playlist itself. -->
+                                <DropDownButton Visibility="{x:Bind Model.CanSortTracks, Mode=OneWay}"
+                                                AutomationProperties.Name="{x:Bind Model.TrackSortLabel, Mode=OneWay}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE8CB;" FontSize="14" />
+                                        <TextBlock Text="{x:Bind Model.TrackSortLabel, Mode=OneWay}" />
+                                    </StackPanel>
+                                    <DropDownButton.Flyout>
+                                        <MenuFlyout Opening="OnSortMenuOpening" />
+                                    </DropDownButton.Flyout>
+                                </DropDownButton>
+                                <TextBox Width="220" PlaceholderText="Find in playlist"
+                                         Visibility="{x:Bind Model.CanSortTracks, Mode=OneWay}"
+                                         Text="{x:Bind Model.TrackFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         AutomationProperties.Name="Find in playlist" />
                                 <Button Visibility="{x:Bind Model.IsOwnedPlaylistPage, Mode=OneWay}"
                                         ToolTipService.ToolTip="Edit playlist" AutomationProperties.Name="Edit playlist">
                                     <FontIcon Glyph="&#xE712;" FontSize="14" />
@@ -500,6 +516,7 @@
                                             Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
                                             PointerEntered="OnTrackRowPointerEntered" PointerExited="OnTrackRowPointerExited"
                                             Opacity="{x:Bind RowOpacity, Mode=OneWay}"
+                                            Visibility="{x:Bind FilterVisibility, Mode=OneWay}"
                                             ToolTipService.ToolTip="{x:Bind UnavailableTip, Mode=OneWay}"
                                             GotFocus="OnTrackRowFocusChanged" LostFocus="OnTrackRowFocusChanged">
                                         <Grid ColumnSpacing="11" MinHeight="40">

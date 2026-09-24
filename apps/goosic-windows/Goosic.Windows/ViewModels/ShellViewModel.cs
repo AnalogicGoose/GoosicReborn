@@ -378,6 +378,37 @@ public sealed class TrackViewModel : INotifyPropertyChanged
 
     public double RowOpacity => IsPlayable ? 1 : 0.45;
 
+    private static long s_nextOrdinal;
+
+    /// <summary>The order rows arrived in, so a sorted list can go back to the playlist's own order.</summary>
+    internal long Ordinal { get; } = System.Threading.Interlocked.Increment(ref s_nextOrdinal);
+
+    private bool _filteredOut;
+
+    /// <summary>Hidden by the page's filter box.</summary>
+    internal bool FilteredOut
+    {
+        get => _filteredOut;
+        set
+        {
+            if (_filteredOut != value)
+            {
+                _filteredOut = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FilterVisibility)));
+            }
+        }
+    }
+
+    public Microsoft.UI.Xaml.Visibility FilterVisibility =>
+        _filteredOut ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+
+    /// <summary>Whether this row matches what was typed in the filter box.</summary>
+    internal bool Matches(string text) =>
+        text.Length == 0
+        || Title.Contains(text, StringComparison.CurrentCultureIgnoreCase)
+        || Subtitle.Contains(text, StringComparison.CurrentCultureIgnoreCase)
+        || (Album?.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false);
+
     public string? UnavailableTip => IsPlayable ? null : "This track isn’t available to play";
     public bool Explicit { get; }
     internal string? VideoId { get; }
@@ -518,6 +549,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     internal ShellViewModel(GoosicServiceClient client)
     {
         _client = client;
+        WireTrackView();
         Tracks.CollectionChanged += (_, change) =>
         {
             OnPropertyChanged(nameof(HasTracks));
