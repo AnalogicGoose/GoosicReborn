@@ -5,10 +5,10 @@ import XCTest
 final class AccountProfileWireTests: XCTestCase {
     func testProtocolAndAccountSnapshotDecode() throws {
         let wire = """
-        {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,"payload":{"accounts":{"accounts":[{"id":"11111111-1111-1111-1111-111111111111","webkitProfileId":"22222222-2222-2222-2222-222222222222","displayName":"Ada","email":"ada@example.test"}],"activeAccountId":"11111111-1111-1111-1111-111111111111","epoch":4}}}
+        {"protocolVersion":"0.4.0","requestId":"swift-1","ok":true,"payload":{"accounts":{"accounts":[{"id":"11111111-1111-1111-1111-111111111111","webkitProfileId":"22222222-2222-2222-2222-222222222222","displayName":"Ada","email":"ada@example.test"}],"activeAccountId":"11111111-1111-1111-1111-111111111111","epoch":4}}}
         """
         let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
-        XCTAssertEqual(response.protocolVersion, "0.3.0")
+        XCTAssertEqual(response.protocolVersion, "0.4.0")
         XCTAssertEqual(response.payload?.accounts?.epoch, 4)
         XCTAssertEqual(AccountSnapshotSelection.activeAccount(in: response.payload!.accounts!)?.displayName, "Ada")
     }

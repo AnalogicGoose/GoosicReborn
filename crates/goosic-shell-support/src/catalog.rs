@@ -103,6 +103,9 @@ impl Card {
             CatalogItemKind::Playlist => {
                 Some(CardAction::Show(EntityReference::Playlist(item.id.clone())))
             }
+            CatalogItemKind::Category => {
+                Some(CardAction::Show(EntityReference::Category(item.id.clone())))
+            }
             // A row this build does not understand stays visible but inert rather than
             // navigating somewhere the shell cannot render.
             CatalogItemKind::Unknown => None,
@@ -271,6 +274,7 @@ mod tests {
             thumbnail: None,
             video_id: video_id.map(Into::into),
             explicit: false,
+            color: None,
         }
     }
 

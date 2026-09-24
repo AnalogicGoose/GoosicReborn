@@ -110,7 +110,7 @@ To drive the authority without a shell at all, feed it compact JSON lines. Its s
 
 ```sh
 cargo build -p goosic-service
-echo '{"protocolVersion":"0.3.0","requestId":"1","command":"catalog.search","payload":{"query":"daft punk","filter":"songs"}}' \
+echo '{"protocolVersion":"0.4.0","requestId":"1","command":"catalog.search","payload":{"query":"daft punk","filter":"songs"}}' \
   | ./target/debug/goosic-service
 ```
 
