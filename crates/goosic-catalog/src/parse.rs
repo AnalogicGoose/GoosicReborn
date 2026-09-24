@@ -386,20 +386,117 @@ pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
     }
 }
 
-/// Flattens every responsive row in a search response, in relevance order.
-pub fn search_items(response: &Value) -> Vec<CatalogItem> {
-    json::collect(response, "musicResponsiveListItemRenderer")
+/// Reads the "Top result" card that leads an unfiltered search.
+///
+/// YouTube Music puts its best guess -- usually the artist the query names -- in a
+/// `musicCardShelfRenderer` rather than among the rows, followed by a few of that result's
+/// songs. Those songs omit the artist because the card above them already names it, so the card's
+/// artist is written back into each one; otherwise they read as songs by nobody.
+fn top_result(card: &Value) -> Vec<CatalogItem> {
+    let mut items = Vec::new();
+    let title_node = card.get("title");
+    let title = title_node.map(json::runs_text).unwrap_or_default();
+    let subtitle = card
+        .get("subtitle")
+        .map(json::runs_text)
+        .unwrap_or_default();
+    let title_destination = title_node
+        .and_then(|node| json::runs(node).first())
+        .and_then(|run| run.get("navigationEndpoint"))
+        .and_then(destination)
+        .or_else(|| card.get("onTap").and_then(destination));
+    let tap_video = card
+        .get("onTap")
+        .and_then(|tap| tap.get("watchEndpoint"))
+        .and_then(|endpoint| endpoint.get("videoId"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let leading_token = subtitle
+        .split('•')
+        .next()
+        .map(str::trim)
+        .unwrap_or_default();
+    let thumbnail = card
+        .get("thumbnail")
+        .and_then(|node| json::thumbnail(node, THUMBNAIL_BUDGET));
+
+    let featured = if let Some(video_id) = tap_video {
+        let refs = references(&card.get("subtitle").into_iter().collect::<Vec<_>>());
+        Some(CatalogItem {
+            kind: token_kind(leading_token)
+                .filter(|kind| *kind == CatalogItemKind::Video)
+                .unwrap_or(CatalogItemKind::Song),
+            id: video_id.clone(),
+            title: title.clone(),
+            subtitle: subtitle.clone(),
+            artist: refs.artist.as_ref().map(|(name, _)| name.clone()),
+            artist_id: refs.artist.as_ref().map(|(_, id)| id.clone()),
+            album: refs.album.as_ref().map(|(name, _)| name.clone()),
+            album_id: refs.album.as_ref().map(|(_, id)| id.clone()),
+            duration: None,
+            thumbnail,
+            video_id: Some(video_id),
+            explicit: is_explicit(card),
+        })
+    } else {
+        title_destination.and_then(|destination| {
+            let kind = destination.kind.or_else(|| token_kind(leading_token))?;
+            Some(CatalogItem {
+                kind,
+                id: destination.browse_id,
+                title: title.clone(),
+                subtitle: subtitle.clone(),
+                artist: None,
+                artist_id: None,
+                album: None,
+                album_id: None,
+                duration: None,
+                thumbnail,
+                video_id: None,
+                explicit: false,
+            })
+        })
+    };
+    let Some(featured) = featured else {
+        return items;
+    };
+    let artist = (featured.kind == CatalogItemKind::Artist)
+        .then(|| (featured.title.clone(), featured.id.clone()));
+    items.push(featured);
+
+    for row in card
+        .get("contents")
+        .and_then(Value::as_array)
         .into_iter()
+        .flatten()
+        .filter_map(|node| node.get("musicResponsiveListItemRenderer"))
         .filter_map(responsive_item)
-        .collect()
+    {
+        let mut row = row;
+        if let (None, Some((name, id))) = (&row.artist, &artist) {
+            row.artist = Some(name.clone());
+            row.artist_id = Some(id.clone());
+            let mut parts: Vec<&str> = row.subtitle.split(" • ").collect();
+            parts.insert(1.min(parts.len()), name);
+            row.subtitle = parts.join(" • ");
+        }
+        items.push(row);
+    }
+    items
 }
 
 /// Groups search rows into the shelves the shell renders.
 ///
 /// Explicit `musicShelfRenderer` titles are preferred; the modern flat "all" response has none,
-/// so rows are then grouped by kind under stable titles.
+/// so rows are then grouped by kind under stable titles. A top result, when there is one, comes
+/// first, and the rows inside it are not repeated in the groups below.
 pub fn search_page(query: &str, response: &Value) -> CatalogPage {
     let mut shelves: Vec<CatalogShelf> = Vec::new();
+    let cards = json::collect(response, "musicCardShelfRenderer");
+    let top: Vec<CatalogItem> = cards
+        .first()
+        .map(|card| top_result(card))
+        .unwrap_or_default();
     for shelf in json::collect(response, "musicShelfRenderer") {
         let title = shelf.get("title").map(json::runs_text).unwrap_or_default();
         let items: Vec<CatalogItem> = json::collect(shelf, "musicResponsiveListItemRenderer")
@@ -418,7 +515,28 @@ pub fn search_page(query: &str, response: &Value) -> CatalogPage {
     }
 
     if shelves.is_empty() {
-        shelves = group_by_kind(search_items(response));
+        let inside_cards: Vec<&Value> = cards
+            .iter()
+            .flat_map(|card| json::collect(card, "musicResponsiveListItemRenderer"))
+            .collect();
+        let rows = json::collect(response, "musicResponsiveListItemRenderer")
+            .into_iter()
+            .filter(|row| !inside_cards.iter().any(|inner| std::ptr::eq(*inner, *row)))
+            .filter_map(responsive_item)
+            .collect();
+        shelves = group_by_kind(rows);
+    }
+
+    if !top.is_empty() {
+        shelves.insert(
+            0,
+            CatalogShelf {
+                id: "top-result".to_owned(),
+                title: "Top result".to_owned(),
+                items: top,
+                layout: ShelfLayout::List,
+            },
+        );
     }
 
     CatalogPage {
@@ -476,7 +594,11 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
     // came before every list shelf and grid, whatever order the page itself had.
     let sections = json::collect_any(
         response,
-        &["musicCarouselShelfRenderer", "musicShelfRenderer", "gridRenderer"],
+        &[
+            "musicCarouselShelfRenderer",
+            "musicShelfRenderer",
+            "gridRenderer",
+        ],
     );
     for (kind, section) in sections {
         let untitled = || format!("Shelf {}", shelves.len() + 1);
@@ -515,7 +637,10 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
             // Several recommendation modules use a plain music shelf of responsive song rows
             // rather than artwork cards. The old carousel-only parser silently discarded them.
             "musicShelfRenderer" => {
-                let title = section.get("title").map(json::runs_text).unwrap_or_default();
+                let title = section
+                    .get("title")
+                    .map(json::runs_text)
+                    .unwrap_or_default();
                 CatalogShelf {
                     id: format!("shelf-{}", shelves.len()),
                     title: if title.is_empty() { untitled() } else { title },
@@ -826,6 +951,42 @@ mod tests {
         assert_eq!(page.shelves[0].title, "Songs");
         assert_eq!(page.shelves[1].title, "Artists");
         assert_eq!(page.id, "search:signal");
+    }
+
+    #[test]
+    fn a_top_result_card_leads_and_lends_its_artist_to_its_songs() {
+        let artist = json!({"browseEndpoint": {
+            "browseId": "UCbunny",
+            "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}
+            }
+        }});
+        let card_song = json!({
+            "flexColumns": [
+                flex(json!({"runs": [{"text": "DtMF"}]})),
+                flex(json!({"runs": [{"text": "Song"}, {"text": " • "}, {"text": "3:58"}]}))
+            ],
+            "playlistItemData": {"videoId": "dtmf"}
+        });
+        let response = json!({"contents": [
+            {"musicCardShelfRenderer": {
+                "title": {"runs": [{"text": "Bad Bunny", "navigationEndpoint": artist}]},
+                "subtitle": {"runs": [{"text": "Artist"}, {"text": " • "}, {"text": "162M monthly audience"}]},
+                "contents": [{"musicResponsiveListItemRenderer": card_song}]
+            }},
+            {"musicResponsiveListItemRenderer": song_row()}
+        ]});
+        let page = search_page("bad bunny", &response);
+        assert_eq!(page.shelves[0].title, "Top result");
+        let top = &page.shelves[0].items;
+        assert_eq!(top[0].kind, CatalogItemKind::Artist);
+        assert_eq!(top[0].id, "UCbunny");
+        assert_eq!(top[1].artist.as_deref(), Some("Bad Bunny"));
+        assert_eq!(top[1].subtitle, "Song • Bad Bunny • 3:58");
+        // The card's song is not listed a second time under Songs.
+        let songs = &page.shelves[1];
+        assert_eq!(songs.title, "Songs");
+        assert!(songs.items.iter().all(|item| item.id != "dtmf"));
     }
 
     #[test]
