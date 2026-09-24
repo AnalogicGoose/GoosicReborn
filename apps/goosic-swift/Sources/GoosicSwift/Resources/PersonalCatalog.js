@@ -812,12 +812,15 @@ const GoosicPersonalCatalog = (() => {
         { action: "ACTION_REMOVE_VIDEO", removedVideoId: videoId, setVideoId },
       ]);
     },
-    movePlaylistItem: ({ playlistId, setVideoId, predecessorSetVideoId }) => {
+    // The action is "move before": it names the entry the moved one should precede, as the
+    // web client's own drag-to-reorder does. With no successor the entry goes to the end.
+    // An earlier version sent a predecessor field that upstream does not define.
+    movePlaylistItem: ({ playlistId, setVideoId, successorSetVideoId }) => {
       if (!setVideoId) throw new Error("Cannot move a playlist entry without its entry id");
       const action = { action: "ACTION_MOVE_VIDEO_BEFORE", setVideoId };
-      // Omitted entirely to move an entry to the front; an empty predecessor is not the same
-      // request as no predecessor.
-      if (predecessorSetVideoId) action.movedSetVideoIdPredecessor = predecessorSetVideoId;
+      // Omitted entirely to move an entry to the end; an empty successor is not the same
+      // request as no successor.
+      if (successorSetVideoId) action.movedSetVideoIdSuccessor = successorSetVideoId;
       return editPlaylist(playlistId, [action]);
     },
     addPlaylistToPlaylist: ({ playlistId, sourcePlaylistId }) =>
