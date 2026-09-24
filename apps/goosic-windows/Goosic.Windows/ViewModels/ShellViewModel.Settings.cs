@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -60,7 +60,7 @@ public sealed partial class ShellViewModel
     }
 
     /// <summary>Settings is a centered column, so its title narrows to that column and stays above it.</summary>
-    public double PageHeaderMaxWidth => _isSettingsPage ? 680 : double.PositiveInfinity;
+    public double PageHeaderMaxWidth => _isSettingsPage ? 616 : double.PositiveInfinity;
 
     public bool IsServiceConnected => string.IsNullOrEmpty(_status) || !_status.Contains("service", StringComparison.OrdinalIgnoreCase);
 
@@ -106,7 +106,7 @@ public sealed partial class ShellViewModel
     public bool ShowPageHeader { get => _showPageHeader; private set => Set(ref _showPageHeader, value); }
 
     /// <summary>What the sidebar's account row says under the name.</summary>
-    public string ConnectionLabel => IsAccountBusy ? "Switching…" : IsSignedIn ? "Connected" : "Guest";
+    public string ConnectionLabel => IsAccountBusy ? "Switchingâ€¦" : IsSignedIn ? "Connected" : "Guest";
 
     /// <summary>Whether there is an earlier page to go back to.</summary>
     internal bool CanGoBack => _routeHistory.Count > 0;
