@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Goosic.Windows"
     xmlns:vm="using:Goosic.Windows.ViewModels"
+    xmlns:views="using:Goosic.Windows.Views"
     xmlns:mux="using:Microsoft.UI.Xaml.Controls">
 
     <!--
@@ -148,122 +149,196 @@
                             </StackPanel>
                         </Grid>
 
-                        <StackPanel Spacing="14" MaxWidth="720" HorizontalAlignment="Left"
+                        <!-- Settings, grouped the way iOS Settings is: a small heading, then a rounded list of
+                             rows, each an icon tile, a name with one line of explanation, and its control. -->
+                        <StackPanel MaxWidth="680" HorizontalAlignment="Left"
                                     Visibility="{x:Bind Model.IsSettingsPage, Mode=OneWay}">
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Playback" FontSize="16" FontWeight="SemiBold" />
-                                    <ToggleSwitch Header="Autoplay" OnContent="Keep playing related music when the queue ends"
-                                                  OffContent="Stop when the queue ends"
-                                                  IsOn="{x:Bind Model.Autoplay, Mode=OneWay}" Toggled="OnAutoplayToggled" />
-                                    <ToggleSwitch Header="Shuffle" OnContent="The queue plays in a random order"
-                                                  OffContent="The queue plays in order"
-                                                  IsOn="{x:Bind Model.IsShuffled, Mode=OneWay}" Toggled="OnShuffleToggled" />
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Repeat" />
-                                        <Button Content="{x:Bind Model.RepeatLabel, Mode=OneWay}" Click="OnRepeat" />
+
+                            <!-- The account comes first, as the Apple ID does. -->
+                            <Border Style="{StaticResource SettingsGroupStyle}" Margin="0,4,0,0">
+                                <Grid Padding="14,14,16,14" ColumnSpacing="14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="52" Height="52" CornerRadius="26" VerticalAlignment="Top"
+                                            Background="#FF0A84FF">
+                                        <FontIcon Glyph="&#xE77B;" FontSize="24" Foreground="White" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}" FontSize="18"
+                                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{x:Bind Model.AccountDetail, Mode=OneWay}" FontSize="12"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap" />
+                                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
+                                            <Button Style="{StaticResource AccentButtonStyle}" Content="Sign in with Google"
+                                                    Visibility="{x:Bind Model.IsGuest, Mode=OneWay}" Click="OnSignIn" />
+                                            <Button Content="Add another account"
+                                                    Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignIn" />
+                                            <Button Content="Sign out"
+                                                    Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignOut" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
+                                       Text="Sign-in data stays inside each account's own WebView2 profile and never enters the playback service." />
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Playback" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE768;" Tile="#FF30D158" Title="Autoplay"
+                                                       Description="Keep playing related music when the queue ends">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Autoplay"
+                                                      IsOn="{x:Bind Model.Autoplay, Mode=OneWay}" Toggled="OnAutoplayToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE8B1;" Tile="#FFFF9F0A" Title="Shuffle"
+                                                       Description="Play the queue in a random order">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Shuffle"
+                                                      IsOn="{x:Bind Model.IsShuffled, Mode=OneWay}" Toggled="OnShuffleToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE8EE;" Tile="#FF5E5CE6" Title="Repeat"
+                                                       Description="Off, the whole queue, or one song">
+                                        <Button Content="{x:Bind Model.RepeatLabel, Mode=OneWay}" Click="OnRepeat"
+                                                AutomationProperties.Name="Repeat" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Browsing" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE80F;" Tile="#FF0A84FF" Title="Open Goosic on"
+                                                       Description="The page you see when Goosic starts">
+                                        <ComboBox x:Name="StartPageChoice" MinWidth="200"
+                                                  AutomationProperties.Name="Open Goosic on"
+                                                  SelectionChanged="OnStartPageChanged" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE72E;" Tile="#FFFF453A" Title="Hide explicit songs"
+                                                       Description="Leave them out of pages, searches and radio">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Hide explicit songs"
+                                                      IsOn="{x:Bind Model.HideExplicit, Mode=OneWay}"
+                                                      Toggled="OnHideExplicitToggled" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
+                                       Text="Hiding explicit songs applies to pages opened after you change it." />
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Appearance" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE790;" Tile="#FFFF375F" Title="Album art background"
+                                                       Description="Fill the window with the playing cover's colours">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Album art background"
+                                                      IsOn="{x:Bind Model.ArtworkBackground, Mode=OneWay}"
+                                                      Toggled="OnArtworkBackgroundToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE945;" Tile="#FF40C8E0" Title="Reduce motion"
+                                                       Description="Show pages and panels without animating">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Reduce motion"
+                                                      IsOn="{x:Bind Model.ReduceMotion, Mode=OneWay}"
+                                                      Toggled="OnReduceMotionToggled" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Windows" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE8BB;" Tile="#FF8E8E93" Title="Close to tray"
+                                                       Description="Closing the window keeps the music playing">
+                                        <ToggleSwitch x:Name="CloseToTrayToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Close to tray"
+                                                      Toggled="OnCloseToTrayToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow x:Name="LaunchAtStartupRow" Glyph="&#xE7E8;" Tile="#FF30D158"
+                                                       Title="Launch at startup"
+                                                       Description="Start quietly when you sign in to Windows">
+                                        <ToggleSwitch x:Name="LaunchAtStartupToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Launch at startup"
+                                                      Toggled="OnLaunchAtStartupToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xEA8F;" Tile="#FFFF453A" Title="Now-playing notifications"
+                                                       Description="A silent notice for each new song while Goosic is in the background">
+                                        <ToggleSwitch x:Name="NotificationsToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Now-playing notifications"
+                                                      Toggled="OnNotificationsToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow x:Name="DiscordRow" Glyph="&#xE7FC;" Tile="#FF5865F2" Title="Discord status"
+                                                       Description="Show what you're listening to on your Discord profile">
+                                        <ToggleSwitch x:Name="DiscordToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Discord status"
+                                                      Toggled="OnDiscordToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE737;" Tile="#FF0A84FF" Title="Remember window"
+                                                       Description="Reopen at the same size, place and sidebar state">
+                                        <ToggleSwitch x:Name="RememberWindowToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Remember window"
+                                                      Toggled="OnRememberWindowToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xEC0A;" Tile="#FF34C759" Title="Efficiency mode"
+                                                       Description="Use less power: Windows runs Goosic efficiently and animations are off">
+                                        <ToggleSwitch x:Name="EfficiencyToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Efficiency mode"
+                                                      Toggled="OnEfficiencyToggled" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Updates" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE895;" Tile="#FF8E8E93" Title="Software update"
+                                                       Description="New versions come from GitHub Releases">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button x:Name="UpdateCheckButton" Content="Check for updates"
+                                                    Click="OnCheckForUpdates" />
+                                            <Button x:Name="UpdateInstallButton" Style="{StaticResource AccentButtonStyle}"
+                                                    Visibility="Collapsed" Click="OnInstallUpdate" />
+                                        </StackPanel>
+                                    </views:SettingsRow>
+                                    <StackPanel Padding="60,0,16,12" Spacing="6">
+                                        <TextBlock x:Name="UpdateVersionText" FontSize="12"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        <TextBlock x:Name="UpdateStatusText" FontSize="12" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        <ProgressBar x:Name="UpdateProgress" Maximum="1" Visibility="Collapsed" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Appearance" FontSize="16" FontWeight="SemiBold" />
-                                    <ToggleSwitch Header="Album art background"
-                                                  OnContent="The playing cover's colours fill the window"
-                                                  OffContent="A plain background"
-                                                  IsOn="{x:Bind Model.ArtworkBackground, Mode=OneWay}"
-                                                  Toggled="OnArtworkBackgroundToggled" />
-                                    <ToggleSwitch Header="Reduce motion"
-                                                  OnContent="Pages and panels appear without animating"
-                                                  OffContent="Pages and panels slide and fade in"
-                                                  IsOn="{x:Bind Model.ReduceMotion, Mode=OneWay}"
-                                                  Toggled="OnReduceMotionToggled" />
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Browsing" FontSize="16" FontWeight="SemiBold" />
-                                    <ComboBox x:Name="StartPageChoice" Header="Open Goosic on" MinWidth="240"
-                                              SelectionChanged="OnStartPageChanged" />
-                                    <ToggleSwitch Header="Hide explicit songs"
-                                                  OnContent="Explicit songs are left out of pages, searches and radio"
-                                                  OffContent="Explicit songs are shown"
-                                                  IsOn="{x:Bind Model.HideExplicit, Mode=OneWay}"
-                                                  Toggled="OnHideExplicitToggled" />
-                                    <TextBlock FontSize="12" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}"
-                                               Text="Hiding explicit songs applies to pages opened after you change it." />
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Windows" FontSize="16" FontWeight="SemiBold" />
-                                    <ToggleSwitch x:Name="CloseToTrayToggle" Header="Close to tray"
-                                                  OnContent="Closing the window keeps the music playing in the notification area"
-                                                  OffContent="Closing the window quits Goosic"
-                                                  Toggled="OnCloseToTrayToggled" />
-                                    <ToggleSwitch x:Name="LaunchAtStartupToggle" Header="Launch at startup"
-                                                  OnContent="Goosic starts quietly when you sign in to Windows"
-                                                  OffContent="Goosic starts only when you open it"
-                                                  Toggled="OnLaunchAtStartupToggled" />
-                                    <ToggleSwitch x:Name="NotificationsToggle" Header="Now-playing notifications"
-                                                  OnContent="A silent notification names each new song while Goosic is in the background"
-                                                  OffContent="No notifications"
-                                                  Toggled="OnNotificationsToggled" />
-                                    <ToggleSwitch x:Name="DiscordToggle" Header="Discord status"
-                                                  OnContent="Your Discord profile shows what you're listening to"
-                                                  OffContent="Nothing is shared with Discord"
-                                                  Toggled="OnDiscordToggled" />
-                                    <ToggleSwitch x:Name="RememberWindowToggle" Header="Remember window"
-                                                  OnContent="Goosic reopens at the same size, place and sidebar state"
-                                                  OffContent="Goosic opens at its default size"
-                                                  Toggled="OnRememberWindowToggled" />
-                                    <ToggleSwitch x:Name="EfficiencyToggle" Header="Efficiency mode"
-                                                  OnContent="Uses less power: Windows runs Goosic efficiently and animations are off"
-                                                  OffContent="Normal performance"
-                                                  Toggled="OnEfficiencyToggled" />
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="10">
-                                    <TextBlock Text="Updates" FontSize="16" FontWeight="SemiBold" />
-                                    <TextBlock x:Name="UpdateVersionText" />
-                                    <TextBlock x:Name="UpdateStatusText" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                                    <ProgressBar x:Name="UpdateProgress" Maximum="1" Visibility="Collapsed" />
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button x:Name="UpdateCheckButton" Content="Check for updates"
-                                                Click="OnCheckForUpdates" />
-                                        <Button x:Name="UpdateInstallButton" Style="{StaticResource AccentButtonStyle}"
-                                                Visibility="Collapsed" Click="OnInstallUpdate" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="10">
-                                    <TextBlock Text="Account" FontSize="16" FontWeight="SemiBold" />
-                                    <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{x:Bind Model.AccountDetail, Mode=OneWay}"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap" />
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button Style="{StaticResource AccentButtonStyle}" Content="Sign in with Google"
-                                                Visibility="{x:Bind Model.IsGuest, Mode=OneWay}" Click="OnSignIn" />
-                                        <Button Content="Add another account"
-                                                Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignIn" />
-                                        <Button Content="Sign out"
-                                                Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignOut" />
-                                    </StackPanel>
-                                    <TextBlock FontSize="12" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}"
-                                               Text="Sign-in data stays inside each account's own WebView2 profile and never enters the playback service." />
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="6">
-                                    <TextBlock Text="Keyboard" FontSize="16" FontWeight="SemiBold" />
-                                    <TextBlock Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap"
-                                               Text="Space play or pause · Ctrl+← / Ctrl+→ previous / next · Ctrl+↑ / Ctrl+↓ volume · Ctrl+M mute · Ctrl+S shuffle · Ctrl+R repeat · Ctrl+F search · Ctrl+L lyrics · Ctrl+Q queue · Ctrl+B sidebar · F11 full-screen player · Alt+← back · Esc close" />
-                                </StackPanel>
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Keyboard shortcuts" />
+                            <Border Style="{StaticResource SettingsGroupStyle}" Margin="0,0,0,24">
+                                <ItemsControl x:Name="ShortcutList" Padding="16,6">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ShortcutEntry">
+                                            <Grid Padding="0,7" ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{x:Bind Action}" FontSize="13" />
+                                                <TextBlock Grid.Column="1" Text="{x:Bind Keys}" FontSize="13"
+                                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </Border>
                         </StackPanel>
 

@@ -284,6 +284,7 @@ public sealed partial class MainWindow : Window
         }
 
         StartPageChoice.SelectedIndex = StartRoute.IndexOf(Model.StartPage);
+        ShortcutList.ItemsSource = ShortcutEntry.All;
         Model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ShellViewModel.StartPage))
@@ -302,12 +303,12 @@ public sealed partial class MainWindow : Window
         EfficiencyToggle.IsOn = ShellPreferences.EfficiencyMode;
         if (!StartupRegistration.Available)
         {
-            LaunchAtStartupToggle.OffContent = "Available in copies installed by Setup";
+            LaunchAtStartupRow.Description = "Available in copies installed by Setup";
         }
 
         if (!DiscordPresence.Available)
         {
-            DiscordToggle.OffContent = "Not set up in this build yet";
+            DiscordRow.Description = "Not set up in this build yet";
         }
     }
 
