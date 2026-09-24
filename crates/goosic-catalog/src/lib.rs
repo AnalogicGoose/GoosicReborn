@@ -11,7 +11,8 @@ mod parse;
 pub use client::{search_params, InnertubeClient};
 pub use parse::{
     artist_page, browse_continuation_page, browse_page, browse_shelves, continuation_token,
-    queue_item, radio_page, search_page, track_list_page,
+    navigation_button_item, queue_item, radio_page, search_page, split_category_id,
+    track_list_page,
 };
 
 use goosic_protocol::CatalogPage;
@@ -63,6 +64,14 @@ pub fn browse_id_for_route(route: &str) -> Option<&'static str> {
     }
 }
 
+/// The first title a page header carries, whichever header renderer it arrived in.
+fn header_title(header: &serde_json::Value) -> Option<String> {
+    json::collect(header, "title")
+        .into_iter()
+        .map(json::runs_text)
+        .find(|title| !title.is_empty())
+}
+
 /// A playlist's browse id is its playlist id with the `VL` browse prefix.
 pub fn playlist_browse_id(id: &str) -> String {
     if id.starts_with("VL") {
@@ -108,6 +117,23 @@ impl Catalog {
         if page.shelves.is_empty() {
             return Err(CatalogError::Empty);
         }
+        Ok(page)
+    }
+
+    /// Opens a mood or genre from Moods & genres by the opaque id its button carried.
+    pub fn category(&self, id: &str) -> Result<CatalogPage, CatalogError> {
+        let (browse_id, params) = split_category_id(id)
+            .ok_or_else(|| CatalogError::InvalidRequest(format!("`{id}` is not a category id")))?;
+        let response = self.client.browse_with_params(browse_id, params)?;
+        let title = response
+            .get("header")
+            .and_then(header_title)
+            .unwrap_or_default();
+        let mut page = parse::browse_page(id, &title, &response);
+        if page.shelves.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        page.id = id.to_owned();
         Ok(page)
     }
 

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod conformance;
 
-pub const PROTOCOL_VERSION: &str = "0.3.0";
+pub const PROTOCOL_VERSION: &str = "0.4.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -301,6 +301,10 @@ pub enum CatalogItemKind {
     Album,
     Artist,
     Playlist,
+    /// A mood or genre from Moods & genres, opened with `catalog.category`. Its `id` is opaque:
+    /// YouTube Music needs a browse id and parameters to open one, and the service packs both
+    /// into it so the shell never has to take the id apart.
+    Category,
     /// A kind a newer service knows and this build does not.
     ///
     /// A client decodes it rather than refusing the frame, because refusing it would fail the
@@ -340,6 +344,9 @@ pub struct CatalogItem {
     pub video_id: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub explicit: bool,
+    /// The colour YouTube Music gives a category's button, as `#RRGGBB`. Only categories have one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -484,7 +491,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&request).unwrap(),
-            r#"{"protocolVersion":"0.3.0","requestId":"r-1","command":"playback.sample","payload":{"owner":"officialWebView","generation":3,"sequence":8,"marker":"advertisement"}}"#
+            r#"{"protocolVersion":"0.4.0","requestId":"r-1","command":"playback.sample","payload":{"owner":"officialWebView","generation":3,"sequence":8,"marker":"advertisement"}}"#
         );
         let decoded: RequestEnvelope =
             serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
