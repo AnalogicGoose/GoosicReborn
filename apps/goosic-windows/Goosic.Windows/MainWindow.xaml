@@ -43,7 +43,8 @@
                     <StackPanel x:Name="ContentStack" Spacing="22" Padding="314,56,34,128">
                         <!-- No ColumnSpacing: it stays applied when the artwork collapses, and pushes the title
                              out of line with the shelves. The artwork carries the gap instead. -->
-                        <Grid Visibility="{x:Bind Model.ShowPageHeader, Mode=OneWay}">
+                        <Grid Visibility="{x:Bind Model.ShowPageHeader, Mode=OneWay}"
+                              MaxWidth="{x:Bind Model.PageHeaderMaxWidth, Mode=OneWay}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />

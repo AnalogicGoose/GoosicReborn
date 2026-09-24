@@ -49,7 +49,18 @@ public sealed partial class ShellViewModel
     /// <summary>The route Rust last remembered, for a "last page" start.</summary>
     internal string LastRoute { get; private set; } = "home";
 
-    public bool IsSettingsPage { get => _isSettingsPage; private set => Set(ref _isSettingsPage, value); }
+    public bool IsSettingsPage
+    {
+        get => _isSettingsPage;
+        private set
+        {
+            Set(ref _isSettingsPage, value);
+            OnPropertyChanged(nameof(PageHeaderMaxWidth));
+        }
+    }
+
+    /// <summary>Settings is a centered column, so its title narrows to that column and stays above it.</summary>
+    public double PageHeaderMaxWidth => _isSettingsPage ? 680 : double.PositiveInfinity;
 
     public bool IsServiceConnected => string.IsNullOrEmpty(_status) || !_status.Contains("service", StringComparison.OrdinalIgnoreCase);
 
