@@ -126,6 +126,9 @@
                                     <FontIcon Glyph="&#xE712;" FontSize="14" />
                                     <Button.Flyout>
                                         <MenuFlyout>
+                                            <MenuFlyoutItem Text="Edit songs" Click="OnEditPagePlaylistSongs">
+                                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE762;" /></MenuFlyoutItem.Icon>
+                                            </MenuFlyoutItem>
                                             <MenuFlyoutItem Text="Rename…" Click="OnRenamePagePlaylist">
                                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8AC;" /></MenuFlyoutItem.Icon>
                                             </MenuFlyoutItem>
@@ -372,6 +375,42 @@
                                  Severity="Informational" />
 
                         <!-- Track rows: search results, and ordered lists on a detail page. -->
+                        <!-- Editing an owned playlist: rows select instead of playing, and these act on the choice. -->
+                        <Grid Visibility="{x:Bind Model.IsEditingPlaylist, Mode=OneWay}" MaxWidth="1120"
+                              ColumnSpacing="8" Padding="12,8" CornerRadius="8"
+                              Background="{ThemeResource GoosicRaisedBrush}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{x:Bind Model.SelectionSummary, Mode=OneWay}" VerticalAlignment="Center"
+                                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                <Button Content="Select all" Click="OnSelectAllPlaylistSongs" />
+                                <Button Content="Clear" Click="OnClearPlaylistSelection"
+                                        IsEnabled="{x:Bind Model.HasSelection, Mode=OneWay}" />
+                                <Button ToolTipService.ToolTip="Move up" AutomationProperties.Name="Move selected songs up"
+                                        IsEnabled="{x:Bind Model.CanEditSelection, Mode=OneWay}" Tag="up"
+                                        Click="OnMovePlaylistSongs">
+                                    <FontIcon Glyph="&#xE70E;" FontSize="14" />
+                                </Button>
+                                <Button ToolTipService.ToolTip="Move down" AutomationProperties.Name="Move selected songs down"
+                                        IsEnabled="{x:Bind Model.CanEditSelection, Mode=OneWay}" Tag="down"
+                                        Click="OnMovePlaylistSongs">
+                                    <FontIcon Glyph="&#xE70D;" FontSize="14" />
+                                </Button>
+                                <Button IsEnabled="{x:Bind Model.CanEditSelection, Mode=OneWay}"
+                                        Click="OnRemovePlaylistSongs">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                                        <TextBlock Text="Remove" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource AccentButtonStyle}" Content="Done"
+                                        Click="OnDonePlaylistEdit" />
+                            </StackPanel>
+                        </Grid>
+
                         <ItemsControl ItemsSource="{x:Bind Model.Tracks, Mode=OneWay}"
                                       Visibility="{x:Bind Model.HasTracks, Mode=OneWay}"
                                       MaxWidth="1120" HorizontalAlignment="Stretch">
@@ -394,6 +433,11 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
+                                            <!-- Shares the leading column: while editing, the box stands where the number would. -->
+                                            <CheckBox Grid.Column="0" MinWidth="0" Padding="0" VerticalAlignment="Center"
+                                                      IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
+                                                      Visibility="{x:Bind SelectionVisibility, Mode=OneWay}"
+                                                      AutomationProperties.Name="{x:Bind Title}" />
                                             <Grid Grid.Column="0" Width="28" VerticalAlignment="Center"
                                                   Visibility="{x:Bind LeadingColumnVisibility, Mode=OneWay}">
                                                 <TextBlock Text="{x:Bind NumberText, Mode=OneWay}" FontSize="13"

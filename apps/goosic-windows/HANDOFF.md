@@ -25,6 +25,22 @@ installer is unsigned it cannot show who published the release.
 updates itself. The relaunch is read by the Setup being installed, which is always the newer
 one, so it works from the first release that carries the updater.
 
+## Editing playlists and the player's menu
+
+An owned playlist's menu has **Edit songs**: rows show a checkbox and a click selects instead of
+playing, and a bar above the list moves the selection up or down or removes it. Every change goes
+through the personal reader by entry id (`setVideoId`), since a playlist can hold a song twice.
+A move is planned by `Presentation/PlaylistReorder.cs`: a block of selected songs costs one
+request, the song beside it jumping to the other side, and the tests replay the requests the way
+upstream applies them. The screen changes first and the page is reloaded if YouTube Music refuses.
+Moving relies on the reader sending `movedSetVideoIdSuccessor` ("move before"), which is
+`fix/playlist-move-successor` on `development`; it has not yet been exercised against a real
+account.
+
+The player bar's "⋯" menu used the queue entry's menu, which had no like, dislike or Save to
+playlist. It now has its own: full-screen player, start radio, the account's track actions,
+go to artist or album, and copy link.
+
 ## Settings and the Home feed
 
 Settings has two kinds of switch, stored in two places on purpose. **Listening preferences**
