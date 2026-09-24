@@ -46,17 +46,14 @@ public sealed partial class MainWindow : Window
     /// <summary>The pill's "more" menu: what the row menu offers, for the track that is playing.</summary>
     private void OnNowPlayingMore(object sender, RoutedEventArgs e)
     {
-        if (Model.ConfirmedTrack is not { } track || BuildMenu(track) is not { } menu)
+        if (Model.ConfirmedTrack is not { } track)
         {
             Model.ReportStatus("Nothing is playing.");
             return;
         }
 
-        menu.Items.Insert(0, new MenuFlyoutSeparator());
-        var full = new MenuFlyoutItem { Text = "Full-screen player", Icon = new FontIcon { Glyph = "\uE740" } };
-        full.Click += (_, _) => SetFullPlayerOpen(true);
-        menu.Items.Insert(0, full);
-        menu.ShowAt(PillMoreButton, new FlyoutShowOptions { Placement = FlyoutPlacementMode.TopEdgeAlignedRight });
+        BuildNowPlayingMenu(track)
+            .ShowAt(PillMoreButton, new FlyoutShowOptions { Placement = FlyoutPlacementMode.TopEdgeAlignedRight });
     }
 
     private async void OnAccount(object sender, RoutedEventArgs e)
@@ -152,6 +149,13 @@ public sealed partial class MainWindow : Window
     {
         if (sender is not Button button)
         {
+            return;
+        }
+
+        // While a playlist is being edited, a row is something to choose, not something to play.
+        if (Model.IsEditingPlaylist && button.DataContext is TrackViewModel { } editing && !Model.IsQueueEntry(editing))
+        {
+            editing.IsSelected = !editing.IsSelected;
             return;
         }
 

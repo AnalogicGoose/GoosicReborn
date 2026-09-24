@@ -41,8 +41,9 @@ enum PersonalMutation: Equatable {
     /// `entryID` is the playlist's own per-entry identifier. A bare video id would be ambiguous
     /// in a playlist holding the same track twice, and upstream would remove the wrong one.
     case removeFromPlaylist(playlistID: String, videoID: String, entryID: String)
-    /// `afterEntryID` is the entry the moved one should follow; `nil` moves it to the front.
-    case movePlaylistItem(playlistID: String, entryID: String, afterEntryID: String?)
+    /// `beforeEntryID` is the entry the moved one should precede, as upstream's "move before"
+    /// action takes it; `nil` moves it to the end.
+    case movePlaylistItem(playlistID: String, entryID: String, beforeEntryID: String?)
 
     case createPlaylist(title: String, description: String?, privacy: PlaylistPrivacy, videoIDs: [String])
     case renamePlaylist(playlistID: String, title: String)
@@ -82,11 +83,11 @@ enum PersonalMutation: Equatable {
             return ["playlistId": playlistID, "videoId": videoID]
         case .removeFromPlaylist(let playlistID, let videoID, let entryID):
             return ["playlistId": playlistID, "videoId": videoID, "setVideoId": entryID]
-        case .movePlaylistItem(let playlistID, let entryID, let afterEntryID):
+        case .movePlaylistItem(let playlistID, let entryID, let beforeEntryID):
             var arguments: [String: Any] = ["playlistId": playlistID, "setVideoId": entryID]
-            // Sent only when there is one: an absent predecessor means "to the front", which is
-            // a different request from a predecessor that happens to be empty.
-            if let afterEntryID { arguments["predecessorSetVideoId"] = afterEntryID }
+            // Sent only when there is one: an absent successor means "to the end", which is
+            // a different request from a successor that happens to be empty.
+            if let beforeEntryID { arguments["successorSetVideoId"] = beforeEntryID }
             return arguments
         case .createPlaylist(let title, let description, let privacy, let videoIDs):
             var arguments: [String: Any] = ["title": title, "privacy": privacy.rawValue]

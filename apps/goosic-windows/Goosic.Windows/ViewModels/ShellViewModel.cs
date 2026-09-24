@@ -208,6 +208,53 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     public Microsoft.UI.Xaml.Visibility CurrentMarker =>
         IsCurrent ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
+    private bool _isSelected;
+    private bool _isEditing;
+
+    /// <summary>Chosen while the listener edits their playlist; clicking the row toggles it instead of playing.</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (_isSelected == value)
+            {
+                return;
+            }
+
+            _isSelected = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsSelected)));
+            SelectionChanged?.Invoke();
+        }
+    }
+
+    internal event Action? SelectionChanged;
+
+    /// <summary>Whether the row shows its selection box, which it does only while its playlist is being edited.</summary>
+    internal bool IsEditing
+    {
+        get => _isEditing;
+        set
+        {
+            if (_isEditing == value)
+            {
+                return;
+            }
+
+            _isEditing = value;
+            if (!value)
+            {
+                IsSelected = false;
+            }
+
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SelectionVisibility)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LeadingColumnVisibility)));
+        }
+    }
+
+    public Microsoft.UI.Xaml.Visibility SelectionVisibility =>
+        _isEditing ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
     /// <summary>An empty subtitle still takes a line, which would lift the title off centre.</summary>
     public Microsoft.UI.Xaml.Visibility SubtitleVisibility => string.IsNullOrWhiteSpace(Subtitle)
         ? Microsoft.UI.Xaml.Visibility.Collapsed
@@ -231,7 +278,7 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         _isNowPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public Microsoft.UI.Xaml.Visibility LeadingColumnVisibility =>
-        _showsNumber || _isNowPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+        !_isEditing && (_showsNumber || _isNowPlaying) ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public Microsoft.UI.Xaml.Visibility ArtworkVisibility =>
         _showsArtwork ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
