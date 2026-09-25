@@ -125,6 +125,12 @@ public sealed partial class ShellViewModel
     /// <summary>Opens one section of the library directly, as the sidebar's library items do.</summary>
     internal async Task OpenLibrarySectionAsync(string browseId)
     {
+        if (browseId == "VLLM")
+        {
+            await LoadRouteAsync("liked").ConfigureAwait(true);
+            return;
+        }
+
         _librarySection = browseId;
         await LoadRouteAsync("library").ConfigureAwait(true);
     }
