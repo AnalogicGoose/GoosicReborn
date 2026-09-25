@@ -56,6 +56,11 @@ public sealed class CardViewModel : INotifyPropertyChanged
     /// <summary>A mood or genre from Moods & genres, drawn as a coloured tile rather than a cover.</summary>
     public bool IsCategory => Kind == "category";
 
+    /// <summary>An artist is a circle and anything else a rounded square, as every music app draws them.</summary>
+    public Microsoft.UI.Xaml.CornerRadius RowArtworkCornerRadius => new(Kind == "artist" ? 24 : 4);
+
+    public Microsoft.UI.Xaml.CornerRadius CardCornerRadius => new(Kind == "artist" ? CardShape.Size / 2 : 6);
+
     public Microsoft.UI.Xaml.Media.Brush CategoryBrush { get; }
 
     private static Microsoft.UI.Xaml.Media.SolidColorBrush CategoryColor(string? hex)

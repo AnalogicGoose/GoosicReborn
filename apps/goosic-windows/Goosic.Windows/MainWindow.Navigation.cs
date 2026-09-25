@@ -155,6 +155,12 @@ public sealed partial class MainWindow : Window
         var matches = new List<string>();
         foreach (var recent in ShellPreferences.RecentSearches)
         {
+            // What is already in the box is not a suggestion.
+            if (string.Equals(recent, typed, StringComparison.CurrentCultureIgnoreCase))
+            {
+                continue;
+            }
+
             if (typed.Length == 0 || recent.Contains(typed, StringComparison.CurrentCultureIgnoreCase))
             {
                 matches.Add(recent);

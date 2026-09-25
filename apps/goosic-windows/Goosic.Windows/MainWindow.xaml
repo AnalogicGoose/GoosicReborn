@@ -625,7 +625,7 @@
                                                         <StackPanel Width="{x:Bind CardWidth}" Spacing="6">
                                                             <Border Width="{x:Bind CardWidth}"
                                                                     Height="{StaticResource GoosicCardSize}"
-                                                                    CornerRadius="6"
+                                                                    CornerRadius="{x:Bind CardCornerRadius}"
                                                                     Background="{ThemeResource GoosicRaisedBrush}">
                                                                 <Grid>
                                                                     <!-- Liked Music has no cover of its own on YouTube Music: a gradient and a thumbs-up. -->
@@ -720,7 +720,7 @@
                                                                                 <ColumnDefinition Width="48" />
                                                                                 <ColumnDefinition Width="*" />
                                                                             </Grid.ColumnDefinitions>
-                                                                            <Border Width="48" Height="48" CornerRadius="4"
+                                                                            <Border Width="48" Height="48" CornerRadius="{x:Bind RowArtworkCornerRadius}"
                                                                                     Background="{ThemeResource GoosicRaisedBrush}">
                                                                                 <Image Source="{x:Bind Artwork, Mode=OneWay}"
                                                                                        Stretch="UniformToFill" />
