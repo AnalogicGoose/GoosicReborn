@@ -17,7 +17,7 @@ ifeq ($(UNAME_S),Darwin)
 # `com.apple.FinderInfo` onto build products and makes codesign refuse to sign the test bundle.
 # Building outside that directory avoids the problem entirely.
 SWIFT_SCRATCH := $(HOME)/Library/Caches/goosic-swift-build
-SWIFT_ENV := SCUI_DEFAULT_BACKEND=AppKitBackend
+SWIFT_ENV := SCUI_DEFAULT_BACKEND=AppKitBackend GOOSIC_MACOS_SDK=$(shell xcrun --show-sdk-version 2>/dev/null)
 else
 SWIFT_SCRATCH := $(HOME)/.cache/goosic-swift-build
 # Explicit, not inherited: leaving this unset drags swift-winui's C targets into the build
