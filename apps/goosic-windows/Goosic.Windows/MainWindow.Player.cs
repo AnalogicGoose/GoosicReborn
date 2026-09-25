@@ -182,7 +182,7 @@ public sealed partial class MainWindow : Window
 
         if (_playback is null)
         {
-            Model.ReportStatus("There is no service to claim playback from.");
+            Model.ReportDetail("There is no service to claim playback from.");
             return;
         }
 
@@ -260,7 +260,7 @@ public sealed partial class MainWindow : Window
 
         if (_playback is null)
         {
-            Model.ReportStatus("There is no service to claim playback from.");
+            Model.ReportDetail("There is no service to claim playback from.");
             return;
         }
 

@@ -340,12 +340,31 @@
                                 </StackPanel>
                             </Border>
 
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Advanced" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xEBE8;" Tile="#FF636366" Title="Debug mode"
+                                                       Description="Show the technical detail when something goes wrong">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Debug mode"
+                                                      IsOn="{x:Bind Model.DebugMode, Mode=TwoWay}" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE9F9;" Tile="#FF636366" Title="Log"
+                                                       Description="Everything Goosic did, to send when reporting a problem">
+                                        <Button Content="Open log folder" Click="OnOpenLogFolder" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
+                                       Text="The log stays on this computer. It never records passwords, cookies or tokens." />
+
                             <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Keyboard shortcuts" />
                             <Border Style="{StaticResource SettingsGroupStyle}" Margin="0,0,0,24">
-                                <ItemsControl x:Name="ShortcutList" Padding="16,6">
+                                <ItemsControl x:Name="ShortcutList" Margin="0,6">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:ShortcutEntry">
-                                            <Grid Padding="0,7" ColumnSpacing="12">
+                                            <Grid Padding="16,7" ColumnSpacing="12">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />

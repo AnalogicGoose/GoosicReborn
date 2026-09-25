@@ -440,7 +440,7 @@ public sealed partial class ShellViewModel
     {
         if (string.IsNullOrEmpty(track.VideoId))
         {
-            ReportStatus("That row does not carry a playable track.");
+            ReportDetail("That row does not carry a playable track.");
             return;
         }
 
@@ -680,7 +680,7 @@ public sealed partial class ShellViewModel
     {
         if (string.IsNullOrEmpty(seed.VideoId))
         {
-            ReportStatus("A radio needs a track to start from.");
+            ReportDetail("A radio needs a track to start from.");
             return null;
         }
 
@@ -847,7 +847,7 @@ public sealed partial class ShellViewModel
         };
         if (command is null || id.Length == 0)
         {
-            ReportStatus("That item cannot be played.");
+            ReportDetail("That item cannot be played.");
             return null;
         }
 
@@ -959,7 +959,7 @@ public sealed partial class ShellViewModel
             OnPropertyChanged(nameof(HasTracks));
             if (page.Truncated)
             {
-                ReportStatus("This page was long, so only the first part is shown.");
+                ReportDetail("This page was long, so only the first part is shown.");
             }
         }
         catch (Exception error)
