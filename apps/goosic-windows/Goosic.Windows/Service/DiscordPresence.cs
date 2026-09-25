@@ -25,8 +25,8 @@ internal sealed record DiscordActivity(string Title, string Artist, string? Albu
 /// </para>
 /// <para>
 /// Discord identifies a program by an application id registered on its developer portal; the
-/// name shown ("Listening to Goosic") is that application's name. Until one is filled in below
-/// the feature reports itself unavailable instead of connecting.
+/// name shown ("Listening to Goosic") is that application's name. The id is public -- every
+/// client that shows a status sends it -- so it lives here rather than in a secret store.
 /// </para>
 /// <para>
 /// Updates are coalesced: the latest one wins and is sent at most every few seconds, because
@@ -35,8 +35,8 @@ internal sealed record DiscordActivity(string Title, string Artist, string? Albu
 /// </remarks>
 internal sealed class DiscordPresence : IDisposable
 {
-    /// <summary>The Goosic application on Discord's developer portal. Empty until it is registered.</summary>
-    internal const string ApplicationId = "";
+    /// <summary>The Goosic application on Discord's developer portal.</summary>
+    internal const string ApplicationId = "1526113133570293800";
 
     internal static bool Available => ApplicationId.Length > 0;
 
@@ -128,7 +128,7 @@ internal sealed class DiscordPresence : IDisposable
             },
         };
         await WriteFrameAsync(pipe, 1, payload, cancel).ConfigureAwait(false);
-        await ReadFrameAsync(pipe, cancel).ConfigureAwait(false);
+        await ReadFrameAsync(pipe, cancel, activity is null ? "cleared" : "status").ConfigureAwait(false);
     }
 
     private static JsonObject Describe(DiscordActivity activity)
@@ -185,7 +185,7 @@ internal sealed class DiscordPresence : IDisposable
                 await pipe.ConnectAsync(200, cancel).ConfigureAwait(false);
                 await WriteFrameAsync(pipe, 0, new JsonObject { ["v"] = 1, ["client_id"] = ApplicationId }, cancel)
                     .ConfigureAwait(false);
-                await ReadFrameAsync(pipe, cancel).ConfigureAwait(false);
+                await ReadFrameAsync(pipe, cancel, "connected").ConfigureAwait(false);
                 _pipe = pipe;
                 return pipe;
             }
@@ -209,7 +209,7 @@ internal sealed class DiscordPresence : IDisposable
         await pipe.FlushAsync(cancel).ConfigureAwait(false);
     }
 
-    private static async Task ReadFrameAsync(Stream pipe, CancellationToken cancel)
+    private static async Task ReadFrameAsync(Stream pipe, CancellationToken cancel, string step)
     {
         var header = new byte[8];
         await pipe.ReadExactlyAsync(header, cancel).ConfigureAwait(false);
@@ -219,7 +219,22 @@ internal sealed class DiscordPresence : IDisposable
             throw new InvalidDataException("Discord sent an implausible frame.");
         }
 
-        await pipe.ReadExactlyAsync(new byte[length], cancel).ConfigureAwait(false);
+        var body = new byte[length];
+        await pipe.ReadExactlyAsync(body, cancel).ConfigureAwait(false);
+
+        // Only the event name and an error's message are logged: Discord's READY answer also
+        // describes the signed-in Discord user, which has no business in Goosic's log.
+        try
+        {
+            var reply = JsonNode.Parse(body);
+            var evt = reply?["evt"]?.GetValue<string>() ?? "reply";
+            var message = evt == "ERROR" ? " " + (reply?["data"]?["message"]?.GetValue<string>() ?? "") : "";
+            BridgeLog.Write($"discord {step}: {evt}{message}");
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            BridgeLog.Write($"discord {step}: unreadable reply");
+        }
     }
 
     public void Dispose()
