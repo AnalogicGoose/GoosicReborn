@@ -28,6 +28,9 @@ internal sealed record CatalogItem
     [JsonPropertyName("videoId")] public string? VideoId { get; init; }
     [JsonPropertyName("explicit")] public bool Explicit { get; init; }
 
+    /// <summary>A mood or genre's colour, as <c>#RRGGBB</c>; only categories have one.</summary>
+    [JsonPropertyName("color")] public string? Color { get; init; }
+
     /// <summary>
     /// This occurrence of a track in an account's playlist, from the personal reader only.
     /// </summary>

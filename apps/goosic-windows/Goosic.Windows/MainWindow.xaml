@@ -589,7 +589,8 @@
                                             <TextBlock Text="{x:Bind Title}" FontSize="20" FontWeight="SemiBold"
                                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                        ToolTipService.ToolTip="{x:Bind Title}" />
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
+                                                        Visibility="{x:Bind Scrolls}">
                                                 <Button Style="{StaticResource ShelfArrowStyle}" Content="&#xE76B;"
                                                         ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll shelf left" Tag="-1"
                                                         Click="OnShelfScroll" />
@@ -656,6 +657,35 @@
                                             </ItemsControl>
                                           </Border>
                                         </ScrollViewer>
+                                        <!-- Moods & genres: coloured tiles that wrap, as YouTube Music draws them. -->
+                                        <ItemsRepeater ItemsSource="{x:Bind Items}" Visibility="{x:Bind IsCategoryGrid}">
+                                            <ItemsRepeater.Layout>
+                                                <UniformGridLayout MinItemWidth="196" MinItemHeight="60"
+                                                                   MinColumnSpacing="12" MinRowSpacing="12"
+                                                                   ItemsStretch="Fill" />
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:CardViewModel">
+                                                    <Button Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                            HorizontalContentAlignment="Stretch" Padding="0"
+                                                            CornerRadius="8" BorderThickness="0"
+                                                            Background="{ThemeResource GoosicRaisedBrush}"
+                                                            AutomationProperties.Name="{x:Bind Title}">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="6" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Rectangle Fill="{x:Bind CategoryBrush}" />
+                                                            <TextBlock Grid.Column="1" Text="{x:Bind Title}" Margin="14,0"
+                                                                       VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                        </Grid>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
                                         <!-- Song-row shelves ("Quick picks"): columns of four compact rows, as
                                              YouTube Music lays them out, scrolling sideways like the cards. -->
                                         <ScrollViewer HorizontalScrollMode="Auto"

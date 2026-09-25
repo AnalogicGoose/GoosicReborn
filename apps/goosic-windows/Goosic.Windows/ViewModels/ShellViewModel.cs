@@ -50,6 +50,24 @@ public sealed class CardViewModel : INotifyPropertyChanged
         AlbumId = item.AlbumId;
         Artist = item.Artist;
         Album = item.Album;
+        CategoryBrush = CategoryColor(item.Color);
+    }
+
+    /// <summary>A mood or genre from Moods & genres, drawn as a coloured tile rather than a cover.</summary>
+    public bool IsCategory => Kind == "category";
+
+    public Microsoft.UI.Xaml.Media.Brush CategoryBrush { get; }
+
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush CategoryColor(string? hex)
+    {
+        var color = Microsoft.UI.Colors.SlateGray;
+        if (hex is { Length: 7 } && hex[0] == '#'
+            && uint.TryParse(hex.AsSpan(1), System.Globalization.NumberStyles.HexNumber, null, out var rgb))
+        {
+            color = global::Windows.UI.Color.FromArgb(0xFF, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+        }
+
+        return new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
     }
 
     public string Title { get; }
@@ -456,6 +474,7 @@ public sealed class ShelfViewModel
         }
 
         IsList = shelf.Layout == "list";
+        IsCategoryGrid = Items.Count > 0 && Items.All(item => item.IsCategory);
         Columns = IsList
             ? ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)).ToList()
             : [];
@@ -466,7 +485,16 @@ public sealed class ShelfViewModel
 
     /// <summary>Song rows, shown as YouTube Music shows Quick picks: columns of rows, not cards.</summary>
     public bool IsList { get; }
-    public bool IsCards => !IsList;
+    public bool IsCards => !IsList && !IsCategoryGrid;
+
+    /// <summary>
+    /// Moods & genres: every button at once in a wrapping grid, as YouTube Music and Apple Music
+    /// lay out their genres, rather than twenty-seven tiles in a sideways row.
+    /// </summary>
+    public bool IsCategoryGrid { get; }
+
+    /// <summary>Whether the shelf scrolls sideways, and so has arrows; a wrapping grid does not.</summary>
+    public bool Scrolls => !IsCategoryGrid;
 
     /// <summary>The same cards as <see cref="Items"/>, in columns of four for a list shelf.</summary>
     public IReadOnlyList<ShelfColumnViewModel> Columns { get; }
@@ -1424,6 +1452,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             "album" => "catalog.album",
             "playlist" => "catalog.playlist",
             "artist" => "catalog.artist",
+            "category" => "catalog.category",
             _ => null,
         };
         if (command is null || id.Length == 0)
@@ -1438,7 +1467,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         var hasEntityArtwork = SetEntityArtworkAsync(kind, id, artworkVersion);
         ShowPageHeader = true;
         PageTitle = title;
-        PageSubtitle = kind switch { "album" => "Album", "playlist" => "Playlist", _ => "Artist" };
+        PageSubtitle = kind switch
+        {
+            "album" => "Album",
+            "playlist" => "Playlist",
+            "category" => "Moods & genres",
+            _ => "Artist",
+        };
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
