@@ -1,6 +1,6 @@
 import Foundation
 
-let goosicProtocolVersion = "0.3.0"
+let goosicProtocolVersion = "0.4.0"
 
 enum GoosicOwner: String, Codable {
     case none

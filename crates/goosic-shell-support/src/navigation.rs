@@ -75,6 +75,8 @@ pub enum EntityReference {
     Album(String),
     Artist(String),
     Playlist(String),
+    /// A mood or genre; its id is the service's opaque category id.
+    Category(String),
 }
 
 impl EntityReference {
@@ -85,6 +87,7 @@ impl EntityReference {
             EntityReference::Album(_) => "Album",
             EntityReference::Artist(_) => "Artist",
             EntityReference::Playlist(_) => "Playlist",
+            EntityReference::Category(_) => "Mood or genre",
         }
     }
 }
@@ -134,6 +137,7 @@ pub enum CatalogKey {
     Album(String),
     Artist(String),
     Playlist(String),
+    Category(String),
 }
 
 impl CatalogKey {
@@ -142,6 +146,7 @@ impl CatalogKey {
             EntityReference::Album(id) => CatalogKey::Album(id.clone()),
             EntityReference::Artist(id) => CatalogKey::Artist(id.clone()),
             EntityReference::Playlist(id) => CatalogKey::Playlist(id.clone()),
+            EntityReference::Category(id) => CatalogKey::Category(id.clone()),
         }
     }
 }

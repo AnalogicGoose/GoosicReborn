@@ -25,7 +25,9 @@ fn page_type_kind(page_type: &str) -> Option<CatalogItemKind> {
 fn token_kind(token: &str) -> Option<CatalogItemKind> {
     match token {
         "Song" => Some(CatalogItemKind::Song),
-        "Video" => Some(CatalogItemKind::Video),
+        // A podcast episode is a video in YouTube Music's player; filed as a song, it read as
+        // one in the Songs shelf of an unfiltered search.
+        "Video" | "Episode" => Some(CatalogItemKind::Video),
         "Album" | "Single" | "EP" => Some(CatalogItemKind::Album),
         "Artist" => Some(CatalogItemKind::Artist),
         "Playlist" | "Community playlist" => Some(CatalogItemKind::Playlist),
@@ -237,6 +239,7 @@ pub fn responsive_item(node: &Value) -> Option<CatalogItem> {
         thumbnail: json::thumbnail(node, THUMBNAIL_BUDGET),
         video_id,
         explicit: is_explicit(node),
+        color: None,
     })
 }
 
@@ -290,6 +293,7 @@ pub fn two_row_item(node: &Value) -> Option<CatalogItem> {
         thumbnail: json::thumbnail(node, THUMBNAIL_BUDGET),
         video_id,
         explicit: is_explicit(node),
+        color: None,
     })
 }
 
@@ -331,6 +335,7 @@ pub fn queue_item(node: &Value) -> Option<CatalogItem> {
         thumbnail: json::thumbnail(node, THUMBNAIL_BUDGET),
         video_id: Some(video_id),
         explicit: is_explicit(node),
+        color: None,
     })
 }
 
@@ -386,20 +391,119 @@ pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
     }
 }
 
-/// Flattens every responsive row in a search response, in relevance order.
-pub fn search_items(response: &Value) -> Vec<CatalogItem> {
-    json::collect(response, "musicResponsiveListItemRenderer")
+/// Reads the "Top result" card that leads an unfiltered search.
+///
+/// YouTube Music puts its best guess -- usually the artist the query names -- in a
+/// `musicCardShelfRenderer` rather than among the rows, followed by a few of that result's
+/// songs. Those songs omit the artist because the card above them already names it, so the card's
+/// artist is written back into each one; otherwise they read as songs by nobody.
+fn top_result(card: &Value) -> Vec<CatalogItem> {
+    let mut items = Vec::new();
+    let title_node = card.get("title");
+    let title = title_node.map(json::runs_text).unwrap_or_default();
+    let subtitle = card
+        .get("subtitle")
+        .map(json::runs_text)
+        .unwrap_or_default();
+    let title_destination = title_node
+        .and_then(|node| json::runs(node).first())
+        .and_then(|run| run.get("navigationEndpoint"))
+        .and_then(destination)
+        .or_else(|| card.get("onTap").and_then(destination));
+    let tap_video = card
+        .get("onTap")
+        .and_then(|tap| tap.get("watchEndpoint"))
+        .and_then(|endpoint| endpoint.get("videoId"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let leading_token = subtitle
+        .split('•')
+        .next()
+        .map(str::trim)
+        .unwrap_or_default();
+    let thumbnail = card
+        .get("thumbnail")
+        .and_then(|node| json::thumbnail(node, THUMBNAIL_BUDGET));
+
+    let featured = if let Some(video_id) = tap_video {
+        let refs = references(&card.get("subtitle").into_iter().collect::<Vec<_>>());
+        Some(CatalogItem {
+            kind: token_kind(leading_token)
+                .filter(|kind| *kind == CatalogItemKind::Video)
+                .unwrap_or(CatalogItemKind::Song),
+            id: video_id.clone(),
+            title: title.clone(),
+            subtitle: subtitle.clone(),
+            artist: refs.artist.as_ref().map(|(name, _)| name.clone()),
+            artist_id: refs.artist.as_ref().map(|(_, id)| id.clone()),
+            album: refs.album.as_ref().map(|(name, _)| name.clone()),
+            album_id: refs.album.as_ref().map(|(_, id)| id.clone()),
+            duration: None,
+            thumbnail,
+            video_id: Some(video_id),
+            explicit: is_explicit(card),
+            color: None,
+        })
+    } else {
+        title_destination.and_then(|destination| {
+            let kind = destination.kind.or_else(|| token_kind(leading_token))?;
+            Some(CatalogItem {
+                kind,
+                id: destination.browse_id,
+                title: title.clone(),
+                subtitle: subtitle.clone(),
+                artist: None,
+                artist_id: None,
+                album: None,
+                album_id: None,
+                duration: None,
+                thumbnail,
+                video_id: None,
+                explicit: false,
+                color: None,
+            })
+        })
+    };
+    let Some(featured) = featured else {
+        return items;
+    };
+    let artist = (featured.kind == CatalogItemKind::Artist)
+        .then(|| (featured.title.clone(), featured.id.clone()));
+    items.push(featured);
+
+    for row in card
+        .get("contents")
+        .and_then(Value::as_array)
         .into_iter()
+        .flatten()
+        .filter_map(|node| node.get("musicResponsiveListItemRenderer"))
         .filter_map(responsive_item)
-        .collect()
+    {
+        let mut row = row;
+        if let (None, Some((name, id))) = (&row.artist, &artist) {
+            row.artist = Some(name.clone());
+            row.artist_id = Some(id.clone());
+            let mut parts: Vec<&str> = row.subtitle.split(" • ").collect();
+            parts.insert(1.min(parts.len()), name);
+            row.subtitle = parts.join(" • ");
+        }
+        items.push(row);
+    }
+    items
 }
 
 /// Groups search rows into the shelves the shell renders.
 ///
 /// Explicit `musicShelfRenderer` titles are preferred; the modern flat "all" response has none,
-/// so rows are then grouped by kind under stable titles.
+/// so rows are then grouped by kind under stable titles. A top result, when there is one, comes
+/// first, and the rows inside it are not repeated in the groups below.
 pub fn search_page(query: &str, response: &Value) -> CatalogPage {
     let mut shelves: Vec<CatalogShelf> = Vec::new();
+    let cards = json::collect(response, "musicCardShelfRenderer");
+    let top: Vec<CatalogItem> = cards
+        .first()
+        .map(|card| top_result(card))
+        .unwrap_or_default();
     for shelf in json::collect(response, "musicShelfRenderer") {
         let title = shelf.get("title").map(json::runs_text).unwrap_or_default();
         let items: Vec<CatalogItem> = json::collect(shelf, "musicResponsiveListItemRenderer")
@@ -418,7 +522,28 @@ pub fn search_page(query: &str, response: &Value) -> CatalogPage {
     }
 
     if shelves.is_empty() {
-        shelves = group_by_kind(search_items(response));
+        let inside_cards: Vec<&Value> = cards
+            .iter()
+            .flat_map(|card| json::collect(card, "musicResponsiveListItemRenderer"))
+            .collect();
+        let rows = json::collect(response, "musicResponsiveListItemRenderer")
+            .into_iter()
+            .filter(|row| !inside_cards.iter().any(|inner| std::ptr::eq(*inner, *row)))
+            .filter_map(responsive_item)
+            .collect();
+        shelves = group_by_kind(rows);
+    }
+
+    if !top.is_empty() {
+        shelves.insert(
+            0,
+            CatalogShelf {
+                id: "top-result".to_owned(),
+                title: "Top result".to_owned(),
+                items: top,
+                layout: ShelfLayout::List,
+            },
+        );
     }
 
     CatalogPage {
@@ -469,6 +594,54 @@ fn group_by_kind(items: Vec<CatalogItem>) -> Vec<CatalogShelf> {
         .collect()
 }
 
+/// Separates the browse id from its parameters inside a category's opaque id.
+///
+/// Neither half can contain it: browse ids are word characters and the parameters are URL-safe
+/// base64.
+pub const CATEGORY_SEPARATOR: char = '|';
+
+/// Normalizes one `musicNavigationButtonRenderer`, a mood or genre button on Moods & genres.
+///
+/// Opening one needs its browse id and its parameters together, so both travel in the item's id
+/// and only the service ever splits them again. The button's stripe colour is kept, so a shell
+/// can draw the page as YouTube Music does rather than as a wall of grey tiles.
+pub fn navigation_button_item(node: &Value) -> Option<CatalogItem> {
+    let title = node.get("buttonText").map(json::runs_text)?;
+    if title.is_empty() {
+        return None;
+    }
+    let browse = json::first(node.get("clickCommand")?, "browseEndpoint")?;
+    let browse_id = browse.get("browseId").and_then(Value::as_str)?;
+    let params = browse
+        .get("params")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let color = json::path(node, &["solid", "leftStripeColor"])
+        .and_then(Value::as_u64)
+        .map(|argb| format!("#{:06X}", argb & 0x00FF_FFFF));
+    Some(CatalogItem {
+        kind: CatalogItemKind::Category,
+        id: format!("{browse_id}{CATEGORY_SEPARATOR}{params}"),
+        title,
+        subtitle: String::new(),
+        artist: None,
+        artist_id: None,
+        album: None,
+        album_id: None,
+        duration: None,
+        thumbnail: None,
+        video_id: None,
+        explicit: false,
+        color,
+    })
+}
+
+/// Splits a category id made by [`navigation_button_item`] into its browse id and parameters.
+pub fn split_category_id(id: &str) -> Option<(&str, &str)> {
+    let (browse_id, params) = id.split_once(CATEGORY_SEPARATOR)?;
+    (!browse_id.trim().is_empty()).then_some((browse_id, params))
+}
+
 /// Reads every carousel of a browse response into shelves (home, explore, moods, charts).
 pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
     let mut shelves = Vec::new();
@@ -476,7 +649,11 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
     // came before every list shelf and grid, whatever order the page itself had.
     let sections = json::collect_any(
         response,
-        &["musicCarouselShelfRenderer", "musicShelfRenderer", "gridRenderer"],
+        &[
+            "musicCarouselShelfRenderer",
+            "musicShelfRenderer",
+            "gridRenderer",
+        ],
     );
     for (kind, section) in sections {
         let untitled = || format!("Shelf {}", shelves.len() + 1);
@@ -515,7 +692,10 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
             // Several recommendation modules use a plain music shelf of responsive song rows
             // rather than artwork cards. The old carousel-only parser silently discarded them.
             "musicShelfRenderer" => {
-                let title = section.get("title").map(json::runs_text).unwrap_or_default();
+                let title = section
+                    .get("title")
+                    .map(json::runs_text)
+                    .unwrap_or_default();
                 CatalogShelf {
                     id: format!("shelf-{}", shelves.len()),
                     title: if title.is_empty() { untitled() } else { title },
@@ -529,15 +709,25 @@ pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
             // Library and browse continuations sometimes return a grid directly under the
             // selected tab. Treat it as one shelf so those cards do not disappear just because
             // the wrapper differs from Home's.
-            _ => CatalogShelf {
-                id: format!("grid-{}", shelves.len()),
-                title: "More".to_owned(),
-                items: json::collect(section, "musicTwoRowItemRenderer")
+            // Moods & genres is two grids of navigation buttons under their own headings.
+            _ => {
+                let title = json::path(section, &["header", "gridHeaderRenderer", "title"])
+                    .map(json::runs_text)
+                    .filter(|title| !title.is_empty())
+                    .unwrap_or_else(|| "More".to_owned());
+                let cards = json::collect(section, "musicTwoRowItemRenderer")
                     .into_iter()
-                    .filter_map(two_row_item)
-                    .collect(),
-                layout: ShelfLayout::Cards,
-            },
+                    .filter_map(two_row_item);
+                let buttons = json::collect(section, "musicNavigationButtonRenderer")
+                    .into_iter()
+                    .filter_map(navigation_button_item);
+                CatalogShelf {
+                    id: format!("grid-{}", shelves.len()),
+                    title,
+                    items: cards.chain(buttons).collect(),
+                    layout: ShelfLayout::Cards,
+                }
+            }
         };
         if !shelf.items.is_empty() {
             shelves.push(shelf);
@@ -826,6 +1016,89 @@ mod tests {
         assert_eq!(page.shelves[0].title, "Songs");
         assert_eq!(page.shelves[1].title, "Artists");
         assert_eq!(page.id, "search:signal");
+    }
+
+    #[test]
+    fn a_top_result_card_leads_and_lends_its_artist_to_its_songs() {
+        let artist = json!({"browseEndpoint": {
+            "browseId": "UCbunny",
+            "browseEndpointContextSupportedConfigs": {
+                "browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}
+            }
+        }});
+        let card_song = json!({
+            "flexColumns": [
+                flex(json!({"runs": [{"text": "DtMF"}]})),
+                flex(json!({"runs": [{"text": "Song"}, {"text": " • "}, {"text": "3:58"}]}))
+            ],
+            "playlistItemData": {"videoId": "dtmf"}
+        });
+        let response = json!({"contents": [
+            {"musicCardShelfRenderer": {
+                "title": {"runs": [{"text": "Bad Bunny", "navigationEndpoint": artist}]},
+                "subtitle": {"runs": [{"text": "Artist"}, {"text": " • "}, {"text": "162M monthly audience"}]},
+                "contents": [{"musicResponsiveListItemRenderer": card_song}]
+            }},
+            {"musicResponsiveListItemRenderer": song_row()}
+        ]});
+        let page = search_page("bad bunny", &response);
+        assert_eq!(page.shelves[0].title, "Top result");
+        let top = &page.shelves[0].items;
+        assert_eq!(top[0].kind, CatalogItemKind::Artist);
+        assert_eq!(top[0].id, "UCbunny");
+        assert_eq!(top[1].artist.as_deref(), Some("Bad Bunny"));
+        assert_eq!(top[1].subtitle, "Song • Bad Bunny • 3:58");
+        // The card's song is not listed a second time under Songs.
+        let songs = &page.shelves[1];
+        assert_eq!(songs.title, "Songs");
+        assert!(songs.items.iter().all(|item| item.id != "dtmf"));
+    }
+
+    #[test]
+    fn podcast_episodes_are_filed_as_videos_not_songs() {
+        let row = json!({
+            "flexColumns": [
+                flex(json!({"runs": [{"text": "An episode"}]})),
+                flex(json!({"runs": [{"text": "Episode"}, {"text": " • "}, {"text": "Feb 11"}]}))
+            ],
+            "playlistItemData": {"videoId": "ep1"}
+        });
+        let item = responsive_item(&row).unwrap();
+        assert_eq!(item.kind, CatalogItemKind::Video);
+    }
+
+    #[test]
+    fn mood_buttons_become_categories_that_carry_their_parameters_and_colour() {
+        let response = json!({"gridRenderer": {
+            "header": {"gridHeaderRenderer": {"title": {"runs": [{"text": "Moods & moments"}]}}},
+            "items": [{"musicNavigationButtonRenderer": {
+                "buttonText": {"runs": [{"text": "Chill"}]},
+                "solid": {"leftStripeColor": 4288988671u64},
+                "clickCommand": {"browseEndpoint": {
+                    "browseId": "FEmusic_moods_and_genres_category",
+                    "params": "ggMPOg1uX1JOQWZFeDByc2Jm"
+                }}
+            }}]
+        }});
+        let shelves = browse_shelves(&response);
+        assert_eq!(shelves[0].title, "Moods & moments");
+        let chill = &shelves[0].items[0];
+        assert_eq!(chill.kind, CatalogItemKind::Category);
+        assert_eq!(chill.title, "Chill");
+        assert_eq!(chill.color.as_deref(), Some("#A4C5FF"));
+        assert_eq!(
+            split_category_id(&chill.id),
+            Some((
+                "FEmusic_moods_and_genres_category",
+                "ggMPOg1uX1JOQWZFeDByc2Jm"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_category_id_without_a_browse_id_is_refused() {
+        assert_eq!(split_category_id("|params"), None);
+        assert_eq!(split_category_id("no separator"), None);
     }
 
     #[test]

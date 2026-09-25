@@ -28,6 +28,9 @@ internal sealed record CatalogItem
     [JsonPropertyName("videoId")] public string? VideoId { get; init; }
     [JsonPropertyName("explicit")] public bool Explicit { get; init; }
 
+    /// <summary>A mood or genre's colour, as <c>#RRGGBB</c>; only categories have one.</summary>
+    [JsonPropertyName("color")] public string? Color { get; init; }
+
     /// <summary>
     /// This occurrence of a track in an account's playlist, from the personal reader only.
     /// </summary>
@@ -54,6 +57,9 @@ internal sealed record CatalogPage
     [JsonPropertyName("subtitle")] public string Subtitle { get; init; } = "";
     [JsonPropertyName("shelves")] public IReadOnlyList<CatalogShelf> Shelves { get; init; } = [];
     [JsonPropertyName("tracks")] public IReadOnlyList<CatalogItem> Tracks { get; init; } = [];
+
+    /// <summary>The page's own cover, when it has one, such as a playlist's or Liked Music's.</summary>
+    [JsonPropertyName("thumbnail")] public string? Thumbnail { get; init; }
 
     /// <summary>The opaque cursor for the next page, echoed only to <c>catalog.continue</c>.</summary>
     [JsonPropertyName("nextCursor")] public string? NextCursor { get; init; }
