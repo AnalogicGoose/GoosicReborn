@@ -148,8 +148,16 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnLikeNowPlaying(object sender, RoutedEventArgs e) =>
+    private async void OnLikeNowPlaying(object sender, RoutedEventArgs e)
+    {
+        // The button shows what YouTube Music accepted, not the click: a toggle flips itself,
+        // and would stay lit over a like that was refused.
         await Model.ToggleNowPlayingRatingAsync("LIKE");
+        if (sender is ToggleButton toggle)
+        {
+            toggle.IsChecked = Model.IsNowPlayingLiked;
+        }
+    }
 
     private async void OnDislikeNowPlaying(object sender, RoutedEventArgs e) =>
         await Model.ToggleNowPlayingRatingAsync("DISLIKE");

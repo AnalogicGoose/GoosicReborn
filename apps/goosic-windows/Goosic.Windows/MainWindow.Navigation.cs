@@ -25,11 +25,14 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnNavigate(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string tag })
+        if (sender is Button { Tag: string tag })
         {
-            return;
+            await NavigateAsync(tag);
         }
+    }
 
+    private async Task NavigateAsync(string tag)
+    {
         HighlightNavigation(tag);
         DismissOverlaySidebar();
         if (tag.StartsWith("library:", StringComparison.Ordinal))
@@ -124,11 +127,79 @@ public sealed partial class MainWindow : Window
         SidebarSearch.Focus(FocusState.Programmatic);
     }
 
+    private const int RecentSearchLimit = 8;
+
+    /// <summary>
+    /// Offers recent searches as the box opens and as it is typed in, as Spotify's and Apple
+    /// Music's search does. They are kept on this computer and never sent anywhere.
+    /// </summary>
+    private void OnSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            ShowRecentSearches(sender);
+        }
+    }
+
+    private void OnSearchGotFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is AutoSuggestBox box && box.Text.Length == 0)
+        {
+            ShowRecentSearches(box);
+        }
+    }
+
+    private static void ShowRecentSearches(AutoSuggestBox box)
+    {
+        var typed = box.Text.Trim();
+        var matches = new List<string>();
+        foreach (var recent in ShellPreferences.RecentSearches)
+        {
+            // What is already in the box is not a suggestion.
+            if (string.Equals(recent, typed, StringComparison.CurrentCultureIgnoreCase))
+            {
+                continue;
+            }
+
+            if (typed.Length == 0 || recent.Contains(typed, StringComparison.CurrentCultureIgnoreCase))
+            {
+                matches.Add(recent);
+            }
+        }
+
+        box.ItemsSource = matches;
+        box.IsSuggestionListOpen = matches.Count > 0;
+    }
+
+    private static void RememberSearch(string query)
+    {
+        var trimmed = query.Trim();
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+        var recent = new List<string> { trimmed };
+        foreach (var earlier in ShellPreferences.RecentSearches)
+        {
+            if (!string.Equals(earlier, trimmed, StringComparison.CurrentCultureIgnoreCase) && recent.Count < RecentSearchLimit)
+            {
+                recent.Add(earlier);
+            }
+        }
+
+        ShellPreferences.RecentSearches = recent;
+    }
+
     private async void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
+        var query = args.ChosenSuggestion as string ?? args.QueryText;
+        sender.Text = query;
+        sender.IsSuggestionListOpen = false;
+        RememberSearch(query);
         HighlightNavigation(null);
         DismissOverlaySidebar();
-        await Model.SearchAsync(args.QueryText, "all");
+        await Model.SearchAsync(query, "all");
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
     }

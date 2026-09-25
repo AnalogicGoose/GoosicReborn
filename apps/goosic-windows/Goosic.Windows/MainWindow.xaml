@@ -94,11 +94,12 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                             <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
-                                <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage" AutomationProperties.Name="Play"
+                                <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage"
+                                        AutomationProperties.Name="{x:Bind Model.PagePlayLabel, Mode=OneWay}"
                                         Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="&#xE768;" FontSize="14" />
-                                        <TextBlock Text="Play" />
+                                        <FontIcon Glyph="{x:Bind Model.PagePlayGlyph, Mode=OneWay}" FontSize="14" />
+                                        <TextBlock Text="{x:Bind Model.PagePlayLabel, Mode=OneWay}" />
                                     </StackPanel>
                                 </Button>
                                 <Button Click="OnShufflePage" AutomationProperties.Name="Shuffle" Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
@@ -123,6 +124,22 @@
                                         <TextBlock Text="{x:Bind Model.SubscribeLabel, Mode=OneWay}" />
                                     </StackPanel>
                                 </Button>
+                                <!-- Sort and find, as a Spotify or Apple Music playlist offers: views over the
+                                     loaded rows that never change the playlist itself. -->
+                                <DropDownButton Visibility="{x:Bind Model.CanSortTracks, Mode=OneWay}"
+                                                AutomationProperties.Name="{x:Bind Model.TrackSortLabel, Mode=OneWay}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE8CB;" FontSize="14" />
+                                        <TextBlock Text="{x:Bind Model.TrackSortLabel, Mode=OneWay}" />
+                                    </StackPanel>
+                                    <DropDownButton.Flyout>
+                                        <MenuFlyout Opening="OnSortMenuOpening" />
+                                    </DropDownButton.Flyout>
+                                </DropDownButton>
+                                <TextBox Width="220" PlaceholderText="Find in playlist"
+                                         Visibility="{x:Bind Model.CanSortTracks, Mode=OneWay}"
+                                         Text="{x:Bind Model.TrackFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         AutomationProperties.Name="Find in playlist" />
                                 <Button Visibility="{x:Bind Model.IsOwnedPlaylistPage, Mode=OneWay}"
                                         ToolTipService.ToolTip="Edit playlist" AutomationProperties.Name="Edit playlist">
                                     <FontIcon Glyph="&#xE712;" FontSize="14" />
@@ -499,13 +516,15 @@
                                             Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
                                             PointerEntered="OnTrackRowPointerEntered" PointerExited="OnTrackRowPointerExited"
                                             Opacity="{x:Bind RowOpacity, Mode=OneWay}"
+                                            Visibility="{x:Bind FilterVisibility, Mode=OneWay}"
                                             ToolTipService.ToolTip="{x:Bind UnavailableTip, Mode=OneWay}"
                                             GotFocus="OnTrackRowFocusChanged" LostFocus="OnTrackRowFocusChanged">
                                         <Grid ColumnSpacing="11" MinHeight="40">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="3*" />
+                                                <ColumnDefinition Width="{x:Bind AlbumColumnWidth, Mode=OneWay}" />
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
@@ -539,10 +558,13 @@
                                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                                            TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
-                                            <TextBlock Grid.Column="3" Text="{x:Bind Duration}" FontSize="12"
+                                            <TextBlock Grid.Column="3" Text="{x:Bind AlbumText, Mode=OneWay}" FontSize="13"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                            <TextBlock Grid.Column="4" Text="{x:Bind Duration}" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                                            <Button Grid.Column="4" Style="{StaticResource TransportGlyphStyle}"
+                                            <Button Grid.Column="5" Style="{StaticResource TransportGlyphStyle}"
                                                     Content="&#xE712;" ToolTipService.ToolTip="More"
                                                     AutomationProperties.Name="More options" Opacity="0"
                                                     Tag="more" Click="OnItemMore" />
@@ -567,7 +589,8 @@
                                             <TextBlock Text="{x:Bind Title}" FontSize="20" FontWeight="SemiBold"
                                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                        ToolTipService.ToolTip="{x:Bind Title}" />
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
+                                                        Visibility="{x:Bind Scrolls}">
                                                 <Button Style="{StaticResource ShelfArrowStyle}" Content="&#xE76B;"
                                                         ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll shelf left" Tag="-1"
                                                         Click="OnShelfScroll" />
@@ -602,7 +625,7 @@
                                                         <StackPanel Width="{x:Bind CardWidth}" Spacing="6">
                                                             <Border Width="{x:Bind CardWidth}"
                                                                     Height="{StaticResource GoosicCardSize}"
-                                                                    CornerRadius="6"
+                                                                    CornerRadius="{x:Bind CardCornerRadius}"
                                                                     Background="{ThemeResource GoosicRaisedBrush}">
                                                                 <Grid>
                                                                     <!-- Liked Music has no cover of its own on YouTube Music: a gradient and a thumbs-up. -->
@@ -634,6 +657,35 @@
                                             </ItemsControl>
                                           </Border>
                                         </ScrollViewer>
+                                        <!-- Moods & genres: coloured tiles that wrap, as YouTube Music draws them. -->
+                                        <ItemsRepeater ItemsSource="{x:Bind Items}" Visibility="{x:Bind IsCategoryGrid}">
+                                            <ItemsRepeater.Layout>
+                                                <UniformGridLayout MinItemWidth="196" MinItemHeight="60"
+                                                                   MinColumnSpacing="12" MinRowSpacing="12"
+                                                                   ItemsStretch="Fill" />
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:CardViewModel">
+                                                    <Button Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                            HorizontalContentAlignment="Stretch" Padding="0"
+                                                            CornerRadius="8" BorderThickness="0"
+                                                            Background="{ThemeResource GoosicRaisedBrush}"
+                                                            AutomationProperties.Name="{x:Bind Title}">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="6" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Rectangle Fill="{x:Bind CategoryBrush}" />
+                                                            <TextBlock Grid.Column="1" Text="{x:Bind Title}" Margin="14,0"
+                                                                       VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                        </Grid>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
                                         <!-- Song-row shelves ("Quick picks"): columns of four compact rows, as
                                              YouTube Music lays them out, scrolling sideways like the cards. -->
                                         <ScrollViewer HorizontalScrollMode="Auto"
@@ -668,7 +720,7 @@
                                                                                 <ColumnDefinition Width="48" />
                                                                                 <ColumnDefinition Width="*" />
                                                                             </Grid.ColumnDefinitions>
-                                                                            <Border Width="48" Height="48" CornerRadius="4"
+                                                                            <Border Width="48" Height="48" CornerRadius="{x:Bind RowArtworkCornerRadius}"
                                                                                     Background="{ThemeResource GoosicRaisedBrush}">
                                                                                 <Image Source="{x:Bind Artwork, Mode=OneWay}"
                                                                                        Stretch="UniformToFill" />
@@ -839,6 +891,15 @@
 
                         <StackPanel x:Name="PlayerUtilities" Grid.Column="2" Orientation="Horizontal"
                                     VerticalAlignment="Center" Spacing="2">
+                            <!-- Like sits beside the song, as the heart does in Apple Music and Spotify: the
+                                 one thing people do to a song while it plays. -->
+                            <ToggleButton x:Name="PillLikeButton" Style="{StaticResource PillToggleStyle}"
+                                          Content="{x:Bind Model.LikeGlyph, Mode=OneWay}"
+                                          IsEnabled="{x:Bind Model.CanRateNowPlaying, Mode=OneWay}"
+                                          IsChecked="{x:Bind Model.IsNowPlayingLiked, Mode=OneWay}"
+                                          ToolTipService.ToolTip="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                          AutomationProperties.Name="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                          Click="OnLikeNowPlaying" />
                             <Button x:Name="PillMoreButton" Style="{StaticResource PillGlyphStyle}" Content="&#xE712;"
                                     IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     ToolTipService.ToolTip="More" AutomationProperties.Name="More options"
@@ -853,6 +914,22 @@
                                           Content="&#xE8FD;" ToolTipService.ToolTip="Playing Next"
                                           AutomationProperties.Name="Playing Next"
                                           Click="OnToggleQueue" />
+                            <!-- Volume in reach, as in Apple Music and Spotify; the button's flyout stays for
+                                 the narrow layout, where this is hidden. -->
+                            <Slider x:Name="PillVolumeInline" Width="92" VerticalAlignment="Center" Margin="4,0,2,0"
+                                    Minimum="0" Maximum="100" StepFrequency="1" IsThumbToolTipEnabled="False"
+                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                    Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
+                                    ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume">
+                                <Slider.Resources>
+                                    <StaticResource x:Key="SliderTrackValueFill" ResourceKey="TextFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SliderThumbBackground" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SliderThumbBackgroundPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SliderThumbBackgroundPressed" ResourceKey="TextFillColorPrimaryBrush" />
+                                </Slider.Resources>
+                            </Slider>
                             <Button x:Name="VolumeButton" Style="{StaticResource PillGlyphStyle}"
                                     IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume"
@@ -893,7 +970,8 @@
                     </Grid.RowDefinitions>
 
                     <AutoSuggestBox x:Name="SidebarSearch" Grid.Row="0" PlaceholderText="Search"
-                                    QueryIcon="Find" QuerySubmitted="OnSearchSubmitted" Margin="2,0,2,4" />
+                                    QueryIcon="Find" QuerySubmitted="OnSearchSubmitted"
+                                    TextChanged="OnSearchTextChanged" GotFocus="OnSearchGotFocus" Margin="2,0,2,4" />
 
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
                         <StackPanel x:Name="SidebarItems" Spacing="1">
@@ -931,10 +1009,10 @@
                             </Button>
 
                             <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Library" />
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="liked" Click="OnNavigate" AutomationProperties.Name="Favourite Songs">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="liked" Click="OnNavigate" AutomationProperties.Name="Liked Music">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE8E1;" />
-                                    <TextBlock Text="Favourite Songs" />
+                                    <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xEB51;" />
+                                    <TextBlock Text="Liked Music" />
                                 </StackPanel>
                             </Button>
                             <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_library_corpus_artists" Click="OnNavigate" AutomationProperties.Name="Artists">
@@ -1225,6 +1303,7 @@
                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                            AutomationProperties.HeadingLevel="Level3" />
                                 <TextBlock Text="{x:Bind Model.UpNextSummary, Mode=OneWay}" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" Margin="0,0,64,0"
                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                             </StackPanel>
                             <Button HorizontalAlignment="Right" VerticalAlignment="Center" Content="Clear"
@@ -1368,12 +1447,25 @@
                         </Border>
                     </Button>
 
-                    <StackPanel Spacing="3" Margin="0,12,0,0">
-                        <TextBlock Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}" FontSize="24"
-                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{x:Bind Model.NowPlayingArtist, Mode=OneWay}" FontSize="16" Opacity="0.7"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
+                    <Grid Margin="0,12,0,0" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}" FontSize="24"
+                                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{x:Bind Model.NowPlayingArtist, Mode=OneWay}" FontSize="16" Opacity="0.7"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <ToggleButton Grid.Column="1" x:Name="FullPlayerLikeButton" VerticalAlignment="Center"
+                                      Style="{StaticResource FullPlayerToggleStyle}" Content="{x:Bind Model.LikeGlyph, Mode=OneWay}"
+                                      IsEnabled="{x:Bind Model.CanRateNowPlaying, Mode=OneWay}"
+                                      IsChecked="{x:Bind Model.IsNowPlayingLiked, Mode=OneWay}"
+                                      ToolTipService.ToolTip="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                      AutomationProperties.Name="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                      Click="OnLikeNowPlaying" />
+                    </Grid>
 
                     <Slider x:Name="FullPlayerProgress" Minimum="0" StepFrequency="1"
                             PreviewKeyDown="OnFullPlayerProgressKeyDown"
@@ -1381,7 +1473,21 @@
                             Maximum="{x:Bind Model.PlaybackDuration, Mode=OneWay}"
                             Value="{x:Bind Model.PlaybackPosition, Mode=OneWay}"
                             IsEnabled="{x:Bind Model.IsSeekable, Mode=OneWay}"
-                            AutomationProperties.Name="Position" />
+                            AutomationProperties.Name="Position">
+                        <!-- White over the artwork's colours, as Apple Music draws it; the system accent
+                             (red on many machines) fought with every cover. -->
+                        <Slider.Resources>
+                            <SolidColorBrush x:Key="SliderTrackValueFill" Color="#F2FFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#FFFFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#FFFFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackFill" Color="#40FFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackFillPointerOver" Color="#55FFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackFillPressed" Color="#55FFFFFF" />
+                            <SolidColorBrush x:Key="SliderThumbBackground" Color="#FFFFFFFF" />
+                            <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#FFFFFFFF" />
+                            <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#FFFFFFFF" />
+                        </Slider.Resources>
+                    </Slider>
                     <Grid Margin="0,-8,0,0" Opacity="0.7">
                         <TextBlock Text="{x:Bind Model.PositionText, Mode=OneWay}" FontSize="12" />
                         <TextBlock Text="{x:Bind Model.RemainingText, Mode=OneWay}" FontSize="12" HorizontalAlignment="Right" />
@@ -1470,6 +1576,9 @@
                                     </Flyout>
                     </Button.Flyout>
                 </Button>
+                <ToggleButton x:Name="MiniPlayerToggle" Style="{StaticResource FullPlayerToggleStyle}"
+                              Content="&#xEE49;" ToolTipService.ToolTip="Mini player, kept on top"
+                              AutomationProperties.Name="Mini player" Click="OnToggleMiniPlayer" />
                 <ToggleButton x:Name="FullPlayerWindowToggle" Style="{StaticResource FullPlayerToggleStyle}"
                               Content="&#xE740;" ToolTipService.ToolTip="Fill the screen (F11)"
                               AutomationProperties.Name="Fill the screen" Click="OnToggleWindowFullScreen" />

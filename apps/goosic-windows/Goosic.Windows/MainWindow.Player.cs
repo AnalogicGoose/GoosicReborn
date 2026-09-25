@@ -189,7 +189,17 @@ public sealed partial class MainWindow : Window
         await _playback.PlayAsync(videoId);
     }
 
-    private async void OnPlayPage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: false));
+    private async void OnPlayPage(object sender, RoutedEventArgs e)
+    {
+        // The list already playing is paused and resumed from here rather than restarted.
+        if (Model.IsPageQueued)
+        {
+            await TogglePauseAsync();
+            return;
+        }
+
+        await PlayEntryAsync(Model.PlayPage(shuffle: false));
+    }
 
     private async void OnShufflePage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: true));
 
@@ -215,6 +225,13 @@ public sealed partial class MainWindow : Window
 
     private async Task AdvanceAsync(bool forward, bool natural)
     {
+        // The sleep timer's "end of this song": the song has ended, so nothing follows it.
+        if (natural && TakeSleepAtEndOfSong())
+        {
+            Model.ReportStatus("Sleep timer: stopped at the end of the song.");
+            return;
+        }
+
         var move = await Model.MoveAsync(forward, natural);
         if (move.Entry is null)
         {

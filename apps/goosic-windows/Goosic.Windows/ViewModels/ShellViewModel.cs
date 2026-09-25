@@ -29,7 +29,7 @@ public sealed record RouteEntry(string Route, string Title, string Glyph)
         new("moodsAndGenres", "Moods & genres", ""),
         new("newReleases", "New releases", ""),
         new("library", "Library", ""),
-        new("liked", "Liked Music", "\uE8E1"),
+        new("liked", "Liked Music", "\uEB51"),
         new("history", "History", "\uE81C"),
         new("downloads", "Downloads", ""),
         new("settings", "Settings", "\uE713"),
@@ -50,6 +50,29 @@ public sealed class CardViewModel : INotifyPropertyChanged
         AlbumId = item.AlbumId;
         Artist = item.Artist;
         Album = item.Album;
+        CategoryBrush = CategoryColor(item.Color);
+    }
+
+    /// <summary>A mood or genre from Moods & genres, drawn as a coloured tile rather than a cover.</summary>
+    public bool IsCategory => Kind == "category";
+
+    /// <summary>An artist is a circle and anything else a rounded square, as every music app draws them.</summary>
+    public Microsoft.UI.Xaml.CornerRadius RowArtworkCornerRadius => new(Kind == "artist" ? 24 : 4);
+
+    public Microsoft.UI.Xaml.CornerRadius CardCornerRadius => new(Kind == "artist" ? CardShape.Size / 2 : 6);
+
+    public Microsoft.UI.Xaml.Media.Brush CategoryBrush { get; }
+
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush CategoryColor(string? hex)
+    {
+        var color = Microsoft.UI.Colors.SlateGray;
+        if (hex is { Length: 7 } && hex[0] == '#'
+            && uint.TryParse(hex.AsSpan(1), System.Globalization.NumberStyles.HexNumber, null, out var rgb))
+        {
+            color = global::Windows.UI.Color.FromArgb(0xFF, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+        }
+
+        return new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
     }
 
     public string Title { get; }
@@ -327,6 +350,7 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         {
             nameof(NumberText), nameof(IsNowPlaying), nameof(NumberVisibility), nameof(PlayingVisibility),
             nameof(LeadingColumnVisibility), nameof(ArtworkVisibility), nameof(TitleBrush), nameof(AccessibleName),
+            nameof(AlbumColumnWidth), nameof(AlbumText),
         })
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
@@ -334,6 +358,16 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// A playlist's rows name their album in a column of its own, as Spotify's and Apple Music's
+    /// do; an album page's rows all share one, so it is left off there.
+    /// </summary>
+    public Microsoft.UI.Xaml.GridLength AlbumColumnWidth => _showsArtwork && !string.IsNullOrWhiteSpace(Album)
+        ? new Microsoft.UI.Xaml.GridLength(2, Microsoft.UI.Xaml.GridUnitType.Star)
+        : new Microsoft.UI.Xaml.GridLength(0);
+
+    public string AlbumText => _showsArtwork ? Album ?? "" : "";
 
     public string Title { get; }
     public string Subtitle { get; }
@@ -366,6 +400,37 @@ public sealed class TrackViewModel : INotifyPropertyChanged
     }
 
     public double RowOpacity => IsPlayable ? 1 : 0.45;
+
+    private static long s_nextOrdinal;
+
+    /// <summary>The order rows arrived in, so a sorted list can go back to the playlist's own order.</summary>
+    internal long Ordinal { get; } = System.Threading.Interlocked.Increment(ref s_nextOrdinal);
+
+    private bool _filteredOut;
+
+    /// <summary>Hidden by the page's filter box.</summary>
+    internal bool FilteredOut
+    {
+        get => _filteredOut;
+        set
+        {
+            if (_filteredOut != value)
+            {
+                _filteredOut = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(FilterVisibility)));
+            }
+        }
+    }
+
+    public Microsoft.UI.Xaml.Visibility FilterVisibility =>
+        _filteredOut ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+
+    /// <summary>Whether this row matches what was typed in the filter box.</summary>
+    internal bool Matches(string text) =>
+        text.Length == 0
+        || Title.Contains(text, StringComparison.CurrentCultureIgnoreCase)
+        || Subtitle.Contains(text, StringComparison.CurrentCultureIgnoreCase)
+        || (Album?.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false);
 
     public string? UnavailableTip => IsPlayable ? null : "This track isn’t available to play";
     public bool Explicit { get; }
@@ -414,6 +479,7 @@ public sealed class ShelfViewModel
         }
 
         IsList = shelf.Layout == "list";
+        IsCategoryGrid = Items.Count > 0 && Items.All(item => item.IsCategory);
         Columns = IsList
             ? ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)).ToList()
             : [];
@@ -424,7 +490,16 @@ public sealed class ShelfViewModel
 
     /// <summary>Song rows, shown as YouTube Music shows Quick picks: columns of rows, not cards.</summary>
     public bool IsList { get; }
-    public bool IsCards => !IsList;
+    public bool IsCards => !IsList && !IsCategoryGrid;
+
+    /// <summary>
+    /// Moods & genres: every button at once in a wrapping grid, as YouTube Music and Apple Music
+    /// lay out their genres, rather than twenty-seven tiles in a sideways row.
+    /// </summary>
+    public bool IsCategoryGrid { get; }
+
+    /// <summary>Whether the shelf scrolls sideways, and so has arrows; a wrapping grid does not.</summary>
+    public bool Scrolls => !IsCategoryGrid;
 
     /// <summary>The same cards as <see cref="Items"/>, in columns of four for a list shelf.</summary>
     public IReadOnlyList<ShelfColumnViewModel> Columns { get; }
@@ -507,6 +582,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     internal ShellViewModel(GoosicServiceClient client)
     {
         _client = client;
+        WireTrackView();
         Tracks.CollectionChanged += (_, change) =>
         {
             OnPropertyChanged(nameof(HasTracks));
@@ -825,6 +901,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(PlayIconVisibility));
                 OnPropertyChanged(nameof(PauseIconVisibility));
                 OnPropertyChanged(nameof(PlayPauseLabel));
+                PagePlaybackChanged();
             }
         }
     }
@@ -1362,6 +1439,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         _currentRoute = key;
+        PagePlaybackChanged();
     }
 
     /// <summary>Opens an album, playlist or artist.</summary>
@@ -1379,6 +1457,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             "album" => "catalog.album",
             "playlist" => "catalog.playlist",
             "artist" => "catalog.artist",
+            "category" => "catalog.category",
             _ => null,
         };
         if (command is null || id.Length == 0)
@@ -1393,7 +1472,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         var hasEntityArtwork = SetEntityArtworkAsync(kind, id, artworkVersion);
         ShowPageHeader = true;
         PageTitle = title;
-        PageSubtitle = kind switch { "album" => "Album", "playlist" => "Playlist", _ => "Artist" };
+        PageSubtitle = kind switch
+        {
+            "album" => "Album",
+            "playlist" => "Playlist",
+            "category" => "Moods & genres",
+            _ => "Artist",
+        };
         Shelves.Clear();
         Tracks.Clear();
         NextCursor = null;
@@ -1636,13 +1721,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task<bool> SetEntityArtworkAsync(string kind, string id, int version)
-    {
-        if (!_entityThumbnails.TryGetValue(kind + KeySeparator + id, out var thumbnail))
-        {
-            return false;
-        }
+    private Task<bool> SetEntityArtworkAsync(string kind, string id, int version) =>
+        _entityThumbnails.TryGetValue(kind + KeySeparator + id, out var thumbnail)
+            ? SetPageArtworkFromAsync(thumbnail, version)
+            : Task.FromResult(false);
 
+    private async Task<bool> SetPageArtworkFromAsync(string thumbnail, int version)
+    {
         var file = await _artwork.LocalFileAsync(thumbnail).ConfigureAwait(true);
         if (file is null || version != _pageArtworkVersion)
         {
@@ -1682,7 +1767,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     /// <summary>The line under the title: the page's own subtitle, then its songs and running time.</summary>
     public string PageMeta => _pageKind is DetailKind.Album or DetailKind.Playlist
-        ? DetailLayout.Summary(PageSubtitle, Tracks.Select(track => track.Duration).ToList(), _pageTruncated)
+        ? DetailLayout.Summary(
+            PageSubtitle,
+            Tracks.Select(track => track.Duration).ToList(),
+            // A list with more still to load is not the whole list: "100 songs" on a playlist of
+            // three hundred says something false.
+            _pageTruncated || !string.IsNullOrEmpty(_nextCursor))
         : PageSubtitle;
 
     private void SetPageTruncated(bool truncated)

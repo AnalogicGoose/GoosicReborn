@@ -234,6 +234,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(open ? FullPlayerDragStrip : TitleBarStrip);
         if (!open)
         {
+            SetMiniPlayer(false);
             SetWindowFullScreen(false);
             RestoreFocusAfterFullPlayer();
             return;
