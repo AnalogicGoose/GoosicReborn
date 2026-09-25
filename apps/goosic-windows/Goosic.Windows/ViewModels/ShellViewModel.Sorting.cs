@@ -18,13 +18,7 @@ public sealed partial class ShellViewModel
     // the playlist, and "Custom order" returns to the order the playlist itself has.
 
     public IReadOnlyList<TrackSortChoice> TrackSortChoices { get; } =
-    [
-        new("Custom order", "custom"),
-        new("Title", "title"),
-        new("Artist", "artist"),
-        new("Album", "album"),
-        new("Duration", "duration"),
-    ];
+        TrackOrder.Choices.Select(choice => new TrackSortChoice(choice.Label, choice.Key)).ToList();
 
     private string _trackSort = "custom";
     private string _trackFilter = "";
@@ -33,7 +27,7 @@ public sealed partial class ShellViewModel
     /// <summary>Sorting and filtering are offered on lists of songs someone put together.</summary>
     public bool CanSortTracks => HasTracks && _pageKind is DetailKind.Playlist && !IsEditingPlaylist;
 
-    public string TrackSortLabel => "Sort: " + TrackSortChoices.First(choice => choice.Key == _trackSort).Label;
+    public string TrackSortLabel => "Sort: " + TrackOrder.Label(_trackSort);
 
     public string TrackFilter
     {
@@ -94,16 +88,7 @@ public sealed partial class ShellViewModel
     /// <summary>Puts the loaded rows in the chosen order, moving only the rows out of place.</summary>
     private void ReorderTracks()
     {
-        var comparer = StringComparer.CurrentCultureIgnoreCase;
-        IEnumerable<TrackViewModel> ordered = _trackSort switch
-        {
-            "title" => Tracks.OrderBy(row => row.Title, comparer),
-            "artist" => Tracks.OrderBy(row => row.Artist ?? row.Subtitle, comparer).ThenBy(row => row.Ordinal),
-            "album" => Tracks.OrderBy(row => row.Album ?? "", comparer).ThenBy(row => row.Ordinal),
-            "duration" => Tracks.OrderBy(row => DetailLayout.ParseDuration(row.Duration) ?? TimeSpan.MaxValue),
-            _ => Tracks.OrderBy(row => row.Ordinal),
-        };
-        var target = ordered.ToList();
+        var target = TrackOrder.Sort(Tracks, _trackSort);
         _sortingTracks = true;
         try
         {

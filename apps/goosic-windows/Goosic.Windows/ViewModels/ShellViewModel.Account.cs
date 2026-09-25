@@ -161,8 +161,8 @@ public sealed partial class ShellViewModel
         new("Playlists", "FEmusic_liked_playlists", "shelves"),
         new("Songs", "VLLM", "tracks"),
         new("Albums", "FEmusic_liked_albums", "shelves"),
-        new("Artists", "FEmusic_library_corpus_track_artists", "shelves"),
-        new("Subscriptions", "FEmusic_library_corpus_artists", "shelves"),
+        new("Artists", CatalogRules.LibraryArtists, "shelves"),
+        new("Subscriptions", CatalogRules.LibrarySubscriptions, "shelves"),
     ];
 
     public bool IsSignedIn => _activeAccount is not null;

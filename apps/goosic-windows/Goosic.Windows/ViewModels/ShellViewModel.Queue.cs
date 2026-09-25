@@ -216,14 +216,8 @@ public sealed partial class ShellViewModel
 
     /// <summary>Where the queue came from and how much is left, as "From Liked Music · 99 songs".</summary>
     /// <remarks>Spotify and Apple Music both name the source; a bare count says nothing about it.</remarks>
-    public string UpNextSummary => (_queueSource.Length > 0 ? $"From {_queueSource} · " : "")
-        + QueueLayout.UpNext(Queue, NowPlayingEntry).Count switch
-        {
-            0 when _stationLoad is not null => "Finding songs like this…",
-            0 => "Nothing after this",
-            1 => "1 song",
-            var count => $"{count} songs",
-        };
+    public string UpNextSummary =>
+        PlayerText.UpNext(_queueSource, QueueLayout.UpNext(Queue, NowPlayingEntry).Count, _stationLoad is not null);
 
     private bool _syncingUpNext;
 
