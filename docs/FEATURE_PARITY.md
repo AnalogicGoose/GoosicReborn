@@ -110,6 +110,45 @@ category page through `catalog.category`.
 accent colour, which is red on many machines. Settings is a centred column. Ctrl+Comma opens
 Settings.
 
+## Windows: after the audit
+
+A second round followed the audit, again Windows-first and described here as behaviour.
+
+**Pages open instantly from the last copy.** Measuring showed every visit fetched its page afresh,
+from a fifth of a second to over a second, with another two and a half seconds whenever the
+account's reader page had to start. The Windows shell now keeps the last copy of each page it
+showed (`Service/PageCache.cs`), in memory and on disk per account profile, shows it at once,
+and replaces it only if the fresh answer differs. The copy leaves out the continuation cursor,
+which changes on every answer and would go stale. A failed refresh leaves the copy standing. The
+copies hold only catalog metadata and are deleted when the profile signs out. The library's main
+pages are read in the background after sign-in, so even a first visit is instant, and identical
+personal reads in flight are shared. A shell on another platform should do the same; the
+measurement that justified it is in the log, which now records how long each read took.
+
+**The library is a grid.** A library page is one grid that scrolls down, as Apple Music's is:
+artists as circles with centred names, albums and playlists as rounded squares, with no heading
+and no sideways arrows. Later parts of the page join the same grid.
+
+**Liked Music is one page.** The library's Songs tab, the Liked Music card on Home and any other
+link to `LM` or `VLLM` open the same Liked Music page, with its cover, sort and find, and light its
+sidebar row. Before, each opened a plainer copy of the same list.
+
+**Library artists are the artists of the library.** `FEmusic_library_corpus_artists` is the
+account's subscriptions; the artists of the songs in the library are
+`FEmusic_library_corpus_track_artists`. The Windows shell had the two swapped, so Artists was empty
+for most accounts. The Swift shell had the same mistake and is fixed on `development`.
+
+**Debug mode and a log.** Settings has an Advanced section with a debug switch and a button that
+opens the log folder. With debug off, errors are one plain sentence and notices about how Goosic
+works inside -- a clamped page, waits during advertisements or account changes, the web player's
+own messages -- are only written to the log. With it on, they are shown too, and errors carry the
+exception. Everything shown on screen is logged. The one open question is the clamped-page notice:
+[AGENTS.md](../AGENTS.md) requires that a clamped page say so. A clamped list still does, as
+"100+ songs", but a clamped page of shelves now says so only in debug mode, and that exception has
+not yet been agreed.
+
+**The page fades under the title bar**, so scrolled titles never run into the window buttons.
+
 ## Deliberately not done
 
 Some features every one of those apps has are out of reach by design, and should be declined
