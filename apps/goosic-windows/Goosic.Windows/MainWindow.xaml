@@ -1034,7 +1034,7 @@
                                     <TextBlock Text="Liked Music" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_library_corpus_artists" Click="OnNavigate" AutomationProperties.Name="Artists">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_library_corpus_track_artists" Click="OnNavigate" AutomationProperties.Name="Artists">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE77B;" />
                                     <TextBlock Text="Artists" />
