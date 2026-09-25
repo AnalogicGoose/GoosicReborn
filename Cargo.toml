@@ -10,12 +10,13 @@ members = [
     "crates/goosic-accounts",
     "crates/goosic-service",
     "crates/goosic-shell-support",
+    "crates/goosic-shell-support-ffi",
 ]
 
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.1.0"
+version = "0.2.2"
 rust-version = "1.88"
 
 [workspace.dependencies]

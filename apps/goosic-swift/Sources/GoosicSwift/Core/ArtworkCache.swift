@@ -22,6 +22,8 @@ final class ArtworkCache {
         "ggpht.com",
         "ytimg.com",
         "youtube.com",
+        // YouTube Music's own playlists (Liked Music) keep their art on Google's static host.
+        "gstatic.com",
     ]
 
     /// Artwork is small. Anything larger is not a thumbnail and is discarded.

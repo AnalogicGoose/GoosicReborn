@@ -14,16 +14,22 @@ is worse than none, because it is believed.
 
 | Shell | Status | Protocol | Service pairing |
 | --- | --- | --- | --- |
-| `apps/goosic-swift` (macOS) | unreleased, in-tree | `0.3.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.3.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-swift` (Windows) | stubs only | `0.3.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-linux` (GTK 4) | designed, not started | `0.3.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
-| `apps/goosic-windows` (WinUI 3) | not started | — | — |
+| `apps/goosic-swift` (macOS) | unreleased, in-tree | `0.4.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.4.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-swift` (Windows) | stubs only | `0.4.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-linux` (GTK 4) | designed, not started | `0.4.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
+| `apps/goosic-windows` (WinUI 3) | 0.2.2 Windows x64 setup and ZIP | `0.4.0` exactly | private service and rules DLL bundled beside the executable |
 
-Product version is `0.1.0`, from the Cargo workspace. There are no packages, so there are no
-per-platform artifact revisions yet and nothing to publish a release manifest about. The
+Product version is `0.2.2`, from the Cargo workspace. Windows is the first packaged platform.
+The release includes SHA-256 checksums for the installer, ZIP, service and rules DLL. Its source
+is identified by the release tag; all bundled application binaries are built from that source.
+The
 `1.4.0+3` scheme in [the migration plan](NATIVE_SHELL_MIGRATION.md) describes where this table
 is going, not what it holds.
+
+## What changed in 0.4.0
+
+`0.4.0` adds Moods & genres. A mood or genre is a new catalog item kind, `category`, with an optional `color`, and it opens with a new command, `catalog.category`, whose `catalogId` is the item's id. YouTube Music opens a category with a browse id *and* parameters; the service packs both into that id so no shell has to take it apart or send a field the request payload does not have. Nothing else on the wire changed, but equality is the rule, so every shell's constant moved with it: the Windows shell's `ServiceProtocol.Version` and the Swift shell's hand-copied `goosicProtocolVersion` both say `0.4.0`. A shell that does not yet draw categories decodes them as it decodes any kind it does not know, and shows them inert.
 
 ## The compatibility rule
 
@@ -48,8 +54,8 @@ is still showing "Connecting" rather than halfway through a session.
 
 The plan asks for a declared protocol *range* per shell, and this manifest declares a single
 version instead. That is deliberate: the code implements equality, and a manifest that declared
-`>=0.3.0, <0.4.0` would be describing a tolerance no line of code provides. A shell handed a
-`0.4.0` service today refuses it, correctly, and would refuse it just as flatly if this document
+`>=0.4.0, <0.5.0` would be describing a tolerance no line of code provides. A shell handed a
+`0.5.0` service today refuses it, correctly, and would refuse it just as flatly if this document
 promised otherwise.
 
 There is also nothing yet to be tolerant of. A range earns its complexity when two supported
@@ -81,7 +87,7 @@ is a shell that will one day claim compatibility it does not have.
 
 ## The pairing gap
 
-Nothing is bundled today. The Swift shell resolves its service from `GOOSIC_SERVICE_PATH`, and
+The Swift shell has no bundled package today. It resolves its service from `GOOSIC_SERVICE_PATH`, and
 falls back to whatever `goosic-service` is first on `PATH`. In a development checkout that is the
 service you just built, which is why it has never caused trouble. It also means the shell has no
 idea what it launched, and the manifest cannot honestly say a shell ships with a particular
@@ -94,7 +100,7 @@ That is tolerable while the service is built from the same commit as the shell, 
 being tolerable the moment packages exist — which is why the plan puts a bundled private service
 inside every package, and why this section will be replaced rather than amended when they do.
 
-Linux is where it closes first. The GTK shell finds its service by path — `GOOSIC_SERVICE_PATH`
+Windows closes this gap with a bundled service resolved beside its executable. The planned GTK shell finds its service by path — `GOOSIC_SERVICE_PATH`
 as a developer's override, otherwise the `goosic-service` installed beside its own executable —
 and never searches `PATH`, so the Flatpak always runs the service it was built with. See
 [LINUX_SHELL.md](LINUX_SHELL.md).
@@ -107,6 +113,5 @@ version and checksum of the service binary inside it. A service or protocol chan
 a coordinated release: CI runs every supported shell against the new service, this table changes,
 and the affected packages ship together unless the protocol genuinely did not move.
 
-Until any of that exists, this document has one job, and it is the honest one: to say that there
-is exactly one protocol version, that both sides demand it exactly, and that no shell yet carries
-a service of its own.
+There is exactly one supported protocol version, demanded by both sides. Windows carries its
+paired service; the unbundled Swift builds continue to require explicit compatible service selection.

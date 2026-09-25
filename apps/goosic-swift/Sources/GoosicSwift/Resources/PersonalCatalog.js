@@ -345,7 +345,9 @@ const GoosicPersonalCatalog = (() => {
       ? readRuns(card.header?.musicCardShelfHeaderBasicRenderer?.title)
       : readRuns(music.header?.musicCarouselShelfBasicHeaderRenderer?.title ?? music.title);
     const items = [];
+    let cards = 0;
     for (const c of music.contents ?? []) {
+      if (c.musicTwoRowItemRenderer) cards += 1;
       const mapped = c.musicTwoRowItemRenderer
         ? mapTwoRowItem(c.musicTwoRowItemRenderer)
         : c.musicResponsiveListItemRenderer
@@ -357,8 +359,11 @@ const GoosicPersonalCatalog = (() => {
       const featured = mapCardShelfFeatured(card);
       if (featured) items.unshift(featured);
     }
+    // Song rows ("Quick picks") are a list, whether they arrive in a carousel or a plain shelf;
+    // this is the protocol's CatalogShelf.layout, and matches goosic-catalog's browse_shelves.
+    const layout = !card && cards === 0 && items.length > 0 ? "list" : "cards";
     // An untitled shelf takes the page title further up, not a numbered placeholder.
-    return { title, items };
+    return { title, items, layout };
   }
 
   function collectResponsiveRows(root) {
@@ -457,6 +462,13 @@ const GoosicPersonalCatalog = (() => {
         recognized: true,
       };
     }
+    // YouTube Music now answers the last continuation of Home with the page frame itself: the
+    // selected tab and nothing inside it. That is the end of the feed, not an unknown response;
+    // treating it as unknown made the shell report a failure and keep asking for more.
+    if (json?.contents) {
+      if (!selectedTabContent(json)) return { sections: [], nextCursor: null, recognized: true };
+      return parseInitialPage(json);
+    }
     return { sections: [], recognized: false };
   }
 
@@ -499,7 +511,7 @@ const GoosicPersonalCatalog = (() => {
     const seenItems = new Set();
     const shelves = [];
     collectShelfNodes(sections).forEach((wrapper, i) => {
-      const { title, items } = mapShelfWrapper(wrapper);
+      const { title, items, layout } = mapShelfWrapper(wrapper);
       // Library responses repeat cards across "Recently added" and the main shelf; keep the
       // first occurrence in server order.
       const wire = items
@@ -515,7 +527,10 @@ const GoosicPersonalCatalog = (() => {
       const name = title || fallbackTitle;
       const seen = titleSeen.get(name) ?? 0;
       titleSeen.set(name, seen + 1);
-      shelves.push({ id: `${tag}-${name}${seen === 0 ? "" : `-${seen}`}`, title: name, items: wire });
+      const shelf = { id: `${tag}-${name}${seen === 0 ? "" : `-${seen}`}`, title: name, items: wire };
+      // Cards is the default and stays off the wire, as it does from Rust.
+      if (layout === "list") shelf.layout = "list";
+      shelves.push(shelf);
     });
     return shelves;
   }
@@ -804,12 +819,15 @@ const GoosicPersonalCatalog = (() => {
         { action: "ACTION_REMOVE_VIDEO", removedVideoId: videoId, setVideoId },
       ]);
     },
-    movePlaylistItem: ({ playlistId, setVideoId, predecessorSetVideoId }) => {
+    // The action is "move before": it names the entry the moved one should precede, as the
+    // web client's own drag-to-reorder does. With no successor the entry goes to the end.
+    // An earlier version sent a predecessor field that upstream does not define.
+    movePlaylistItem: ({ playlistId, setVideoId, successorSetVideoId }) => {
       if (!setVideoId) throw new Error("Cannot move a playlist entry without its entry id");
       const action = { action: "ACTION_MOVE_VIDEO_BEFORE", setVideoId };
-      // Omitted entirely to move an entry to the front; an empty predecessor is not the same
-      // request as no predecessor.
-      if (predecessorSetVideoId) action.movedSetVideoIdPredecessor = predecessorSetVideoId;
+      // Omitted entirely to move an entry to the end; an empty successor is not the same
+      // request as no successor.
+      if (successorSetVideoId) action.movedSetVideoIdSuccessor = successorSetVideoId;
       return editPlaylist(playlistId, [action]);
     },
     addPlaylistToPlaylist: ({ playlistId, sourcePlaylistId }) =>

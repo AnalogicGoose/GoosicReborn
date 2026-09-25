@@ -23,7 +23,7 @@ The shell requests transitions; it never decides whether a playback transition i
 Every request is one JSON object per line:
 
 ```json
-{"protocolVersion":"0.3.0","requestId":"r-1","command":"playback.claim","payload":{"owner":"officialWebView","generation":0}}
+{"protocolVersion":"0.4.0","requestId":"r-1","command":"playback.claim","payload":{"owner":"officialWebView","generation":0}}
 ```
 
 Every request produces exactly one response line, and responses are matched by request id rather than by arrival order. A response has `ok: true` and a payload, or `ok: false` and a structured `{code,message}` error. That distinction used to be theoretical and is now load-bearing. The service answered one request at a time, so a catalog browse waiting on a third-party host held every command queued behind it — pause, seek, release included — for as long as the upstream took, and the client, which read the pipe until its own request's answer appeared, could not have noticed a different answer if one had arrived. A transport control that does nothing for twenty seconds is indistinguishable from a broken player.

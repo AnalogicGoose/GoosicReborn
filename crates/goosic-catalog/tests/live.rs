@@ -107,7 +107,9 @@ fn album_from_search_loads_its_tracks() {
 #[ignore = "requires network access to music.youtube.com"]
 fn radio_continues_from_a_real_track() {
     let catalog = Catalog::new();
-    let results = catalog.search("daft punk", "songs").expect("search succeeds");
+    let results = catalog
+        .search("daft punk", "songs")
+        .expect("search succeeds");
     let seed = results
         .shelves
         .iter()

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod conformance;
 
-pub const PROTOCOL_VERSION: &str = "0.3.0";
+pub const PROTOCOL_VERSION: &str = "0.4.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -199,6 +199,16 @@ pub struct SettingsSnapshot {
     /// user turns it off. A shell with no way to draw it keeps the choice and ignores it.
     #[serde(default = "artwork_background_default")]
     pub artwork_background: bool,
+    /// Leave explicit tracks out of what the shell lists. Off unless the user turns it on.
+    #[serde(default)]
+    pub hide_explicit: bool,
+    /// Where the shell opens: `home`, `library`, `liked`, or `last` for `last_route`.
+    #[serde(default = "start_page_default")]
+    pub start_page: String,
+    /// Skip decorative motion — page entrances and panel slides. A shell also honours the
+    /// operating system's own setting; this is the in-app one.
+    #[serde(default)]
+    pub reduce_motion: bool,
     /// Whether preferences from a previous Goosic install have been imported.
     pub imported_from_legacy: bool,
     /// Whether a legacy store is present to import from. Never a credential store.
@@ -208,6 +218,10 @@ pub struct SettingsSnapshot {
 /// A snapshot from a service that predates the preference means the default, which is on.
 fn artwork_background_default() -> bool {
     true
+}
+
+fn start_page_default() -> String {
+    "home".into()
 }
 
 /// A partial preference update. Absent fields are left as they are.
@@ -232,6 +246,12 @@ pub struct PreferencesPatch {
     pub repeat_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artwork_background: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hide_explicit: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_page: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reduce_motion: Option<bool>,
 }
 
 /// What to look lyrics up by.
@@ -281,6 +301,10 @@ pub enum CatalogItemKind {
     Album,
     Artist,
     Playlist,
+    /// A mood or genre from Moods & genres, opened with `catalog.category`. Its `id` is opaque:
+    /// YouTube Music needs a browse id and parameters to open one, and the service packs both
+    /// into it so the shell never has to take the id apart.
+    Category,
     /// A kind a newer service knows and this build does not.
     ///
     /// A client decodes it rather than refusing the frame, because refusing it would fail the
@@ -320,6 +344,9 @@ pub struct CatalogItem {
     pub video_id: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub explicit: bool,
+    /// The colour YouTube Music gives a category's button, as `#RRGGBB`. Only categories have one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -332,6 +359,29 @@ pub struct CatalogShelf {
     pub id: String,
     pub title: String,
     pub items: Vec<CatalogItem>,
+    /// How YouTube Music presents the shelf. Absent means cards, which is also what a shell
+    /// that does not read this field shows, so older shells are unaffected.
+    #[serde(default, skip_serializing_if = "ShelfLayout::is_cards")]
+    pub layout: ShelfLayout,
+}
+
+/// Whether a shelf is a row of artwork cards or a list of song rows.
+///
+/// YouTube Music sends "Quick picks" and similar modules as song rows in a carousel, shown as a
+/// compact grid of four rows per column. Without this a shell can only guess from the items,
+/// and every shelf became a row of large cards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShelfLayout {
+    #[default]
+    Cards,
+    List,
+}
+
+impl ShelfLayout {
+    pub fn is_cards(&self) -> bool {
+        *self == Self::Cards
+    }
 }
 
 /// A whole catalog screen: shelves for browse surfaces, `tracks` for ordered track lists.
@@ -351,6 +401,11 @@ pub struct CatalogPage {
     /// Opaque cursor for the next page. The shell echoes it only to `catalog.continue`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
+    /// Where the complete list behind `tracks` lives when the page shows only its first few --
+    /// an artist's top songs, whose "Show all" opens every song. A playlist browse id; absent
+    /// when `tracks` is already the whole list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_tracks_id: Option<String>,
     /// True when the service clamped the upstream result set to stay inside the frame budget.
     #[serde(default, skip_serializing_if = "is_false")]
     pub truncated: bool,
@@ -436,7 +491,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&request).unwrap(),
-            r#"{"protocolVersion":"0.3.0","requestId":"r-1","command":"playback.sample","payload":{"owner":"officialWebView","generation":3,"sequence":8,"marker":"advertisement"}}"#
+            r#"{"protocolVersion":"0.4.0","requestId":"r-1","command":"playback.sample","payload":{"owner":"officialWebView","generation":3,"sequence":8,"marker":"advertisement"}}"#
         );
         let decoded: RequestEnvelope =
             serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
