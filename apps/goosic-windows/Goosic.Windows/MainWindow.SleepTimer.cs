@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -57,21 +58,8 @@ public sealed partial class MainWindow : Window
         return menu;
     }
 
-    private string SleepTimerLabel()
-    {
-        if (_sleepAtEndOfSong)
-        {
-            return "Sleep timer: end of song";
-        }
-
-        if (_sleepTimer is null)
-        {
-            return "Sleep timer";
-        }
-
-        var left = _sleepAt - DateTimeOffset.Now;
-        return $"Sleep timer: {Math.Max(1, (int)Math.Ceiling(left.TotalMinutes))} min left";
-    }
+    private string SleepTimerLabel() =>
+        PlayerText.SleepTimer(_sleepTimer is null ? null : _sleepAt - DateTimeOffset.Now, _sleepAtEndOfSong);
 
     private void StartSleepTimer(TimeSpan after)
     {

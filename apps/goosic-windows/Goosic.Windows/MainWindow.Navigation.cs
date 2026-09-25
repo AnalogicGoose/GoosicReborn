@@ -127,8 +127,6 @@ public sealed partial class MainWindow : Window
         SidebarSearch.Focus(FocusState.Programmatic);
     }
 
-    private const int RecentSearchLimit = 8;
-
     /// <summary>
     /// Offers recent searches as the box opens and as it is typed in, as Spotify's and Apple
     /// Music's search does. They are kept on this computer and never sent anywhere.
@@ -151,45 +149,13 @@ public sealed partial class MainWindow : Window
 
     private static void ShowRecentSearches(AutoSuggestBox box)
     {
-        var typed = box.Text.Trim();
-        var matches = new List<string>();
-        foreach (var recent in ShellPreferences.RecentSearches)
-        {
-            // What is already in the box is not a suggestion.
-            if (string.Equals(recent, typed, StringComparison.CurrentCultureIgnoreCase))
-            {
-                continue;
-            }
-
-            if (typed.Length == 0 || recent.Contains(typed, StringComparison.CurrentCultureIgnoreCase))
-            {
-                matches.Add(recent);
-            }
-        }
-
+        var matches = RecentSearches.Suggest(ShellPreferences.RecentSearches, box.Text);
         box.ItemsSource = matches;
         box.IsSuggestionListOpen = matches.Count > 0;
     }
 
-    private static void RememberSearch(string query)
-    {
-        var trimmed = query.Trim();
-        if (trimmed.Length == 0)
-        {
-            return;
-        }
-
-        var recent = new List<string> { trimmed };
-        foreach (var earlier in ShellPreferences.RecentSearches)
-        {
-            if (!string.Equals(earlier, trimmed, StringComparison.CurrentCultureIgnoreCase) && recent.Count < RecentSearchLimit)
-            {
-                recent.Add(earlier);
-            }
-        }
-
-        ShellPreferences.RecentSearches = recent;
-    }
+    private static void RememberSearch(string query) =>
+        ShellPreferences.RecentSearches = RecentSearches.Remember(ShellPreferences.RecentSearches, query);
 
     private async void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
@@ -218,6 +184,8 @@ public sealed partial class MainWindow : Window
     {
         HighlightNavigation(null);
         await Model.OpenEntityAsync(kind, id, title);
+        // Some entities open a route of their own, such as Liked Music; its sidebar row lights up.
+        HighlightNavigation(Model.CurrentRouteName);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
     }

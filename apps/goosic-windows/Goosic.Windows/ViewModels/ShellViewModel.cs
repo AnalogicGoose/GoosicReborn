@@ -70,17 +70,10 @@ public sealed class CardViewModel : INotifyPropertyChanged
 
     public Microsoft.UI.Xaml.Media.Brush CategoryBrush { get; }
 
-    private static Microsoft.UI.Xaml.Media.SolidColorBrush CategoryColor(string? hex)
-    {
-        var color = Microsoft.UI.Colors.SlateGray;
-        if (hex is { Length: 7 } && hex[0] == '#'
-            && uint.TryParse(hex.AsSpan(1), System.Globalization.NumberStyles.HexNumber, null, out var rgb))
-        {
-            color = global::Windows.UI.Color.FromArgb(0xFF, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
-        }
-
-        return new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
-    }
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush CategoryColor(string? hex) =>
+        new(CatalogRules.ParseColor(hex) is { } rgb
+            ? global::Windows.UI.Color.FromArgb(0xFF, rgb.R, rgb.G, rgb.B)
+            : Microsoft.UI.Colors.SlateGray);
 
     public string Title { get; }
     public string Subtitle { get; }
@@ -166,8 +159,12 @@ public sealed class CardViewModel : INotifyPropertyChanged
 }
 
 /// <summary>One track row: a search result, or an ordered list on a detail page.</summary>
-public sealed class TrackViewModel : INotifyPropertyChanged
+public sealed class TrackViewModel : INotifyPropertyChanged, ISortableTrack
 {
+    string? ISortableTrack.Artist => Artist;
+    string? ISortableTrack.Album => Album;
+    long ISortableTrack.Ordinal => Ordinal;
+
     internal TrackViewModel(CatalogItem item)
     {
         Title = item.Title;
@@ -433,11 +430,7 @@ public sealed class TrackViewModel : INotifyPropertyChanged
         _filteredOut ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
 
     /// <summary>Whether this row matches what was typed in the filter box.</summary>
-    internal bool Matches(string text) =>
-        text.Length == 0
-        || Title.Contains(text, StringComparison.CurrentCultureIgnoreCase)
-        || Subtitle.Contains(text, StringComparison.CurrentCultureIgnoreCase)
-        || (Album?.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false);
+    internal bool Matches(string text) => TrackOrder.Matches(this, text);
 
     public string? UnavailableTip => IsPlayable ? null : "This track isn’t available to play";
     public bool Explicit { get; }
@@ -1516,6 +1509,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     internal async Task OpenEntityAsync(string kind, string id, string title, bool remember = true)
     {
+        // Liked Music is one page wherever it is opened from -- the Home card, a search result, the
+        // library -- not a plain playlist with a "Save to library" button it has no use for.
+        if (CatalogRules.IsLikedMusic(kind, id) && IsSignedIn)
+        {
+            await LoadRouteAsync("liked", remember).ConfigureAwait(true);
+            return;
+        }
+
         var requestVersion = ++_pageRequestVersion;
         var artworkVersion = ClearPageArtwork();
         var command = kind switch
