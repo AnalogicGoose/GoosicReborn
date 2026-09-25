@@ -600,7 +600,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ShelfViewModel">
                                     <StackPanel Spacing="12" Margin="0,0,0,26">
-                                        <Grid ColumnSpacing="12">
+                                        <Grid ColumnSpacing="12" Visibility="{x:Bind ShowsHeader}">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
@@ -676,6 +676,41 @@
                                             </ItemsControl>
                                           </Border>
                                         </ScrollViewer>
+                                        <!-- A library page: one grid that scrolls with the page, as Apple Music's library does. -->
+                                        <ItemsRepeater ItemsSource="{x:Bind Items}" Visibility="{x:Bind IsGrid}">
+                                            <ItemsRepeater.Layout>
+                                                <UniformGridLayout MinItemWidth="176" MinColumnSpacing="20" MinRowSpacing="22"
+                                                                   ItemsStretch="Fill" />
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:CardViewModel">
+                                                    <Button Style="{StaticResource CardButtonStyle}" Padding="0"
+                                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                            Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                            AutomationProperties.Name="{x:Bind AccessibleName}"
+                                                            ContextRequested="OnItemContextRequested">
+                                                        <StackPanel Spacing="4">
+                                                            <!-- Square whatever the column width: an artist a circle, the rest rounded. -->
+                                                            <Viewbox Stretch="Uniform">
+                                                                <Border Width="176" Height="176" CornerRadius="{x:Bind GridCornerRadius}"
+                                                                        Background="{ThemeResource GoosicRaisedBrush}">
+                                                                    <Grid>
+                                                                        <FontIcon Glyph="{x:Bind PlaceholderGlyph}" FontSize="40" Opacity="0.5" />
+                                                                        <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
+                                                                    </Grid>
+                                                                </Border>
+                                                            </Viewbox>
+                                                            <TextBlock Text="{x:Bind Title}" FontSize="14" Margin="0,6,0,0" FontWeight="Medium"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       HorizontalAlignment="{x:Bind GridTextAlignment}" />
+                                                            <TextBlock Text="{x:Bind Subtitle}" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                                       HorizontalAlignment="{x:Bind GridTextAlignment}" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
                                         <!-- Moods & genres: coloured tiles that wrap, as YouTube Music draws them. -->
                                         <ItemsRepeater ItemsSource="{x:Bind Items}" Visibility="{x:Bind IsCategoryGrid}">
                                             <ItemsRepeater.Layout>

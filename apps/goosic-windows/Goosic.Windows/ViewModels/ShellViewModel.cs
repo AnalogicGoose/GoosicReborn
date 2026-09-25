@@ -61,6 +61,13 @@ public sealed class CardViewModel : INotifyPropertyChanged
 
     public Microsoft.UI.Xaml.CornerRadius CardCornerRadius => new(Kind == "artist" ? CardShape.Size / 2 : 6);
 
+    public Microsoft.UI.Xaml.CornerRadius GridCornerRadius => new(Kind == "artist" ? 88 : 8);
+
+    /// <summary>An artist's name sits centred under its circle, as in Apple Music; the rest align left.</summary>
+    public Microsoft.UI.Xaml.HorizontalAlignment GridTextAlignment => Kind == "artist"
+        ? Microsoft.UI.Xaml.HorizontalAlignment.Center
+        : Microsoft.UI.Xaml.HorizontalAlignment.Left;
+
     public Microsoft.UI.Xaml.Media.Brush CategoryBrush { get; }
 
     private static Microsoft.UI.Xaml.Media.SolidColorBrush CategoryColor(string? hex)
@@ -469,16 +476,17 @@ public sealed class TrackViewModel : INotifyPropertyChanged
 
 public sealed class ShelfViewModel
 {
-    internal ShelfViewModel(CatalogShelf shelf)
+    internal ShelfViewModel(CatalogShelf shelf, bool grid = false)
     {
-        Title = shelf.Title;
+        IsGrid = grid;
+        Title = grid ? "" : shelf.Title;
         Items = new ObservableCollection<CardViewModel>(shelf.Items.Select(item => new CardViewModel(item)));
         foreach (var item in Items)
         {
             item.Context = Items;
         }
 
-        IsList = shelf.Layout == "list";
+        IsList = !grid && shelf.Layout == "list";
         IsCategoryGrid = Items.Count > 0 && Items.All(item => item.IsCategory);
         Columns = IsList
             ? ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)).ToList()
@@ -490,7 +498,27 @@ public sealed class ShelfViewModel
 
     /// <summary>Song rows, shown as YouTube Music shows Quick picks: columns of rows, not cards.</summary>
     public bool IsList { get; }
-    public bool IsCards => !IsList && !IsCategoryGrid;
+    public bool IsCards => !IsList && !IsCategoryGrid && !IsGrid;
+
+    /// <summary>
+    /// A library page: every item in one grid that scrolls down, as Apple Music shows a library,
+    /// rather than rows of four scrolling sideways under a heading that only says "Library".
+    /// </summary>
+    public bool IsGrid { get; }
+
+    public bool HasTitle => Title.Length > 0;
+
+    /// <summary>The heading row, with its arrows; a library grid has neither.</summary>
+    public bool ShowsHeader => HasTitle || Scrolls;
+
+    /// <summary>Adds the next part of a library page to the same grid.</summary>
+    internal void Append(IEnumerable<CatalogItem> items)
+    {
+        foreach (var item in items)
+        {
+            Items.Add(new CardViewModel(item) { Context = Items });
+        }
+    }
 
     /// <summary>
     /// Moods & genres: every button at once in a wrapping grid, as YouTube Music and Apple Music
@@ -499,7 +527,7 @@ public sealed class ShelfViewModel
     public bool IsCategoryGrid { get; }
 
     /// <summary>Whether the shelf scrolls sideways, and so has arrows; a wrapping grid does not.</summary>
-    public bool Scrolls => !IsCategoryGrid;
+    public bool Scrolls => !IsCategoryGrid && !IsGrid;
 
     /// <summary>The same cards as <see cref="Items"/>, in columns of four for a list shelf.</summary>
     public IReadOnlyList<ShelfColumnViewModel> Columns { get; }

@@ -728,7 +728,20 @@ public sealed partial class ShellViewModel
 
         foreach (var shelf in ListedShelves(page.Shelves))
         {
-            var model = new ShelfViewModel(shelf);
+            // A library page is one grid, however many parts it arrives in.
+            if (IsLibraryPage && Shelves.FirstOrDefault(existing => existing.IsGrid) is { } grid)
+            {
+                var from = grid.Items.Count;
+                grid.Append(shelf.Items);
+                foreach (var card in grid.Items.Skip(from))
+                {
+                    _ = card.LoadArtworkAsync(_artwork);
+                }
+
+                continue;
+            }
+
+            var model = new ShelfViewModel(shelf, grid: IsLibraryPage);
             Shelves.Add(model);
             foreach (var card in model.Items)
             {
