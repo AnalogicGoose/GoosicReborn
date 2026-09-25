@@ -1,5 +1,5 @@
 {
-  "originHash" : "47b247580840ce5311dc9bb21ed4a4ccb7c7f763b44d9c23bd50c66db4436d3a",
+  "originHash" : "2478b24575dfcb4e001e0f6e08fafd9ca41013da32cb32ccbd0623de34356aff",
   "pins" : [
     {
       "identity" : "androidkit",
@@ -114,8 +114,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log.git",
       "state" : {
-        "revision" : "3ffafb9722d5d918c614feb496c8789a3b59d222",
-        "version" : "1.15.0"
+        "revision" : "ce592ae52f982c847a4efc0dd881cc9eb32d29f2",
+        "version" : "1.6.4"
       }
     },
     {

@@ -83,8 +83,9 @@ let package = Package(
         .testTarget(
             name: "GoosicSwiftTests",
             dependencies: ["GoosicSwift"],
-            // SwiftPM puts Sparkle in Debug beside the test bundle but omits that directory
-            // from the bundle's runpaths. Three levels up from Contents/MacOS is Debug.
+            // SwiftPM puts Sparkle in Debug beside the test bundle but does not add that
+            // directory to the bundle's runpaths. Three levels up from Contents/MacOS is
+            // Debug, independent of the configured scratch path.
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."],
                              .when(platforms: [.macOS])),
