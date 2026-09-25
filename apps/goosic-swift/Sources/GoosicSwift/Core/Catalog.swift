@@ -14,6 +14,7 @@ enum CatalogKey: Hashable {
     case album(String)
     case artist(String)
     case playlist(String)
+    case category(String)
     case library(String)
 
     static func entity(_ reference: GoosicEntityReference) -> CatalogKey {
@@ -21,6 +22,7 @@ enum CatalogKey: Hashable {
         case .album(let id): return .album(id)
         case .artist(let id): return .artist(id)
         case .playlist(let id): return .playlist(id)
+        case .category(let id): return .category(id)
         }
     }
 }
@@ -30,8 +32,13 @@ enum PersonalLibrarySection: String, CaseIterable, Identifiable {
     case songs = "Songs"
     case albums = "Albums"
     case artists = "Artists"
+    case subscriptions = "Subscriptions"
 
     var id: String { rawValue }
+
+    /// The sections the library's picker offers. Songs is not one of them: the library's songs
+    /// are Liked Music, which opens as its own page with its cover, sort and find.
+    static let pickerSections: [PersonalLibrarySection] = [.playlists, .albums, .artists, .subscriptions]
 
     var browseID: String {
         switch self {
@@ -41,6 +48,7 @@ enum PersonalLibrarySection: String, CaseIterable, Identifiable {
         // The artists of the songs in the library. `FEmusic_library_corpus_artists` is the
         // channels the account subscribes to, which is empty for most listeners.
         case .artists: return "FEmusic_library_corpus_track_artists"
+        case .subscriptions: return "FEmusic_library_corpus_artists"
         }
     }
 
@@ -54,7 +62,7 @@ extension CatalogKey {
     var expectsTrackList: Bool {
         switch self {
         case .album, .playlist: return true
-        case .route, .search, .artist, .library: return false
+        case .route, .search, .artist, .category, .library: return false
         }
     }
 }
@@ -78,6 +86,13 @@ struct CatalogPageView: Hashable {
     let allTracksID: String?
     /// The service clamped this page to fit one protocol frame.
     let truncated: Bool
+    /// The page's own cover. A playlist and Liked Music carry one; without it the hero falls
+    /// back to the first song's art.
+    var thumbnail: String? = nil
+
+    /// Whether more rows are still to come. A list that is not finished must not count itself
+    /// as complete, so this decides between "100 songs" and "100+ songs".
+    var hasMore: Bool { !(nextCursor ?? "").isEmpty }
 
     var isEmpty: Bool { shelves.isEmpty && tracks.isEmpty }
 
@@ -107,7 +122,9 @@ extension GoosicTrack {
             duration: item.duration ?? "",
             videoID: videoID,
             explicit: item.explicit ?? false,
-            thumbnail: item.thumbnail
+            thumbnail: item.thumbnail,
+            entryID: item.entryId,
+            isVideo: item.kind == .video
         )
     }
 }
@@ -123,7 +140,9 @@ extension GoosicCard {
         case .artist:
             action = .show(.artist(item.id))
         case .playlist:
-            action = .show(.playlist(item.id))
+            action = .show(GoosicEntityReference.playlist(item.id).normalized)
+        case .category:
+            action = .show(.category(item.id))
         case .unknown:
             // A row this build does not understand stays visible but inert rather than
             // navigating somewhere the shell cannot render.
@@ -134,7 +153,9 @@ extension GoosicCard {
             title: item.title,
             subtitle: item.subtitle,
             action: action,
-            thumbnail: item.thumbnail
+            thumbnail: item.thumbnail,
+            kind: item.kind,
+            color: item.color
         )
     }
 }
@@ -152,7 +173,8 @@ extension CatalogPageView {
             return GoosicShelf(
                 id: id,
                 title: shelf.title,
-                cards: GoosicShelf.uniqued((shelf.items).map(GoosicCard.init(catalog:)))
+                cards: GoosicShelf.uniqued((shelf.items).map(GoosicCard.init(catalog:))),
+                isList: shelf.layout == "list"
             )
         }
         self.init(
@@ -163,7 +185,8 @@ extension CatalogPageView {
             tracks: (page.tracks ?? []).compactMap(GoosicTrack.init(catalog:)),
             nextCursor: page.nextCursor,
             allTracksID: page.allTracksId.flatMap { $0.isEmpty ? nil : $0 },
-            truncated: page.truncated ?? false
+            truncated: page.truncated ?? false,
+            thumbnail: page.thumbnail
         )
     }
 
@@ -177,7 +200,8 @@ extension CatalogPageView {
                 candidate = GoosicShelf(
                     id: "\(shelf.id)-\(suffix)",
                     title: shelf.title,
-                    cards: shelf.cards
+                    cards: shelf.cards,
+                    isList: shelf.isList
                 )
                 suffix += 1
             }
@@ -191,7 +215,8 @@ extension CatalogPageView {
             tracks: tracks + continuation.tracks,
             nextCursor: continuation.nextCursor,
             allTracksID: allTracksID,
-            truncated: truncated || continuation.truncated
+            truncated: truncated || continuation.truncated,
+            thumbnail: thumbnail ?? continuation.thumbnail
         )
     }
 }
@@ -207,10 +232,23 @@ extension CatalogPageView {
 enum ShelfPresentation: Equatable {
     case cards
     case rows([GoosicTrack])
+    /// Moods & genres: a wrapping grid of coloured tiles, without scroll arrows.
+    case tiles
+    /// A library page: one grid that scrolls down, as Apple Music draws it.
+    case grid
+    /// Song rows YouTube Music sends as a carousel, such as Quick picks: columns of four rows
+    /// that scroll sideways, as YouTube Music and the Windows shell draw them.
+    case columns([GoosicTrack])
 
     static func preferred(for key: CatalogKey, shelf: GoosicShelf) -> ShelfPresentation {
-        guard case .search = key, let tracks = shelf.playableRows else { return .cards }
-        return .rows(tracks)
+        if !shelf.cards.isEmpty, shelf.cards.allSatisfy({ $0.kind == .category }) { return .tiles }
+        if case .library = key { return .grid }
+        guard let tracks = shelf.playableRows else { return .cards }
+        // YouTube Music says which shelves are song rows; search is the one page where a shelf
+        // of songs reads better as a list even when it did not say so.
+        if case .search = key { return .rows(tracks) }
+        if shelf.isList { return .columns(tracks) }
+        return .cards
     }
 }
 
@@ -330,4 +368,25 @@ enum CatalogContinuationLabel {
         case .failed: return "Try again"
         }
     }
+}
+
+extension GoosicEntityReference {
+    /// Liked Music, whichever id a link to it carries.
+    static let likedMusic = GoosicEntityReference.playlist("LM")
+
+    /// The one spelling each page is known by. `LM` and `VLLM` are both Liked Music, and opening
+    /// either must open the same page, with its cover, sort and find, and its sidebar row lit.
+    var normalized: GoosicEntityReference {
+        if case .playlist(let id) = self, id == "VLLM" { return .likedMusic }
+        return self
+    }
+
+    var isLikedMusic: Bool { normalized == .likedMusic }
+}
+
+/// A category's `#RRGGBB` as components in 0...1, or `nil` for anything else.
+func categoryColor(_ hex: String?) -> (red: Double, green: Double, blue: Double)? {
+    guard let hex, hex.count == 7, hex.first == "#",
+          let rgb = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+    return (Double((rgb >> 16) & 0xFF) / 255, Double((rgb >> 8) & 0xFF) / 255, Double(rgb & 0xFF) / 255)
 }

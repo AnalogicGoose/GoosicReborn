@@ -55,7 +55,7 @@ enum NowPlayingPaletteLoader {
 /// field is oversized by 30% on every side so the drift never reveals an edge.
 struct NowPlayingMeshBackground: View {
     let palette: [MeshSample]
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.goosicReduceMotion) private var reduceMotion
 
     var body: some View {
         let cells = NowPlayingMesh.cells(for: palette)
@@ -157,9 +157,18 @@ private struct NativeMacFullPlayerCover: View {
 /// closing this never interrupts playback.
 struct NativeMacFullPlayer: View {
     @ObservedObject var store: NativeMacModelStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The mini player: the same layout in a small always-on-top window. Lyrics and the
+    /// fill-the-screen controls step aside while it is small and come back as they were.
+    var compact = false
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.goosicReduceMotion) private var reduceMotion
     @State private var palette: [MeshSample]?
-    @State private var lyricsShown = true
+    /// What the right-hand column shows: lyrics, the queue, or nothing, switched by the glass
+    /// capsule at the bottom right as in Music.
+    @State private var rightPane: RightPane = .lyrics
+    @State private var lyricsMessage: String?
+
+    enum RightPane { case lyrics, queue, none }
     @State private var scrubPosition: Double = 0
     @State private var isScrubbing = false
 
@@ -167,38 +176,77 @@ struct NativeMacFullPlayer: View {
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
     private var paletteFile: URL? { model.artworkFile(for: model.currentTrack?.thumbnail) }
+    private var lyricsUnavailable: Bool {
+        model.lyrics == nil && (model.lyricsStatus == "No lyrics were found for this track."
+            || model.lyricsStatus.hasPrefix("Could not load lyrics:"))
+    }
+    private var visibleRightPane: RightPane {
+        lyricsUnavailable && rightPane == .lyrics ? .none : rightPane
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let gutter = min(max(proxy.size.width * 0.07, 32), 128)
-            let inset = min(max(proxy.size.width * 0.09, 40), 176)
-            let cover = min(proxy.size.height * 0.48, 576)
+            let inset = compact ? 22 : min(max(proxy.size.width * 0.09, 40), 176)
+            let cover = compact
+                ? max(min(proxy.size.width - 44, proxy.size.height - 200), 80)
+                : min(proxy.size.height * 0.48, 576)
             HStack(alignment: .center, spacing: gutter) {
                 playerColumn(cover: cover)
                     .frame(maxWidth: 608)
-                if lyricsShown {
+                if !compact && visibleRightPane == .lyrics {
                     lyricsColumn
                         .frame(maxWidth: 768, maxHeight: min(proxy.size.height * 0.7, 832))
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .transition(.opacity)
+                } else if !compact && visibleRightPane == .queue {
+                    NativeMacQueuePanel(store: store)
+                        .frame(maxWidth: 520, maxHeight: min(proxy.size.height * 0.75, 860))
+                        .transition(.opacity)
                 }
             }
             .padding(.horizontal, inset)
-            .padding(.top, 32)
-            .padding(.bottom, 80)
+            .padding(.top, compact ? 30 : 32)
+            .padding(.bottom, compact ? 16 : 80)
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .background(background)
         // Volume and Exit are window toolbar items (see `NativeMacRootView`), not overlays here:
         // this view runs under the transparent title bar, and a slider drawn in that strip loses
         // its drag to the title bar, which moves the window instead.
+        // Lyrics and Queue share one Liquid Glass capsule at the bottom right, as in Music; the
+        // one showing is drawn filled.
         .overlay(alignment: .bottomTrailing) {
-            Button { lyricsShown.toggle() } label: {
-                Image(systemName: lyricsShown ? "quote.bubble.fill" : "quote.bubble")
-                    .frame(width: 18, height: 18)
+            if !compact {
+                NativeMacGlassGroup {
+                    HStack(spacing: 2) {
+                        paneButton(.lyrics, "quote.bubble", "Lyrics")
+                        paneButton(.queue, "list.bullet", "Up Next")
+                    }
+                    .padding(4)
+                    .modifier(NativeMacGlassCapsule())
+                }
+                .padding(18)
             }
-            .modifier(NativeMacGlassButtons())
-            .help(lyricsShown ? "Hide lyrics" : "Show lyrics")
-            .padding(18)
+        }
+        .overlay(alignment: .top) {
+            if let lyricsMessage, !compact {
+                Text(lyricsMessage)
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 72)
+                    .onAppear {
+                        NSAccessibility.post(
+                            element: NSApplication.shared,
+                            notification: .announcementRequested,
+                            userInfo: [
+                                .announcement: lyricsMessage,
+                                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+                            ]
+                        )
+                    }
+            }
         }
         .ignoresSafeArea()
         .environment(\.colorScheme, .dark)
@@ -210,11 +258,49 @@ struct NativeMacFullPlayer: View {
             guard !Task.isCancelled else { return }
             palette = sampled
         }
-        .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1), value: lyricsShown)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: rightPane)
         .onChange(of: model.currentTrack?.id) { _, _ in isScrubbing = false }
+        .onChange(of: model.lyricsStatus) { _, _ in
+            if lyricsUnavailable && rightPane == .lyrics && !compact {
+                lyricsMessage = "Lyrics are not available for this song."
+            }
+        }
+        .onAppear {
+            if lyricsUnavailable && rightPane == .lyrics && !compact {
+                lyricsMessage = "Lyrics are not available for this song."
+            }
+        }
+        .task(id: lyricsMessage) {
+            guard lyricsMessage != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { lyricsMessage = nil }
+        }
     }
 
     private func close() { model.setFullPlayerOpen(false) }
+
+    private func paneButton(_ pane: RightPane, _ symbol: String, _ title: String) -> some View {
+        let active = visibleRightPane == pane
+        return Button {
+            if pane == .lyrics && lyricsUnavailable {
+                lyricsMessage = "Lyrics are not available for this song."
+                return
+            }
+            rightPane = active ? .none : pane
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                // The showing pane is a filled light circle with a dark glyph, as Music draws it.
+                .foregroundStyle(active ? Color.black.opacity(0.85) : Color.white)
+                .frame(width: 34, height: 34)
+                .background(active ? Color.white.opacity(0.9) : Color.clear, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(active ? "Hide \(title)" : title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(active ? .isSelected : [])
+    }
 
     // MARK: - Background
 
@@ -239,30 +325,85 @@ struct NativeMacFullPlayer: View {
     private func playerColumn(cover: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             // Clicking the cover goes back, as it did in the previous Goosic.
-            Button(action: close) {
+            if compact {
                 NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail)
                     .frame(width: cover, height: cover)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel("Artwork")
+            } else {
+                Button(action: close) {
+                    NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail)
+                        .frame(width: cover, height: cover)
+                        // Video art is 16:9. Crop at the square so it stays in the column.
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .help("Exit full-screen player")
+                .accessibilityLabel("Exit full-screen player")
             }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
-            .help("Exit full-screen player")
-            .accessibilityLabel("Exit full-screen player")
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(model.isAdvertisement ? "Advertisement" : (model.currentTrack?.title ?? "Nothing playing"))
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-                Text(busy ? "Preparing playback…" : model.nowPlayingSubtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.isAdvertisement ? "Advertisement" : (model.currentTrack?.title ?? "Nothing playing"))
+                        .font(compact ? .headline : .title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text(busy ? "Preparing playback…" : fullSubtitle)
+                        .font(compact ? .caption : .callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                // Like and More, each a small Liquid Glass circle beside the title, as in Music.
+                NativeMacGlassGroup {
+                    HStack(spacing: 8) {
+                        Button(action: model.toggleLikeCurrentTrack) {
+                            Image(systemName: model.isCurrentTrackLiked ? "heart.fill" : "heart")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(model.isCurrentTrackLiked ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.white))
+                                .frame(width: 30, height: 30)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .modifier(NativeMacGlassCircle())
+                        .disabled(!model.canRateCurrentTrack || model.libraryOperationInProgress)
+                        .help(model.isCurrentTrackLiked ? "Remove from Liked Music" : "Like")
+                        .accessibilityLabel(model.isCurrentTrackLiked ? "Remove from Liked Music" : "Like")
+
+                        if let track = model.currentTrack {
+                            Menu {
+                                NativeMacTrackMenuItems(track: track, model: model, includePlay: false)
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(Color.white)
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Circle())
+                            }
+                            .menuStyle(.button)
+                            .buttonStyle(.plain)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .modifier(NativeMacGlassCircle())
+                            .help("More")
+                        }
+                    }
+                }
             }
-            .padding(.top, 18)
+            .padding(.top, compact ? 8 : 18)
 
             progress
             transport
         }
         .frame(width: cover)
+    }
+
+    /// "Artist — Album", as Music writes it under the title.
+    private var fullSubtitle: String {
+        guard let track = model.currentTrack else { return model.nowPlayingSubtitle }
+        let parts = [track.artist, track.album].filter { !$0.isEmpty }
+        return parts.isEmpty ? model.nowPlayingSubtitle : parts.joined(separator: " — ")
     }
 
     private var progress: some View {
@@ -306,6 +447,17 @@ struct NativeMacFullPlayer: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Playback position")
         .accessibilityValue("\(model.elapsedText) of \(model.durationText)")
+        .accessibilityAdjustableAction { direction in
+            guard model.isSeekable, !busy else { return }
+            let step = direction == .increment ? 10.0 : -10.0
+            model.seek(to: min(max(position + step, 0), total))
+        }
+        .focusable(model.isSeekable && !busy)
+        .onMoveCommand { direction in
+            guard model.isSeekable, !busy else { return }
+            if direction == .left { model.seek(to: max(position - 10, 0)) }
+            if direction == .right { model.seek(to: min(position + 10, total)) }
+        }
     }
 
     private var transport: some View {
@@ -437,18 +589,18 @@ struct NativeMacFullPlayerVolume: View {
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
 
+    // Music's order: the slider, then the speaker, which mutes.
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            slider
+                .frame(width: 130)
             Button(action: model.toggleMuted) {
-                Image(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.fill")
-                    .frame(width: 16)
+                Image(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .frame(width: 20)
             }
             .buttonStyle(.plain)
+            .help(model.isMuted ? "Unmute" : "Mute")
             .accessibilityLabel(model.isMuted ? "Unmute" : "Mute")
-            slider
-                .frame(width: 110)
-            Image(systemName: "speaker.wave.3.fill")
-                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -515,6 +667,40 @@ private struct NativeMacVolumeSlider: NSViewRepresentable {
 
         @objc func changed(_ sender: NSSlider) {
             onChange(sender.doubleValue)
+        }
+    }
+}
+/// Groups Liquid Glass shapes so they are drawn and morph together, as system controls are.
+struct NativeMacGlassGroup<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer { content }
+        } else {
+            content
+        }
+    }
+}
+
+/// A transparent, interactive Liquid Glass circle; a thin material before macOS 26.
+struct NativeMacGlassCircle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: .circle)
+        } else {
+            content.background(.ultraThinMaterial, in: Circle())
+        }
+    }
+}
+
+/// A transparent, interactive Liquid Glass capsule; a thin material before macOS 26.
+struct NativeMacGlassCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            content.background(.ultraThinMaterial, in: Capsule())
         }
     }
 }

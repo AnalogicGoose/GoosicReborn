@@ -36,6 +36,13 @@ final class AccountLoginHost {
         FileHandle.standardError.write(Data("goosic login: \(message)\n".utf8))
     }
 
+    /// Signing an existing account in again needs its promoted profile directory opened in
+    /// place, which this host does not do yet. It says so rather than creating a second account.
+    func start(reusing accountId: UUID, profileId: UUID) {
+        Self.trace("signing an existing account in again is not available on Linux yet")
+        onCancelled?()
+    }
+
     func start() {
         guard window == nil else { return }
         // Both identifiers are generated before the surface opens and are never derived from

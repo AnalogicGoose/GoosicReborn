@@ -24,6 +24,8 @@ enum Diagnostics {
         case personalCatalog = "personal-catalog"
         case accountLogin = "account-login"
         case officialPlayback = "official-playback"
+        /// What the shell showed the listener, so a report can be read beside what they saw.
+        case shell
     }
 
     /// Diagnostics are on by default because the questions they answer — why is this slow, what
@@ -38,7 +40,37 @@ enum Diagnostics {
 
     static func note(_ subsystem: Subsystem, _ event: String, _ fields: [String: String] = [:]) {
         guard enabled else { return }
-        FileHandle.standardError.write(Data(line(subsystem, event, fields).utf8))
+        let text = line(subsystem, event, fields)
+        FileHandle.standardError.write(Data(text.utf8))
+        appendToLog(text)
+    }
+
+    /// Where the same lines are kept on disk, so Settings can open the folder a report needs.
+    /// They pass through the same redaction as stderr; the file holds nothing stderr would not.
+    static let logDirectory: URL? = FileManager.default
+        .urls(for: .cachesDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("Goosic", isDirectory: true)
+        .appendingPathComponent("Logs", isDirectory: true)
+
+    private static let logQueue = DispatchQueue(label: "goosic.diagnostics.log")
+    /// A log that has grown past this starts over, so it can never fill a disk.
+    private static let maxLogBytes: UInt64 = 2_000_000
+
+    private static func appendToLog(_ text: String) {
+        guard let directory = logDirectory else { return }
+        logQueue.async {
+            let file = directory.appendingPathComponent("goosic.log")
+            let manager = FileManager.default
+            try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
+            let size = ((try? manager.attributesOfItem(atPath: file.path))?[.size] as? NSNumber)?.uint64Value ?? 0
+            if size > maxLogBytes || !manager.fileExists(atPath: file.path) {
+                manager.createFile(atPath: file.path, contents: nil)
+            }
+            guard let handle = try? FileHandle(forWritingTo: file) else { return }
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data(text.utf8))
+        }
     }
 
     /// Built separately from the writing so the format can be asserted on.

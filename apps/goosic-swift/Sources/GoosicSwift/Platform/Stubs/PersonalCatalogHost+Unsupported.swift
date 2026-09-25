@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 final class PersonalCatalogHost {
     func bind(profileIdentifier: UUID?) {}
+    func reload() {}
+    func clearProfile(_ identifier: UUID, completion: @escaping @MainActor () -> Void) { completion() }
 
     func loadRadio(
         seedVideoID: String, continuation: String? = nil,

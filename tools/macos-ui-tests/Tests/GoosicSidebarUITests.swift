@@ -28,6 +28,19 @@ final class GoosicSidebarUITests: XCTestCase {
         XCTAssertTrue(app.buttons["sidebar.account"].waitForExistence(timeout: 5))
     }
 
+    func testSidebarSelectionIsExposedToAccessibility() throws {
+        let app = launchFixture(appearance: "dark")
+        let search = app.buttons["sidebar.route.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.click()
+        XCTAssertTrue(search.isSelected)
+
+        let home = app.buttons["sidebar.route.home"]
+        home.click()
+        XCTAssertTrue(home.isSelected)
+        XCTAssertFalse(search.isSelected)
+    }
+
     private func launchFixture(appearance: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment = ["GOOSIC_UI_FIXTURE": "sidebar", "GOOSIC_DIAGNOSTICS": "0", "GOOSIC_UI_APPEARANCE": appearance]

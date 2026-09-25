@@ -180,11 +180,45 @@ rather than half-built:
 
 ## For the macOS shell
 
-The Swift shell compiles with the 0.4.0 constant and decodes `category` items as `.unknown`, so a
-mood tile is visible but inert until it learns the kind. To finish Moods & genres there: add a
-`category` case to `GoosicCatalogKind`, read the optional `color`, draw a shelf of categories as
-a grid, and open one with `catalog.category`. The rest of the list above is presentation and can
-follow in any order; the like button and *Up next* source are the two people will notice first.
+The macOS shell has caught up with both Windows rounds. The Swift shell now decodes `category`
+items with their `color`, draws a shelf of them as a wrapping grid of striped tiles, and opens
+one through `catalog.category`; a shelf YouTube Music marks as `list` is drawn as song rows, as
+*Top result* and *Quick picks* ask. The rest was reproduced as behaviour rather than ported:
+the heart in the player bar and the full player (⌥⇧B), read from the first page of Liked Music at
+sign-in and lit only once YouTube Music accepts a rating; an inline volume slider; a page Play
+button that pauses and resumes its own list; *Up next* naming its source; "100+ songs" while a
+cursor is pending; the page's own cover in the hero; an album column in playlist rows; sort and
+*Find in playlist* as views over the loaded rows; recent searches in the shell's own defaults;
+the sleep timer in the More menu and the Controls menu; the mini player as a floating window
+with the full player's own layout, compact; round artists; wide video cards; Liked Music as one
+page from every link, with its own sidebar row; the library as one grid, with Subscriptions as
+its own section; the page fading under the title bar; ⌘, for Settings.
+
+Pages open from their last copy (`CatalogPageStore`, under the user's Caches folder, per account
+and deleted on sign-out) and refresh behind the listener, and the library's main pages are read
+after sign-in. Debug mode and the log folder are in Settings, under Advanced; the log is
+`goosic.log` under the user's Caches folder, written through `Diagnostics`, so it carries the same
+redaction as stderr. Action results — a like, a save, *Play next* — appear briefly above the
+player bar, in one plain sentence unless debug mode is on. Discord status talks to the Discord
+app over its local socket with the same application id as Windows and sends only the song.
+
+A second pass brought the account handling in line. The sidebar's account button opens the menu
+Windows has: switch accounts, browse as a guest, add another account, and sign out, which, as on
+Windows, forgets the account and clears its profile rather than only stepping away from it.
+Switching starts at Home. History is a page of its own, and an owned playlist's rows can be
+moved up and down and its description edited.
+
+It also fixed something neither shell handled. A profile whose Google session has ended still
+loads YouTube Music, and InnerTube then answers every personal read as a guest: an empty
+library, an empty Liked Music, the anonymous Home — shown under the account's name.
+`PersonalCatalog.js` now refuses to read when the page is not signed in, with a
+`GOOSIC_SIGNED_OUT` marker; the macOS shell turns that into a banner and *Sign in again*, which
+renews the session in the account's own profile and keeps its id. The Windows shell receives the
+same refusal as an error and should grow the same prompt.
+
+What macOS does not reproduce is Windows' own: the tray, the Run-key entry, EcoQoS and the
+installer's updater have no direct counterpart in a SwiftPM executable that is not yet an app
+bundle.
 
 ## For the Linux shell
 
