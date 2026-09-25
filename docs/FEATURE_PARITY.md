@@ -142,10 +142,14 @@ for most accounts. The Swift shell had the same mistake and is fixed on `develop
 opens the log folder. With debug off, errors are one plain sentence and notices about how Goosic
 works inside -- a clamped page, waits during advertisements or account changes, the web player's
 own messages -- are only written to the log. With it on, they are shown too, and errors carry the
-exception. Everything shown on screen is logged. The one open question is the clamped-page notice:
-[AGENTS.md](../AGENTS.md) requires that a clamped page say so. A clamped list still does, as
-"100+ songs", but a clamped page of shelves now says so only in debug mode, and that exception has
-not yet been agreed.
+exception. Everything shown on screen is logged. The clamped-page notice is one of those details, as
+[AGENTS.md](../AGENTS.md) now records: a partial list still says so in its count, and a page of
+shelves is no longer clamped at all. It used to lose every shelf past the twelfth, so a mood page
+such as Chill showed twelve of its sixteen; the service now sends the shelves that fit in one
+frame with a cursor of its own for the rest, which the shell follows as the listener scrolls,
+as it follows YouTube Music's cursors. The service keeps no state: the cursor names the page and
+the shelf to resume from, and carries upstream's own cursor so the page continues past its last
+shelf as before.
 
 **The page fades under the title bar**, so scrolled titles never run into the window buttons.
 
