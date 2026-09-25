@@ -506,6 +506,7 @@ public sealed partial class ShellViewModel
                 await RefreshAccountsAsync().ConfigureAwait(true);
             }
 
+            _pages.Forget(account.WebProfileId);
             ReportStatus($"Signed out of {account.DisplayName}.");
             await LoadRouteAsync("home").ConfigureAwait(true);
         }
@@ -584,9 +585,29 @@ public sealed partial class ShellViewModel
         return true;
     }
 
+    private readonly PageCache _pages = new();
+
+    /// <summary>Whose copies of pages to use: the signed-in profile's, never another account's.</summary>
+    private string CacheScope => _activeAccount?.WebProfileId ?? "guest";
+
+    private static string PersonalCacheKey((string BrowseId, string Title, string Shape) source) =>
+        $"personal:{source.BrowseId}:{source.Shape}";
+
+    /// <summary>
+    /// Shows a personal page: the copy from the last visit at once, when there is one, then the
+    /// fresh answer only if it differs.
+    /// </summary>
     private async Task LoadPersonalAsync((string BrowseId, string Title, string Shape) source)
     {
         _personalSource = source;
+        var scope = CacheScope;
+        var key = PersonalCacheKey(source);
+        var cached = _pages.Get(scope, key);
+        if (cached is not null)
+        {
+            ShowPersonalPage(cached, source);
+        }
+
         try
         {
             var page = await Personal!.BrowseAsync(source.BrowseId, source.Title, null, source.Shape)
@@ -596,31 +617,88 @@ public sealed partial class ShellViewModel
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(page.Title) && source.Shape == "tracks")
+            // The cursor is left out of the copy: it changes on every answer and goes stale, so
+            // it would make every visit look changed and could not be continued from later.
+            var changed = _pages.Put(scope, key, page with { NextCursor = null });
+            if (cached is null || changed)
             {
-                PageTitle = page.Title;
-            }
+                if (cached is not null)
+                {
+                    Tracks.Clear();
+                    Shelves.Clear();
+                }
 
-            if (!string.IsNullOrWhiteSpace(page.Subtitle))
+                ShowPersonalPage(page, source);
+            }
+            else
             {
-                PageSubtitle = page.Subtitle;
+                NextCursor = page.NextCursor;
             }
-
-            Fill(page);
-            Status = "";
-            PageState = Tracks.Count == 0 && Shelves.Count == 0
-                ? PageState.Empty(PageSubject.Library, source.Title)
-                : PageState.Content;
         }
         catch (Exception error)
         {
-            if (_personalSource == source)
+            if (_personalSource == source && cached is null)
             {
                 PageState = FailureState(error, source.Title);
             }
             else
             {
+                // The copy on screen stands; the log says the refresh failed.
                 Describe(error);
+            }
+        }
+    }
+
+    private void ShowPersonalPage(CatalogPage page, (string BrowseId, string Title, string Shape) source)
+    {
+        if (!string.IsNullOrWhiteSpace(page.Title) && source.Shape == "tracks")
+        {
+            PageTitle = page.Title;
+        }
+
+        if (!string.IsNullOrWhiteSpace(page.Subtitle))
+        {
+            PageSubtitle = page.Subtitle;
+        }
+
+        Fill(page);
+        Status = "";
+        PageState = Tracks.Count == 0 && Shelves.Count == 0
+            ? PageState.Empty(PageSubject.Library, source.Title)
+            : PageState.Content;
+    }
+
+    /// <summary>
+    /// Reads the library's main pages in the background after sign-in, so the first visit to each
+    /// is instant as well.
+    /// </summary>
+    private async Task WarmLibraryAsync()
+    {
+        foreach (var source in new (string BrowseId, string Title, string Shape)[]
+        {
+            ("FEmusic_liked_playlists", "Library", "shelves"),
+            ("FEmusic_library_corpus_track_artists", "Library", "shelves"),
+            ("FEmusic_liked_albums", "Library", "shelves"),
+        })
+        {
+            if (Personal is null || !IsSignedIn)
+            {
+                return;
+            }
+
+            try
+            {
+                var scope = CacheScope;
+                var page = await Personal.BrowseAsync(source.BrowseId, source.Title, null, source.Shape)
+                    .ConfigureAwait(true);
+                if (scope == CacheScope)
+                {
+                    _pages.Put(scope, PersonalCacheKey(source), page with { NextCursor = null });
+                }
+            }
+            catch (Exception error)
+            {
+                BridgeLog.Write($"library warm-up skipped {source.BrowseId}: {error.GetType().Name}");
             }
         }
     }
@@ -701,8 +779,15 @@ public sealed partial class ShellViewModel
 
         try
         {
+            var scope = CacheScope;
             var page = await Personal.BrowseAsync("VLLM", "Liked Music", null, "tracks").ConfigureAwait(true);
             LearnLikes(page.Tracks);
+            if (scope == CacheScope)
+            {
+                _pages.Put(scope, PersonalCacheKey(("VLLM", "Liked Music", "tracks")), page with { NextCursor = null });
+            }
+
+            await WarmLibraryAsync().ConfigureAwait(true);
         }
         catch (Exception error)
         {
