@@ -786,13 +786,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         if (IsAdvertisement)
         {
-            ReportStatus("Track changes wait until the advertisement finishes.");
+            ReportDetail("Track changes wait until the advertisement finishes.");
             return false;
         }
 
         if (IsAccountBusy)
         {
-            ReportStatus("Playback waits while the account changes.");
+            ReportDetail("Playback waits while the account changes.");
             return false;
         }
 
@@ -807,7 +807,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return true;
         }
 
-        ReportStatus("Volume and mute are unchanged during advertisements.");
+        ReportDetail("Volume and mute are unchanged during advertisements.");
         return false;
     }
     public double Volume
@@ -1193,6 +1193,11 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     internal void ReportStatus(string message)
     {
+        if (message.Length > 0)
+        {
+            BridgeLog.Write("shown: " + message);
+        }
+
         Toast = message;
         if (message.Length > 0)
         {
@@ -1386,11 +1391,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                     _ = card.LoadArtworkAsync(_artwork);
                 }
             }
-
+            // A clamped list still says so, as "100+ songs" in its header; the sentence explaining
+            // why is detail, shown in debug mode and always logged.
             // A clamped page says so rather than presenting a partial list as complete.
-            Status = page.Truncated
+            Status = DetailStatus(page.Truncated
                 ? "This page was long, so only the first part is shown."
-                : "";
+                : "");
             PageState = Tracks.Count == 0 && Shelves.Count == 0
                 ? PageState.Empty(PageSubject.Browse, PageTitle)
                 : PageState.Content;
@@ -1462,7 +1468,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         };
         if (command is null || id.Length == 0)
         {
-            ReportStatus("That item cannot be opened.");
+            ReportDetail("That item cannot be opened.");
             return;
         }
 
@@ -1539,7 +1545,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 }
             }
 
-            Status = page.Truncated ? "This page was long, so only the first part is shown." : "";
+            Status = DetailStatus(page.Truncated ? "This page was long, so only the first part is shown." : "");
             SetPageTruncated(page.Truncated);
             PageState = Tracks.Count == 0 && Shelves.Count == 0
                 ? PageState.Empty(PageSubject.Entity, PageTitle)
@@ -1617,7 +1623,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 }
             }
 
-            Status = page.Truncated ? "This page was long, so only the first part is shown." : "";
+            Status = DetailStatus(page.Truncated ? "This page was long, so only the first part is shown." : "");
             PageState = Tracks.Count == 0 && Shelves.Count == 0
                 ? PageState.Empty(PageSubject.Search, trimmed)
                 : PageState.Content;
@@ -1636,13 +1642,52 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private static string Describe(Exception error)
     {
         BridgeLog.Write($"ui error {error.GetType().Name}: {error.Message}");
-        return error switch
+        var plain = error switch
         {
-            ServiceUnavailableException => "Goosic’s playback service is unavailable. Reopen the app and try again.",
+            ServiceUnavailableException => "Goosic stopped responding. Reopen the app and try again.",
             TimeoutException => "That took too long. Check your connection and try again.",
-            ServiceRefusedException => "That action is temporarily unavailable. Try again.",
             _ => "Something went wrong. Try again.",
         };
+        return ShellPreferences.DebugMode ? $"{plain} [{error.GetType().Name}: {error.Message}]" : plain;
+    }
+
+    /// <summary>
+    /// A notice about how Goosic works inside rather than about what the listener did: written
+    /// to the log always, and shown only in debug mode.
+    /// </summary>
+    internal void ReportDetail(string message)
+    {
+        BridgeLog.Write("detail: " + message);
+        if (ShellPreferences.DebugMode)
+        {
+            ReportStatus(message);
+        }
+    }
+
+    /// <summary>A page-level notice that only debug mode shows; the log keeps it either way.</summary>
+    private string DetailStatus(string message)
+    {
+        if (message.Length == 0)
+        {
+            return "";
+        }
+
+        BridgeLog.Write("detail: " + message);
+        return ShellPreferences.DebugMode ? message : "";
+    }
+
+    public bool DebugMode
+    {
+        get => ShellPreferences.DebugMode;
+        set
+        {
+            if (ShellPreferences.DebugMode != value)
+            {
+                ShellPreferences.DebugMode = value;
+                BridgeLog.Write("debug mode " + (value ? "on" : "off"));
+                OnPropertyChanged(nameof(DebugMode));
+            }
+        }
     }
 
     /// <summary>The page's state screen for a failed request.</summary>

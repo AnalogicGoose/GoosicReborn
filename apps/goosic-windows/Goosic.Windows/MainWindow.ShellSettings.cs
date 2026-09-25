@@ -12,6 +12,14 @@ namespace Goosic.Windows;
 
 public sealed partial class MainWindow : Window
 {
+    /// <summary>Opens the folder holding the log, so it can be attached to a bug report.</summary>
+    private void OnOpenLogFolder(object sender, RoutedEventArgs e)
+    {
+        var folder = System.IO.Path.GetDirectoryName(BridgeLog.Location)!;
+        System.IO.Directory.CreateDirectory(folder);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
+    }
+
     // ---- How the program behaves on Windows ---------------------------------------------------
 
     private TrayIcon? _tray;
