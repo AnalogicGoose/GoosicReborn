@@ -9,9 +9,16 @@
 use url::Url;
 
 /// Hosts YouTube Music serves artwork from. Anything else is refused rather than fetched, so a
-/// catalog response cannot point the shell at an arbitrary server.
-pub const ALLOWED_HOST_SUFFIXES: [&str; 4] =
-    ["googleusercontent.com", "ggpht.com", "ytimg.com", "youtube.com"];
+/// catalog response cannot point the shell at an arbitrary server. `gstatic.com` is Google's
+/// static host, where YouTube Music keeps the art of its own playlists such as Liked Music;
+/// without it those cards were left blank.
+pub const ALLOWED_HOST_SUFFIXES: [&str; 5] = [
+    "googleusercontent.com",
+    "ggpht.com",
+    "ytimg.com",
+    "youtube.com",
+    "gstatic.com",
+];
 
 /// Artwork is small. Anything larger is not a thumbnail and is discarded.
 pub const MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -65,6 +72,9 @@ mod tests {
         assert!(is_allowed("https://i.ytimg.com/vi/abc/hq.jpg"));
         assert!(is_allowed("https://yt3.ggpht.com/abc"));
         assert!(is_allowed("https://googleusercontent.com/art.jpg"), "the bare domain itself");
+        assert!(is_allowed(
+            "https://www.gstatic.com/youtube/media/ytm/images/pbg/liked-music-@576.png"
+        ));
     }
 
     #[test]

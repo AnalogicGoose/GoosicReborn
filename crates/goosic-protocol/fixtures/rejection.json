@@ -5,7 +5,7 @@
       "name": "truncated-json",
       "envelope": "request",
       "why": "A frame cut off mid-object, which is what a half-written pipe looks like.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\""
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\""
     },
     {
       "name": "missing-protocol-version",
@@ -17,31 +17,31 @@
       "name": "missing-command",
       "envelope": "request",
       "why": "A request that names no command cannot be dispatched.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"payload\":{}}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"payload\":{}}"
     },
     {
       "name": "unknown-owner",
       "envelope": "request",
       "why": "Owner is a closed set. An unrecognised owner must not fall back to none, because none is claimable-by-nobody and would read as a release.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\",\"payload\":{\"owner\":\"browser\"}}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\",\"payload\":{\"owner\":\"browser\"}}"
     },
     {
       "name": "generation-as-string",
       "envelope": "request",
       "why": "Generations are compared numerically. A string that looks like a number is not one.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\",\"payload\":{\"owner\":\"officialWebView\",\"generation\":\"4\"}}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\",\"payload\":{\"owner\":\"officialWebView\",\"generation\":\"4\"}}"
     },
     {
       "name": "payload-is-an-array",
       "envelope": "request",
       "why": "The payload is an object. An array here means the sender is speaking a different protocol.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\",\"payload\":[]}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"command\":\"playback.claim\",\"payload\":[]}"
     },
     {
       "name": "response-missing-ok",
       "envelope": "response",
       "why": "`ok` is how a client decides between payload and error. Guessing it is how a failure gets read as a success.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"payload\":null,\"error\":null}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"payload\":null,\"error\":null}"
     },
     {
       "name": "empty-line",

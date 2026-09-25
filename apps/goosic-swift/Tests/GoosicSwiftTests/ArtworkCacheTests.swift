@@ -127,7 +127,7 @@ final class RadioPageTests: XCTestCase {
     /// A radio page is tracks-only, unlike the shelf pages the browse routes return.
     func testARadioPageDecodesIntoPlayableTracksWithArtwork() throws {
         let wire = """
-        {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,"payload":{"catalog":{\
+        {"protocolVersion":"0.4.0","requestId":"swift-1","ok":true,"payload":{"catalog":{\
         "id":"radio:JhulBGMA7G4","title":"Radio","tracks":[\
         {"kind":"song","id":"qXI87eMP-bs","title":"Face to Face","subtitle":"Daft Punk",\
         "artist":"Daft Punk","duration":"4:01","videoId":"qXI87eMP-bs",\
@@ -148,7 +148,7 @@ final class RadioPageTests: XCTestCase {
 
     func testARadioPageThatCameBackEmptyIsTreatedAsNothingToPlay() throws {
         let wire = """
-        {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,\
+        {"protocolVersion":"0.4.0","requestId":"swift-1","ok":true,\
         "payload":{"catalog":{"id":"radio:x","title":"Radio"}}}
         """
         let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
@@ -321,7 +321,7 @@ final class LyricsTests: XCTestCase {
     func testLyricsDecodeFromTheServiceWireShape() async throws {
         try await MainActor.run {
             let wire = """
-            {"protocolVersion":"0.3.0","requestId":"swift-1","ok":true,"payload":{"lyrics":{\
+            {"protocolVersion":"0.4.0","requestId":"swift-1","ok":true,"payload":{"lyrics":{\
             "source":"LRCLIB","synced":true,"lines":[\
             {"atMs":19160,"text":"When you were here before"},\
             {"atMs":24090,"text":"Couldn't look you in the eye"}]}}}

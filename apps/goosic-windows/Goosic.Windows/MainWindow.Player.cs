@@ -61,13 +61,17 @@ public sealed partial class MainWindow : Window
         await Model.RefreshAccountsAsync();
     }
 
-    private async void OnLoadMore(object sender, RoutedEventArgs e) => await Model.LoadMoreAsync();
-
     /// <summary>Loads the next part of a long page as the reader nears its end, as YouTube Music does.</summary>
-    private async void OnContentViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    private async void OnContentViewChanged(object? sender, ScrollViewerViewChangedEventArgs e) =>
+        await LoadMoreIfNearEndAsync();
+
+    /// <summary>
+    /// Asks for more when the end of the page is in view — including when the page is too short
+    /// to scroll at all, which no scroll event would ever report. There is no button to press.
+    /// </summary>
+    private async Task LoadMoreIfNearEndAsync()
     {
-        if (Model.HasMore && ContentScroller.ScrollableHeight > 0
-            && ContentScroller.VerticalOffset > ContentScroller.ScrollableHeight - 900)
+        if (Model.HasMore && ContentScroller.VerticalOffset > ContentScroller.ScrollableHeight - 900)
         {
             await Model.LoadMoreAsync();
         }
@@ -178,14 +182,24 @@ public sealed partial class MainWindow : Window
 
         if (_playback is null)
         {
-            Model.ReportStatus("There is no service to claim playback from.");
+            Model.ReportDetail("There is no service to claim playback from.");
             return;
         }
 
         await _playback.PlayAsync(videoId);
     }
 
-    private async void OnPlayPage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: false));
+    private async void OnPlayPage(object sender, RoutedEventArgs e)
+    {
+        // The list already playing is paused and resumed from here rather than restarted.
+        if (Model.IsPageQueued)
+        {
+            await TogglePauseAsync();
+            return;
+        }
+
+        await PlayEntryAsync(Model.PlayPage(shuffle: false));
+    }
 
     private async void OnShufflePage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: true));
 
@@ -211,6 +225,13 @@ public sealed partial class MainWindow : Window
 
     private async Task AdvanceAsync(bool forward, bool natural)
     {
+        // The sleep timer's "end of this song": the song has ended, so nothing follows it.
+        if (natural && TakeSleepAtEndOfSong())
+        {
+            Model.ReportStatus("Sleep timer: stopped at the end of the song.");
+            return;
+        }
+
         var move = await Model.MoveAsync(forward, natural);
         if (move.Entry is null)
         {
@@ -239,7 +260,7 @@ public sealed partial class MainWindow : Window
 
         if (_playback is null)
         {
-            Model.ReportStatus("There is no service to claim playback from.");
+            Model.ReportDetail("There is no service to claim playback from.");
             return;
         }
 

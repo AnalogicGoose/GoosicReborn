@@ -29,7 +29,7 @@ public sealed partial class MainWindow : Window
         {
             // The overlay is a convenience; a machine without it still plays.
             BridgeLog.Write($"media controls error {error.GetType().Name}: {error.Message}");
-            Model.ReportStatus("Windows media controls are unavailable on this device.");
+            Model.ReportDetail("Windows media controls are unavailable on this device.");
             return;
         }
 

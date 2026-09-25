@@ -129,7 +129,12 @@ internal sealed class GoosicServiceClient : IAsyncDisposable
             ResponseEnvelope response;
             try
             {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
                 response = await completion.Task.WaitAsync(deadline.Token).ConfigureAwait(false);
+                if (command.StartsWith("catalog.", StringComparison.Ordinal))
+                {
+                    BridgeLog.Write($"service {command}: {clock.Elapsed.TotalMilliseconds:0} ms");
+                }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
