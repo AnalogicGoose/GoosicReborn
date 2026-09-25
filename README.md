@@ -4,13 +4,17 @@ GoosicReborn is a native rewrite of Goosic on a Rust authority plus a SwiftCross
 
 ## What works today
 
-Version 0.2.1 distributes the native Windows x64 WinUI app as a setup executable and portable
+Version 0.2.2 distributes the native Windows x64 WinUI app as a setup executable and portable
 ZIP. From 0.2.0 an installed copy updates itself: Settings checks GitHub Releases, verifies the
 new Setup against the release's checksums, and installs it. Home is laid out as YouTube Music
 lays it out, with Quick picks as a compact song list, and Settings adds a start page, hiding
 explicit songs, reduced motion, close to tray, launch at startup, now-playing notifications,
 remembered window placement and an efficiency mode. 0.2.1 adds editing your own playlists —
 choosing songs, removing them, and moving them — and Save to playlist from the player bar.
+0.2.2 brings the details of Apple Music, Spotify and YouTube Music: a like button, volume
+slider, sleep timer and mini player; search led by the top result; Moods & genres; sort and
+find in playlists; a library grid; pages that open instantly from the last copy; Discord
+status; and a debug mode with a log. See [the release notes](docs/RELEASE_0.2.2.md).
 Setup creates a Start menu shortcut and uninstaller, bundles .NET and the Windows App SDK, and
 installs WebView2 if missing (internet required). It is unsigned, so Windows may display an
 unknown-publisher warning. Download it from
@@ -18,7 +22,7 @@ unknown-publisher warning. Download it from
 The platform notes below otherwise describe the older Swift shell. The native Windows shell
 supports official WebView2 playback, sign-in, personal catalog, queue, lyrics and media controls;
 local downloaded-file playback and legacy preference import remain unavailable. Only Windows
-x64 binaries are distributed in 0.2.1; macOS/Linux playback acceptance is not claimed.
+x64 binaries are distributed in 0.2.2; macOS/Linux playback acceptance is not claimed.
 
 - **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
 - **Personal content (macOS).** A signed-in Home and the Library's playlists, liked songs, albums, and artists are read inside the active account's isolated WebKit profile. Cookies never leave WebKit; the shared shell receives normalized public music metadata only. See [the content parity map](docs/CONTENT_PARITY.md) for the full old-Goosic comparison. [The feature parity audit](docs/FEATURE_PARITY.md) compares the Windows shell with Apple Music, Spotify and YouTube Music and lists what the other shells need to match it.
