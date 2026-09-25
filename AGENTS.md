@@ -88,7 +88,10 @@ task seems to require breaking one, stop and say so instead of working around it
   never modifies or deletes it, and never carries credentials over.
 - **No downloader.** `goosic-downloads` imports finalized legacy files and decodes them. It
   contains no yt-dlp path and no account-cookie path, and must not grow one.
-- **A clamped catalog page says so.** Never present a partial list as complete.
+- **A clamped catalog page says so.** Never present a partial list as complete. A page with
+  more shelves than one frame holds is paged, not clamped: the service sends what fits and a
+  cursor for the rest. A list that is still partial says so in its count ("100+ songs"); the
+  sentence explaining why is a detail, shown in debug mode and always logged.
 
 ## 4. Where platform-specific code lives
 
