@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Goosic</title>
+        <item>
+            <title>0.2.3</title>
+            <pubDate>Fri, 25 Sep 2026 18:25:37 -0400</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>0.2.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/AnalogicGoose/GoosicReborn/releases/download/v0.2.3-macos-alpha.1/Goosic-0.2.3-macos-alpha-arm64.zip" length="20729252" type="application/octet-stream" sparkle:edSignature="PPy2rCgodo6ZPDBMAyuR58hjbaBnO7f/jZvvMZ532rhbI47IIi0w5SlJuIkikJOzRWPKTS6P4wWN3yTS9+cPCw=="/>
+        </item>
+    </channel>
+</rss>
