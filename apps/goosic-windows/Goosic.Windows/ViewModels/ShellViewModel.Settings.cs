@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -49,7 +49,18 @@ public sealed partial class ShellViewModel
     /// <summary>The route Rust last remembered, for a "last page" start.</summary>
     internal string LastRoute { get; private set; } = "home";
 
-    public bool IsSettingsPage { get => _isSettingsPage; private set => Set(ref _isSettingsPage, value); }
+    public bool IsSettingsPage
+    {
+        get => _isSettingsPage;
+        private set
+        {
+            Set(ref _isSettingsPage, value);
+            OnPropertyChanged(nameof(PageHeaderMaxWidth));
+        }
+    }
+
+    /// <summary>Settings is a centered column, so its title narrows to that column and stays above it.</summary>
+    public double PageHeaderMaxWidth => _isSettingsPage ? 616 : double.PositiveInfinity;
 
     public bool IsServiceConnected => string.IsNullOrEmpty(_status) || !_status.Contains("service", StringComparison.OrdinalIgnoreCase);
 
@@ -71,6 +82,7 @@ public sealed partial class ShellViewModel
     [
         new("All", "all"),
         new("Songs", "songs"),
+        new("Videos", "videos"),
         new("Albums", "albums"),
         new("Artists", "artists"),
         new("Playlists", "playlists"),
@@ -95,7 +107,7 @@ public sealed partial class ShellViewModel
     public bool ShowPageHeader { get => _showPageHeader; private set => Set(ref _showPageHeader, value); }
 
     /// <summary>What the sidebar's account row says under the name.</summary>
-    public string ConnectionLabel => IsAccountBusy ? "Switching…" : IsSignedIn ? "Connected" : "Guest";
+    public string ConnectionLabel => IsAccountBusy ? "Switchingâ€¦" : IsSignedIn ? "Connected" : "Guest";
 
     /// <summary>Whether there is an earlier page to go back to.</summary>
     internal bool CanGoBack => _routeHistory.Count > 0;
@@ -113,6 +125,12 @@ public sealed partial class ShellViewModel
     /// <summary>Opens one section of the library directly, as the sidebar's library items do.</summary>
     internal async Task OpenLibrarySectionAsync(string browseId)
     {
+        if (browseId == "VLLM")
+        {
+            await LoadRouteAsync("liked").ConfigureAwait(true);
+            return;
+        }
+
         _librarySection = browseId;
         await LoadRouteAsync("library").ConfigureAwait(true);
     }

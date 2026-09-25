@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Goosic.Windows"
     xmlns:vm="using:Goosic.Windows.ViewModels"
+    xmlns:views="using:Goosic.Windows.Views"
     xmlns:mux="using:Microsoft.UI.Xaml.Controls">
 
     <!--
@@ -42,7 +43,8 @@
                     <StackPanel x:Name="ContentStack" Spacing="22" Padding="314,56,34,128">
                         <!-- No ColumnSpacing: it stays applied when the artwork collapses, and pushes the title
                              out of line with the shelves. The artwork carries the gap instead. -->
-                        <Grid Visibility="{x:Bind Model.ShowPageHeader, Mode=OneWay}">
+                        <Grid Visibility="{x:Bind Model.ShowPageHeader, Mode=OneWay}"
+                              MaxWidth="{x:Bind Model.PageHeaderMaxWidth, Mode=OneWay}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
@@ -92,11 +94,12 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                             <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
-                                <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage" AutomationProperties.Name="Play"
+                                <Button Style="{StaticResource AccentButtonStyle}" Click="OnPlayPage"
+                                        AutomationProperties.Name="{x:Bind Model.PagePlayLabel, Mode=OneWay}"
                                         Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="&#xE768;" FontSize="14" />
-                                        <TextBlock Text="Play" />
+                                        <FontIcon Glyph="{x:Bind Model.PagePlayGlyph, Mode=OneWay}" FontSize="14" />
+                                        <TextBlock Text="{x:Bind Model.PagePlayLabel, Mode=OneWay}" />
                                     </StackPanel>
                                 </Button>
                                 <Button Click="OnShufflePage" AutomationProperties.Name="Shuffle" Visibility="{x:Bind Model.HasTracks, Mode=OneWay}">
@@ -121,6 +124,22 @@
                                         <TextBlock Text="{x:Bind Model.SubscribeLabel, Mode=OneWay}" />
                                     </StackPanel>
                                 </Button>
+                                <!-- Sort and find, as a Spotify or Apple Music playlist offers: views over the
+                                     loaded rows that never change the playlist itself. -->
+                                <DropDownButton Visibility="{x:Bind Model.CanSortTracks, Mode=OneWay}"
+                                                AutomationProperties.Name="{x:Bind Model.TrackSortLabel, Mode=OneWay}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE8CB;" FontSize="14" />
+                                        <TextBlock Text="{x:Bind Model.TrackSortLabel, Mode=OneWay}" />
+                                    </StackPanel>
+                                    <DropDownButton.Flyout>
+                                        <MenuFlyout Opening="OnSortMenuOpening" />
+                                    </DropDownButton.Flyout>
+                                </DropDownButton>
+                                <TextBox Width="220" PlaceholderText="Find in playlist"
+                                         Visibility="{x:Bind Model.CanSortTracks, Mode=OneWay}"
+                                         Text="{x:Bind Model.TrackFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         AutomationProperties.Name="Find in playlist" />
                                 <Button Visibility="{x:Bind Model.IsOwnedPlaylistPage, Mode=OneWay}"
                                         ToolTipService.ToolTip="Edit playlist" AutomationProperties.Name="Edit playlist">
                                     <FontIcon Glyph="&#xE712;" FontSize="14" />
@@ -148,122 +167,215 @@
                             </StackPanel>
                         </Grid>
 
-                        <StackPanel Spacing="14" MaxWidth="720" HorizontalAlignment="Left"
+                        <!-- Settings, grouped the way iOS Settings is: a small heading, then a rounded list of
+                             rows, each an icon tile, a name with one line of explanation, and its control. -->
+                        <StackPanel MaxWidth="680" HorizontalAlignment="Center"
                                     Visibility="{x:Bind Model.IsSettingsPage, Mode=OneWay}">
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Playback" FontSize="16" FontWeight="SemiBold" />
-                                    <ToggleSwitch Header="Autoplay" OnContent="Keep playing related music when the queue ends"
-                                                  OffContent="Stop when the queue ends"
-                                                  IsOn="{x:Bind Model.Autoplay, Mode=OneWay}" Toggled="OnAutoplayToggled" />
-                                    <ToggleSwitch Header="Shuffle" OnContent="The queue plays in a random order"
-                                                  OffContent="The queue plays in order"
-                                                  IsOn="{x:Bind Model.IsShuffled, Mode=OneWay}" Toggled="OnShuffleToggled" />
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="Repeat" />
-                                        <Button Content="{x:Bind Model.RepeatLabel, Mode=OneWay}" Click="OnRepeat" />
+
+                            <!-- The account comes first, as the Apple ID does. -->
+                            <Border Style="{StaticResource SettingsGroupStyle}" Margin="0,4,0,0">
+                                <Grid Padding="14,14,16,14" ColumnSpacing="14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="52" Height="52" CornerRadius="26" VerticalAlignment="Top"
+                                            Background="#FF0A84FF">
+                                        <FontIcon Glyph="&#xE77B;" FontSize="24" Foreground="White" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}" FontSize="18"
+                                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{x:Bind Model.AccountDetail, Mode=OneWay}" FontSize="12"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap" />
+                                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
+                                            <Button Style="{StaticResource AccentButtonStyle}" Content="Sign in with Google"
+                                                    Visibility="{x:Bind Model.IsGuest, Mode=OneWay}" Click="OnSignIn" />
+                                            <Button Content="Add another account"
+                                                    Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignIn" />
+                                            <Button Content="Sign out"
+                                                    Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignOut" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
+                                       Text="Sign-in data stays inside each account's own WebView2 profile and never enters the playback service." />
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Playback" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE768;" Tile="#FF30D158" Title="Autoplay"
+                                                       Description="Keep playing related music when the queue ends">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Autoplay"
+                                                      IsOn="{x:Bind Model.Autoplay, Mode=OneWay}" Toggled="OnAutoplayToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE8B1;" Tile="#FFFF9F0A" Title="Shuffle"
+                                                       Description="Play the queue in a random order">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Shuffle"
+                                                      IsOn="{x:Bind Model.IsShuffled, Mode=OneWay}" Toggled="OnShuffleToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE8EE;" Tile="#FF5E5CE6" Title="Repeat"
+                                                       Description="Off, the whole queue, or one song">
+                                        <Button Content="{x:Bind Model.RepeatLabel, Mode=OneWay}" Click="OnRepeat"
+                                                AutomationProperties.Name="Repeat" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Browsing" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE80F;" Tile="#FF0A84FF" Title="Open Goosic on"
+                                                       Description="The page you see when Goosic starts">
+                                        <ComboBox x:Name="StartPageChoice" MinWidth="200"
+                                                  AutomationProperties.Name="Open Goosic on"
+                                                  SelectionChanged="OnStartPageChanged" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE72E;" Tile="#FFFF453A" Title="Hide explicit songs"
+                                                       Description="Leave them out of pages, searches and radio">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Hide explicit songs"
+                                                      IsOn="{x:Bind Model.HideExplicit, Mode=OneWay}"
+                                                      Toggled="OnHideExplicitToggled" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
+                                       Text="Hiding explicit songs applies to pages opened after you change it." />
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Appearance" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE790;" Tile="#FFFF375F" Title="Album art background"
+                                                       Description="Fill the window with the playing cover's colours">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Album art background"
+                                                      IsOn="{x:Bind Model.ArtworkBackground, Mode=OneWay}"
+                                                      Toggled="OnArtworkBackgroundToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE945;" Tile="#FF40C8E0" Title="Reduce motion"
+                                                       Description="Show pages and panels without animating">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Reduce motion"
+                                                      IsOn="{x:Bind Model.ReduceMotion, Mode=OneWay}"
+                                                      Toggled="OnReduceMotionToggled" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Windows" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE8BB;" Tile="#FF8E8E93" Title="Close to tray"
+                                                       Description="Closing the window keeps the music playing">
+                                        <ToggleSwitch x:Name="CloseToTrayToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Close to tray"
+                                                      Toggled="OnCloseToTrayToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow x:Name="LaunchAtStartupRow" Glyph="&#xE7E8;" Tile="#FF30D158"
+                                                       Title="Launch at startup"
+                                                       Description="Start quietly when you sign in to Windows">
+                                        <ToggleSwitch x:Name="LaunchAtStartupToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Launch at startup"
+                                                      Toggled="OnLaunchAtStartupToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xEA8F;" Tile="#FFFF453A" Title="Now-playing notifications"
+                                                       Description="A silent notice for each new song while Goosic is in the background">
+                                        <ToggleSwitch x:Name="NotificationsToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Now-playing notifications"
+                                                      Toggled="OnNotificationsToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow x:Name="DiscordRow" Glyph="&#xE7FC;" Tile="#FF5865F2" Title="Discord status"
+                                                       Description="Show what you're listening to on your Discord profile">
+                                        <ToggleSwitch x:Name="DiscordToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Discord status"
+                                                      Toggled="OnDiscordToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE737;" Tile="#FF0A84FF" Title="Remember window"
+                                                       Description="Reopen at the same size, place and sidebar state">
+                                        <ToggleSwitch x:Name="RememberWindowToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Remember window"
+                                                      Toggled="OnRememberWindowToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xEC0A;" Tile="#FF34C759" Title="Efficiency mode"
+                                                       Description="Use less power: Windows runs Goosic efficiently and animations are off">
+                                        <ToggleSwitch x:Name="EfficiencyToggle" Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Efficiency mode"
+                                                      Toggled="OnEfficiencyToggled" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Updates" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE895;" Tile="#FF8E8E93" Title="Software update"
+                                                       Description="New versions come from GitHub Releases">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button x:Name="UpdateCheckButton" Content="Check for updates"
+                                                    Click="OnCheckForUpdates" />
+                                            <Button x:Name="UpdateInstallButton" Style="{StaticResource AccentButtonStyle}"
+                                                    Visibility="Collapsed" Click="OnInstallUpdate" />
+                                        </StackPanel>
+                                    </views:SettingsRow>
+                                    <StackPanel Padding="60,0,16,12" Spacing="6">
+                                        <TextBlock x:Name="UpdateVersionText" FontSize="12"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        <TextBlock x:Name="UpdateStatusText" FontSize="12" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        <ProgressBar x:Name="UpdateProgress" Maximum="1" Visibility="Collapsed" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Appearance" FontSize="16" FontWeight="SemiBold" />
-                                    <ToggleSwitch Header="Album art background"
-                                                  OnContent="The playing cover's colours fill the window"
-                                                  OffContent="A plain background"
-                                                  IsOn="{x:Bind Model.ArtworkBackground, Mode=OneWay}"
-                                                  Toggled="OnArtworkBackgroundToggled" />
-                                    <ToggleSwitch Header="Reduce motion"
-                                                  OnContent="Pages and panels appear without animating"
-                                                  OffContent="Pages and panels slide and fade in"
-                                                  IsOn="{x:Bind Model.ReduceMotion, Mode=OneWay}"
-                                                  Toggled="OnReduceMotionToggled" />
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Advanced" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xEBE8;" Tile="#FF636366" Title="Debug mode"
+                                                       Description="Show the technical detail when something goes wrong">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Debug mode"
+                                                      IsOn="{x:Bind Model.DebugMode, Mode=TwoWay}" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE9F9;" Tile="#FF636366" Title="Log"
+                                                       Description="Everything Goosic did, to send when reporting a problem">
+                                        <Button Content="Open log folder" Click="OnOpenLogFolder" />
+                                    </views:SettingsRow>
                                 </StackPanel>
                             </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Browsing" FontSize="16" FontWeight="SemiBold" />
-                                    <ComboBox x:Name="StartPageChoice" Header="Open Goosic on" MinWidth="240"
-                                              SelectionChanged="OnStartPageChanged" />
-                                    <ToggleSwitch Header="Hide explicit songs"
-                                                  OnContent="Explicit songs are left out of pages, searches and radio"
-                                                  OffContent="Explicit songs are shown"
-                                                  IsOn="{x:Bind Model.HideExplicit, Mode=OneWay}"
-                                                  Toggled="OnHideExplicitToggled" />
-                                    <TextBlock FontSize="12" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}"
-                                               Text="Hiding explicit songs applies to pages opened after you change it." />
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="12">
-                                    <TextBlock Text="Windows" FontSize="16" FontWeight="SemiBold" />
-                                    <ToggleSwitch x:Name="CloseToTrayToggle" Header="Close to tray"
-                                                  OnContent="Closing the window keeps the music playing in the notification area"
-                                                  OffContent="Closing the window quits Goosic"
-                                                  Toggled="OnCloseToTrayToggled" />
-                                    <ToggleSwitch x:Name="LaunchAtStartupToggle" Header="Launch at startup"
-                                                  OnContent="Goosic starts quietly when you sign in to Windows"
-                                                  OffContent="Goosic starts only when you open it"
-                                                  Toggled="OnLaunchAtStartupToggled" />
-                                    <ToggleSwitch x:Name="NotificationsToggle" Header="Now-playing notifications"
-                                                  OnContent="A silent notification names each new song while Goosic is in the background"
-                                                  OffContent="No notifications"
-                                                  Toggled="OnNotificationsToggled" />
-                                    <ToggleSwitch x:Name="DiscordToggle" Header="Discord status"
-                                                  OnContent="Your Discord profile shows what you're listening to"
-                                                  OffContent="Nothing is shared with Discord"
-                                                  Toggled="OnDiscordToggled" />
-                                    <ToggleSwitch x:Name="RememberWindowToggle" Header="Remember window"
-                                                  OnContent="Goosic reopens at the same size, place and sidebar state"
-                                                  OffContent="Goosic opens at its default size"
-                                                  Toggled="OnRememberWindowToggled" />
-                                    <ToggleSwitch x:Name="EfficiencyToggle" Header="Efficiency mode"
-                                                  OnContent="Uses less power: Windows runs Goosic efficiently and animations are off"
-                                                  OffContent="Normal performance"
-                                                  Toggled="OnEfficiencyToggled" />
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="10">
-                                    <TextBlock Text="Updates" FontSize="16" FontWeight="SemiBold" />
-                                    <TextBlock x:Name="UpdateVersionText" />
-                                    <TextBlock x:Name="UpdateStatusText" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                                    <ProgressBar x:Name="UpdateProgress" Maximum="1" Visibility="Collapsed" />
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button x:Name="UpdateCheckButton" Content="Check for updates"
-                                                Click="OnCheckForUpdates" />
-                                        <Button x:Name="UpdateInstallButton" Style="{StaticResource AccentButtonStyle}"
-                                                Visibility="Collapsed" Click="OnInstallUpdate" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="10">
-                                    <TextBlock Text="Account" FontSize="16" FontWeight="SemiBold" />
-                                    <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{x:Bind Model.AccountDetail, Mode=OneWay}"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap" />
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <Button Style="{StaticResource AccentButtonStyle}" Content="Sign in with Google"
-                                                Visibility="{x:Bind Model.IsGuest, Mode=OneWay}" Click="OnSignIn" />
-                                        <Button Content="Add another account"
-                                                Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignIn" />
-                                        <Button Content="Sign out"
-                                                Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnSignOut" />
-                                    </StackPanel>
-                                    <TextBlock FontSize="12" TextWrapping="Wrap"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}"
-                                               Text="Sign-in data stays inside each account's own WebView2 profile and never enters the playback service." />
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="6">
-                                    <TextBlock Text="Keyboard" FontSize="16" FontWeight="SemiBold" />
-                                    <TextBlock Foreground="{ThemeResource GoosicSecondaryTextBrush}" TextWrapping="Wrap"
-                                               Text="Space play or pause · Ctrl+← / Ctrl+→ previous / next · Ctrl+↑ / Ctrl+↓ volume · Ctrl+M mute · Ctrl+S shuffle · Ctrl+R repeat · Ctrl+F search · Ctrl+L lyrics · Ctrl+Q queue · Ctrl+B sidebar · F11 full-screen player · Alt+← back · Esc close" />
-                                </StackPanel>
+                            <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
+                                       Text="The log stays on this computer. It never records passwords, cookies or tokens." />
+
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Keyboard shortcuts" />
+                            <Border Style="{StaticResource SettingsGroupStyle}" Margin="0,0,0,24">
+                                <ItemsControl x:Name="ShortcutList" Margin="0,6">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ShortcutEntry">
+                                            <Grid Padding="16,7" ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{x:Bind Action}" FontSize="13" />
+                                                <TextBlock Grid.Column="1" Text="{x:Bind Keys}" FontSize="13"
+                                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </Border>
                         </StackPanel>
 
@@ -423,13 +535,15 @@
                                             Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
                                             PointerEntered="OnTrackRowPointerEntered" PointerExited="OnTrackRowPointerExited"
                                             Opacity="{x:Bind RowOpacity, Mode=OneWay}"
+                                            Visibility="{x:Bind FilterVisibility, Mode=OneWay}"
                                             ToolTipService.ToolTip="{x:Bind UnavailableTip, Mode=OneWay}"
                                             GotFocus="OnTrackRowFocusChanged" LostFocus="OnTrackRowFocusChanged">
                                         <Grid ColumnSpacing="11" MinHeight="40">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="3*" />
+                                                <ColumnDefinition Width="{x:Bind AlbumColumnWidth, Mode=OneWay}" />
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
@@ -463,10 +577,13 @@
                                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                                            TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
-                                            <TextBlock Grid.Column="3" Text="{x:Bind Duration}" FontSize="12"
+                                            <TextBlock Grid.Column="3" Text="{x:Bind AlbumText, Mode=OneWay}" FontSize="13"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                            <TextBlock Grid.Column="4" Text="{x:Bind Duration}" FontSize="12"
                                                        VerticalAlignment="Center"
                                                        Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                                            <Button Grid.Column="4" Style="{StaticResource TransportGlyphStyle}"
+                                            <Button Grid.Column="5" Style="{StaticResource TransportGlyphStyle}"
                                                     Content="&#xE712;" ToolTipService.ToolTip="More"
                                                     AutomationProperties.Name="More options" Opacity="0"
                                                     Tag="more" Click="OnItemMore" />
@@ -483,7 +600,7 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ShelfViewModel">
                                     <StackPanel Spacing="12" Margin="0,0,0,26">
-                                        <Grid ColumnSpacing="12">
+                                        <Grid ColumnSpacing="12" Visibility="{x:Bind ShowsHeader}">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
@@ -491,7 +608,8 @@
                                             <TextBlock Text="{x:Bind Title}" FontSize="20" FontWeight="SemiBold"
                                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                        ToolTipService.ToolTip="{x:Bind Title}" />
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
+                                                        Visibility="{x:Bind Scrolls}">
                                                 <Button Style="{StaticResource ShelfArrowStyle}" Content="&#xE76B;"
                                                         ToolTipService.ToolTip="Scroll left" AutomationProperties.Name="Scroll shelf left" Tag="-1"
                                                         Click="OnShelfScroll" />
@@ -518,17 +636,33 @@
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate x:DataType="vm:CardViewModel">
                                                       <Button Style="{StaticResource CardButtonStyle}"
-                                                              Margin="0,0,22,0"
+                                                              Padding="8" Margin="-8,0,14,0"
                                                               Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
                                                               AutomationProperties.Name="{x:Bind AccessibleName}"
                                                               ContextRequested="OnItemContextRequested">
-                                                        <StackPanel Width="{StaticResource GoosicCardSize}" Spacing="6">
-                                                            <Border Width="{StaticResource GoosicCardSize}"
+                                                        <!-- A video's card is 16:9 at the same height, as YouTube Music draws it. -->
+                                                        <StackPanel Width="{x:Bind CardWidth}" Spacing="6">
+                                                            <Border Width="{x:Bind CardWidth}"
                                                                     Height="{StaticResource GoosicCardSize}"
-                                                                    CornerRadius="6"
+                                                                    CornerRadius="{x:Bind CardCornerRadius}"
                                                                     Background="{ThemeResource GoosicRaisedBrush}">
-                                                                <Image Source="{x:Bind Artwork, Mode=OneWay}"
-                                                                       Stretch="UniformToFill" />
+                                                                <Grid>
+                                                                    <!-- Liked Music has no cover of its own on YouTube Music: a gradient and a thumbs-up. -->
+                                                                    <Rectangle Visibility="{x:Bind LikedMusicVisibility}">
+                                                                        <Rectangle.Fill>
+                                                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                                                <GradientStop Color="#FF8E2DE2" Offset="0" />
+                                                                                <GradientStop Color="#FF4A00E0" Offset="0.55" />
+                                                                                <GradientStop Color="#FF2B5BD8" Offset="1" />
+                                                                            </LinearGradientBrush>
+                                                                        </Rectangle.Fill>
+                                                                    </Rectangle>
+                                                                    <!-- Shows until the artwork arrives, and stays if it never does. -->
+                                                                    <FontIcon Glyph="{x:Bind PlaceholderGlyph}" FontSize="44" Opacity="0.6"
+                                                                              Foreground="White" />
+                                                                    <Image Source="{x:Bind Artwork, Mode=OneWay}"
+                                                                           Stretch="UniformToFill" />
+                                                                </Grid>
                                                             </Border>
                                                             <TextBlock Text="{x:Bind Title}" FontSize="14" Margin="0,6,0,0"
                                                                        FontWeight="Medium" TextTrimming="CharacterEllipsis" />
@@ -542,6 +676,70 @@
                                             </ItemsControl>
                                           </Border>
                                         </ScrollViewer>
+                                        <!-- A library page: one grid that scrolls with the page, as Apple Music's library does. -->
+                                        <ItemsRepeater ItemsSource="{x:Bind Items}" Visibility="{x:Bind IsGrid}">
+                                            <ItemsRepeater.Layout>
+                                                <UniformGridLayout MinItemWidth="176" MinColumnSpacing="20" MinRowSpacing="22"
+                                                                   ItemsStretch="Fill" />
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:CardViewModel">
+                                                    <Button Style="{StaticResource CardButtonStyle}" Padding="0"
+                                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                            Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                            AutomationProperties.Name="{x:Bind AccessibleName}"
+                                                            ContextRequested="OnItemContextRequested">
+                                                        <StackPanel Spacing="4">
+                                                            <!-- Square whatever the column width: an artist a circle, the rest rounded. -->
+                                                            <Viewbox Stretch="Uniform">
+                                                                <Border Width="176" Height="176" CornerRadius="{x:Bind GridCornerRadius}"
+                                                                        Background="{ThemeResource GoosicRaisedBrush}">
+                                                                    <Grid>
+                                                                        <FontIcon Glyph="{x:Bind PlaceholderGlyph}" FontSize="40" Opacity="0.5" />
+                                                                        <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
+                                                                    </Grid>
+                                                                </Border>
+                                                            </Viewbox>
+                                                            <TextBlock Text="{x:Bind Title}" FontSize="14" Margin="0,6,0,0" FontWeight="Medium"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       HorizontalAlignment="{x:Bind GridTextAlignment}" />
+                                                            <TextBlock Text="{x:Bind Subtitle}" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}"
+                                                                       HorizontalAlignment="{x:Bind GridTextAlignment}" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
+                                        <!-- Moods & genres: coloured tiles that wrap, as YouTube Music draws them. -->
+                                        <ItemsRepeater ItemsSource="{x:Bind Items}" Visibility="{x:Bind IsCategoryGrid}">
+                                            <ItemsRepeater.Layout>
+                                                <UniformGridLayout MinItemWidth="196" MinItemHeight="60"
+                                                                   MinColumnSpacing="12" MinRowSpacing="12"
+                                                                   ItemsStretch="Fill" />
+                                            </ItemsRepeater.Layout>
+                                            <ItemsRepeater.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:CardViewModel">
+                                                    <Button Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                            HorizontalContentAlignment="Stretch" Padding="0"
+                                                            CornerRadius="8" BorderThickness="0"
+                                                            Background="{ThemeResource GoosicRaisedBrush}"
+                                                            AutomationProperties.Name="{x:Bind Title}">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="6" />
+                                                                <ColumnDefinition Width="*" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Rectangle Fill="{x:Bind CategoryBrush}" />
+                                                            <TextBlock Grid.Column="1" Text="{x:Bind Title}" Margin="14,0"
+                                                                       VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"
+                                                                       TextTrimming="CharacterEllipsis" />
+                                                        </Grid>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
                                         <!-- Song-row shelves ("Quick picks"): columns of four compact rows, as
                                              YouTube Music lays them out, scrolling sideways like the cards. -->
                                         <ScrollViewer HorizontalScrollMode="Auto"
@@ -566,7 +764,7 @@
                                                             <ItemsControl.ItemTemplate>
                                                                 <DataTemplate x:DataType="vm:CardViewModel">
                                                                     <Button Style="{StaticResource CardButtonStyle}"
-                                                                            HorizontalAlignment="Stretch"
+                                                                            HorizontalAlignment="Stretch" Padding="8,2" Margin="-8,0,0,0"
                                                                             HorizontalContentAlignment="Stretch"
                                                                             Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
                                                                             AutomationProperties.Name="{x:Bind AccessibleName}"
@@ -576,7 +774,7 @@
                                                                                 <ColumnDefinition Width="48" />
                                                                                 <ColumnDefinition Width="*" />
                                                                             </Grid.ColumnDefinitions>
-                                                                            <Border Width="48" Height="48" CornerRadius="4"
+                                                                            <Border Width="48" Height="48" CornerRadius="{x:Bind RowArtworkCornerRadius}"
                                                                                     Background="{ThemeResource GoosicRaisedBrush}">
                                                                                 <Image Source="{x:Bind Artwork, Mode=OneWay}"
                                                                                        Stretch="UniformToFill" />
@@ -604,10 +802,15 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
-                        <Button HorizontalAlignment="Center" Content="Load more"
-                                Visibility="{x:Bind Model.HasMore, Mode=OneWay}" Click="OnLoadMore" />
+                        <!-- More of a long page loads by itself near the end; this only shows it happening. -->
+                        <ProgressRing HorizontalAlignment="Center" Width="28" Height="28" IsActive="True"
+                                      Visibility="{x:Bind Model.IsLoadingMore, Mode=OneWay}"
+                                      AutomationProperties.Name="Loading more" />
                     </StackPanel>
                 </ScrollViewer>
+                <!-- Under the window buttons the page fades away rather than running into them. -->
+                <Rectangle x:Name="TitleFade" Height="48" VerticalAlignment="Top" IsHitTestVisible="False"
+                           Fill="{ThemeResource GoosicTitleFadeBrush}" />
 
                 <!-- What the last action did, above the player; it clears itself. -->
                 <Border x:Name="ToastHost" VerticalAlignment="Bottom" HorizontalAlignment="Center"
@@ -745,6 +948,15 @@
 
                         <StackPanel x:Name="PlayerUtilities" Grid.Column="2" Orientation="Horizontal"
                                     VerticalAlignment="Center" Spacing="2">
+                            <!-- Like sits beside the song, as the heart does in Apple Music and Spotify: the
+                                 one thing people do to a song while it plays. -->
+                            <ToggleButton x:Name="PillLikeButton" Style="{StaticResource PillToggleStyle}"
+                                          Content="{x:Bind Model.LikeGlyph, Mode=OneWay}"
+                                          IsEnabled="{x:Bind Model.CanRateNowPlaying, Mode=OneWay}"
+                                          IsChecked="{x:Bind Model.IsNowPlayingLiked, Mode=OneWay}"
+                                          ToolTipService.ToolTip="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                          AutomationProperties.Name="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                          Click="OnLikeNowPlaying" />
                             <Button x:Name="PillMoreButton" Style="{StaticResource PillGlyphStyle}" Content="&#xE712;"
                                     IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     ToolTipService.ToolTip="More" AutomationProperties.Name="More options"
@@ -759,6 +971,22 @@
                                           Content="&#xE8FD;" ToolTipService.ToolTip="Playing Next"
                                           AutomationProperties.Name="Playing Next"
                                           Click="OnToggleQueue" />
+                            <!-- Volume in reach, as in Apple Music and Spotify; the button's flyout stays for
+                                 the narrow layout, where this is hidden. -->
+                            <Slider x:Name="PillVolumeInline" Width="92" VerticalAlignment="Center" Margin="4,0,2,0"
+                                    Minimum="0" Maximum="100" StepFrequency="1" IsThumbToolTipEnabled="False"
+                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                    Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
+                                    ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume">
+                                <Slider.Resources>
+                                    <StaticResource x:Key="SliderTrackValueFill" ResourceKey="TextFillColorSecondaryBrush" />
+                                    <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SliderThumbBackground" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SliderThumbBackgroundPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
+                                    <StaticResource x:Key="SliderThumbBackgroundPressed" ResourceKey="TextFillColorPrimaryBrush" />
+                                </Slider.Resources>
+                            </Slider>
                             <Button x:Name="VolumeButton" Style="{StaticResource PillGlyphStyle}"
                                     IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume"
@@ -799,7 +1027,8 @@
                     </Grid.RowDefinitions>
 
                     <AutoSuggestBox x:Name="SidebarSearch" Grid.Row="0" PlaceholderText="Search"
-                                    QueryIcon="Find" QuerySubmitted="OnSearchSubmitted" Margin="2,0,2,4" />
+                                    QueryIcon="Find" QuerySubmitted="OnSearchSubmitted"
+                                    TextChanged="OnSearchTextChanged" GotFocus="OnSearchGotFocus" Margin="2,0,2,4" />
 
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
                         <StackPanel x:Name="SidebarItems" Spacing="1">
@@ -837,13 +1066,13 @@
                             </Button>
 
                             <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Library" />
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="liked" Click="OnNavigate" AutomationProperties.Name="Favourite Songs">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="liked" Click="OnNavigate" AutomationProperties.Name="Liked Music">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE8E1;" />
-                                    <TextBlock Text="Favourite Songs" />
+                                    <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xEB51;" />
+                                    <TextBlock Text="Liked Music" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_library_corpus_artists" Click="OnNavigate" AutomationProperties.Name="Artists">
+                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_library_corpus_track_artists" Click="OnNavigate" AutomationProperties.Name="Artists">
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE77B;" />
                                     <TextBlock Text="Artists" />
@@ -1131,6 +1360,7 @@
                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                            AutomationProperties.HeadingLevel="Level3" />
                                 <TextBlock Text="{x:Bind Model.UpNextSummary, Mode=OneWay}" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" Margin="0,0,64,0"
                                            Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                             </StackPanel>
                             <Button HorizontalAlignment="Right" VerticalAlignment="Center" Content="Clear"
@@ -1274,12 +1504,25 @@
                         </Border>
                     </Button>
 
-                    <StackPanel Spacing="3" Margin="0,12,0,0">
-                        <TextBlock Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}" FontSize="24"
-                                   FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{x:Bind Model.NowPlayingArtist, Mode=OneWay}" FontSize="16" Opacity="0.7"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
+                    <Grid Margin="0,12,0,0" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}" FontSize="24"
+                                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{x:Bind Model.NowPlayingArtist, Mode=OneWay}" FontSize="16" Opacity="0.7"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <ToggleButton Grid.Column="1" x:Name="FullPlayerLikeButton" VerticalAlignment="Center"
+                                      Style="{StaticResource FullPlayerToggleStyle}" Content="{x:Bind Model.LikeGlyph, Mode=OneWay}"
+                                      IsEnabled="{x:Bind Model.CanRateNowPlaying, Mode=OneWay}"
+                                      IsChecked="{x:Bind Model.IsNowPlayingLiked, Mode=OneWay}"
+                                      ToolTipService.ToolTip="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                      AutomationProperties.Name="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                      Click="OnLikeNowPlaying" />
+                    </Grid>
 
                     <Slider x:Name="FullPlayerProgress" Minimum="0" StepFrequency="1"
                             PreviewKeyDown="OnFullPlayerProgressKeyDown"
@@ -1287,7 +1530,21 @@
                             Maximum="{x:Bind Model.PlaybackDuration, Mode=OneWay}"
                             Value="{x:Bind Model.PlaybackPosition, Mode=OneWay}"
                             IsEnabled="{x:Bind Model.IsSeekable, Mode=OneWay}"
-                            AutomationProperties.Name="Position" />
+                            AutomationProperties.Name="Position">
+                        <!-- White over the artwork's colours, as Apple Music draws it; the system accent
+                             (red on many machines) fought with every cover. -->
+                        <Slider.Resources>
+                            <SolidColorBrush x:Key="SliderTrackValueFill" Color="#F2FFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#FFFFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#FFFFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackFill" Color="#40FFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackFillPointerOver" Color="#55FFFFFF" />
+                            <SolidColorBrush x:Key="SliderTrackFillPressed" Color="#55FFFFFF" />
+                            <SolidColorBrush x:Key="SliderThumbBackground" Color="#FFFFFFFF" />
+                            <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#FFFFFFFF" />
+                            <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#FFFFFFFF" />
+                        </Slider.Resources>
+                    </Slider>
                     <Grid Margin="0,-8,0,0" Opacity="0.7">
                         <TextBlock Text="{x:Bind Model.PositionText, Mode=OneWay}" FontSize="12" />
                         <TextBlock Text="{x:Bind Model.RemainingText, Mode=OneWay}" FontSize="12" HorizontalAlignment="Right" />
@@ -1376,6 +1633,9 @@
                                     </Flyout>
                     </Button.Flyout>
                 </Button>
+                <ToggleButton x:Name="MiniPlayerToggle" Style="{StaticResource FullPlayerToggleStyle}"
+                              Content="&#xEE49;" ToolTipService.ToolTip="Mini player, kept on top"
+                              AutomationProperties.Name="Mini player" Click="OnToggleMiniPlayer" />
                 <ToggleButton x:Name="FullPlayerWindowToggle" Style="{StaticResource FullPlayerToggleStyle}"
                               Content="&#xE740;" ToolTipService.ToolTip="Fill the screen (F11)"
                               AutomationProperties.Name="Fill the screen" Click="OnToggleWindowFullScreen" />
