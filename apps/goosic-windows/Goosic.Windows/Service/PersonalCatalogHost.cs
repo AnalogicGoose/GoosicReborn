@@ -94,8 +94,27 @@ internal sealed class PersonalCatalogHost
 
     /// <summary>A browse page for the account: Home, a library section, or a playlist.</summary>
     /// <param name="shape">"tracks", "shelves", or "auto" to decide from the browse id.</param>
-    internal Task<CatalogPage> BrowseAsync(string browseId, string title, string? continuation, string shape) =>
-        RunPageAsync("browse", new JsonArray(browseId, title, continuation, shape));
+    internal Task<CatalogPage> BrowseAsync(string browseId, string title, string? continuation, string shape)
+    {
+        // The same page asked for twice at once -- Home as the window opens and again as the
+        // account settles, or Liked Music by the like button and by the page -- is read once.
+        var key = $"{_profileName}|{browseId}|{continuation}|{shape}";
+        if (_browsing.TryGetValue(key, out var joined))
+        {
+            return joined;
+        }
+
+        var task = RunPageAsync("browse", new JsonArray(browseId, title, continuation, shape));
+        _browsing[key] = task;
+        _ = task.ContinueWith(
+            _ => _browsing.Remove(key),
+            System.Threading.CancellationToken.None,
+            System.Threading.Tasks.TaskContinuationOptions.None,
+            System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
+        return task;
+    }
+
+    private readonly Dictionary<string, Task<CatalogPage>> _browsing = [];
 
     /// <summary>An Up Next radio as the account hears it.</summary>
     internal Task<CatalogPage> RadioAsync(string seedVideoId, string? continuation) =>
@@ -149,9 +168,12 @@ internal sealed class PersonalCatalogHost
         _suspendTimer.Stop();
         _closeTimer.Stop();
         string? json;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var ready = TimeSpan.Zero;
         try
         {
             var core = await WithTimeout(PageAsync());
+            ready = clock.Elapsed;
             if (core.IsSuspended)
             {
                 core.Resume();
@@ -162,6 +184,8 @@ internal sealed class PersonalCatalogHost
             var expression = "(async () => {\n" + program + "\nconst __args = " + arguments.ToJsonString()
                 + ";\nreturn await GoosicPersonalCatalog." + function + "(...__args);\n})()";
             json = await WithTimeout(WebProfiles.EvaluateAsync(core, expression));
+            BridgeLog.Write(
+                $"personal {function} {arguments[0]}: page {ready.TotalMilliseconds:0} ms, read {(clock.Elapsed - ready).TotalMilliseconds:0} ms");
         }
         finally
         {
