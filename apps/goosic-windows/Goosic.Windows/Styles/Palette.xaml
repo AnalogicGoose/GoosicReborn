@@ -18,6 +18,12 @@
                           TintLuminosityOpacity="0.45" FallbackColor="#E6000000" />
             <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="#FFFFFF" Opacity="0.14" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="#FFFFFF" Opacity="0.10" />
+            <!-- Fades the page out under the title bar, so scrolled titles never run into the window buttons. -->
+            <LinearGradientBrush x:Key="GoosicTitleFadeBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#F5181818" Offset="0" />
+                <GradientStop Color="#E6181818" Offset="0.6" />
+                <GradientStop Color="#00000000" Offset="1" />
+            </LinearGradientBrush>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#FBFBFD" />
@@ -33,6 +39,12 @@
                           TintLuminosityOpacity="0.6" FallbackColor="#F2FFFFFF" />
             <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="#000000" Opacity="0.10" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="#000000" Opacity="0.08" />
+            <!-- Fades the page out under the title bar, so scrolled titles never run into the window buttons. -->
+            <LinearGradientBrush x:Key="GoosicTitleFadeBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#F5FBFBFD" Offset="0" />
+                <GradientStop Color="#E6FBFBFD" Offset="0.6" />
+                <GradientStop Color="#00000000" Offset="1" />
+            </LinearGradientBrush>
         </ResourceDictionary>
         <!--
             Contrast themes: every surface takes the user's system colours, and translucent fills
@@ -40,6 +52,7 @@
         -->
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicTitleFadeBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicRailBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicChromeBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicRaisedBrush" Color="{ThemeResource SystemColorWindowColor}" />

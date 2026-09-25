@@ -12,7 +12,7 @@ namespace Goosic.Windows.Service;
 /// </remarks>
 internal static class ServiceProtocol
 {
-    internal const string Version = "0.3.0";
+    internal const string Version = "0.4.0";
 
     internal static readonly JsonSerializerOptions Json = new()
     {

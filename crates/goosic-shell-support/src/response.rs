@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn a_refusal_with_no_error_object_still_names_a_failure() {
         let wire = concat!(
-            r#"{"protocolVersion":"0.3.0","requestId":"r-4","#,
+            r#"{"protocolVersion":"0.4.0","requestId":"r-4","#,
             r#""ok":false,"payload":null,"error":null}"#
         );
         let response = decode_response(wire.as_bytes()).expect("still a valid frame");
@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn a_response_from_a_different_protocol_version_ends_the_stream() {
         let wire = concat!(
-            r#"{"protocolVersion":"0.4.0","requestId":"r-1","#,
+            r#"{"protocolVersion":"0.5.0","requestId":"r-1","#,
             r#""ok":true,"payload":{},"error":null}"#
         );
         let error = decode_response(wire.as_bytes()).expect_err("a newer wire is not ours");
@@ -112,7 +112,7 @@ mod tests {
             error,
             TransportError::ProtocolVersionMismatch {
                 expected: PROTOCOL_VERSION.to_owned(),
-                actual: "0.4.0".to_owned(),
+                actual: "0.5.0".to_owned(),
             }
         );
         assert!(error.invalidates_connection());
@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn a_refusal_in_a_foreign_version_is_an_incompatibility_not_a_refusal() {
         let wire = concat!(
-            r#"{"protocolVersion":"0.4.0","requestId":"r-9","ok":false,"payload":null,"#,
+            r#"{"protocolVersion":"0.5.0","requestId":"r-9","ok":false,"payload":null,"#,
             r#""error":{"code":"ownerConflict","message":"another owner holds the lease"}}"#
         );
         let error = decode_response(wire.as_bytes()).expect_err("wrong version");

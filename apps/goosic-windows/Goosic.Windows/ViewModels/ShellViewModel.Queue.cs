@@ -103,6 +103,7 @@ public sealed partial class ShellViewModel
             if (Set(ref _nextCursor, value))
             {
                 OnPropertyChanged(nameof(HasMore));
+                OnPropertyChanged(nameof(PageMeta));
             }
         }
     }
@@ -213,13 +214,10 @@ public sealed partial class ShellViewModel
     /// <summary>Nothing follows, and nothing is on its way either.</summary>
     public bool HasNoUpNext => HasQueue && !HasUpNext && _stationLoad is null;
 
-    public string UpNextSummary => QueueLayout.UpNext(Queue, NowPlayingEntry).Count switch
-    {
-        0 when _stationLoad is not null => "Finding songs like this…",
-        0 => "Nothing after this",
-        1 => "1 track",
-        var count => $"{count} tracks",
-    } + (_station is null ? "" : " · Radio");
+    /// <summary>Where the queue came from and how much is left, as "From Liked Music · 99 songs".</summary>
+    /// <remarks>Spotify and Apple Music both name the source; a bare count says nothing about it.</remarks>
+    public string UpNextSummary =>
+        PlayerText.UpNext(_queueSource, QueueLayout.UpNext(Queue, NowPlayingEntry).Count, _stationLoad is not null);
 
     private bool _syncingUpNext;
 
@@ -374,8 +372,42 @@ public sealed partial class ShellViewModel
         }
 
         Point(first);
+        SetQueueSource(null, "");
 
         return first;
+    }
+
+    private string? _queueRoute;
+    private string _queueSource = "";
+
+    /// <summary>What the queue was started from, for "Playing from" above it.</summary>
+    public string QueueSource => _queueSource;
+
+    public bool HasQueueSource => _queueSource.Length > 0;
+
+    private void SetQueueSource(string? route, string title)
+    {
+        _queueRoute = route;
+        _queueSource = title;
+        OnPropertyChanged(nameof(QueueSource));
+        OnPropertyChanged(nameof(UpNextSummary));
+        OnPropertyChanged(nameof(HasQueueSource));
+        PagePlaybackChanged();
+    }
+
+    /// <summary>Whether the queue is this page's list, so its Play button controls it instead.</summary>
+    public bool IsPageQueued => _queueRoute is not null && _queueRoute == _currentRoute;
+
+    /// <summary>A page whose list is already playing offers Pause, as Apple Music and Spotify do.</summary>
+    public string PagePlayLabel => IsPageQueued && IsPlaying ? "Pause" : "Play";
+
+    public string PagePlayGlyph => IsPageQueued && IsPlaying ? "" : "";
+
+    private void PagePlaybackChanged()
+    {
+        OnPropertyChanged(nameof(IsPageQueued));
+        OnPropertyChanged(nameof(PagePlayLabel));
+        OnPropertyChanged(nameof(PagePlayGlyph));
     }
 
     /// <summary>
@@ -383,7 +415,7 @@ public sealed partial class ShellViewModel
     /// station that starts with the row.
     /// </summary>
     internal TrackViewModel? PlayFromPage(TrackViewModel row) =>
-        PlaybackOrder.LaunchFor(PageKind) == LaunchKind.Ordered ? StartQueue(Tracks, row) : StartStation(row);
+        PlaybackOrder.LaunchFor(PageKind) == LaunchKind.Ordered ? StartPageQueue(row) : StartStation(row);
 
     /// <summary>
     /// Plays a shelf card as a station. A shelf is a set of suggestions, not an order anyone chose;
@@ -402,7 +434,7 @@ public sealed partial class ShellViewModel
     {
         if (string.IsNullOrEmpty(track.VideoId))
         {
-            ReportStatus("That row does not carry a playable track.");
+            ReportDetail("That row does not carry a playable track.");
             return;
         }
 
@@ -642,7 +674,7 @@ public sealed partial class ShellViewModel
     {
         if (string.IsNullOrEmpty(seed.VideoId))
         {
-            ReportStatus("A radio needs a track to start from.");
+            ReportDetail("A radio needs a track to start from.");
             return null;
         }
 
@@ -653,6 +685,7 @@ public sealed partial class ShellViewModel
         }
 
         _station = new RadioStation(seed.VideoId, AccountForRadio());
+        SetQueueSource(null, $"{seed.Title} radio");
         QueueChanged();
         _ = ExtendStationAsync();
         return first;
@@ -808,7 +841,7 @@ public sealed partial class ShellViewModel
         };
         if (command is null || id.Length == 0)
         {
-            ReportStatus("That item cannot be played.");
+            ReportDetail("That item cannot be played.");
             return null;
         }
 
@@ -830,6 +863,7 @@ public sealed partial class ShellViewModel
 
             IsShuffled = false;
             var first = StartQueue(rows, null, shuffle);
+            SetQueueSource(null, page?.Title ?? "");
             LoadQueueArtwork();
             return first;
         }
@@ -844,7 +878,19 @@ public sealed partial class ShellViewModel
     internal TrackViewModel? PlayPage(bool shuffle)
     {
         IsShuffled = false;
-        return StartQueue(Tracks, null, shuffle);
+        return StartPageQueue(null, shuffle);
+    }
+
+    /// <summary>Queues the rows on screen, in the order on screen, as coming from this page.</summary>
+    private TrackViewModel? StartPageQueue(TrackViewModel? start, bool shuffle = false)
+    {
+        var first = StartQueue(VisibleTracks.ToList(), start, shuffle);
+        if (first is not null)
+        {
+            SetQueueSource(_currentRoute, PageTitle);
+        }
+
+        return first;
     }
 
     private void LoadQueueArtwork()
@@ -867,6 +913,7 @@ public sealed partial class ShellViewModel
         }
 
         _loadingMore = true;
+        OnPropertyChanged(nameof(IsLoadingMore));
         var cursor = _nextCursor;
         try
         {
@@ -906,18 +953,35 @@ public sealed partial class ShellViewModel
             OnPropertyChanged(nameof(HasTracks));
             if (page.Truncated)
             {
-                ReportStatus("This page was long, so only the first part is shown.");
+                ReportDetail("This page was long, so only the first part is shown.");
             }
         }
         catch (Exception error)
         {
-            ReportStatus("Could not load more: " + Describe(error));
+            // Loading more happens by itself as the page is scrolled, so a failure is not the
+            // listener's to deal with. The feed ends where it is instead of reporting an error and
+            // asking again on every scroll: YouTube Music now answers past the last page with an
+            // empty frame, which reached here as a failure several times a second.
+            BridgeLog.Write($"load more ended the feed: {error.GetType().Name}: {error.Message}");
+            if (_nextCursor == cursor)
+            {
+                NextCursor = null;
+            }
         }
         finally
         {
             _loadingMore = false;
+            OnPropertyChanged(nameof(IsLoadingMore));
+            // Rows that just arrived join a sorted list in their sorted place.
+            if (_trackSort != "custom")
+            {
+                ReorderTracks();
+            }
         }
     }
+
+    /// <summary>Whether the next part of the page is on its way, for the spinner at the bottom.</summary>
+    public bool IsLoadingMore => _loadingMore;
 
     /// <summary>The public YouTube Music address of a track.</summary>
     internal static string LinkFor(TrackViewModel track) =>
@@ -936,8 +1000,7 @@ public sealed partial class ShellViewModel
 
     private void AnnounceConfirmed(TrackViewModel track)
     {
-        OnPropertyChanged(nameof(IsNowPlayingLiked));
-        OnPropertyChanged(nameof(IsNowPlayingDisliked));
+        NowPlayingRatingChanged();
         NowPlayingChanged?.Invoke(track);
     }
 }

@@ -64,10 +64,20 @@ public sealed partial class MainWindow : Window
 
     private async void OnLibrarySection(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { DataContext: LibrarySection section })
+        if (sender is not Button { DataContext: LibrarySection section })
         {
-            await Model.ShowLibrarySectionAsync(section);
+            return;
         }
+
+        // The library's Songs tab is Liked Music. It opens the one Liked Music page, with its
+        // cover, sort and find, rather than a second, plainer copy of the same list.
+        if (section.BrowseId == "VLLM")
+        {
+            await NavigateAsync("liked");
+            return;
+        }
+
+        await Model.ShowLibrarySectionAsync(section);
     }
 
     private async void OnSidebarPlaylist(object sender, RoutedEventArgs e)
@@ -148,8 +158,16 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnLikeNowPlaying(object sender, RoutedEventArgs e) =>
+    private async void OnLikeNowPlaying(object sender, RoutedEventArgs e)
+    {
+        // The button shows what YouTube Music accepted, not the click: a toggle flips itself,
+        // and would stay lit over a like that was refused.
         await Model.ToggleNowPlayingRatingAsync("LIKE");
+        if (sender is ToggleButton toggle)
+        {
+            toggle.IsChecked = Model.IsNowPlayingLiked;
+        }
+    }
 
     private async void OnDislikeNowPlaying(object sender, RoutedEventArgs e) =>
         await Model.ToggleNowPlayingRatingAsync("DISLIKE");
