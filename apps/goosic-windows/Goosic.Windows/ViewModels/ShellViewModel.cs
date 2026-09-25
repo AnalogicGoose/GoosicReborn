@@ -1516,6 +1516,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     internal async Task OpenEntityAsync(string kind, string id, string title, bool remember = true)
     {
+        // Liked Music is one page wherever it is opened from -- the Home card, a search result, the
+        // library -- not a plain playlist with a "Save to library" button it has no use for.
+        if (kind == "playlist" && id is "LM" or "VLLM" && IsSignedIn)
+        {
+            await LoadRouteAsync("liked", remember).ConfigureAwait(true);
+            return;
+        }
+
         var requestVersion = ++_pageRequestVersion;
         var artworkVersion = ClearPageArtwork();
         var command = kind switch

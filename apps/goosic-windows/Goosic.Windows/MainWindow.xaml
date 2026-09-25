@@ -808,6 +808,9 @@
                                       AutomationProperties.Name="Loading more" />
                     </StackPanel>
                 </ScrollViewer>
+                <!-- Under the window buttons the page fades away rather than running into them. -->
+                <Rectangle x:Name="TitleFade" Height="48" VerticalAlignment="Top" IsHitTestVisible="False"
+                           Fill="{ThemeResource GoosicTitleFadeBrush}" />
 
                 <!-- What the last action did, above the player; it clears itself. -->
                 <Border x:Name="ToastHost" VerticalAlignment="Bottom" HorizontalAlignment="Center"

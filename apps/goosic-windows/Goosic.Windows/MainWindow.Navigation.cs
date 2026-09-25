@@ -218,6 +218,8 @@ public sealed partial class MainWindow : Window
     {
         HighlightNavigation(null);
         await Model.OpenEntityAsync(kind, id, title);
+        // Some entities open a route of their own, such as Liked Music; its sidebar row lights up.
+        HighlightNavigation(Model.CurrentRouteName);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
     }
