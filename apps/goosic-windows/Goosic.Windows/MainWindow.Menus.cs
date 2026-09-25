@@ -204,6 +204,8 @@ public sealed partial class MainWindow : Window
         var menu = new MenuFlyout();
         Add(menu, "Full-screen player", "", () => SetFullPlayerOpen(true));
         Add(menu, "Start radio", "", async () => await PlayEntryAsync(Model.StartStation(track)));
+        Add(menu, "Mini player", "", () => SetMiniPlayer(true));
+        menu.Items.Add(BuildSleepTimerMenu());
         AddAccountTrackItems(menu, track.VideoId, track.Title);
         menu.Items.Add(new MenuFlyoutSeparator());
         AddNavigation(menu, track.ArtistId, track.AlbumId, track.Subtitle, track.Title);
@@ -221,7 +223,7 @@ public sealed partial class MainWindow : Window
 
         menu.Items.Add(new MenuFlyoutSeparator());
         var rating = Model.RatingOf(videoId);
-        Add(menu, rating == "LIKE" ? "Remove from liked songs" : "Like", "\uE8E1",
+        Add(menu, rating == "LIKE" ? "Remove from Liked Music" : "Like", "\uEB51",
             async () => await Model.RateAsync(videoId, title, rating == "LIKE" ? "INDIFFERENT" : "LIKE"));
         Add(menu, rating == "DISLIKE" ? "Remove dislike" : "Dislike", "\uE8E0",
             async () => await Model.RateAsync(videoId, title, rating == "DISLIKE" ? "INDIFFERENT" : "DISLIKE"));

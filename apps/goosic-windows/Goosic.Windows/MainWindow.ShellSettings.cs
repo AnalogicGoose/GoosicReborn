@@ -12,6 +12,14 @@ namespace Goosic.Windows;
 
 public sealed partial class MainWindow : Window
 {
+    /// <summary>Opens the folder holding the log, so it can be attached to a bug report.</summary>
+    private void OnOpenLogFolder(object sender, RoutedEventArgs e)
+    {
+        var folder = System.IO.Path.GetDirectoryName(BridgeLog.Location)!;
+        System.IO.Directory.CreateDirectory(folder);
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
+    }
+
     // ---- How the program behaves on Windows ---------------------------------------------------
 
     private TrayIcon? _tray;
@@ -284,6 +292,7 @@ public sealed partial class MainWindow : Window
         }
 
         StartPageChoice.SelectedIndex = StartRoute.IndexOf(Model.StartPage);
+        ShortcutList.ItemsSource = ShortcutEntry.All;
         Model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ShellViewModel.StartPage))
@@ -302,12 +311,12 @@ public sealed partial class MainWindow : Window
         EfficiencyToggle.IsOn = ShellPreferences.EfficiencyMode;
         if (!StartupRegistration.Available)
         {
-            LaunchAtStartupToggle.OffContent = "Available in copies installed by Setup";
+            LaunchAtStartupRow.Description = "Available in copies installed by Setup";
         }
 
         if (!DiscordPresence.Available)
         {
-            DiscordToggle.OffContent = "Not set up in this build yet";
+            DiscordRow.Description = "Not set up in this build yet";
         }
     }
 

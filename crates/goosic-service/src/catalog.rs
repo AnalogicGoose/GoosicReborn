@@ -101,6 +101,79 @@ fn failure(request_id: String, code: &str, message: String) -> ResponseEnvelope 
     )
 }
 
+/// Marks a cursor the service made itself, for the shelves of a page that did not fit in one frame.
+///
+/// Upstream cursors never start with it, so `catalog.continue` can tell the two apart.
+const REST_PREFIX: &str = "goosic-rest\u{1f}";
+
+/// Where the rest of a long shelf page is: which surface to read again, and from which shelf.
+///
+/// A page with more shelves than one frame carries used to lose the extra ones, and say so. It
+/// now sends as many as fit and a cursor for the rest, which the shell follows as the listener
+/// scrolls, exactly as it follows YouTube Music's own cursors. The service keeps no state: the
+/// cursor names the page, and following it reads the page again and answers from that shelf on.
+/// Upstream's own cursor rides along, so the page carries on past its last shelf as before.
+#[derive(Debug, PartialEq)]
+struct Rest {
+    command: String,
+    id: String,
+    offset: usize,
+    upstream: Option<String>,
+}
+
+impl Rest {
+    fn encode(&self) -> String {
+        format!(
+            "{REST_PREFIX}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+            self.command,
+            self.id,
+            self.offset,
+            self.upstream.as_deref().unwrap_or_default()
+        )
+    }
+
+    fn decode(cursor: &str) -> Option<Rest> {
+        let mut parts = cursor.strip_prefix(REST_PREFIX)?.splitn(4, '\u{1f}');
+        let command = parts.next()?.to_owned();
+        let id = parts.next()?.to_owned();
+        let offset = parts.next()?.parse().ok()?;
+        let upstream = parts.next().filter(|value| !value.is_empty()).map(str::to_owned);
+        matches!(command.as_str(), "catalog.browse" | "catalog.category")
+            .then_some(Rest { command, id, offset, upstream })
+    }
+}
+
+/// Keeps the shelves from `offset` that fit in one frame, and points the cursor at the rest.
+fn page_shelves(mut page: CatalogPage, command: &str, id: &str, offset: usize) -> CatalogPage {
+    let upstream = page.next_cursor.take();
+    let shelves: Vec<_> = page.shelves.drain(..).skip(offset).collect();
+    let mut kept = 0;
+    for shelf in shelves.iter().take(MAX_SHELVES) {
+        page.shelves.push(shelf.clone());
+        let size = serde_json::to_vec(&page).map(|bytes| bytes.len()).unwrap_or(0);
+        // Always at least one shelf, or a single enormous shelf would page forever.
+        if size > MAX_CATALOG_BYTES && kept > 0 {
+            page.shelves.pop();
+            break;
+        }
+        kept += 1;
+    }
+    page.next_cursor = if kept < shelves.len() {
+        Some(
+            Rest {
+                command: command.to_owned(),
+                id: id.to_owned(),
+                offset: offset + kept,
+                upstream,
+            }
+            .encode(),
+        )
+    } else {
+        upstream
+    };
+    page
+}
+
 fn respond(request_id: String, result: Result<CatalogPage, CatalogError>) -> ResponseEnvelope {
     match result {
         Ok(page) => ResponseEnvelope::success(
@@ -114,10 +187,7 @@ fn respond(request_id: String, result: Result<CatalogPage, CatalogError>) -> Res
     }
 }
 
-fn catalog_id(
-    payload: &RequestPayload,
-    request_id: &str,
-) -> Result<String, Box<ResponseEnvelope>> {
+fn catalog_id(payload: &RequestPayload, request_id: &str) -> Result<String, Box<ResponseEnvelope>> {
     match payload.catalog_id.as_deref().map(str::trim) {
         Some(id) if !id.is_empty() => Ok(id.to_owned()),
         _ => Err(Box::new(failure(
@@ -162,10 +232,31 @@ pub fn handle(
                 Err(response) => return Some(*response),
             };
             let title = payload.query.clone().unwrap_or_else(|| route.clone());
-            respond(id, catalog.browse_route(&route, &title))
+            respond(
+                id,
+                catalog
+                    .browse_route(&route, &title)
+                    .map(|page| page_shelves(page, command, &route, 0)),
+            )
         }
         "catalog.continue" => match continuation(payload, request_id) {
-            Ok(cursor) => respond(id, catalog.browse_continuation(&cursor)),
+            Ok(cursor) => match Rest::decode(&cursor) {
+                Some(rest) => {
+                    let page = if rest.command == "catalog.category" {
+                        catalog.category(&rest.id)
+                    } else {
+                        catalog.browse_route(&rest.id, &rest.id)
+                    };
+                    respond(
+                        id,
+                        page.map(|mut page| {
+                            page.next_cursor = rest.upstream.clone();
+                            page_shelves(page, &rest.command, &rest.id, rest.offset)
+                        }),
+                    )
+                }
+                None => respond(id, catalog.browse_continuation(&cursor)),
+            },
             Err(response) => *response,
         },
         "catalog.album" => match catalog_id(payload, request_id) {
@@ -187,6 +278,15 @@ pub fn handle(
         },
         "catalog.artist" => match catalog_id(payload, request_id) {
             Ok(browse_id) => respond(id, catalog.artist(&browse_id)),
+            Err(response) => *response,
+        },
+        "catalog.category" => match catalog_id(payload, request_id) {
+            Ok(category_id) => respond(
+                id,
+                catalog
+                    .category(&category_id)
+                    .map(|page| page_shelves(page, command, &category_id, 0)),
+            ),
             Err(response) => *response,
         },
         _ => return None,
@@ -212,6 +312,7 @@ mod tests {
             thumbnail: Some(format!("https://example.test/{index}/maxresdefault.jpg")),
             video_id: Some(format!("video-{index:05}")),
             explicit: false,
+            color: None,
         }
     }
 
@@ -222,6 +323,68 @@ mod tests {
             tracks: (0..count).map(track).collect(),
             ..Default::default()
         }
+    }
+
+    fn shelf_page(count: usize) -> CatalogPage {
+        CatalogPage {
+            id: "FEmusic_moods_and_genres_category|x".into(),
+            title: "Chill".into(),
+            shelves: (0..count)
+                .map(|index| CatalogShelf {
+                    id: format!("carousel-{index}"),
+                    title: format!("Shelf {index}"),
+                    items: (0..10).map(track).collect(),
+                    layout: Default::default(),
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_page_with_more_shelves_than_a_frame_holds_pages_the_rest_instead_of_dropping_it() {
+        let first = page_shelves(shelf_page(16), "catalog.category", "cat|x", 0);
+        assert_eq!(first.shelves.len(), MAX_SHELVES);
+        let cursor = first.next_cursor.clone().expect("the rest is one cursor away");
+        let rest = Rest::decode(&cursor).expect("the service reads its own cursor");
+        assert_eq!(rest.offset, MAX_SHELVES);
+        assert_eq!(rest.id, "cat|x");
+
+        let second = page_shelves(shelf_page(16), &rest.command, &rest.id, rest.offset);
+        assert_eq!(second.shelves.len(), 4);
+        assert_eq!(second.shelves[0].title, "Shelf 12");
+        assert_eq!(second.next_cursor, None, "nothing is left after the last shelf");
+        assert!(!clamp(first, MAX_CATALOG_BYTES).truncated);
+    }
+
+    #[test]
+    fn upstream_cursors_ride_along_and_take_over_after_the_last_shelf() {
+        let mut page = shelf_page(14);
+        page.next_cursor = Some("upstream-token".into());
+        let first = page_shelves(page, "catalog.browse", "home", 0);
+        let rest = Rest::decode(first.next_cursor.as_deref().unwrap()).unwrap();
+        assert_eq!(rest.upstream.as_deref(), Some("upstream-token"));
+
+        let mut again = shelf_page(14);
+        again.next_cursor = rest.upstream.clone();
+        let second = page_shelves(again, &rest.command, &rest.id, rest.offset);
+        assert_eq!(second.next_cursor.as_deref(), Some("upstream-token"));
+    }
+
+    #[test]
+    fn a_short_page_keeps_its_upstream_cursor_and_is_not_paged() {
+        let mut page = shelf_page(3);
+        page.next_cursor = Some("upstream-token".into());
+        let paged = page_shelves(page, "catalog.browse", "home", 0);
+        assert_eq!(paged.shelves.len(), 3);
+        assert_eq!(paged.next_cursor.as_deref(), Some("upstream-token"));
+    }
+
+    #[test]
+    fn only_the_service_s_own_cursors_are_read_as_rest_cursors() {
+        assert_eq!(Rest::decode("4qmFsgKrCBIMRkVtdXNpY19ob21l"), None);
+        let forged = format!("{REST_PREFIX}catalog.album\u{1f}MPRE\u{1f}0\u{1f}");
+        assert_eq!(Rest::decode(&forged), None, "only shelf surfaces are paged");
     }
 
     #[test]

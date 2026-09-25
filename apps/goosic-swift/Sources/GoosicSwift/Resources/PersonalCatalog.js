@@ -462,6 +462,13 @@ const GoosicPersonalCatalog = (() => {
         recognized: true,
       };
     }
+    // YouTube Music now answers the last continuation of Home with the page frame itself: the
+    // selected tab and nothing inside it. That is the end of the feed, not an unknown response;
+    // treating it as unknown made the shell report a failure and keep asking for more.
+    if (json?.contents) {
+      if (!selectedTabContent(json)) return { sections: [], nextCursor: null, recognized: true };
+      return parseInitialPage(json);
+    }
     return { sections: [], recognized: false };
   }
 

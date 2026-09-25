@@ -14,18 +14,22 @@ is worse than none, because it is believed.
 
 | Shell | Status | Protocol | Service pairing |
 | --- | --- | --- | --- |
-| `apps/goosic-swift` (macOS) | unreleased, in-tree | `0.3.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.3.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-swift` (Windows) | stubs only | `0.3.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-linux` (GTK 4) | designed, not started | `0.3.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
-| `apps/goosic-windows` (WinUI 3) | 0.2.1 Windows x64 setup and ZIP | `0.3.0` exactly | private service and rules DLL bundled beside the executable |
+| `apps/goosic-swift` (macOS) | unreleased, in-tree | `0.4.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.4.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-swift` (Windows) | stubs only | `0.4.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-linux` (GTK 4) | designed, not started | `0.4.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
+| `apps/goosic-windows` (WinUI 3) | 0.2.2 Windows x64 setup and ZIP | `0.4.0` exactly | private service and rules DLL bundled beside the executable |
 
-Product version is `0.2.1`, from the Cargo workspace. Windows is the first packaged platform.
+Product version is `0.2.2`, from the Cargo workspace. Windows is the first packaged platform.
 The release includes SHA-256 checksums for the installer, ZIP, service and rules DLL. Its source
 is identified by the release tag; all bundled application binaries are built from that source.
 The
 `1.4.0+3` scheme in [the migration plan](NATIVE_SHELL_MIGRATION.md) describes where this table
 is going, not what it holds.
+
+## What changed in 0.4.0
+
+`0.4.0` adds Moods & genres. A mood or genre is a new catalog item kind, `category`, with an optional `color`, and it opens with a new command, `catalog.category`, whose `catalogId` is the item's id. YouTube Music opens a category with a browse id *and* parameters; the service packs both into that id so no shell has to take it apart or send a field the request payload does not have. Nothing else on the wire changed, but equality is the rule, so every shell's constant moved with it: the Windows shell's `ServiceProtocol.Version` and the Swift shell's hand-copied `goosicProtocolVersion` both say `0.4.0`. A shell that does not yet draw categories decodes them as it decodes any kind it does not know, and shows them inert.
 
 ## The compatibility rule
 
@@ -50,8 +54,8 @@ is still showing "Connecting" rather than halfway through a session.
 
 The plan asks for a declared protocol *range* per shell, and this manifest declares a single
 version instead. That is deliberate: the code implements equality, and a manifest that declared
-`>=0.3.0, <0.4.0` would be describing a tolerance no line of code provides. A shell handed a
-`0.4.0` service today refuses it, correctly, and would refuse it just as flatly if this document
+`>=0.4.0, <0.5.0` would be describing a tolerance no line of code provides. A shell handed a
+`0.5.0` service today refuses it, correctly, and would refuse it just as flatly if this document
 promised otherwise.
 
 There is also nothing yet to be tolerant of. A range earns its complexity when two supported

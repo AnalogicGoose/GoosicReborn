@@ -25,9 +25,10 @@ namespace Goosic.Windows.Service;
 /// </remarks>
 internal sealed class ArtworkLoader
 {
-    /// <summary>Hosts YouTube Music serves artwork from.</summary>
+    /// <summary>Hosts YouTube Music serves artwork from, as <c>goosic_shell_support::artwork</c> lists them.</summary>
+    /// <remarks><c>gstatic.com</c> holds the art of YouTube Music's own playlists, such as Liked Music.</remarks>
     private static readonly string[] AllowedHostSuffixes =
-        ["googleusercontent.com", "ggpht.com", "ytimg.com", "youtube.com"];
+        ["googleusercontent.com", "ggpht.com", "ytimg.com", "youtube.com", "gstatic.com"];
 
     /// <summary>Artwork is small. Anything larger is not a thumbnail and is discarded.</summary>
     private const int MaxBytes = 4 * 1024 * 1024;
@@ -123,6 +124,12 @@ internal sealed class ArtworkLoader
     {
         if (string.IsNullOrWhiteSpace(remote) || !IsAllowed(remote))
         {
+            // A refused host leaves a blank card; saying so is how the next one is found.
+            if (!string.IsNullOrWhiteSpace(remote))
+            {
+                BridgeLog.Write($"artwork refused: {BridgeLog.Describe(remote)}");
+            }
+
             return Task.FromResult<string?>(null);
         }
 
