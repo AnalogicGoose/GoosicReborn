@@ -161,8 +161,8 @@ public sealed partial class ShellViewModel
         new("Playlists", "FEmusic_liked_playlists", "shelves"),
         new("Songs", "VLLM", "tracks"),
         new("Albums", "FEmusic_liked_albums", "shelves"),
-        new("Artists", "FEmusic_library_corpus_artists", "shelves"),
-        new("Subscriptions", "FEmusic_library_corpus_track_artists", "shelves"),
+        new("Artists", CatalogRules.LibraryArtists, "shelves"),
+        new("Subscriptions", CatalogRules.LibrarySubscriptions, "shelves"),
     ];
 
     public bool IsSignedIn => _activeAccount is not null;
@@ -190,6 +190,23 @@ public sealed partial class ShellViewModel
 
     /// <summary>The rating chosen for the confirmed track in this session, for the transport's buttons.</summary>
     public bool IsNowPlayingLiked => _confirmedTrack?.VideoId is { } id && _ratings.GetValueOrDefault(id) == "LIKE";
+
+    /// <summary>Liking needs an account and a song; a guest's like would be stored nowhere.</summary>
+    public bool CanRateNowPlaying => IsSignedIn && !string.IsNullOrEmpty(_confirmedTrack?.VideoId);
+
+    public string LikeLabel => IsNowPlayingLiked ? "Remove from Liked Music" : "Like";
+
+    /// <summary>A filled heart once liked, an outline before: the state reads without colour.</summary>
+    public string LikeGlyph => IsNowPlayingLiked ? "" : "";
+
+    private void NowPlayingRatingChanged()
+    {
+        OnPropertyChanged(nameof(IsNowPlayingLiked));
+        OnPropertyChanged(nameof(IsNowPlayingDisliked));
+        OnPropertyChanged(nameof(CanRateNowPlaying));
+        OnPropertyChanged(nameof(LikeLabel));
+        OnPropertyChanged(nameof(LikeGlyph));
+    }
 
     public bool IsNowPlayingDisliked => _confirmedTrack?.VideoId is { } id && _ratings.GetValueOrDefault(id) == "DISLIKE";
 
@@ -293,7 +310,10 @@ public sealed partial class ShellViewModel
             if (active is not null)
             {
                 _ = LoadUserPlaylistsAsync();
+                _ = LearnLikesAsync();
             }
+
+            NowPlayingRatingChanged();
         }
     }
 
@@ -486,6 +506,7 @@ public sealed partial class ShellViewModel
                 await RefreshAccountsAsync().ConfigureAwait(true);
             }
 
+            _pages.Forget(account.WebProfileId);
             ReportStatus($"Signed out of {account.DisplayName}.");
             await LoadRouteAsync("home").ConfigureAwait(true);
         }
@@ -564,9 +585,29 @@ public sealed partial class ShellViewModel
         return true;
     }
 
+    private readonly PageCache _pages = new();
+
+    /// <summary>Whose copies of pages to use: the signed-in profile's, never another account's.</summary>
+    private string CacheScope => _activeAccount?.WebProfileId ?? "guest";
+
+    private static string PersonalCacheKey((string BrowseId, string Title, string Shape) source) =>
+        $"personal:{source.BrowseId}:{source.Shape}";
+
+    /// <summary>
+    /// Shows a personal page: the copy from the last visit at once, when there is one, then the
+    /// fresh answer only if it differs.
+    /// </summary>
     private async Task LoadPersonalAsync((string BrowseId, string Title, string Shape) source)
     {
         _personalSource = source;
+        var scope = CacheScope;
+        var key = PersonalCacheKey(source);
+        var cached = _pages.Get(scope, key);
+        if (cached is not null)
+        {
+            ShowPersonalPage(cached, source);
+        }
+
         try
         {
             var page = await Personal!.BrowseAsync(source.BrowseId, source.Title, null, source.Shape)
@@ -576,51 +617,131 @@ public sealed partial class ShellViewModel
                 return;
             }
 
-            if (!string.IsNullOrWhiteSpace(page.Title) && source.Shape == "tracks")
+            // The cursor is left out of the copy: it changes on every answer and goes stale, so
+            // it would make every visit look changed and could not be continued from later.
+            var changed = _pages.Put(scope, key, page with { NextCursor = null });
+            if (cached is null || changed)
             {
-                PageTitle = page.Title;
-            }
+                if (cached is not null)
+                {
+                    Tracks.Clear();
+                    Shelves.Clear();
+                }
 
-            if (!string.IsNullOrWhiteSpace(page.Subtitle))
+                ShowPersonalPage(page, source);
+            }
+            else
             {
-                PageSubtitle = page.Subtitle;
+                NextCursor = page.NextCursor;
             }
-
-            Fill(page);
-            Status = "";
-            PageState = Tracks.Count == 0 && Shelves.Count == 0
-                ? PageState.Empty(PageSubject.Library, source.Title)
-                : PageState.Content;
         }
         catch (Exception error)
         {
-            if (_personalSource == source)
+            if (_personalSource == source && cached is null)
             {
                 PageState = FailureState(error, source.Title);
             }
             else
             {
+                // The copy on screen stands; the log says the refresh failed.
                 Describe(error);
+            }
+        }
+    }
+
+    private void ShowPersonalPage(CatalogPage page, (string BrowseId, string Title, string Shape) source)
+    {
+        if (!string.IsNullOrWhiteSpace(page.Title) && source.Shape == "tracks")
+        {
+            PageTitle = page.Title;
+        }
+
+        if (!string.IsNullOrWhiteSpace(page.Subtitle))
+        {
+            PageSubtitle = page.Subtitle;
+        }
+
+        Fill(page);
+        Status = "";
+        PageState = Tracks.Count == 0 && Shelves.Count == 0
+            ? PageState.Empty(PageSubject.Library, source.Title)
+            : PageState.Content;
+    }
+
+    /// <summary>
+    /// Reads the library's main pages in the background after sign-in, so the first visit to each
+    /// is instant as well.
+    /// </summary>
+    private async Task WarmLibraryAsync()
+    {
+        foreach (var source in new (string BrowseId, string Title, string Shape)[]
+        {
+            ("FEmusic_liked_playlists", "Library", "shelves"),
+            ("FEmusic_library_corpus_track_artists", "Library", "shelves"),
+            ("FEmusic_liked_albums", "Library", "shelves"),
+        })
+        {
+            if (Personal is null || !IsSignedIn)
+            {
+                return;
+            }
+
+            try
+            {
+                var scope = CacheScope;
+                var page = await Personal.BrowseAsync(source.BrowseId, source.Title, null, source.Shape)
+                    .ConfigureAwait(true);
+                if (scope == CacheScope)
+                {
+                    _pages.Put(scope, PersonalCacheKey(source), page with { NextCursor = null });
+                }
+            }
+            catch (Exception error)
+            {
+                BridgeLog.Write($"library warm-up skipped {source.BrowseId}: {error.GetType().Name}");
             }
         }
     }
 
     private void Fill(CatalogPage page)
     {
+        // The page's own cover wins over its first song's: Liked Music and a playlist have one,
+        // and borrowing a song's made the page look like that song's album.
+        var cover = ShowPageHeader && PageArtwork is null && !string.IsNullOrEmpty(page.Thumbnail)
+            ? SetPageArtworkFromAsync(page.Thumbnail!, _pageArtworkVersion)
+            : null;
+        var first = true;
         foreach (var track in Listed(page.Tracks))
         {
             var row = new TrackViewModel(track);
             Tracks.Add(row);
             _ = row.LoadArtworkAsync(_artwork);
-            if (ShowPageHeader && PageArtwork is null)
+            if (first && ShowPageHeader && PageArtwork is null)
             {
-                _ = SetPageArtworkAsync(row, _pageArtworkVersion);
+                _ = cover is null
+                    ? SetPageArtworkAsync(row, _pageArtworkVersion)
+                    : FallBackToTrackArtworkAsync(cover, row, _pageArtworkVersion);
             }
+
+            first = false;
         }
 
         foreach (var shelf in ListedShelves(page.Shelves))
         {
-            var model = new ShelfViewModel(shelf);
+            // A library page is one grid, however many parts it arrives in.
+            if (IsLibraryPage && Shelves.FirstOrDefault(existing => existing.IsGrid) is { } grid)
+            {
+                var from = grid.Items.Count;
+                grid.Append(shelf.Items);
+                foreach (var card in grid.Items.Skip(from))
+                {
+                    _ = card.LoadArtworkAsync(_artwork);
+                }
+
+                continue;
+            }
+
+            var model = new ShelfViewModel(shelf, grid: IsLibraryPage);
             Shelves.Add(model);
             foreach (var card in model.Items)
             {
@@ -631,6 +752,10 @@ public sealed partial class ShellViewModel
         NextCursor = page.NextCursor;
         AllTracksId = page.AllTracksId;
         SetPageTruncated(page.Truncated);
+        if (_personalSource?.BrowseId == "VLLM")
+        {
+            LearnLikes(page.Tracks);
+        }
     }
 
     /// <summary>Continues a page the account's reader issued, which only that reader understands.</summary>
@@ -648,6 +773,52 @@ public sealed partial class ShellViewModel
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Reads the first page of Liked Music, so the like button is already lit on a song the
+    /// account liked before this session.
+    /// </summary>
+    /// <remarks>
+    /// The catalog does not say whether a song is liked; Liked Music does. Only its first page is
+    /// read: enough for the songs people actually play, without walking a list of thousands.
+    /// </remarks>
+    private async Task LearnLikesAsync()
+    {
+        if (Personal is null || !IsSignedIn)
+        {
+            return;
+        }
+
+        try
+        {
+            var scope = CacheScope;
+            var page = await Personal.BrowseAsync("VLLM", "Liked Music", null, "tracks").ConfigureAwait(true);
+            LearnLikes(page.Tracks);
+            if (scope == CacheScope)
+            {
+                _pages.Put(scope, PersonalCacheKey(("VLLM", "Liked Music", "tracks")), page with { NextCursor = null });
+            }
+
+            await WarmLibraryAsync().ConfigureAwait(true);
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"liked music not read: {error.GetType().Name}");
+        }
+    }
+
+    private void LearnLikes(IEnumerable<CatalogItem> tracks)
+    {
+        foreach (var track in tracks)
+        {
+            if (!string.IsNullOrEmpty(track.VideoId))
+            {
+                _ratings.TryAdd(track.VideoId, "LIKE");
+            }
+        }
+
+        NowPlayingRatingChanged();
     }
 
     // ---- Changes to the account -----------------------------------------------------------
@@ -725,8 +896,7 @@ public sealed partial class ShellViewModel
                 .ConfigureAwait(true) is not null)
         {
             _ratings[videoId] = rating;
-            OnPropertyChanged(nameof(IsNowPlayingLiked));
-            OnPropertyChanged(nameof(IsNowPlayingDisliked));
+            NowPlayingRatingChanged();
         }
     }
 

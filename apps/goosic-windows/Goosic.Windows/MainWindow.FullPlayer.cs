@@ -162,7 +162,11 @@ public sealed partial class MainWindow : Window
 
         var lyricsOnly = mode == FullPlayerMode.Lyrics;
         FullPlayerLyrics.Visibility = mode == FullPlayerMode.Cover ? Visibility.Collapsed : Visibility.Visible;
-        FullPlayerCoverButton.Visibility = lyricsOnly ? Visibility.Collapsed : Visibility.Visible;
+        // The cover shrinks with the window's height too, so the controls under it stay on screen.
+        var cover = FullPlayerLayout.CoverSize(RootGrid.ActualHeight, top, bottom);
+        FullPlayerCoverButton.MaxWidth = cover > 0 ? cover : double.PositiveInfinity;
+        FullPlayerCoverButton.HorizontalAlignment = HorizontalAlignment.Left;
+        FullPlayerCoverButton.Visibility = lyricsOnly || cover == 0 ? Visibility.Collapsed : Visibility.Visible;
         FullPlayerLyricsColumn.Width = mode == FullPlayerMode.Split
             ? new GridLength(1.3, GridUnitType.Star)
             : new GridLength(0);
@@ -230,6 +234,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(open ? FullPlayerDragStrip : TitleBarStrip);
         if (!open)
         {
+            SetMiniPlayer(false);
             SetWindowFullScreen(false);
             RestoreFocusAfterFullPlayer();
             return;

@@ -58,6 +58,8 @@ public sealed partial class MainWindow : Window
         RootGrid.SizeChanged += OnRootSizeChanged;
         Model.PropertyChanged += OnPageLoadingChanged;
         WireSeekGestures();
+        // A page that grows (or arrives) shorter than the window never scrolls, so it asks here too.
+        ContentStack.SizeChanged += async (_, _) => await LoadMoreIfNearEndAsync();
         WireKeyboard();
         WireFullPlayer();
         WireMotion();
@@ -88,7 +90,7 @@ public sealed partial class MainWindow : Window
             _personal = new PersonalCatalogHost(WebHost);
             Model.Playback = _playback;
             Model.Personal = _personal;
-            _playback.Status += message => Model.ReportStatus(message);
+            _playback.Status += message => Model.ReportDetail(message);
             _playback.IsSubstitute = Model.AcceptSubstitute;
             _playback.PageRefused += Model.ReportRefused;
             _playback.PageMovedOn += videoId =>
@@ -132,7 +134,7 @@ public sealed partial class MainWindow : Window
         var rules = CheckShellSupport();
         if (rules.Length > 0)
         {
-            Model.ReportStatus(rules);
+            Model.ReportDetail(rules);
         }
 
         Closed += (_, _) => _media?.Dispose();

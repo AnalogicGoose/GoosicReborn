@@ -88,6 +88,13 @@ public sealed partial class MainWindow : Window
                 }
                 break;
             case ShellCommand.ToggleSidebar: ToggleSidebar(); break;
+            case ShellCommand.Settings: _ = NavigateAsync("settings"); break;
+            case ShellCommand.Like:
+                if (Model.CanRateNowPlaying)
+                {
+                    _ = Model.ToggleNowPlayingRatingAsync("LIKE");
+                }
+                break;
         }
     }
 

@@ -45,7 +45,12 @@ public sealed partial class ShellViewModel
             return;
         }
 
+        // Editing moves and removes rows by their place in the playlist, so the playlist's own
+        // order has to be what is on screen.
+        TrackFilter = "";
+        SortTracks("custom");
         IsEditingPlaylist = true;
+        OnPropertyChanged(nameof(CanSortTracks));
         Tracks.CollectionChanged += OnEditedTracksChanged;
         foreach (var track in Tracks)
         {
@@ -70,6 +75,7 @@ public sealed partial class ShellViewModel
         }
 
         IsEditingPlaylist = false;
+        OnPropertyChanged(nameof(CanSortTracks));
         SelectionChangedForEdit();
     }
 

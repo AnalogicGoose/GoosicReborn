@@ -25,11 +25,14 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnNavigate(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string tag })
+        if (sender is Button { Tag: string tag })
         {
-            return;
+            await NavigateAsync(tag);
         }
+    }
 
+    private async Task NavigateAsync(string tag)
+    {
         HighlightNavigation(tag);
         DismissOverlaySidebar();
         if (tag.StartsWith("library:", StringComparison.Ordinal))
@@ -124,11 +127,45 @@ public sealed partial class MainWindow : Window
         SidebarSearch.Focus(FocusState.Programmatic);
     }
 
+    /// <summary>
+    /// Offers recent searches as the box opens and as it is typed in, as Spotify's and Apple
+    /// Music's search does. They are kept on this computer and never sent anywhere.
+    /// </summary>
+    private void OnSearchTextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
+        {
+            ShowRecentSearches(sender);
+        }
+    }
+
+    private void OnSearchGotFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is AutoSuggestBox box && box.Text.Length == 0)
+        {
+            ShowRecentSearches(box);
+        }
+    }
+
+    private static void ShowRecentSearches(AutoSuggestBox box)
+    {
+        var matches = RecentSearches.Suggest(ShellPreferences.RecentSearches, box.Text);
+        box.ItemsSource = matches;
+        box.IsSuggestionListOpen = matches.Count > 0;
+    }
+
+    private static void RememberSearch(string query) =>
+        ShellPreferences.RecentSearches = RecentSearches.Remember(ShellPreferences.RecentSearches, query);
+
     private async void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
+        var query = args.ChosenSuggestion as string ?? args.QueryText;
+        sender.Text = query;
+        sender.IsSuggestionListOpen = false;
+        RememberSearch(query);
         HighlightNavigation(null);
         DismissOverlaySidebar();
-        await Model.SearchAsync(args.QueryText, "all");
+        await Model.SearchAsync(query, "all");
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
     }
@@ -147,6 +184,8 @@ public sealed partial class MainWindow : Window
     {
         HighlightNavigation(null);
         await Model.OpenEntityAsync(kind, id, title);
+        // Some entities open a route of their own, such as Liked Music; its sidebar row lights up.
+        HighlightNavigation(Model.CurrentRouteName);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
     }

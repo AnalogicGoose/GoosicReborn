@@ -68,7 +68,7 @@ public sealed partial class MainWindow : Window
     }
 
     private void ReportUndoUnavailable() =>
-        Model.ReportStatus("The queue can’t be restored after the track changed.");
+        Model.ReportDetail("The queue can’t be restored after the track changed.");
 
     private void HideUndoBar()
     {
