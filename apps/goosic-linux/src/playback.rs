@@ -378,6 +378,9 @@ mod tests {
             shuffle: true,
             repeat_mode: "one".into(),
             artwork_background: true,
+            hide_explicit: false,
+            start_page: "home".into(),
+            reduce_motion: false,
             imported_from_legacy: false,
             legacy_available: false,
         });

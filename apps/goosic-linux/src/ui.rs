@@ -73,6 +73,7 @@ pub fn page_list(actions: Rc<Actions>) -> (gtk::ScrolledWindow, gio::ListStore) 
         .vexpand(true)
         .child(&list)
         .build();
+    scroller.add_css_class("goosic-page");
     // Reaching the bottom fetches the next part, as the previous Goosic's feed did. A page short
     // enough never to scroll still has its Load more row.
     scroller.connect_edge_reached(move |_, edge| {
@@ -141,59 +142,151 @@ fn same_row(old: &PageRow, new: &PageRow) -> bool {
 pub struct Sidebar {
     pub root: gtk::Box,
     pub routes: gtk::ListBox,
+    pub account: gtk::Label,
+    pub avatar: gtk::Label,
     pub connection: gtk::Label,
     pub status: gtk::Label,
 }
 
-pub fn sidebar(on_select: impl Fn(Route) + 'static) -> Sidebar {
+const SIDEBAR_ROUTES: [Option<Route>; 12] = [
+    Some(Route::Home),
+    None,
+    Some(Route::Explore),
+    Some(Route::Charts),
+    Some(Route::MoodsAndGenres),
+    Some(Route::NewReleases),
+    None,
+    Some(Route::Library),
+    Some(Route::Downloads),
+    Some(Route::Settings),
+    None,
+    Some(Route::Library),
+];
+
+pub fn sidebar(
+    on_select: impl Fn(Route) + 'static,
+    on_search: impl Fn(String) + 'static,
+) -> Sidebar {
+    let on_select = Rc::new(on_select);
     let routes = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::Single)
         .vexpand(true)
         .build();
     routes.add_css_class("navigation-sidebar");
-    for route in Route::ALL {
-        let label = plain(route_title(route));
-        label.set_margin_top(6);
-        label.set_margin_bottom(6);
-        label.set_margin_start(6);
-        routes.append(&label);
+    for (index, route) in SIDEBAR_ROUTES.into_iter().enumerate() {
+        let Some(route) = route else {
+            let heading = match index {
+                1 => "Discover",
+                6 => "Library",
+                10 => "Playlists",
+                _ => unreachable!("only section headers have no route"),
+            };
+            let label = plain(heading);
+            label.add_css_class("goosic-sidebar-section");
+            label.set_margin_start(10);
+            label.set_margin_top(16);
+            label.set_margin_bottom(4);
+            let header = gtk::ListBoxRow::new();
+            header.set_selectable(false);
+            header.set_activatable(false);
+            header.set_child(Some(&label));
+            routes.append(&header);
+            continue;
+        };
+        let icon = gtk::Label::new(Some(if index == 11 {
+            "≡"
+        } else {
+            route_glyph(route)
+        }));
+        icon.add_css_class("goosic-route-icon");
+        icon.set_width_chars(2);
+        let label = plain(if index == 11 {
+            "All Playlists"
+        } else {
+            route_title(route)
+        });
+        let item = row(10);
+        item.set_margin_top(5);
+        item.set_margin_bottom(5);
+        item.set_margin_start(10);
+        item.append(&icon);
+        item.append(&label);
+        routes.append(&item);
     }
     select_route(&routes, Route::Home);
     // Activated rather than selected, so choosing the route already selected still leaves a detail
     // page and goes back to it.
+    let select_route = on_select.clone();
     routes.connect_row_activated(move |_, row| {
         if let Some(route) = usize::try_from(row.index())
             .ok()
-            .and_then(|index| Route::ALL.get(index))
+            .and_then(|index| SIDEBAR_ROUTES.get(index))
+            .and_then(|route| *route)
         {
-            on_select(*route);
+            select_route(route);
         }
     });
 
-    let connection = plain("○ Connecting…");
+    let connection = dim("Connecting…");
+    connection.add_css_class("goosic-account-connection");
     let status = dim("");
+    let account = plain("Browsing as guest");
+    account.add_css_class("goosic-account-name");
+    let avatar = plain("G");
+    avatar.add_css_class("goosic-account-avatar");
+    let account_text = column(1);
+    account_text.set_valign(gtk::Align::Center);
+    account_text.append(&account);
+    account_text.append(&connection);
+    let account_contents = row(10);
+    account_contents.append(&avatar);
+    account_contents.append(&account_text);
+    let account_button = gtk::Button::new();
+    account_button.set_child(Some(&account_contents));
+    account_button.add_css_class("goosic-account-row");
+    account_button.connect_clicked(move |_| on_select(Route::Settings));
     let root = column(8);
-    root.set_width_request(220);
-    root.set_margin_top(16);
-    root.set_margin_bottom(16);
-    root.set_margin_start(12);
-    root.set_margin_end(12);
-    root.append(&markup("<b>GOOSIC</b>"));
-    root.append(&dim("Your music, in motion"));
+    root.set_width_request(280);
+    let titlebar_space = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    titlebar_space.set_height_request(38);
+    root.append(&titlebar_space);
+    let search = gtk::SearchEntry::builder()
+        .placeholder_text("Search")
+        .build();
+    search.connect_activate(move |entry| on_search(entry.text().to_string()));
+    root.append(&search);
     root.append(&routes);
-    root.append(&connection);
+    root.append(&account_button);
     root.append(&status);
     Sidebar {
         root,
         routes,
+        account,
+        avatar,
         connection,
         status,
     }
 }
 
+fn route_glyph(route: Route) -> &'static str {
+    match route {
+        Route::Home => "⌂",
+        Route::Explore => "◈",
+        Route::Search => "⌕",
+        Route::Library => "▣",
+        Route::Charts => "≋",
+        Route::MoodsAndGenres => "◎",
+        Route::NewReleases => "✦",
+        Route::Downloads => "⇩",
+        Route::Settings => "⚙",
+    }
+}
+
 /// Marks `route` as the one on screen, for when the shell chose it rather than the user.
 pub fn select_route(routes: &gtk::ListBox, route: Route) {
-    let index = Route::ALL.iter().position(|candidate| *candidate == route);
+    let index = SIDEBAR_ROUTES
+        .iter()
+        .position(|candidate| *candidate == Some(route));
     let row = index.and_then(|index| routes.row_at_index(i32::try_from(index).ok()?));
     routes.select_row(row.as_ref());
 }
@@ -275,10 +368,9 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
         }
         PageRow::Header { title, subtitle } => {
             let header = column(4);
-            header.append(&markup(&format!(
-                "<span size='xx-large' weight='bold'>{}</span>",
-                glib::markup_escape_text(title)
-            )));
+            let heading = plain(title);
+            heading.add_css_class("goosic-page-title");
+            header.append(&heading);
             header.append(&dim(subtitle));
             padded(&header, 16, 8)
         }
@@ -329,14 +421,12 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
             padded(&play_all, 4, 8)
         }
         PageRow::Track { track, context } => padded(&track_row(track, context, actions), 4, 4),
-        PageRow::ShelfTitle(title) => padded(
-            &markup(&format!(
-                "<span size='large' weight='bold'>{}</span>",
-                glib::markup_escape_text(title)
-            )),
-            18,
-            6,
-        ),
+        PageRow::ShelfTitle(title) => {
+            let heading = plain(title);
+            heading.add_css_class("goosic-shelf-title");
+            padded(&heading, 18, 6)
+        }
+        PageRow::TrackShelf(tracks) => padded(&track_shelf(tracks, actions), 0, 8),
         PageRow::Cards(cards) => padded(&card_strip(cards, actions), 0, 8),
         PageRow::Truncated => padded(
             &dim("This page was long, so only the first part is shown."),
@@ -396,7 +486,7 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
     }
 }
 
-fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::Box {
+fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::Button {
     let line = row(10);
     line.append(&artwork(actions, track.thumbnail.as_deref(), "♪", 40));
 
@@ -404,26 +494,66 @@ fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk
     text.set_hexpand(true);
     text.set_valign(gtk::Align::Center);
     let title_line = row(6);
-    title_line.append(&single_line(plain(&track.title)));
+    let title = single_line(plain(&track.title));
+    title.add_css_class("goosic-track-title");
+    title_line.append(&title);
     if track.explicit {
         title_line.append(&dim("E"));
     }
     text.append(&title_line);
-    text.append(&single_line(dim(&track.secondary_text())));
+    let subtitle = single_line(dim(&track.secondary_text()));
+    subtitle.add_css_class("goosic-track-subtitle");
+    text.append(&subtitle);
     line.append(&text);
 
     let duration = dim(&track.duration);
     duration.set_valign(gtk::Align::Center);
     line.append(&duration);
-    let play = gtk::Button::builder()
-        .icon_name("media-playback-start-symbolic")
+    let button = gtk::Button::builder()
+        .child(&line)
         .tooltip_text("Play")
-        .valign(gtk::Align::Center)
         .build();
+    button.add_css_class("flat");
+    button.add_css_class("goosic-track-row");
     let (track, context, actions) = (track.clone(), context.clone(), actions.clone());
-    play.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
-    line.append(&play);
-    line
+    button.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
+    button
+}
+
+fn track_shelf(tracks: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::ScrolledWindow {
+    let columns = row(22);
+    columns.set_margin_bottom(12);
+    for group in tracks.chunks(4) {
+        let track_column = column(0);
+        track_column.set_width_request(330);
+        for track in group {
+            let line = row(12);
+            line.append(&artwork(actions, track.thumbnail.as_deref(), "♪", 48));
+            let labels = column(2);
+            labels.set_valign(gtk::Align::Center);
+            labels.set_hexpand(true);
+            let title = single_line(plain(&track.title));
+            title.add_css_class("goosic-track-title");
+            labels.append(&title);
+            let subtitle = single_line(dim(&track.secondary_text()));
+            subtitle.add_css_class("goosic-track-subtitle");
+            labels.append(&subtitle);
+            line.append(&labels);
+            let button = gtk::Button::builder().child(&line).build();
+            button.add_css_class("flat");
+            button.add_css_class("goosic-track-row");
+            let (track, context, actions) = (track.clone(), tracks.clone(), actions.clone());
+            button.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
+            track_column.append(&button);
+        }
+        columns.append(&track_column);
+    }
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .propagate_natural_height(true)
+        .child(&columns)
+        .build()
 }
 
 fn download_row(track: &DownloadedTrack, actions: &Rc<Actions>) -> gtk::Box {
@@ -462,7 +592,7 @@ fn download_row(track: &DownloadedTrack, actions: &Rc<Actions>) -> gtk::Box {
 }
 
 fn card_strip(cards: &[Card], actions: &Rc<Actions>) -> gtk::ScrolledWindow {
-    let strip = row(10);
+    let strip = row(22);
     // Room below the cards for the overlay scrollbar, so it never covers the last line of text.
     strip.set_margin_bottom(12);
     for card in cards {
@@ -482,17 +612,20 @@ fn card_widget(card: &Card, actions: &Rc<Actions>) -> gtk::Button {
         _ => "♪",
     };
     let body = column(5);
-    body.set_size_request(148, -1);
-    body.append(&artwork(actions, card.thumbnail.as_deref(), glyph, 148));
+    body.set_size_request(196, -1);
+    body.append(&artwork(actions, card.thumbnail.as_deref(), glyph, 196));
     let title = single_line(plain(&card.title));
-    title.set_max_width_chars(18);
+    title.add_css_class("goosic-card-title");
+    title.set_max_width_chars(24);
     let subtitle = single_line(dim(&card.subtitle));
-    subtitle.set_max_width_chars(18);
+    subtitle.add_css_class("goosic-card-subtitle");
+    subtitle.set_max_width_chars(24);
     body.append(&title);
     body.append(&subtitle);
 
     let button = gtk::Button::builder().child(&body).build();
     button.add_css_class("flat");
+    button.add_css_class("goosic-card");
     match &card.action {
         Some(CardAction::Show(entity)) => {
             let entity = entity.clone();
@@ -511,28 +644,36 @@ fn card_widget(card: &Card, actions: &Rc<Actions>) -> gtk::Button {
 }
 
 fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
-    let page = column(8);
+    let page = column(14);
 
-    page.append(&section_title("Service"));
-    page.append(&plain(if facts.connected {
-        "Connected to goosic-service, the private child process this window started. It speaks \
-         line-delimited JSON over stdio, and nothing else can reach it."
+    let appearance = settings_group("Appearance");
+    appearance.append(&dim("Choose how Goosic follows your desktop."));
+    let themes = row(6);
+    let mut first: Option<gtk::ToggleButton> = None;
+    for option in Theme::ALL {
+        let toggle = gtk::ToggleButton::with_label(theme::label(option));
+        match &first {
+            Some(first) => toggle.set_group(Some(first)),
+            None => first = Some(toggle.clone()),
+        }
+        toggle.set_active(option == facts.theme);
+        let actions = actions.clone();
+        toggle.connect_toggled(move |toggle| {
+            if toggle.is_active() {
+                (actions.set_theme)(option);
+            }
+        });
+        themes.append(&toggle);
+    }
+    appearance.append(&themes);
+    page.append(&appearance);
+
+    let accounts = settings_group("Account");
+    accounts.append(&dim(if facts.accounts.is_empty() {
+        "Sign in to use your YouTube Music account."
     } else {
-        "Not connected. goosic-service could not be started or stopped answering; restart Goosic \
-         to start it again."
+        "Choose the account Goosic uses for playback."
     }));
-
-    page.append(&section_title("Catalog"));
-    page.append(&dim(
-        "Catalog reads go through Rust to YouTube Music as an anonymous guest. No cookies, account \
-         headers, or credentials are sent, and artwork is fetched just as anonymously.",
-    ));
-
-    page.append(&section_title("Accounts"));
-    page.append(&dim(
-        "Each account has a WebKit profile of its own. Goosic stores only its name and email; the \
-         sign-in stays in that profile's cookies and never reaches Rust.",
-    ));
     let add = gtk::Button::builder()
         .label("Add account")
         .halign(gtk::Align::Start)
@@ -542,12 +683,7 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
         let actions = actions.clone();
         add.connect_clicked(move |_| (actions.sign_in)());
     }
-    page.append(&add);
-    if facts.accounts.is_empty() {
-        page.append(&dim(
-            "No signed-in accounts. Add account opens Google's sign-in in a window of its own.",
-        ));
-    }
+    accounts.append(&add);
     for account in &facts.accounts {
         let active = facts.active_account_id.as_deref() == Some(account.id.as_str());
         let line = row(8);
@@ -582,79 +718,56 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
             }
         });
         line.append(&leave);
-        page.append(&line);
+        accounts.append(&line);
     }
-
-    page.append(&section_title("Appearance"));
-    let themes = row(6);
-    let mut first: Option<gtk::ToggleButton> = None;
-    for option in Theme::ALL {
-        let toggle = gtk::ToggleButton::with_label(theme::label(option));
-        match &first {
-            Some(first) => toggle.set_group(Some(first)),
-            None => first = Some(toggle.clone()),
-        }
-        // Set before the handler is connected, so drawing the page never counts as a choice.
-        toggle.set_active(option == facts.theme);
-        let actions = actions.clone();
-        toggle.connect_toggled(move |toggle| {
-            if toggle.is_active() {
-                (actions.set_theme)(option);
-            }
-        });
-        themes.append(&toggle);
-    }
-    page.append(&themes);
-    page.append(&dim("System follows the desktop's light or dark setting."));
-
-    page.append(&section_title("Preferences"));
-    page.append(&dim(
-        "Volume, mute, shuffle, repeat, autoplay, the queue panel, the theme and the last screen \
-         are stored by Rust and restored on launch.",
+    accounts.append(&dim(
+        "Sign-in data stays in each account's local web profile.",
     ));
+    page.append(&accounts);
+
+    let playback = settings_group("Playback");
+    playback.append(&plain(
+        "Volume, shuffle, repeat and autoplay are available in the player controls.",
+    ));
+    page.append(&playback);
+
+    let migration = settings_group("Previous Goosic install");
     if facts.legacy_imported {
-        page.append(&dim(
-            "Preferences were imported from a previous Goosic install. The old data was read, \
-             never changed.",
+        migration.append(&dim(
+            "Preferences imported. Your old data was left in place.",
         ));
     } else if facts.legacy_available {
-        page.append(&dim(
-            "A previous Goosic install's preferences were found on this machine. Importing reads \
-             them without changing them, and never carries over saved credentials.",
-        ));
+        migration.append(&dim("Preferences from a previous install are available."));
         let import = gtk::Button::builder()
             .label("Import previous Goosic preferences")
             .halign(gtk::Align::Start)
             .build();
         let actions = actions.clone();
         import.connect_clicked(move |_| (actions.import_legacy)());
-        page.append(&import);
+        migration.append(&import);
     } else {
-        page.append(&dim("No previous Goosic install was found to import from."));
+        migration.append(&dim("No previous install was found."));
     }
+    page.append(&migration);
 
-    page.append(&section_title("Playback"));
-    page.append(&plain(
-        "Rust owns playback state and leases. Every song plays in the one official WebKit host; \
-         advertisements are reported as markers and never bypassed.",
-    ));
-    page.append(&dim(&format!(
-        "Account: {}",
-        facts
-            .account
-            .as_deref()
-            .unwrap_or("none — browsing as a guest")
-    )));
+    let connection = settings_group("Connection");
+    connection.append(&plain(if facts.connected {
+        "Connected"
+    } else {
+        "Unavailable. Restart Goosic to reconnect."
+    }));
+    page.append(&connection);
     page
 }
 
-fn section_title(text: &str) -> gtk::Label {
-    let label = markup(&format!(
+fn settings_group(title: &str) -> gtk::Box {
+    let group = column(10);
+    group.add_css_class("goosic-settings-group");
+    group.append(&markup(&format!(
         "<span size='large' weight='bold'>{}</span>",
-        glib::markup_escape_text(text)
-    ));
-    label.set_margin_top(10);
-    label
+        glib::markup_escape_text(title)
+    )));
+    group
 }
 
 fn retry_button(label: &str, actions: &Rc<Actions>) -> gtk::Button {
@@ -683,6 +796,7 @@ fn artwork(actions: &Actions, remote: Option<&str>, glyph: &str, size: i32) -> g
         .valign(gtk::Align::Center)
         .build();
     frame.set_overflow(gtk::Overflow::Hidden);
+    frame.add_css_class("goosic-artwork");
     frame
 }
 
