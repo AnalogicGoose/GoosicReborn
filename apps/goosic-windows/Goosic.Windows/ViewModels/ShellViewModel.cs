@@ -858,7 +858,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     }
 
     /// <summary>The confirmed volume on the 0-100 scale the slider shows.</summary>
-    public double VolumePercent => Math.Round(Volume * 100);
+    public double VolumePercent => Math.Round(Presentation.VolumeTaper.ToPosition(Volume) * 100);
 
     /// <summary>Segoe Fluent Icons: muted, low, medium or high.</summary>
     public string VolumeGlyph => IsMuted || Volume <= 0 ? "\uE74F"

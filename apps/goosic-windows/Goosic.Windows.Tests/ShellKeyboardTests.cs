@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Goosic.Windows.Presentation;
 using Xunit;
@@ -43,8 +44,19 @@ public class ShellKeyboardTests
 
     [Theory]
     [InlineData(0.98, 0.05, 1.0)]
-    [InlineData(0.02, -0.05, 0.0)]
-    [InlineData(0.5, 0.05, 0.55)]
+    [InlineData(0.0001, -0.05, 0.0)]
+    [InlineData(0.125, 0.05, 0.166375)]
     public void VolumeStaysInRange(double volume, double delta, double expected) =>
         Assert.Equal(expected, ShellKeyboard.NudgedVolume(volume, delta), precision: 10);
+
+    [Theory]
+    [InlineData(0.0, 0.0)]
+    [InlineData(0.5, 0.125)]
+    [InlineData(1.0, 1.0)]
+    [InlineData(1.5, 1.0)]
+    public void SliderFollowsAnAudioTaper(double position, double gain)
+    {
+        Assert.Equal(gain, VolumeTaper.ToGain(position), precision: 10);
+        Assert.Equal(Math.Clamp(position, 0, 1), VolumeTaper.ToPosition(gain), precision: 10);
+    }
 }
