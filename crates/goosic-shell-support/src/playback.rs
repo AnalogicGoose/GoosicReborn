@@ -172,17 +172,48 @@ pub fn believes_sample(
         && sample.duration >= 0.0
 }
 
+/// How close to its length a stopped track has to be for the stop to count as its end.
+pub const END_TOLERANCE_SECONDS: f64 = 1.5;
+
+/// Whether a report says the track has played through.
+///
+/// A player normally says `ended`. With YouTube Music's Automix off -- see
+/// [`crate::bridge::AUTOMIX_OFF_SCRIPT`] -- the official page instead stops a fraction of a second
+/// short of the length and says `paused`, and a shell that waited for `ended` sat silent after
+/// every song. A pause that close to the end is the end, unless the listener paused it.
+pub fn has_finished(state: &str, position: f64, duration: f64, listener_paused: bool) -> bool {
+    state == "ended"
+        || (state == "paused"
+            && !listener_paused
+            && duration.is_finite()
+            && duration > 0.0
+            && position.is_finite()
+            && position >= duration - END_TOLERANCE_SECONDS)
+}
+
+/// A sample as [`should_advance_after_end`] needs to see it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EndSample<'a> {
+    pub state: &'a str,
+    pub is_advertisement: bool,
+    pub video_id: &'a str,
+    pub position: f64,
+    pub duration: f64,
+}
+
 /// Whether a sample means the queue should move on.
 ///
-/// Advertisements end too, and must never advance the queue; and a player reports `ended`
-/// repeatedly, so only the first report for a video counts.
+/// Advertisements end too, and must never advance the queue; a player reports its end
+/// repeatedly, so only the first report for a video counts; and a pause the listener asked for is
+/// not an end even at the last second -- see [`has_finished`].
 pub fn should_advance_after_end(
-    state: &str,
-    is_advertisement: bool,
-    video_id: &str,
+    sample: &EndSample<'_>,
     last_ended_video_id: Option<&str>,
+    listener_paused: bool,
 ) -> bool {
-    state == "ended" && !is_advertisement && last_ended_video_id != Some(video_id)
+    !sample.is_advertisement
+        && last_ended_video_id != Some(sample.video_id)
+        && has_finished(sample.state, sample.position, sample.duration, listener_paused)
 }
 
 /// What to do with the volume a web player reports.
@@ -402,11 +433,43 @@ mod tests {
 
     #[test]
     fn only_the_first_real_end_advances_the_queue() {
-        assert!(should_advance_after_end("ended", false, "v", None));
-        assert!(should_advance_after_end("ended", false, "v", Some("u")));
-        assert!(!should_advance_after_end("ended", false, "v", Some("v")), "reported twice");
-        assert!(!should_advance_after_end("ended", true, "v", None), "an advertisement ended");
-        assert!(!should_advance_after_end("paused", false, "v", None));
+        let end = |state, is_advertisement, position| EndSample {
+            state,
+            is_advertisement,
+            video_id: "v",
+            position,
+            duration: 229.0,
+        };
+        assert!(should_advance_after_end(&end("ended", false, 10.0), None, false));
+        assert!(should_advance_after_end(&end("ended", false, 10.0), Some("u"), false));
+        assert!(
+            !should_advance_after_end(&end("ended", false, 10.0), Some("v"), false),
+            "reported twice"
+        );
+        assert!(
+            !should_advance_after_end(&end("ended", true, 10.0), None, false),
+            "an advertisement ended"
+        );
+        assert!(!should_advance_after_end(&end("paused", false, 10.0), None, false));
+        assert!(
+            should_advance_after_end(&end("paused", false, 228.8), None, false),
+            "the official page stops just short of the end with Automix off"
+        );
+        assert!(
+            !should_advance_after_end(&end("paused", false, 228.8), None, true),
+            "the listener paused at the last second"
+        );
+    }
+
+    #[test]
+    fn a_pause_at_the_last_moment_is_the_end() {
+        assert!(has_finished("ended", 10.0, 229.0, false));
+        assert!(has_finished("paused", 228.8, 229.0, false));
+        assert!(!has_finished("paused", 228.8, 229.0, true));
+        assert!(!has_finished("paused", 120.0, 229.0, false));
+        assert!(!has_finished("paused", 0.0, 0.0, false));
+        assert!(!has_finished("playing", 229.0, 229.0, false));
+        assert!(!has_finished("paused", f64::NAN, 229.0, false));
     }
 
     #[test]

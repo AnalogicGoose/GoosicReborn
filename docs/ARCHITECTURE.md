@@ -135,6 +135,8 @@ Bridge events are accepted only when the version, nonce, generation, and video i
 
 The official app runs its own "up next" queue. When it follows that queue to a video Goosic did not request, the observer pauses it and the host reports the move; Goosic then plays its own next track. Goosic owns the queue, so the app never plays something the user did not choose.
 
+That rule alone cost every song its ending. With YouTube Music's Automix on, the app does not wait for a track to finish: it fades into its own choice some seconds early, so the move the observer reported came before the song was over. After each load the host therefore switches the page's Automix off (`AUTOMIX_OFF_SCRIPT` in `goosic-shell-support`, `OfficialBridge.automixOffScript` in Swift), and the page plays the requested track through. With Automix off the page does not report `ended`, though: it stops a fraction of a second short and reports `paused`. A pause within `END_TOLERANCE_SECONDS` of the length is treated as the end unless the listener paused it (`has_finished`, `TrackEnd.hasFinished`); without that, playback sat silent after every song.
+
 ## Local downloaded-file host
 
 The local renderer plays one decoded WAV path returned by Rust: an `AVAudioPlayer` on macOS, a GStreamer `playbin` pipeline on Linux. It is not a WebView and does not receive cookies or network URLs. Rust's local lease is claimed before preparation; the official WebView is paused and invalidated before that claim, and the local renderer is stopped synchronously before a release or owner switch. Confirmed play, pause, position, and end events carry the local Rust generation and an independent monotonic sequence.
