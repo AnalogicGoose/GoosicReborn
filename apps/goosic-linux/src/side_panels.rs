@@ -33,7 +33,7 @@ impl QueuePanel {
                 on_play(index);
             }
         });
-        let root = panel("Queue", &count);
+        let root = panel("Playing Next", &count);
         root.append(&scrolled(&list));
         QueuePanel {
             root,

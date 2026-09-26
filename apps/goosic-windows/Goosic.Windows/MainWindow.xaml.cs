@@ -61,6 +61,8 @@ public sealed partial class MainWindow : Window
         WireKeyboard();
         WireFullPlayer();
         WireMotion();
+        WireUpdates();
+        WireShellSettings();
         HighlightNavigation("home");
         Title = "Goosic";
 

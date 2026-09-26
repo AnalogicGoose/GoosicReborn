@@ -3,6 +3,66 @@
 Written to be read once, start to finish, before touching anything. The last section is a prompt
 that can be pasted into another coding agent as-is.
 
+## In-app updates
+
+Settings → Updates checks this repository's latest GitHub release, and a copy installed by
+Setup also checks once, eight seconds after launch, and says so in a toast when a newer version
+exists. Installing downloads the release's `Goosic-<version>-windows-x64-setup.exe`, refuses it
+unless its SHA-256 matches the release's `SHA256SUMS.txt` and it came from this repository's
+release downloads, then runs it with `/SILENT /CLOSEAPPLICATIONS /RELAUNCH=1` and exits so
+Setup can replace the files; Setup reopens Goosic afterwards. The rules live in
+`Presentation/UpdateRules.cs` with their tests, and the network half in `Service/AppUpdater.cs`.
+
+This puts three requirements on every release. The tag is `v<major>.<minor>.<patch>`, and a
+pre-release is never offered. The Setup file keeps its name. And `SHA256SUMS.txt` is uploaded
+beside it: `build-installer.ps1` now writes it into `dist/`, where the 0.1.0 one was written by
+hand. The portable ZIP and development builds have no `unins000.exe` beside them, so they report
+available updates but never offer to install one; a development build is version 0.0.0 and is
+never told it is out of date. The checksum shows the download arrived intact, but because the
+installer is unsigned it cannot show who published the release.
+
+0.1.0 has no updater, so its users install the next release by hand once; from then on the app
+updates itself. The relaunch is read by the Setup being installed, which is always the newer
+one, so it works from the first release that carries the updater.
+
+## Editing playlists and the player's menu
+
+An owned playlist's menu has **Edit songs**: rows show a checkbox and a click selects instead of
+playing, and a bar above the list moves the selection up or down or removes it. Every change goes
+through the personal reader by entry id (`setVideoId`), since a playlist can hold a song twice.
+A move is planned by `Presentation/PlaylistReorder.cs`: a block of selected songs costs one
+request, the song beside it jumping to the other side, and the tests replay the requests the way
+upstream applies them. The screen changes first and the page is reloaded if YouTube Music refuses.
+Moving relies on the reader sending `movedSetVideoIdSuccessor` ("move before"), which is
+`fix/playlist-move-successor` on `development`; it has not yet been exercised against a real
+account.
+
+The player bar's "⋯" menu used the queue entry's menu, which had no like, dislike or Save to
+playlist. It now has its own: full-screen player, start radio, the account's track actions,
+go to artist or album, and copy link.
+
+## Settings and the Home feed
+
+Settings has two kinds of switch, stored in two places on purpose. **Listening preferences**
+— Hide explicit songs, the page Goosic opens on, Reduce motion — are Rust's (`hideExplicit`,
+`startPage`, `reduceMotion` in `goosic-settings`) and shared with every shell; against an
+older service they read as their defaults and are not saved. The shell now also saves
+`lastRoute` for "The page I was on last". **Windows behaviour** — Close to tray, Launch at startup, Now-playing notifications,
+Discord status, Remember window, Efficiency mode — lives in `%LOCALAPPDATA%\Goosic\windows-shell.json`
+(`Service/ShellPreferences.cs`), except Launch at startup, whose truth is the per-user Run
+key so that Task Manager's Startup apps page stays in agreement.
+
+Efficiency mode is Windows' EcoQoS for this process plus no decorative motion. It does not set
+WebView2's low-memory target, which Microsoft intends for an inactive WebView; the player's is
+always playing. The tray icon is written against `Shell_NotifyIcon` directly (`Service/TrayIcon.cs`).
+Discord status talks to the Discord app's local IPC pipe and stays disabled until
+`DiscordPresence.ApplicationId` holds a registered Discord application's id. The window, tray
+and executable use the macOS app icon, converted to `Assets/Goosic.ico`.
+
+Home follows YouTube Music's layout: a shelf whose `layout` is `list` (Quick picks) is drawn
+as columns of four compact rows that scroll sideways, and every other shelf as cards. A shelf
+without the field, from an older service, is cards, as before.
+
 ## Read these first
 
 `AGENTS.md`, then `docs/NATIVE_SHELL_MIGRATION.md` (step 5 is this work) and

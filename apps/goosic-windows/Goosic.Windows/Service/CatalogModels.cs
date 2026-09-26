@@ -42,6 +42,9 @@ internal sealed record CatalogShelf
     [JsonPropertyName("id")] public string Id { get; init; } = "";
     [JsonPropertyName("title")] public string Title { get; init; } = "";
     [JsonPropertyName("items")] public IReadOnlyList<CatalogItem> Items { get; init; } = [];
+
+    /// <summary><c>list</c> for song rows such as Quick picks; absent, which means cards, otherwise.</summary>
+    [JsonPropertyName("layout")] public string? Layout { get; init; }
 }
 
 internal sealed record CatalogPage

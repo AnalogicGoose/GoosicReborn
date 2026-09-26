@@ -191,6 +191,26 @@ public sealed partial class MainWindow : Window
         return menu;
     }
 
+    /// <summary>
+    /// The player bar's menu, for the song that is playing.
+    /// </summary>
+    /// <remarks>
+    /// The playing song is a queue entry, and a queue entry's own menu is about the queue: it had
+    /// no like, dislike or "Save to playlist", which is what someone reaching for the player's
+    /// menu most often wants. This one offers what a song offers anywhere else, minus playing it.
+    /// </remarks>
+    private MenuFlyout BuildNowPlayingMenu(TrackViewModel track)
+    {
+        var menu = new MenuFlyout();
+        Add(menu, "Full-screen player", "", () => SetFullPlayerOpen(true));
+        Add(menu, "Start radio", "", async () => await PlayEntryAsync(Model.StartStation(track)));
+        AddAccountTrackItems(menu, track.VideoId, track.Title);
+        menu.Items.Add(new MenuFlyoutSeparator());
+        AddNavigation(menu, track.ArtistId, track.AlbumId, track.Subtitle, track.Title);
+        Add(menu, "Copy link", "", () => CopyLink(ShellViewModel.LinkFor(track)));
+        return menu;
+    }
+
     /// <summary>Like, dislike and save to playlist, offered only while an account is active.</summary>
     private void AddAccountTrackItems(MenuFlyout menu, string? videoId, string title)
     {

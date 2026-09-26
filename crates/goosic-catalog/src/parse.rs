@@ -2,7 +2,7 @@
 //!
 //! Nothing here performs I/O, so every rule below is unit-testable against small fixtures.
 
-use goosic_protocol::{CatalogItem, CatalogItemKind, CatalogPage, CatalogShelf};
+use goosic_protocol::{CatalogItem, CatalogItemKind, CatalogPage, CatalogShelf, ShelfLayout};
 use serde_json::Value;
 
 use crate::json;
@@ -413,6 +413,7 @@ pub fn search_page(query: &str, response: &Value) -> CatalogPage {
             id: format!("shelf-{}", shelves.len()),
             title,
             items,
+            layout: ShelfLayout::List,
         });
     }
 
@@ -457,6 +458,12 @@ fn group_by_kind(items: Vec<CatalogItem>) -> Vec<CatalogShelf> {
                 id: format!("all-{}", title.to_lowercase().replace(' ', "-")),
                 title: (*title).to_owned(),
                 items,
+                // Songs and videos are rows in YouTube Music's search; the rest are cards.
+                layout: if matches!(kind, CatalogItemKind::Song | CatalogItemKind::Video) {
+                    ShelfLayout::List
+                } else {
+                    ShelfLayout::Cards
+                },
             })
         })
         .collect()
@@ -465,77 +472,76 @@ fn group_by_kind(items: Vec<CatalogItem>) -> Vec<CatalogShelf> {
 /// Reads every carousel of a browse response into shelves (home, explore, moods, charts).
 pub fn browse_shelves(response: &Value) -> Vec<CatalogShelf> {
     let mut shelves = Vec::new();
-    for carousel in json::collect(response, "musicCarouselShelfRenderer") {
-        let title = carousel
-            .get("header")
-            .map(|header| {
-                json::first(header, "title")
-                    .map(json::runs_text)
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default();
-        let mut items: Vec<CatalogItem> = json::collect(carousel, "musicTwoRowItemRenderer")
-            .into_iter()
-            .filter_map(two_row_item)
-            .collect();
-        items.extend(
-            json::collect(carousel, "musicResponsiveListItemRenderer")
-                .into_iter()
-                .filter_map(responsive_item),
-        );
-        if items.is_empty() {
-            continue;
-        }
-        shelves.push(CatalogShelf {
-            id: format!("carousel-{}", shelves.len()),
-            title: if title.is_empty() {
-                format!("Shelf {}", shelves.len() + 1)
-            } else {
-                title
+    // One pass in document order. Each kind used to be collected separately, so every carousel
+    // came before every list shelf and grid, whatever order the page itself had.
+    let sections = json::collect_any(
+        response,
+        &["musicCarouselShelfRenderer", "musicShelfRenderer", "gridRenderer"],
+    );
+    for (kind, section) in sections {
+        let untitled = || format!("Shelf {}", shelves.len() + 1);
+        let shelf = match kind {
+            "musicCarouselShelfRenderer" => {
+                let title = section
+                    .get("header")
+                    .map(|header| {
+                        json::first(header, "title")
+                            .map(json::runs_text)
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+                let cards: Vec<CatalogItem> = json::collect(section, "musicTwoRowItemRenderer")
+                    .into_iter()
+                    .filter_map(two_row_item)
+                    .collect();
+                let rows: Vec<CatalogItem> =
+                    json::collect(section, "musicResponsiveListItemRenderer")
+                        .into_iter()
+                        .filter_map(responsive_item)
+                        .collect();
+                // A carousel of song rows is "Quick picks": a grid of rows, not of cards.
+                let layout = if cards.is_empty() {
+                    ShelfLayout::List
+                } else {
+                    ShelfLayout::Cards
+                };
+                CatalogShelf {
+                    id: format!("carousel-{}", shelves.len()),
+                    title: if title.is_empty() { untitled() } else { title },
+                    items: cards.into_iter().chain(rows).collect(),
+                    layout,
+                }
+            }
+            // Several recommendation modules use a plain music shelf of responsive song rows
+            // rather than artwork cards. The old carousel-only parser silently discarded them.
+            "musicShelfRenderer" => {
+                let title = section.get("title").map(json::runs_text).unwrap_or_default();
+                CatalogShelf {
+                    id: format!("shelf-{}", shelves.len()),
+                    title: if title.is_empty() { untitled() } else { title },
+                    items: json::collect(section, "musicResponsiveListItemRenderer")
+                        .into_iter()
+                        .filter_map(responsive_item)
+                        .collect(),
+                    layout: ShelfLayout::List,
+                }
+            }
+            // Library and browse continuations sometimes return a grid directly under the
+            // selected tab. Treat it as one shelf so those cards do not disappear just because
+            // the wrapper differs from Home's.
+            _ => CatalogShelf {
+                id: format!("grid-{}", shelves.len()),
+                title: "More".to_owned(),
+                items: json::collect(section, "musicTwoRowItemRenderer")
+                    .into_iter()
+                    .filter_map(two_row_item)
+                    .collect(),
+                layout: ShelfLayout::Cards,
             },
-            items,
-        });
-    }
-
-    // Home's personalized "Quick picks" and several recommendation modules use a plain music
-    // shelf of responsive song rows rather than artwork cards. The old carousel-only parser
-    // silently discarded those entire sections.
-    for shelf in json::collect(response, "musicShelfRenderer") {
-        let title = shelf.get("title").map(json::runs_text).unwrap_or_default();
-        let items: Vec<CatalogItem> = json::collect(shelf, "musicResponsiveListItemRenderer")
-            .into_iter()
-            .filter_map(responsive_item)
-            .collect();
-        if items.is_empty() {
-            continue;
+        };
+        if !shelf.items.is_empty() {
+            shelves.push(shelf);
         }
-        shelves.push(CatalogShelf {
-            id: format!("shelf-{}", shelves.len()),
-            title: if title.is_empty() {
-                format!("Shelf {}", shelves.len() + 1)
-            } else {
-                title
-            },
-            items,
-        });
-    }
-
-    // Library and browse continuations sometimes return a grid directly under the selected
-    // tab. Treat it as one shelf so those cards do not disappear just because the wrapper
-    // differs from Home's.
-    for grid in json::collect(response, "gridRenderer") {
-        let items: Vec<CatalogItem> = json::collect(grid, "musicTwoRowItemRenderer")
-            .into_iter()
-            .filter_map(two_row_item)
-            .collect();
-        if items.is_empty() {
-            continue;
-        }
-        shelves.push(CatalogShelf {
-            id: format!("grid-{}", shelves.len()),
-            title: "More".to_owned(),
-            items,
-        });
     }
     shelves
 }
@@ -831,6 +837,66 @@ mod tests {
         let page = search_page("signal", &response);
         assert_eq!(page.shelves.len(), 1);
         assert_eq!(page.shelves[0].title, "Top result");
+    }
+
+    #[test]
+    fn shelves_keep_page_order_and_say_whether_they_are_rows() {
+        let card = json!({"musicTwoRowItemRenderer": {
+            "title": {"runs": [{"text": "Night Windows"}]},
+            "subtitle": {"runs": [{"text": "Album • Signal Fires"}]},
+            "navigationEndpoint": {"browseEndpoint": {
+                "browseId": "MPREalbum",
+                "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ALBUM"}
+                }
+            }}
+        }});
+        let carousel = |title: &str, item: Value| {
+            json!({"musicCarouselShelfRenderer": {
+                "header": {"musicCarouselShelfBasicHeaderRenderer": {
+                    "title": {"runs": [{"text": title}]}
+                }},
+                "contents": [item]
+            }})
+        };
+        let response = json!({"sectionListRenderer": {"contents": [
+            carousel("Listen again", card),
+            {"musicShelfRenderer": {
+                "title": {"runs": [{"text": "Recommended"}]},
+                "contents": [{"musicResponsiveListItemRenderer": song_row()}]
+            }},
+            carousel("Quick picks", json!({"musicResponsiveListItemRenderer": song_row()})),
+        ]}});
+        let shelves = browse_shelves(&response);
+        let seen: Vec<(&str, ShelfLayout)> = shelves
+            .iter()
+            .map(|shelf| (shelf.title.as_str(), shelf.layout))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                ("Listen again", ShelfLayout::Cards),
+                ("Recommended", ShelfLayout::List),
+                ("Quick picks", ShelfLayout::List),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_cards_shelf_leaves_layout_off_the_wire() {
+        let shelf = CatalogShelf {
+            id: "s".into(),
+            title: "t".into(),
+            items: Vec::new(),
+            layout: ShelfLayout::Cards,
+        };
+        let wire = serde_json::to_value(&shelf).unwrap();
+        assert!(wire.get("layout").is_none());
+        let list = CatalogShelf {
+            layout: ShelfLayout::List,
+            ..shelf
+        };
+        assert_eq!(serde_json::to_value(&list).unwrap()["layout"], "list");
     }
 
     #[test]

@@ -223,6 +223,8 @@ public sealed partial class ShellViewModel
 
     private void ForgetPersonalPage()
     {
+        // Leaving the page ends editing; its rows are about to be replaced anyway.
+        EndPlaylistEdit();
         _personalSource = null;
         _pagePlaylistId = null;
         _pageArtistId = null;
@@ -605,7 +607,7 @@ public sealed partial class ShellViewModel
 
     private void Fill(CatalogPage page)
     {
-        foreach (var track in page.Tracks)
+        foreach (var track in Listed(page.Tracks))
         {
             var row = new TrackViewModel(track);
             Tracks.Add(row);
@@ -616,7 +618,7 @@ public sealed partial class ShellViewModel
             }
         }
 
-        foreach (var shelf in page.Shelves)
+        foreach (var shelf in ListedShelves(page.Shelves))
         {
             var model = new ShelfViewModel(shelf);
             Shelves.Add(model);

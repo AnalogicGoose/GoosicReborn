@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Goosic.Windows.Presentation;
@@ -19,6 +20,9 @@ public sealed partial class ShellViewModel
 {
     private bool _autoplay = true;
     private bool _artworkBackground = true;
+    private bool _hideExplicit;
+    private bool _reduceMotion;
+    private string _startPage = "home";
     private bool _isSettingsPage;
     private bool _settingsLoaded;
     private string _nowPlayingArtist = "";
@@ -32,6 +36,18 @@ public sealed partial class ShellViewModel
     public bool Autoplay { get => _autoplay; private set => Set(ref _autoplay, value); }
 
     public bool ArtworkBackground { get => _artworkBackground; private set => Set(ref _artworkBackground, value); }
+
+    /// <summary>Leaves explicit tracks out of shelves, lists, searches and stations loaded from now on.</summary>
+    public bool HideExplicit { get => _hideExplicit; private set => Set(ref _hideExplicit, value); }
+
+    /// <summary>Skips page entrances and panel slides, on top of the Windows animation setting.</summary>
+    public bool ReduceMotion { get => _reduceMotion; private set => Set(ref _reduceMotion, value); }
+
+    /// <summary>Where Goosic opens: <c>home</c>, <c>library</c>, <c>liked</c>, or <c>last</c>.</summary>
+    public string StartPage { get => _startPage; private set => Set(ref _startPage, value); }
+
+    /// <summary>The route Rust last remembered, for a "last page" start.</summary>
+    internal string LastRoute { get; private set; } = "home";
 
     public bool IsSettingsPage { get => _isSettingsPage; private set => Set(ref _isSettingsPage, value); }
 
@@ -116,6 +132,10 @@ public sealed partial class ShellViewModel
 
             Autoplay = settings["autoplay"]?.GetValue<bool>() ?? true;
             ArtworkBackground = settings["artworkBackground"]?.GetValue<bool>() ?? true;
+            HideExplicit = settings["hideExplicit"]?.GetValue<bool>() ?? false;
+            ReduceMotion = settings["reduceMotion"]?.GetValue<bool>() ?? false;
+            StartPage = settings["startPage"]?.GetValue<string>() ?? "home";
+            LastRoute = settings["lastRoute"]?.GetValue<string>() ?? "home";
             IsShuffled = settings["shuffle"]?.GetValue<bool>() ?? false;
             Repeat = (settings["repeatMode"]?.GetValue<string>()) switch
             {
@@ -190,6 +210,35 @@ public sealed partial class ShellViewModel
         ArtworkBackground = value;
         return SaveAsync("artworkBackground", value);
     }
+
+    internal Task SetHideExplicitAsync(bool value)
+    {
+        HideExplicit = value;
+        return SaveAsync("hideExplicit", value);
+    }
+
+    internal Task SetReduceMotionAsync(bool value)
+    {
+        ReduceMotion = value;
+        return SaveAsync("reduceMotion", value);
+    }
+
+    internal Task SetStartPageAsync(string value)
+    {
+        StartPage = value;
+        return SaveAsync("startPage", value);
+    }
+
+    /// <summary>A page's items as the listener asked to see them: without explicit tracks when hidden.</summary>
+    private IEnumerable<CatalogItem> Listed(IEnumerable<CatalogItem> items) =>
+        HideExplicit ? items.Where(item => !item.Explicit) : items;
+
+    /// <summary>Shelves without explicit tracks when hidden, dropping any shelf that leaves empty.</summary>
+    private IEnumerable<CatalogShelf> ListedShelves(IEnumerable<CatalogShelf> shelves) =>
+        HideExplicit
+            ? shelves.Select(shelf => shelf with { Items = Listed(shelf.Items).ToList() })
+                .Where(shelf => shelf.Items.Count > 0)
+            : shelves;
 
     private void SaveQueueModes()
     {

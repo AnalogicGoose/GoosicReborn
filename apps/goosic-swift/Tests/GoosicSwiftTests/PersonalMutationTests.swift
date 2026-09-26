@@ -21,19 +21,21 @@ final class PersonalMutationTests: XCTestCase {
         )
     }
 
-    /// Moving an entry to the front is "no predecessor", which is a different request from a
-    /// predecessor that happens to be empty — sending the key with an empty value asks upstream
-    /// to place the entry after an entry that does not exist.
-    func testMovingToTheFrontOmitsThePredecessorEntirely() {
-        let toFront = PersonalMutation.movePlaylistItem(
-            playlistID: "PL1", entryID: "e1", afterEntryID: nil
+    /// Upstream's action is "move before", so a move names the entry that should follow. Moving
+    /// to the end is "no successor", which is a different request from a successor that happens
+    /// to be empty — sending the key with an empty value asks upstream to place the entry before
+    /// an entry that does not exist.
+    func testMovingToTheEndOmitsTheSuccessorEntirely() {
+        let toEnd = PersonalMutation.movePlaylistItem(
+            playlistID: "PL1", entryID: "e1", beforeEntryID: nil
         )
-        XCTAssertNil(toFront.arguments["predecessorSetVideoId"])
+        XCTAssertNil(toEnd.arguments["successorSetVideoId"])
 
-        let afterOne = PersonalMutation.movePlaylistItem(
-            playlistID: "PL1", entryID: "e1", afterEntryID: "e0"
+        let beforeOne = PersonalMutation.movePlaylistItem(
+            playlistID: "PL1", entryID: "e1", beforeEntryID: "e2"
         )
-        XCTAssertEqual(string(afterOne.arguments["predecessorSetVideoId"]), "e0")
+        XCTAssertEqual(string(beforeOne.arguments["successorSetVideoId"]), "e2")
+        XCTAssertNil(beforeOne.arguments["predecessorSetVideoId"])
     }
 
     /// A playlist entry is removed by its own per-entry id, not by its video id: a playlist can
@@ -154,7 +156,7 @@ final class PersonalMutationWireTests: XCTestCase {
             .followArtist(channelID: "UC1", followed: true),
             .addToPlaylist(playlistID: "PL1", videoID: "v"),
             .removeFromPlaylist(playlistID: "PL1", videoID: "v", entryID: "e"),
-            .movePlaylistItem(playlistID: "PL1", entryID: "e", afterEntryID: nil),
+            .movePlaylistItem(playlistID: "PL1", entryID: "e", beforeEntryID: nil),
             .createPlaylist(title: "t", description: nil, privacy: .private, videoIDs: []),
             .renamePlaylist(playlistID: "PL1", title: "t"),
             .setPlaylistDescription(playlistID: "PL1", description: ""),
