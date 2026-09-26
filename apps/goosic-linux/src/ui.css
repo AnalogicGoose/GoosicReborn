@@ -1,0 +1,172 @@
+/* The Linux widgets reproduce the Windows shell geometry and neutral palette. */
+window.goosic-shell { background: #202020; color: #f6f6f8; }
+.goosic-page, .goosic-sidebar, .goosic-side-panel, .goosic-player-pill { color: #f6f6f8; }
+.goosic-page label, .goosic-sidebar label, .goosic-side-panel label, .goosic-player-pill label { color: #f6f6f8; }
+.goosic-page .dim-label, .goosic-sidebar .dim-label, .goosic-side-panel .dim-label, .goosic-player-pill .dim-label { color: #9e9ea7; }
+
+.goosic-sidebar, .goosic-side-panel {
+  background: alpha(#08080a, 0.94);
+  border: 1px solid alpha(white, 0.14);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px alpha(black, 0.22);
+}
+.goosic-sidebar { padding: 10px; }
+.goosic-side-panel { padding: 18px; }
+.goosic-player-pill {
+  background: alpha(#050505, 0.90);
+  border: 1px solid alpha(white, 0.14);
+  border-radius: 24px;
+  padding: 0 16px 0 14px;
+  box-shadow: 0 10px 30px alpha(black, 0.25);
+}
+
+.goosic-sidebar list, .goosic-side-panel list, .goosic-page list,
+.goosic-page listview, .goosic-page row { background: transparent; }
+.goosic-sidebar row { border-radius: 8px; }
+.goosic-sidebar row:selected { background: alpha(white, 0.10); color: #f6f6f8; }
+.goosic-sidebar row:hover, .goosic-track-row:hover { background: alpha(white, 0.07); }
+.goosic-sidebar-section { color: #9e9ea7; font-size: 12px; font-weight: 600; }
+.goosic-playlist-placeholder { color: #9e9ea7; font-size: 14px; }
+.goosic-route-icon { color: #f53150; font-size: 16px; }
+.goosic-sidebar entry, .goosic-sidebar entry text {
+  min-height: 30px;
+  border-radius: 8px;
+  background: alpha(white, 0.08);
+  border: 1px solid alpha(white, 0.08);
+  color: #f6f6f8;
+}
+.goosic-sidebar entry text { background: transparent; border: 0; }
+.goosic-sidebar button, .goosic-player-pill button, .goosic-player-pill togglebutton {
+  background-image: none;
+  background-color: transparent;
+  color: #f6f6f8;
+  border-color: transparent;
+  box-shadow: none;
+}
+.goosic-sidebar button:hover, .goosic-player-pill button:hover,
+.goosic-player-pill togglebutton:hover { background-color: alpha(white, 0.08); }
+button.goosic-account-row {
+  border-radius: 8px;
+  padding: 10px;
+  background-color: transparent;
+  font-weight: 600;
+}
+.goosic-account-avatar {
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 18px;
+  background: #f53150;
+  color: white;
+  font-weight: 700;
+}
+.goosic-sidebar label.goosic-account-avatar { color: white; }
+.goosic-account-name { font-size: 14px; font-weight: 600; }
+.goosic-sidebar .goosic-account-connection { font-size: 12px; color: #9e9ea7; opacity: 1; }
+button.goosic-sidebar-toggle {
+  background: transparent;
+  color: #f6f6f8;
+  border: 0;
+  border-radius: 7px;
+  box-shadow: none;
+  padding: 0;
+}
+button.goosic-sidebar-toggle:hover { background: alpha(white, 0.08); }
+.goosic-page button, .goosic-page togglebutton {
+  background-image: none;
+  background-color: alpha(white, 0.08);
+  color: #f6f6f8;
+  border: 1px solid alpha(white, 0.08);
+  box-shadow: none;
+}
+.goosic-page button.flat, .goosic-page button.goosic-card {
+  background: transparent;
+  border-color: transparent;
+}
+.goosic-page button:hover { background-color: alpha(white, 0.12); }
+.goosic-page .dim-label { opacity: 1; }
+
+.goosic-player-pill button, .goosic-player-pill togglebutton {
+  border-radius: 22px;
+  min-width: 34px;
+  min-height: 42px;
+  padding: 0;
+}
+.goosic-player-pill .goosic-play-button { min-width: 46px; background: transparent; color: white; }
+.goosic-player-metadata { margin-left: 8px; margin-right: 8px; }
+.goosic-player-pill frame {
+  border: 0;
+  border-radius: 6px;
+  background: alpha(white, 0.11);
+  box-shadow: none;
+}
+.goosic-player-metadata label { font-size: 14px; }
+.goosic-player-metadata .dim-label { font-size: 12px; }
+.goosic-player-pill scale { min-height: 12px; }
+.goosic-player-pill scale trough {
+  min-height: 3px;
+  border-radius: 2px;
+  background: alpha(white, 0.20);
+}
+.goosic-player-pill scale highlight { background: alpha(white, 0.85); border-radius: 2px; }
+.goosic-player-pill scale.goosic-progress slider {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.goosic-player-pill scale.goosic-volume slider {
+  min-width: 10px;
+  min-height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: #f6f6f8;
+  box-shadow: none;
+}
+.goosic-player-pill .goosic-time { font-size: 10px; color: #9e9ea7; }
+
+.goosic-page-title { font-size: 30px; font-weight: 700; }
+.goosic-shelf-title { font-size: 20px; font-weight: 600; }
+.goosic-page .goosic-track-row { border-radius: 7px; padding: 6px 8px; }
+.goosic-track-title, .goosic-card-title { font-size: 14px; }
+.goosic-track-subtitle, .goosic-card-subtitle { font-size: 12px; }
+.goosic-card { border-radius: 9px; }
+.goosic-card:hover { background: alpha(white, 0.06); }
+.goosic-artwork { border-radius: 8px; }
+.goosic-settings-group { border-radius: 12px; background: alpha(white, 0.06); padding: 18px; }
+
+window.goosic-shell.goosic-light { background: #fbfbfd; color: #202026; }
+.goosic-light .goosic-page, .goosic-light .goosic-sidebar,
+.goosic-light .goosic-side-panel, .goosic-light .goosic-player-pill { color: #202026; }
+.goosic-light .goosic-page label, .goosic-light .goosic-sidebar label,
+.goosic-light .goosic-side-panel label, .goosic-light .goosic-player-pill label { color: #202026; }
+.goosic-light .goosic-page .dim-label, .goosic-light .goosic-sidebar .dim-label,
+.goosic-light .goosic-side-panel .dim-label, .goosic-light .goosic-player-pill .dim-label { color: #5c5c66; }
+.goosic-light .goosic-sidebar, .goosic-light .goosic-side-panel {
+  background: alpha(#f1f1f5, 0.94);
+  border-color: alpha(black, 0.10);
+  box-shadow: 0 12px 36px alpha(black, 0.10);
+}
+.goosic-light .goosic-player-pill {
+  background: alpha(white, 0.95);
+  border-color: alpha(black, 0.10);
+  box-shadow: 0 10px 30px alpha(black, 0.10);
+}
+.goosic-light .goosic-sidebar row:selected { background: alpha(black, 0.08); color: #202026; }
+.goosic-light .goosic-sidebar row:hover, .goosic-light .goosic-track-row:hover { background: alpha(black, 0.05); }
+.goosic-light .goosic-sidebar-section, .goosic-light .goosic-playlist-placeholder { color: #5c5c66; }
+.goosic-light .goosic-sidebar entry { background: alpha(black, 0.05); border-color: alpha(black, 0.10); color: #202026; }
+.goosic-light .goosic-sidebar button, .goosic-light .goosic-player-pill button,
+.goosic-light .goosic-player-pill togglebutton, .goosic-light .goosic-page button,
+.goosic-light .goosic-page togglebutton { color: #202026; }
+.goosic-light .goosic-page button { background-color: alpha(black, 0.05); border-color: alpha(black, 0.08); }
+.goosic-light .goosic-page button.flat, .goosic-light .goosic-page button.goosic-card { background: transparent; border-color: transparent; }
+.goosic-light .goosic-sidebar label.goosic-account-avatar { color: white; }
+.goosic-light .goosic-player-pill scale trough { background: alpha(black, 0.18); }
+.goosic-light .goosic-player-pill scale highlight { background: alpha(black, 0.75); }
+.goosic-light .goosic-player-pill scale.goosic-volume slider { background: #202026; }
+.goosic-light .goosic-player-pill frame { background: alpha(black, 0.10); }
+.goosic-light .goosic-settings-group { background: alpha(black, 0.05); }

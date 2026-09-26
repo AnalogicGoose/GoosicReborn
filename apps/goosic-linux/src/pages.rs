@@ -111,6 +111,8 @@ pub enum PageRow {
         context: Rc<[Track]>,
     },
     ShelfTitle(String),
+    /// Four compact song rows per horizontal column, matching the Windows shelf.
+    TrackShelf(Rc<[Track]>),
     Cards(Vec<Card>),
     /// The service clamped the page to fit one protocol frame, and the screen has to say so.
     Truncated,
@@ -568,10 +570,8 @@ fn body_rows(state: &LoadState, subject: &str) -> Vec<PageRow> {
             let mut rows = track_rows(&page.tracks.clone().into());
             for shelf in &page.shelves {
                 rows.push(PageRow::ShelfTitle(shelf.title.clone()));
-                // Songs read far better as rows than as artwork cards, so a shelf that holds only
-                // songs is drawn as a track list.
                 match shelf.track_list() {
-                    Some(tracks) => rows.extend(track_rows(&tracks.into())),
+                    Some(tracks) => rows.push(PageRow::TrackShelf(tracks.into())),
                     None => rows.push(PageRow::Cards(shelf.cards.clone())),
                 }
             }
@@ -636,11 +636,13 @@ mod tests {
                     id: "songs".into(),
                     title: "Quick picks".into(),
                     items: vec![item(CatalogItemKind::Song, "a", Some("a"))],
+                    layout: Default::default(),
                 },
                 CatalogShelf {
                     id: "albums".into(),
                     title: "Albums".into(),
                     items: vec![item(CatalogItemKind::Album, "MPRE1", None)],
+                    layout: Default::default(),
                 },
             ],
             truncated: true,
@@ -690,8 +692,8 @@ mod tests {
         assert!(matches!(&rows[0], PageRow::Header { title, .. } if title == "Home"));
         assert_eq!(rows[1], PageRow::GuestNotice);
         assert_eq!(rows[2], PageRow::ShelfTitle("Quick picks".into()));
-        // A shelf of songs is drawn as rows, and a shelf of albums as cards.
-        assert!(matches!(&rows[3], PageRow::Track { track, .. } if track.video_id == "a"));
+        // Song shelves keep their playback context in one horizontal group.
+        assert!(matches!(&rows[3], PageRow::TrackShelf(tracks) if tracks[0].video_id == "a"));
         assert_eq!(rows[4], PageRow::ShelfTitle("Albums".into()));
         assert!(matches!(&rows[5], PageRow::Cards(cards) if cards.len() == 1));
         assert_eq!(rows.last(), Some(&PageRow::Truncated));
@@ -859,6 +861,7 @@ mod tests {
                 id: "more".into(),
                 title: title.into(),
                 items: vec![item(CatalogItemKind::Album, "MPRE2", None)],
+                layout: Default::default(),
             }],
             ..Default::default()
         })

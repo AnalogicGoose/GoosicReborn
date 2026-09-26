@@ -22,7 +22,7 @@ use crate::playback::Player;
 /// seek per pixel.
 const SEEK_SETTLE: Duration = Duration::from_millis(200);
 
-const ARTWORK_SIZE: i32 = 48;
+const ARTWORK_SIZE: i32 = 42;
 
 /// What the bar can ask the shell to do.
 pub struct BarActions {
@@ -83,6 +83,7 @@ impl PlayerBar {
         subtitle.add_css_class("dim-label");
         let status = single_line("");
         status.add_css_class("dim-label");
+        status.set_visible(false);
 
         let previous = icon_button("media-skip-backward-symbolic", "Previous");
         let play_pause = icon_button("media-playback-start-symbolic", "Play");
@@ -98,10 +99,14 @@ impl PlayerBar {
             .build();
         let autoplay = gtk::ToggleButton::with_label("Autoplay");
         autoplay.set_tooltip_text(Some("Keep playing when the queue runs out"));
-        let lyrics = gtk::ToggleButton::with_label("Lyrics");
-        lyrics.set_tooltip_text(Some("Show the lyrics for what is playing"));
-        let queue = gtk::ToggleButton::with_label("Queue");
-        queue.set_tooltip_text(Some("Show what plays next"));
+        let lyrics = gtk::ToggleButton::builder()
+            .icon_name("text-x-generic-symbolic")
+            .tooltip_text("Show lyrics")
+            .build();
+        let queue = gtk::ToggleButton::builder()
+            .icon_name("view-list-symbolic")
+            .tooltip_text("Show Playing Next")
+            .build();
 
         connect(&previous, &actions, |a| (a.previous)());
         connect(&play_pause, &actions, |a| (a.toggle_pause)());
@@ -118,6 +123,7 @@ impl PlayerBar {
         let position = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 1.0);
         position.set_draw_value(false);
         position.set_hexpand(true);
+        position.add_css_class("goosic-progress");
         {
             let actions = actions.clone();
             let seeking = seeking.clone();
@@ -140,7 +146,8 @@ impl PlayerBar {
 
         let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
         volume.set_draw_value(false);
-        volume.set_width_request(110);
+        volume.set_width_request(92);
+        volume.add_css_class("goosic-volume");
         {
             let actions = actions.clone();
             volume.connect_change_value(move |_, _, value| {
@@ -150,9 +157,11 @@ impl PlayerBar {
         }
 
         let elapsed = gtk::Label::new(Some("0:00"));
-        elapsed.add_css_class("dim-label");
+        elapsed.add_css_class("goosic-time");
+        elapsed.set_visible(false);
         let total = gtk::Label::new(Some("--:--"));
-        total.add_css_class("dim-label");
+        total.add_css_class("goosic-time");
+        total.set_visible(false);
 
         // The artwork is replaced as a whole on each track change, so a slow thumbnail for the
         // previous track can never land on the new one's image.
@@ -160,40 +169,64 @@ impl PlayerBar {
         artwork_slot.append(&placeholder_artwork());
 
         let text = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        text.set_hexpand(true);
         text.set_valign(gtk::Align::Center);
         text.append(&title);
         text.append(&subtitle);
-        let top = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        top.append(&artwork_slot);
-        top.append(&text);
-        for widget in [&previous, &play_pause, &next] {
-            top.append(widget);
-        }
-        top.append(&gtk::Separator::new(gtk::Orientation::Vertical));
-        top.append(&mute);
-        top.append(&volume);
+        text.append(&status);
 
-        let bottom = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        bottom.append(&elapsed);
-        bottom.append(&position);
-        bottom.append(&total);
-        bottom.append(&shuffle);
-        bottom.append(&repeat);
-        bottom.append(&autoplay);
-        bottom.append(&radio);
-        bottom.append(&lyrics);
-        bottom.append(&queue);
-        bottom.append(&stop);
+        let transport = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        transport.set_valign(gtk::Align::Center);
+        transport.append(&shuffle);
+        transport.append(&previous);
+        transport.append(&play_pause);
+        transport.append(&next);
+        transport.append(&repeat);
+        play_pause.add_css_class("goosic-play-button");
 
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 4);
-        root.set_margin_top(10);
-        root.set_margin_bottom(10);
-        root.set_margin_start(24);
-        root.set_margin_end(24);
-        root.append(&top);
-        root.append(&bottom);
-        root.append(&status);
+        let timeline = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        timeline.append(&elapsed);
+        timeline.append(&position);
+        timeline.append(&total);
+        let metadata = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        metadata.set_hexpand(true);
+        metadata.set_valign(gtk::Align::Center);
+        metadata.append(&text);
+        metadata.append(&timeline);
+        let playing = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        playing.set_hexpand(true);
+        playing.set_valign(gtk::Align::Center);
+        playing.append(&artwork_slot);
+        playing.append(&metadata);
+        playing.add_css_class("goosic-player-metadata");
+
+        let extra = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        extra.set_margin_top(8);
+        extra.set_margin_bottom(8);
+        extra.set_margin_start(10);
+        extra.set_margin_end(10);
+        extra.append(&autoplay);
+        extra.append(&radio);
+        extra.append(&stop);
+        let popover = gtk::Popover::new();
+        popover.set_child(Some(&extra));
+        let more = gtk::MenuButton::builder()
+            .icon_name("view-more-symbolic")
+            .tooltip_text("More playback controls")
+            .build();
+        more.set_popover(Some(&popover));
+        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        controls.set_valign(gtk::Align::Center);
+        controls.append(&more);
+        controls.append(&lyrics);
+        controls.append(&queue);
+        controls.append(&volume);
+        controls.append(&mute);
+
+        let root = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        root.set_height_request(72);
+        root.append(&transport);
+        root.append(&playing);
+        root.append(&controls);
 
         PlayerBar {
             root,

@@ -81,6 +81,8 @@ pub struct Shell {
     scroller: gtk::ScrolledWindow,
     search_bar: gtk::Box,
     routes: gtk::ListBox,
+    account: gtk::Label,
+    avatar: gtk::Label,
     bar: PlayerBar,
     side: gtk::Box,
     queue_panel: QueuePanel,
@@ -99,6 +101,7 @@ fn no_context() -> Rc<[Track]> {
 impl Shell {
     /// Builds the window, starts the service and asks it to say hello.
     pub fn start(app: &gtk::Application) -> Rc<Shell> {
+        theme::install();
         let launched = service::launch();
         web_profile::clear_abandoned_staging();
         let artwork = ArtworkCache::new();
@@ -132,7 +135,10 @@ impl Shell {
                 forward(weak, Shell::submit_search),
                 forward(weak, Shell::select_filter),
             );
-            let sidebar = ui::sidebar(forward(weak, Shell::navigate));
+            let sidebar = ui::sidebar(
+                forward(weak, Shell::navigate),
+                forward(weak, Shell::submit_search),
+            );
             let official = OfficialHost::new(official_host::Handlers {
                 on_event: Box::new(forward(weak, Shell::receive_official)),
                 on_status: Box::new(forward(weak, Shell::host_status)),
@@ -194,33 +200,73 @@ impl Shell {
             };
 
             let panels = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            panels.set_width_request(320);
             panels.append(&queue_panel.root);
             panels.append(&lyrics_panel.root);
             let side = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            side.append(&gtk::Separator::new(gtk::Orientation::Vertical));
+            side.set_width_request(360);
+            side.set_halign(gtk::Align::End);
+            side.set_valign(gtk::Align::Fill);
+            side.set_margin_top(8);
+            side.set_margin_bottom(8);
+            side.set_margin_end(8);
+            side.add_css_class("goosic-side-panel");
             side.append(&panels);
             side.set_visible(false);
 
-            let page = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            page.set_vexpand(true);
             let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
             main.set_hexpand(true);
+            main.set_vexpand(true);
+            main.set_margin_start(304);
+            main.set_margin_end(24);
+            main.set_margin_top(42);
+            main.set_margin_bottom(110);
             main.append(&search_bar);
             main.append(&scroller);
-            page.append(&main);
-            page.append(&side);
-
             let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
             content.set_hexpand(true);
-            content.append(&page);
+            content.set_vexpand(true);
+            content.append(&main);
             content.append(official.widget());
-            content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-            content.append(&bar.root);
-            let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            root.append(&sidebar.root);
-            root.append(&gtk::Separator::new(gtk::Orientation::Vertical));
-            root.append(&content);
+            let root = gtk::Overlay::new();
+            root.set_child(Some(&content));
+            sidebar.root.set_width_request(280);
+            sidebar.root.set_halign(gtk::Align::Start);
+            sidebar.root.set_valign(gtk::Align::Fill);
+            sidebar.root.set_margin_top(8);
+            sidebar.root.set_margin_bottom(8);
+            sidebar.root.set_margin_start(8);
+            sidebar.root.add_css_class("goosic-sidebar");
+            root.add_overlay(&sidebar.root);
+            root.add_overlay(&side);
+            bar.root.set_halign(gtk::Align::Fill);
+            bar.root.set_valign(gtk::Align::End);
+            bar.root.set_margin_start(304);
+            bar.root.set_margin_end(24);
+            bar.root.set_margin_bottom(18);
+            bar.root.add_css_class("goosic-player-pill");
+            root.add_overlay(&bar.root);
+            let sidebar_toggle = gtk::Button::builder()
+                .icon_name("sidebar-show-symbolic")
+                .tooltip_text("Toggle sidebar")
+                .width_request(34)
+                .height_request(30)
+                .halign(gtk::Align::Start)
+                .valign(gtk::Align::Start)
+                .margin_start(18)
+                .margin_top(18)
+                .build();
+            sidebar_toggle.add_css_class("goosic-sidebar-toggle");
+            {
+                let (sidebar, main, player) =
+                    (sidebar.root.clone(), main.clone(), bar.root.clone());
+                sidebar_toggle.connect_clicked(move |_| {
+                    let show = !sidebar.is_visible();
+                    sidebar.set_visible(show);
+                    main.set_margin_start(if show { 304 } else { 64 });
+                    player.set_margin_start(if show { 304 } else { 64 });
+                });
+            }
+            root.add_overlay(&sidebar_toggle);
 
             let window = gtk::ApplicationWindow::builder()
                 .application(app)
@@ -229,6 +275,9 @@ impl Shell {
                 .default_height(760)
                 .child(&root)
                 .build();
+            window.set_size_request(950, 560);
+            window.add_css_class("goosic-shell");
+            theme::apply_window(&window, Theme::System);
             let background = Background::start(app, &window);
             let status_icon = StatusIcon::start(TrayHandlers {
                 snapshot: Box::new({
@@ -265,6 +314,8 @@ impl Shell {
                 scroller,
                 search_bar,
                 routes: sidebar.routes,
+                account: sidebar.account,
+                avatar: sidebar.avatar,
                 bar,
                 side,
                 queue_panel,
@@ -402,6 +453,7 @@ impl Shell {
             facts.legacy_available = settings.legacy_available;
         }
         theme::apply(theme);
+        theme::apply_window(&self.window, theme);
         self.queue_visible.set(settings.queue_visible);
         self.sync_side_panels();
     }
@@ -434,6 +486,7 @@ impl Shell {
     pub fn set_theme(self: &Rc<Self>, theme: Theme) {
         self.facts.borrow_mut().theme = theme;
         theme::apply(theme);
+        theme::apply_window(&self.window, theme);
         // Redrawn once the current signal has returned: the choice may come from the settings
         // page's own toggle, and rebuilding the page inside that toggle's signal would destroy it
         // mid-emission.
@@ -587,6 +640,17 @@ impl Shell {
 
     fn render(&self) {
         let facts = self.facts.borrow().clone();
+        self.account
+            .set_label(facts.account.as_deref().unwrap_or("Browsing as guest"));
+        self.avatar.set_label(
+            &facts
+                .account
+                .as_deref()
+                .and_then(|name| name.chars().next())
+                .unwrap_or('G')
+                .to_uppercase()
+                .to_string(),
+        );
         let (rows, searching) = {
             let browser = self.browser.borrow();
             (browser.rows(&facts), browser.shows_search_bar())
@@ -2222,6 +2286,9 @@ impl Shell {
     pub fn toggle_queue(self: &Rc<Self>) {
         let visible = !self.queue_visible.get();
         self.queue_visible.set(visible);
+        if visible {
+            self.lyrics.borrow_mut().visible = false;
+        }
         self.save_preferences(PreferencesPatch {
             queue_visible: Some(visible),
             ..Default::default()
@@ -2230,9 +2297,16 @@ impl Shell {
     }
 
     pub fn toggle_lyrics(self: &Rc<Self>) {
-        {
+        let visible = {
             let mut lyrics = self.lyrics.borrow_mut();
             lyrics.visible = !lyrics.visible;
+            lyrics.visible
+        };
+        if visible && self.queue_visible.replace(false) {
+            self.save_preferences(PreferencesPatch {
+                queue_visible: Some(false),
+                ..Default::default()
+            });
         }
         self.load_lyrics();
         self.sync_side_panels();
