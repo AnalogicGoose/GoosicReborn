@@ -53,7 +53,16 @@ internal static class WebProfiles
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Goosic", "WebView2", "profiles");
                 Directory.CreateDirectory(root);
-                _environment = await CoreWebView2Environment.CreateWithOptionsAsync(null, root, null);
+                // WebView2 otherwise registers the playing page as a media session of its own,
+                // and Windows sends the keyboard's media keys to that session rather than to
+                // SystemMediaControls. The page has no next or previous handler (the guard
+                // script removes them), so those two keys did nothing at all.
+                var options = new CoreWebView2EnvironmentOptions
+                {
+                    AdditionalBrowserArguments =
+                        "--disable-features=HardwareMediaKeyHandling,MediaSessionService",
+                };
+                _environment = await CoreWebView2Environment.CreateWithOptionsAsync(null, root, options);
             }
 
             return _environment;

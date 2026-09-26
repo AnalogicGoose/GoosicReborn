@@ -18,9 +18,9 @@ is worse than none, because it is believed.
 | `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.4.0` exactly | none bundled; resolved at launch |
 | `apps/goosic-swift` (Windows) | stubs only | `0.4.0` exactly | none bundled; resolved at launch |
 | `apps/goosic-linux` (GTK 4) | designed, not started | `0.4.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
-| `apps/goosic-windows` (WinUI 3) | 0.2.2 Windows x64 setup and ZIP | `0.4.0` exactly | private service and rules DLL bundled beside the executable |
+| `apps/goosic-windows` (WinUI 3) | 0.2.3 Windows x64 setup and ZIP | `0.4.0` exactly | private service and rules DLL bundled beside the executable |
 
-Product version is `0.2.2`, from the Cargo workspace. Windows is the first packaged platform.
+Product version is `0.2.3`, from the Cargo workspace. Windows is the first packaged platform.
 The release includes SHA-256 checksums for the installer, ZIP, service and rules DLL. Its source
 is identified by the release tag; all bundled application binaries are built from that source.
 The
