@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.2.2"
+  #define AppVersion "0.2.3"
 #endif
 
 [Setup]
@@ -20,7 +20,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\Goosic.Windows.exe
-LicenseFile=..\..\LICENSE-GPL-3.0
+LicenseFile=..\..\dist\installer-license.txt
 CloseApplications=yes
 RestartApplications=no
 
