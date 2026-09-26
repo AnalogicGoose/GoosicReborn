@@ -71,5 +71,7 @@ public static class ShellKeyboard
     public static double? SeekTarget(double position, double duration, double delta, bool seekable) =>
         seekable && duration > 0 ? Math.Clamp(position + delta, 0, duration) : null;
 
-    public static double NudgedVolume(double volume, double delta) => Math.Clamp(volume + delta, 0, 1);
+    /// <summary>The gain one volume key lands on: a step along the slider's taper, not of the gain.</summary>
+    public static double NudgedVolume(double volume, double delta) =>
+        VolumeTaper.ToGain(VolumeTaper.ToPosition(volume) + delta);
 }
