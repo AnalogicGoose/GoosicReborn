@@ -366,8 +366,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await _playback.SetVolumeAsync(e.NewValue / 100.0);
-        Model.RememberVolume(e.NewValue / 100.0, _playback.PreferredMuted);
+        var gain = Presentation.VolumeTaper.ToGain(e.NewValue / 100.0);
+        await _playback.SetVolumeAsync(gain);
+        Model.RememberVolume(gain, _playback.PreferredMuted);
     }
 
     private void OnDismissToast(object sender, RoutedEventArgs e) => Model.DismissToast();
