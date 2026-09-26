@@ -38,7 +38,9 @@ enum PersonalLibrarySection: String, CaseIterable, Identifiable {
         case .playlists: return "FEmusic_liked_playlists"
         case .songs: return "VLLM"
         case .albums: return "FEmusic_liked_albums"
-        case .artists: return "FEmusic_library_corpus_artists"
+        // The artists of the songs in the library. `FEmusic_library_corpus_artists` is the
+        // channels the account subscribes to, which is empty for most listeners.
+        case .artists: return "FEmusic_library_corpus_track_artists"
         }
     }
 

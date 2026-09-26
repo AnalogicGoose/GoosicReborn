@@ -113,8 +113,12 @@ of its widgets without taking its look.
 
 Two design rules follow. The window keeps the system's own titlebar rather than a GNOME-style
 header bar — drawn by the window manager on X11 and by GTK on Wayland, styled by the theme either
-way — and the shell's controls live in a toolbar inside the content. And the shell's own CSS uses
-the theme's named colours rather than literal ones, so a theme change reaches everything.
+way. The first-release layout follows the Windows shell's composition: a grouped 280-pixel
+sidebar and the Playing Next or Lyrics panel sit over the content, and a 72-pixel transport pill
+floats at the bottom. Home presents song shelves as horizontally scrolling columns of four
+compact rows. GTK uses the Windows shell's light and dark neutral palettes with translucent
+fills; WinUI's acrylic blur is not available through ordinary GTK widgets. The product accent
+stays the same red on every desktop.
 
 ## How it talks to Rust
 
@@ -388,11 +392,22 @@ machine every check so far ran on loaded Intel's video driver, so the NVIDIA cas
 
 ## What is left
 
-The shell does everything a listener needs, and it has been heard doing it. What remains is making it
+The shell has a working core listening path, and it has been heard doing it. What remains is making it
 installable, making its guarantees fail a build when they break, confirming the few paths no harness
 could reach, and the features that exist on macOS only. The table says where each item belongs,
 because half of them are not Linux work: anything in a shared crate, the protocol, the Makefile or CI
 lands on `development` first.
+
+The current Windows shell has more product features than this Linux slice. Its account reader
+fills signed-in Home and Library and enables likes, saves and playlist edits; Linux has account
+sign-in and playback but cannot read that private content yet. Windows also has queue editing,
+keyboard commands, a full-window player, artwork-driven background, adaptive sidebar and an
+installer with updates. The GTK layout work on `feature/linux/windows-ui` recreates the grouped
+sidebar, account row, horizontally scrolling Home shelves and floating player with native
+widgets. The remaining capabilities need separate work. Linux already has
+something Windows lacks: importing and playing finalized legacy downloads. This comparison is
+against `platform/windows` after the 0.2.3 release, not a claim that every Windows action has
+been hand-tested.
 
 | What | Where it belongs | Why it is still open |
 | --- | --- | --- |
@@ -410,12 +425,14 @@ lands on `development` first.
 | Account-scoped reads: a signed-in Home, the Library, private playlists | `platform/linux` | Needs a reader inside the account's WebKitGTK profile running `PersonalCatalog.js`, as macOS has |
 | Library mutations: likes, add to playlist, managing an owned playlist | `platform/linux` | macOS only; depends on the reader above |
 | The playing track's artwork drawn, blurred, behind the content | `platform/linux` | The `artwork_background` preference is stored and ignored |
+| Full-window player, with cover, transport and lyrics | `platform/linux` | The Windows shell has one; GTK currently has only the compact player and side lyrics panel |
+| Adaptive sidebar and narrow-window layout | `platform/linux` | The GTK sidebar remains fixed-width; the first layout work sets a minimum window width |
+| Window and track context menus, and playlist actions | `platform/linux` | The GTK shell has no item actions; personal playlist actions need the account reader |
 | Reordering the queue, saved queues, and keyboard shortcuts beyond Ctrl+Q and Ctrl+W | `platform/linux` | Not built; media keys work through MPRIS |
-| `fix/shell-support-login-completion` merged into `development` | `development` | The shared half of the sign-in fix; the Linux branch carries a cherry-pick until it lands |
+| Hide explicit songs, start page and reduce motion controls | `platform/linux` | The shared settings snapshot has these preferences; the GTK settings screen does not expose them |
 | The Swift Linux sign-in, broken since its completion script became an async body | `development` | Its host still evaluates the script as an expression; it matters only while that build is kept as a reference |
 | The decoded WAV cache moved from data to cache, on every platform | `development` | Unchanged; see Where things are stored |
 | The `goosic-paths` crate from `rescue/native-mac-shell-and-paths` | `development` | Never merged, so path rules are still duplicated per crate |
-| `feature/linux/complete-shell` merged into `platform/linux`, and superseded branches retired | `platform/linux` | The shell exists only on its feature branch; older slices such as `feature/linux/catalog-and-search` are superseded by it |
 
 When the rows marked `platform/linux` that concern packaging and conformance are done, the Swift
 Linux build can go, as the next section describes. The feature rows do not block that: the Swift

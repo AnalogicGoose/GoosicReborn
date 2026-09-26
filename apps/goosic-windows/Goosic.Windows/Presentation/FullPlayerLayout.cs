@@ -42,6 +42,30 @@ public static class FullPlayerLayout
         _ => (72, 56, 72),
     };
 
+    /// <summary>
+    /// Height the title, details, seek bar and transport need below the cover, with their spacing.
+    /// </summary>
+    public const double ControlsHeight = 250;
+
+    /// <summary>The cover's full size, when there is room for it.</summary>
+    public const double CoverMax = 520;
+
+    /// <summary>Below this the cover is a smudge; the player shows just the controls instead.</summary>
+    public const double CoverMin = 96;
+
+    /// <summary>
+    /// The largest cover that leaves the controls on screen, or 0 when there is no room for one.
+    /// </summary>
+    /// <remarks>
+    /// The cover was sized by the column's width alone, so a wide, short window grew it until the
+    /// seek bar and transport were pushed out of the bottom of the window.
+    /// </remarks>
+    public static double CoverSize(double height, double top, double bottom)
+    {
+        var room = height - top - bottom - ControlsHeight;
+        return room < CoverMin ? 0 : Math.Min(room, CoverMax);
+    }
+
     /// <summary>How far down content starts to clear the corner buttons.</summary>
     public const double CornerButtonsClearance = 112;
 

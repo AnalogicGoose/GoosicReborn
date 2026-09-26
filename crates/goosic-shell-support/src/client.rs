@@ -424,7 +424,7 @@ def answer(request):
         return emit("this is not a protocol frame")
     if command.startswith("exit."):
         os._exit(0)
-    version = "0.4.0" if command.startswith("foreign.") else "0.3.0"
+    version = "0.5.0" if command.startswith("foreign.") else "0.4.0"
     if command.startswith("refuse."):
         return emit(json.dumps({
             "protocolVersion": version, "requestId": request["requestId"], "ok": False,

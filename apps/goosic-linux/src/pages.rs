@@ -515,6 +515,7 @@ pub fn request_for(key: &CatalogKey) -> Option<(&'static str, RequestPayload)> {
         CatalogKey::Album(id) => entity("catalog.album", id),
         CatalogKey::Artist(id) => entity("catalog.artist", id),
         CatalogKey::Playlist(id) => entity("catalog.playlist", id),
+        CatalogKey::Category(id) => entity("catalog.category", id),
     })
 }
 
@@ -612,6 +613,7 @@ mod tests {
             album_id: None,
             duration: None,
             thumbnail: None,
+            color: None,
             video_id: video_id.map(Into::into),
             explicit: false,
         }

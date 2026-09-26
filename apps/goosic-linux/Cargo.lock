@@ -379,7 +379,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-protocol"
-version = "0.2.1"
+version = "0.2.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -387,7 +387,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-shell-support"
-version = "0.2.1"
+version = "0.2.3"
 dependencies = [
  "goosic-protocol",
  "serde",

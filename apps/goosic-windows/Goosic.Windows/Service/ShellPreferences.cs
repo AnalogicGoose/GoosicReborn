@@ -43,6 +43,33 @@ internal static class ShellPreferences
     /// </summary>
     internal static bool EfficiencyMode { get => Read("efficiencyMode", false); set => Write("efficiencyMode", value); }
 
+    /// <summary>
+    /// Shows the technical side of what goes wrong. Off, a listener sees one plain sentence;
+    /// on, they see the detail too. The log records everything either way.
+    /// </summary>
+    internal static bool DebugMode { get => Read("debugMode", false); set => Write("debugMode", value); }
+
+    /// <summary>The last few searches, newest first, offered when the search box opens.</summary>
+    internal static System.Collections.Generic.IReadOnlyList<string> RecentSearches
+    {
+        get
+        {
+            try
+            {
+                return Store.Value["recentSearches"]?.Deserialize<string[]>() ?? [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
+        }
+        set
+        {
+            Store.Value["recentSearches"] = JsonSerializer.SerializeToNode(value);
+            Save();
+        }
+    }
+
     internal static WindowPlacement? Placement
     {
         get

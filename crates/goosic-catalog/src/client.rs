@@ -152,6 +152,17 @@ impl InnertubeClient {
         self.post("browse", json!({"browseId": browse_id}))
     }
 
+    /// A browse that needs parameters as well as an id, such as one mood on Moods & genres.
+    pub fn browse_with_params(&self, browse_id: &str, params: &str) -> Result<Value, CatalogError> {
+        if browse_id.trim().is_empty() {
+            return Err(CatalogError::InvalidRequest("browse id is empty".into()));
+        }
+        if params.is_empty() {
+            return self.browse(browse_id);
+        }
+        self.post("browse", json!({"browseId": browse_id, "params": params}))
+    }
+
     pub fn browse_continuation(&self, continuation: &str) -> Result<Value, CatalogError> {
         let continuation = continuation.trim();
         if continuation.is_empty() {
