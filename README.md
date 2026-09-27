@@ -126,6 +126,19 @@ They exist to carry three pieces of setup that are not obvious from any failure 
 
 The shell connects to the service on launch, so Home loads without any manual step. The sidebar button remains the way back if a transport failure drops the child process.
 
+### The GTK shell on Linux
+
+`apps/goosic-linux` replaces the Swift build on Linux and is its own Cargo workspace. It needs Rust 1.92+ and the development headers for GTK 4.20+, WebKitGTK 6.0, GStreamer and libsoup 3 — `gtk4-devel webkitgtk6.0-devel gstreamer1-devel gstreamer1-plugins-base-devel libsoup3-devel` on Fedora — plus the same GStreamer runtime plugins as above. Until the Make targets exist, it runs against a service built from the root workspace:
+
+```sh
+cargo build -p goosic-service
+cd apps/goosic-linux
+GOOSIC_SERVICE_PATH=../../target/debug/goosic-service cargo run
+cargo test
+```
+
+Closing its window keeps it playing; `Ctrl+Q` quits. Packaging it as a Flatpak, and the tools that needs, are in [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md), which also lists what the shell still lacks.
+
 To drive the authority without a shell at all, feed it compact JSON lines. Its stdout is protocol-only; diagnostics, if any, go to stderr.
 
 ```sh

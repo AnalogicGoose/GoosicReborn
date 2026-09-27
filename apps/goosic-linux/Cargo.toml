@@ -1,0 +1,25 @@
+[package]
+name = "goosic-linux"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+# gtk4 0.11 needs 1.92. The root workspace's 1.88 floor does not apply to this one.
+rust-version = "1.92"
+publish = false
+
+# Its own workspace on purpose: the root workspace is tested on macOS and Windows, where a member
+# that needs GTK would fail to build.
+[workspace]
+
+[dependencies]
+async-channel = "2"
+goosic-protocol = { path = "../../crates/goosic-protocol" }
+goosic-shell-support = { path = "../../crates/goosic-shell-support" }
+gstreamer = "0.25"
+# GTK 4.20 is the floor the GNOME runtime guarantees. Without a version feature gtk4 hides the
+# interfaces webkit6 implements, and webkit6 does not compile.
+gtk = { package = "gtk4", version = "0.11", features = ["v4_20"] }
+soup3 = "0.9"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+webkit6 = "0.6"
