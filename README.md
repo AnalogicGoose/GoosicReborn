@@ -106,6 +106,7 @@ make run-swift      # builds the service and launches the shell against it
 make build-linux    # builds the service and native GTK shell on Linux
 make test-linux     # builds the service and tests the native GTK shell
 make run-linux      # launches the GTK shell with that service
+make package-macos  # builds Goosic.app, the download a tester installs
 ```
 
 `make run-linux` is the native Linux development path. It builds both Rust programs and points the
@@ -113,6 +114,10 @@ shell at that exact service executable. The installable build uses the GNOME 50 
 under `apps/goosic-linux/packaging/flatpak/`; [the Linux notes](docs/LINUX_SHELL.md) show its build
 steps and the live acceptance checks still required. `make run-swift` keeps the older shell available
 as a comparison during migration.
+
+A build for someone who is not working on Goosic is a *test build*, not a deployment:
+[docs/RELEASING.md](docs/RELEASING.md) explains how one is cut, and what each operating system
+asks a tester to click past when the download is not signed by a paying developer.
 
 Windows uses the scripts under `scripts/` instead, because the Makefile's `uname` branch does not cover it and `make` is not part of the toolchain:
 
