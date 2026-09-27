@@ -103,6 +103,9 @@ struct CatalogPageBody: View {
                                 visibleTrackCount = min(visibleTrackCount + 15, page.tracks.count)
                             }
                             .font(.caption)
+                        } else if let allTracksID = page.allTracksID {
+                            Button("Show all") { model.show(.playlist(allTracksID)) }
+                                .font(.caption)
                         }
                     }
                     ForEach(Array(page.shelves.prefix(visibleShelfCount))) { shelf in

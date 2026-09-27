@@ -142,12 +142,19 @@ sitting at and broken on another, and nobody finds out until someone with that m
 free. The Swift 6 language mode landed that way — two errors that only a Mac could see, each
 costing a round trip through a colleague.
 
-Three jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
-portable by construction and there is no excuse for it to break anywhere. The Swift shell
-builds and tests on Linux against GTK 4 and on macOS against AppKit. When `apps/goosic-linux`
-exists it adds a fourth job, which builds inside the Flatpak builder on the GNOME runtime rather
-than against the runner's own GTK: `ubuntu-latest` ships a GTK older than the 4.20 that shell
-requires, and building the package users install is the better test anyway.
+Four jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
+portable by construction and there is no excuse for it to break anywhere. The Swift package
+builds and tests on macOS against AppKit, and on Linux through SwiftCrossUI as the reference the
+GTK shell is compared against until that shell ships. On a branch that contains
+`apps/goosic-linux` — `platform/linux` and its feature branches — the Rust GTK shell builds,
+passes clippy and runs its tests in a Fedora container, because `ubuntu-latest` ships a GTK
+older than the 4.20 that shell requires. The Flatpak builder on the GNOME runtime takes that job
+over once the shell has a manifest, since building the package users install is the better test.
+
+A change runs only the suites it can affect. Documentation runs nothing; the crates run the Rust
+workspace and the GTK shell, which links two of them and runs the service; `apps/goosic-linux`
+runs only the GTK shell and `apps/goosic-swift` only the Swift package; anything else runs
+everything.
 
 Windows is marked `continue-on-error`. The shell has never been built there and the hosts are
 stubs, so the job reports the state without blocking a merge on work nobody has started. When

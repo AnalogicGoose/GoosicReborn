@@ -27,6 +27,11 @@ const USER_AGENT: &str = concat!(
     " (https://github.com/osgamerxd/GoosicReborn)"
 );
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// The exact endpoint can look a recording up in external sources on a cache miss, which is
+/// slow. It gets less time than the whole lookup so that search still has room to answer
+/// inside the shell's 20-second request deadline.
+const EXACT_TIMEOUT: Duration = Duration::from_secs(6);
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(8);
 /// Lyrics documents are small; anything larger is not lyrics.
 const MAX_RESPONSE_BYTES: u64 = 2 * 1024 * 1024;
 /// Keeps one lyrics document inside a protocol frame.
@@ -86,6 +91,32 @@ pub fn duration_seconds(text: &str) -> Option<u32> {
         parts += 1;
     }
     (2..=3).contains(&parts).then_some(total)
+}
+
+/// Whether a failed exact lookup should still let search answer.
+///
+/// A transport failure, a server error, a rate limit, or an unreadable body says nothing about
+/// whether lyrics exist. A client error other than 404 means the request itself was wrong, and
+/// search would be asked the same wrong question.
+fn falls_back_to_search(error: &LyricsError) -> bool {
+    match error {
+        LyricsError::Network(_) | LyricsError::Decode(_) => true,
+        LyricsError::Upstream(status) => *status == 429 || *status >= 500,
+        LyricsError::InvalidRequest(_) | LyricsError::NotFound => false,
+    }
+}
+
+/// The best of a search's results: synced lyrics first, then plain ones, then an instrumental.
+///
+/// Search used to accept only synced results, so a song LRCLIB held as plain text was reported
+/// as having no lyrics at all.
+fn best_search_result(records: Vec<LrclibRecord>) -> Option<LrclibRecord> {
+    let has = |text: &Option<String>| text.as_deref().is_some_and(|text| !text.trim().is_empty());
+    let synced = records.iter().position(|record| has(&record.synced_lyrics));
+    let plain = records.iter().position(|record| has(&record.plain_lyrics));
+    let instrumental = records.iter().position(|record| record.instrumental);
+    let index = synced.or(plain).or(instrumental)?;
+    records.into_iter().nth(index)
 }
 
 /// Live lyrics lookups. Held by the service for its process lifetime.
@@ -150,6 +181,7 @@ impl LyricsClient {
     fn fetch(&self, query: &LyricsQuery, title: &str) -> Result<LrclibRecord, LyricsError> {
         // The exact endpoint matches on title, artist, album, and length together. It is tried
         // first because it returns the right recording; search is the fallback when it misses.
+        let mut exact_failure = None;
         if !query.artist.trim().is_empty() {
             let mut request = self
                 .agent
@@ -160,12 +192,15 @@ impl LyricsClient {
                 request = request.query("album_name", query.album.trim());
             }
             if let Some(duration) = query.duration_seconds {
-                request = request.query("duration", &duration.to_string());
+                request = request.query("duration", duration.to_string());
             }
+            let request = request.config().timeout_global(Some(EXACT_TIMEOUT)).build();
             match self.send(request) {
                 Ok(Some(record)) => return Ok(record),
-                Ok(None) => {}
-                Err(LyricsError::Upstream(404)) => {}
+                Ok(None) | Err(LyricsError::Upstream(404)) => {}
+                // A slow or failing exact lookup used to end the whole request, so the shell
+                // said "unavailable" for lyrics that search would have found in a moment.
+                Err(error) if falls_back_to_search(&error) => exact_failure = Some(error),
                 Err(error) => return Err(error),
             }
         }
@@ -177,24 +212,29 @@ impl LyricsClient {
         if !query.artist.trim().is_empty() {
             request = request.query("artist_name", query.artist.trim());
         }
-        let mut response = request.call().map_err(Self::transport_error)?;
-        let records: Vec<LrclibRecord> = response
-            .body_mut()
-            .with_config()
-            .limit(MAX_RESPONSE_BYTES)
-            .read_json()
-            .map_err(|error| LyricsError::Decode(error.to_string()))?;
-        // Prefer a result that actually has synced lyrics; a plain-text match is a worse answer
-        // than a timed one from slightly further down the list.
-        records
-            .into_iter()
-            .find(|record| {
-                record
-                    .synced_lyrics
-                    .as_deref()
-                    .is_some_and(|text| !text.trim().is_empty())
+        let request = request
+            .config()
+            .timeout_global(Some(SEARCH_TIMEOUT))
+            .build();
+        let searched = request
+            .call()
+            .map_err(Self::transport_error)
+            .and_then(|mut response| {
+                response
+                    .body_mut()
+                    .with_config()
+                    .limit(MAX_RESPONSE_BYTES)
+                    .read_json::<Vec<LrclibRecord>>()
+                    .map_err(|error| LyricsError::Decode(error.to_string()))
             })
-            .ok_or(LyricsError::NotFound)
+            .and_then(|records| best_search_result(records).ok_or(LyricsError::NotFound));
+        match (searched, exact_failure) {
+            (Ok(record), _) => Ok(record),
+            // "Not found" would be a claim the failed exact lookup cannot back up; report the
+            // failure instead, so the shell offers to try again.
+            (Err(LyricsError::NotFound), Some(failure)) => Err(failure),
+            (Err(error), _) => Err(error),
+        }
     }
 
     fn send(
@@ -385,11 +425,62 @@ mod tests {
             title: "Another song".into(),
             ..base.clone()
         };
-        assert_eq!(LyricsClient::cache_key(&base), LyricsClient::cache_key(&same));
+        assert_eq!(
+            LyricsClient::cache_key(&base),
+            LyricsClient::cache_key(&same)
+        );
         assert_ne!(
             LyricsClient::cache_key(&base),
             LyricsClient::cache_key(&different)
         );
+    }
+
+    fn record(synced: Option<&str>, plain: Option<&str>, instrumental: bool) -> LrclibRecord {
+        LrclibRecord {
+            synced_lyrics: synced.map(str::to_owned),
+            plain_lyrics: plain.map(str::to_owned),
+            instrumental,
+        }
+    }
+
+    #[test]
+    fn search_prefers_synced_then_plain_then_instrumental() {
+        let chosen = best_search_result(vec![
+            record(None, Some("Untimed"), false),
+            record(Some("[00:01.00]Timed"), None, false),
+        ])
+        .expect("a result");
+        assert_eq!(chosen.synced_lyrics.as_deref(), Some("[00:01.00]Timed"));
+
+        let chosen = best_search_result(vec![
+            record(None, None, true),
+            record(Some("   "), Some("Untimed"), false),
+        ])
+        .expect("a result");
+        assert_eq!(chosen.plain_lyrics.as_deref(), Some("Untimed"));
+
+        let chosen = best_search_result(vec![record(None, None, true)]).expect("a result");
+        assert!(chosen.instrumental);
+    }
+
+    #[test]
+    fn search_with_no_lyrics_anywhere_finds_nothing() {
+        assert!(best_search_result(vec![]).is_none());
+        assert!(best_search_result(vec![record(Some(" "), Some(""), false)]).is_none());
+    }
+
+    #[test]
+    fn only_failures_that_say_nothing_about_the_track_fall_back_to_search() {
+        assert!(falls_back_to_search(&LyricsError::Network(
+            "timed out".into()
+        )));
+        assert!(falls_back_to_search(&LyricsError::Decode("eof".into())));
+        assert!(falls_back_to_search(&LyricsError::Upstream(503)));
+        assert!(falls_back_to_search(&LyricsError::Upstream(429)));
+        assert!(!falls_back_to_search(&LyricsError::Upstream(400)));
+        assert!(!falls_back_to_search(&LyricsError::InvalidRequest(
+            "no title".into()
+        )));
     }
 
     #[test]
