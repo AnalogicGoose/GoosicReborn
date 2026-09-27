@@ -10,6 +10,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/moreSwift/swift-cross-ui.git", exact: "0.9.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.10.0"),
     ],
     targets: [
         .executableTarget(
@@ -18,6 +19,7 @@ let package = Package(
                 .product(name: "SwiftCrossUI", package: "swift-cross-ui"),
                 .product(name: "DefaultBackend", package: "swift-cross-ui"),
                 .product(name: "AppKitBackend", package: "swift-cross-ui", condition: .when(platforms: [.macOS])),
+                .product(name: "Sparkle", package: "Sparkle", condition: .when(platforms: [.macOS])),
                 .product(name: "GtkBackend", package: "swift-cross-ui", condition: .when(platforms: [.linux])),
                 .product(name: "Gtk", package: "swift-cross-ui", condition: .when(platforms: [.linux])),
                 .target(name: "CWebKitGTK", condition: .when(platforms: [.linux])),
@@ -61,7 +63,14 @@ let package = Package(
         ),
         .testTarget(
             name: "GoosicSwiftTests",
-            dependencies: ["GoosicSwift"]
+            dependencies: ["GoosicSwift"],
+            // SwiftPM puts Sparkle in Debug beside the test bundle but does not add that
+            // directory to the bundle's runpaths. Three levels up from Contents/MacOS is
+            // Debug, independent of the configured scratch path.
+            linkerSettings: [
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."],
+                             .when(platforms: [.macOS])),
+            ]
         ),
     ]
 )
