@@ -128,8 +128,7 @@ jobs:
 
     # The Rust GTK 4 shell in `apps/goosic-linux`, which replaces the Swift build on Linux. Its
     # floor is GTK 4.20 and the hosted Ubuntu image carries an older GTK, so it builds in a Fedora
-    # container whose GTK, WebKitGTK, GStreamer and Rust are all current; the Flatpak builder on
-    # the GNOME runtime takes over once the manifest exists. The service is built first because
+    # container whose GTK, WebKitGTK, GStreamer and Rust are all current. The service is built first because
     # the shell's integration test runs it. Nothing here needs a display or a sound card: the
     # GStreamer test decodes a WAV paused, and no test opens a window.
     shell-gtk:
@@ -166,6 +165,31 @@ jobs:
             -   name: Test the shell
                 working-directory: apps/goosic-linux
                 run: cargo test
+
+    # Test the package users install as well as the native development build. The manifest
+    # supplies both locked Rust workspaces as vendored sources and runs the shell's tests with
+    # its installed service; the builder itself has no build-time network access.
+    shell-flatpak:
+        name: Shell (Linux, Flatpak)
+        needs: guard
+        if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.linux == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            -   uses: actions/checkout@v4
+            -   name: Install Flatpak builder and GNOME SDK
+                run: |
+                    sudo apt-get update
+                    sudo apt-get install -y flatpak flatpak-builder
+                    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+                    flatpak install --user --noninteractive flathub \
+                        org.gnome.Platform//50 org.gnome.Sdk//50 \
+                        org.freedesktop.Sdk.Extension.rust-stable//25.08
+            -   name: Build and test the offline Flatpak
+                run: |
+                    if [ -f apps/goosic-linux/packaging/flatpak/io.github.analogicgoose.Goosic.yml ]; then
+                        flatpak-builder --user --force-clean build-dir \
+                            apps/goosic-linux/packaging/flatpak/io.github.analogicgoose.Goosic.yml
+                    fi
 
     # The Swift package's Linux build through SwiftCrossUI. It is the conformance reference the
     # GTK shell is compared against and is deleted once that shell ships, as docs/LINUX_SHELL.md

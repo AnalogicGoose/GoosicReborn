@@ -49,9 +49,10 @@ Music's `ytmusic-settings-button`, and the wait gave up after thirty seconds wit
 YouTube Music's in-page navigation. The check is now the async one the Swift shell runs, called as an
 async function, restarted on every URI change, and never overlapped with itself; against a page
 imitating a signed-in YouTube Music it opens the account menu and is accepted, and against a
-signed-out one it waits. The Library still says that reading an
-account's playlists needs an account reader inside its web profile, which only macOS has, rather than
-passing guest shelves off as the account's own.
+signed-out one it waits. The GTK shell now reads Home and Library through a muted WebKitGTK view
+sharing the active account's network session. An expired session refuses the read rather than
+passing guest shelves off as the account's own. A local live read succeeded with an existing
+account profile; a fresh sign-in followed by those reads has not yet been checked in the Flatpak.
 
 Both web surfaces judge only the main frame. WebKitGTK asks for a policy on every frame's navigation
 without saying which frame it is, and an earlier version of this shell refused every navigation off
@@ -264,9 +265,9 @@ plugins. That covers both the Opus-in-WebM and the AAC-in-MP4 streams YouTube Mu
 without an extension.
 
 The manifest builds the service from the root workspace and the shell from its own, installs both
-into `/app/bin` with the desktop file, metainfo and icons, and builds offline from vendored crate
-sources, as Flatpak requires. A native build remains the development path. No other Linux package
-format is planned.
+into `/app/bin` with the desktop file, metainfo and icon, and builds offline from vendored crate
+sources, as Flatpak requires. Its test phase runs the Linux shell suite against that installed
+service. A native build remains the development path. No other Linux package format is planned.
 
 ### Building the Flatpak locally
 
@@ -304,8 +305,8 @@ flatpak-builder --user --install --force-clean build-dir \
 flatpak run io.github.analogicgoose.Goosic
 ```
 
-The last two commands need the manifest, which does not exist yet; it is the first item under
-[What is left](#what-is-left).
+The package has completed a local GNOME 50 SDK build, and its shell connected to the bundled
+service when launched in the sandbox. That smoke run did not sign in or play a whole track.
 
 ## Workspace and layout
 
@@ -340,14 +341,15 @@ apps/goosic-linux/
         artwork.rs         anonymous libsoup fetches into the XDG cache, under the shared rules
         theme.rs           gtk-interface-color-scheme, which GTK 4.20 made the way to choose
         official_host.rs   WebKitGTK player: script world, bridge handler, per-account session
+        personal_host.rs   signed-in catalog reader inside the active account's profile
         login_host.rs      sign-in window under the shared navigation policy
         web_profile.rs     profile and staging storage, and the main-frame navigation guard
         local_host.rs      GStreamer playbin for decoded files
         mpris.rs           org.mpris.MediaPlayer2 over gio
         status_icon.rs     StatusNotifierItem and its dbusmenu, where a watcher exists
         background.rs      hiding on close, holding the app, Ctrl+Q, inhibit, the Background portal
-    data/                  planned: desktop file, metainfo, icons, named after the application ID
-    packaging/flatpak/     planned: manifest and vendored crate sources
+    data/                  desktop file, metainfo and scalable icon
+    packaging/flatpak/     manifest and locked vendored crate source lists
 ```
 
 The modules are flat rather than grouped into `state/`, `ui/` and `platform/` as first sketched,
@@ -359,22 +361,18 @@ The shell lives on `platform/linux`, and each slice of it is a `feature/linux/<s
 needs from `goosic-shell-support` or the protocol is not Linux work: it lands on `development`
 first and reaches `platform/linux` through the cascade.
 
-Make targets — `build-linux`, `test-linux` and `run-linux`, the last building the service and
-pointing `GOOSIC_SERVICE_PATH` at it the way `run-swift` does — land on `development`, because the
-Makefile is shared. Until they do, a development build runs from `apps/goosic-linux` after
-`cargo build -p goosic-service` at the repository root, with
-`GOOSIC_SERVICE_PATH=../../target/debug/goosic-service cargo run`; its tests find the service in
-the same place without the variable. CI builds the
-shell inside the Flatpak builder on the GNOME runtime rather than against the runner's own GTK:
-`ubuntu-latest` ships a GTK older than 4.20, and building the package users install is the better
-test in any case. That job runs when the shell, `goosic-shell-support` or the protocol changes.
+The shared Makefile provides `build-linux`, `test-linux` and `run-linux`; each builds the service
+first, and `run-linux` points the shell at that exact executable. CI keeps the native GTK build in
+its Fedora container and also builds and tests the package in the GNOME SDK. The Flatpak job runs
+when the Linux shell, `goosic-shell-support` or the protocol changes.
 
 ## Order of work
 
-The plan's order for step four held, and every step but the last is done. Transport, catalog, search,
+The plan's order for step four held. Transport, catalog, search,
 queue and settings came first, because they need no platform host and prove the shell against the
 service. Then the WebKitGTK player, local audio, the sign-in window, the media-player interface and
-the status icon, and running in the background. The Flatpak is last and has not started.
+the status icon, and running in the background. The Flatpak builds and launches, but the account and
+playback checks below still gate the first public release.
 
 One part of the order was not kept. The test that no host can sound without Rust's active lease was
 meant to come with the first host, not after the last, and it did not come at all: each host claims
@@ -392,51 +390,45 @@ machine every check so far ran on loaded Intel's video driver, so the NVIDIA cas
 
 ## What is left
 
-The shell has a working core listening path, and it has been heard doing it. What remains is making it
-installable, making its guarantees fail a build when they break, confirming the few paths no harness
-could reach, and the features that exist on macOS only. The table says where each item belongs,
-because half of them are not Linux work: anything in a shared crate, the protocol, the Makefile or CI
-lands on `development` first.
+The shell plays through Rust's lease and now has an offline Flatpak build. Signed-in Home and
+Library use the active account's WebKitGTK profile, with cookies kept out of the service protocol.
+The tests cover page conversion, account-page invalidation, the service client's lease exchanges
+against the shared protocol fixtures, and the renderer's
+exact owner/generation guard. A live native WebKitGTK read succeeded for signed-in Home, playlists,
+liked songs and the owned-playlist picker without sending credentials to Rust's service. What
+remains is proving sign-in, mutations and playback in a real packaged session, and closing the
+product gaps below. Shared crate, protocol, Makefile and CI work lands on `development` first.
 
-The current Windows shell has more product features than this Linux slice. Its account reader
-fills signed-in Home and Library and enables likes, saves and playlist edits; Linux has account
-sign-in and playback but cannot read that private content yet. Windows also has queue editing,
-keyboard commands, a full-window player, artwork-driven background, adaptive sidebar and an
-installer with updates. The GTK layout work on `feature/linux/windows-ui` recreates the grouped
-sidebar, account row, horizontally scrolling Home shelves and floating player with native
-widgets. The remaining capabilities need separate work. Linux already has
-something Windows lacks: importing and playing finalized legacy downloads. This comparison is
-against `platform/windows` after the 0.2.3 release, not a claim that every Windows action has
-been hand-tested.
+The current Windows shell still has more product features. Its queue editing, full-window player,
+artwork-driven background and installer updates are not in Linux. The GTK shell now recreates the
+grouped sidebar, account row, horizontal shelves and floating player with native widgets. Its
+account reader adds personalized Home, the Library, likes, saves, and owned-playlist management.
+Linux also imports and plays finalized legacy downloads. This comparison is against
+`platform/windows` after the 0.2.3 release, not a claim that every action has been hand-tested.
 
 | What | Where it belongs | Why it is still open |
 | --- | --- | --- |
-| The Flatpak manifest, building the service and the shell offline from vendored crates | `platform/linux` | Nothing is installable yet; the toolchain is known, above |
-| The desktop file, metainfo and icons under `data/` | `platform/linux` | The desktop entry MPRIS names does not exist, and the status icon borrows the theme's `multimedia-player` |
-| The Background portal request, actually running inside the sandbox | `platform/linux` | It only runs in a Flatpak, and there is none |
-| `make build-linux`, `test-linux` and `run-linux` | `development` | The Makefile is shared; until then the commands under Workspace and layout apply |
-| A CI job that builds and tests the shell inside the Flatpak builder | `development` | No workflow builds `apps/goosic-linux` today, so nothing stops it breaking |
-| A test proving neither host can sound without Rust's lease | `platform/linux` | The plan's completion condition; the order is right today, but untested |
-| The shell's client run against the protocol exchange fixtures | `platform/linux` | The transport is covered in `goosic-shell-support`; the shell above it is not |
+| The Background portal request while windowless in the installed Flatpak | `platform/linux` | The sandbox smoke run connected to the service, but did not hide a playing window |
+| An end-to-end test proving neither host can sound without Rust's lease | `platform/linux` | The exact owner/generation guard has a unit test and runs before host calls; the renderer-level refusal still needs a harness |
 | A complete sign-in with a real account | a person | Needs credentials; the completion fix was proven against an imitation page only |
 | A whole track ending with the window hidden | a person | WebKitGTK may throttle timers in a hidden view; end of track is expected to survive, unobserved |
 | An import from a real previous Goosic install | a person | Only a scratch `.webm` has been imported and played |
 | NVIDIA hardware, and GNOME, Xfce and COSMIC sessions | a person | Every live check ran on Plasma with Intel graphics |
-| Account-scoped reads: a signed-in Home, the Library, private playlists | `platform/linux` | Needs a reader inside the account's WebKitGTK profile running `PersonalCatalog.js`, as macOS has |
-| Library mutations: likes, add to playlist, managing an owned playlist | `platform/linux` | macOS only; depends on the reader above |
+| Account-scoped mutations with a real account | a person | Read-only Home, playlists, liked songs and the owned-playlist list passed a live native test; mutations are built but have not been exercised against that account |
+| Exact owned-playlist item edits | `platform/linux` | Rename, privacy and delete are present; removing or moving one entry needs its per-entry `setVideoId`, which the current catalog projection drops |
 | The playing track's artwork drawn, blurred, behind the content | `platform/linux` | The `artwork_background` preference is stored and ignored |
 | Full-window player, with cover, transport and lyrics | `platform/linux` | The Windows shell has one; GTK currently has only the compact player and side lyrics panel |
 | Adaptive sidebar and narrow-window layout | `platform/linux` | The GTK sidebar remains fixed-width; the first layout work sets a minimum window width |
-| Window and track context menus, and playlist actions | `platform/linux` | The GTK shell has no item actions; personal playlist actions need the account reader |
+| Window and playlist context menus | `platform/linux` | Track actions and a checked owned-playlist manager are present; the native window menu is still pending |
 | Reordering the queue, saved queues, and keyboard shortcuts beyond Ctrl+Q and Ctrl+W | `platform/linux` | Not built; media keys work through MPRIS |
-| Hide explicit songs, start page and reduce motion controls | `platform/linux` | The shared settings snapshot has these preferences; the GTK settings screen does not expose them |
+| Artwork background preference | `platform/linux` | Hide explicit songs, start page and reduce motion controls are present; the playing artwork is still not drawn behind the content |
 | The Swift Linux sign-in, broken since its completion script became an async body | `development` | Its host still evaluates the script as an expression; it matters only while that build is kept as a reference |
 | The decoded WAV cache moved from data to cache, on every platform | `development` | Unchanged; see Where things are stored |
 | The `goosic-paths` crate from `rescue/native-mac-shell-and-paths` | `development` | Never merged, so path rules are still duplicated per crate |
 
-When the rows marked `platform/linux` that concern packaging and conformance are done, the Swift
-Linux build can go, as the next section describes. The feature rows do not block that: the Swift
-Linux build never had them either.
+The credentialed Flatpak mutation/playback and renderer-level lease checks gate the first public Linux release. The product
+feature rows are parity work for later releases; keep the Swift Linux build as a reference until
+those release checks pass.
 
 A native build on a distribution whose GTK is older than 4.20, such as the current Ubuntu LTS, would
 not follow the system's dark mode. The Flatpak is the supported way to run the shell there.
