@@ -389,10 +389,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// The track the loaded lyrics belong to, so a stale answer cannot land on a new song.
     private var lyricsVideoID: String?
     private var lyricsRequestInFlight = false
-    /// Playback bridges report twice a second. Remembering the last presentation state lets us
-    /// avoid publishing an identical status/control tree on every poll.
-    private var lastOfficialEventState: String?
-    private var lastOfficialEventWasAdvertisement: Bool?
     private var lastLocalEventState: String?
     /// Bumped when artwork arrives. Views read it so a late thumbnail re-renders its card.
     @SwiftCrossUI.Published private(set) var artworkVersion: UInt64 = 0
@@ -432,9 +428,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         officialPlaybackHost.onStatus = { [weak self] message in
             self?.hostStatus = message
-            if self?.playbackState.owner == .officialWebView {
-                self?.status = message
-            }
         }
         localPlaybackHost.onEvent = { [weak self] event in
             self?.receive(event)
@@ -2533,8 +2526,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         endedVideoID = nil
         listenerPaused = false
         isAdvertisement = false
-        lastOfficialEventState = nil
-        lastOfficialEventWasAdvertisement = nil
         lastLocalEventState = nil
         hasConfirmedPlaybackSample = false
         volumeAppliedForLoad = false
@@ -2658,24 +2649,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         ) {
             endedVideoID = event.videoID
             advanceAfterEnd()
-        }
-        if lastOfficialEventState != event.state || lastOfficialEventWasAdvertisement != event.isAdvertisement {
-            let nextStatus: String
-            if event.isAdvertisement {
-                nextStatus = "Official host confirmed advertisement playback (informational marker; ads are not bypassed)."
-            } else if event.state == "playing" {
-                nextStatus = "Official host confirmed media playback for \(event.videoID)."
-            } else if event.state == "ended" {
-                nextStatus = "Official host reported the video ended."
-            } else {
-                nextStatus = "Official host reported \(event.state) for \(event.videoID)."
-            }
-            if status != nextStatus {
-                status = nextStatus
-                presentationChanged = true
-            }
-            lastOfficialEventState = event.state
-            lastOfficialEventWasAdvertisement = event.isAdvertisement
         }
         if presentationChanged { updateSystemMediaControls() }
         send(
