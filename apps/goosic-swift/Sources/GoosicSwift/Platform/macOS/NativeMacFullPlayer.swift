@@ -162,15 +162,15 @@ struct NativeMacFullPlayer: View {
     var compact = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.goosicReduceMotion) private var reduceMotion
-    @State private var palette: [MeshSample]?
+    @SwiftUI.State private var palette: [MeshSample]?
     /// What the right-hand column shows: lyrics, the queue, or nothing, switched by the glass
     /// capsule at the bottom right as in Music.
-    @State private var rightPane: RightPane = .lyrics
-    @State private var lyricsMessage: String?
+    @SwiftUI.State private var rightPane: RightPane = .lyrics
+    @SwiftUI.State private var lyricsMessage: String?
 
     enum RightPane { case lyrics, queue, none }
-    @State private var scrubPosition: Double = 0
-    @State private var isScrubbing = false
+    @SwiftUI.State private var scrubPosition: Double = 0
+    @SwiftUI.State private var isScrubbing = false
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }

@@ -7,7 +7,7 @@ import SwiftUI
 #if !GOOSIC_UI_TEST_HOST
 @main
 struct GoosicMacApp: SwiftUI.App {
-    @StateObject private var store = NativeMacModelStore()
+    @SwiftUI.StateObject private var store = NativeMacModelStore()
 
     init() {
         // A distributed app launches the private service beside its own executable. Keep an
@@ -190,7 +190,7 @@ private struct NativeMacFloatingWindow: NSViewRepresentable {
 @MainActor
 private enum NativeMacApplicationIcon {
     static func install() {
-        guard let url = GoosicMacResources.bundle.url(
+        guard let url = GoosicResources.bundle.url(
             forResource: "Icon-iOS-Default-1024@1x", withExtension: "png", subdirectory: "AppIcons"
         ), let image = NSImage(contentsOf: url) else {
             return
@@ -248,7 +248,7 @@ final class NativeMacModelStore: Combine.ObservableObject {
 /// Public only for the dedicated Xcode UI-test host. It renders the production root with a
 /// launch-selected local fixture, rather than duplicating the sidebar in a test-only screen.
 public struct GoosicMacUITestHost: SwiftUI.View {
-    @StateObject private var store = NativeMacModelStore()
+    @SwiftUI.StateObject private var store = NativeMacModelStore()
 
     public init() {}
 
@@ -2421,7 +2421,7 @@ extension SwiftUI.Color {
 /// calling `connect()`, so previews never start the Rust child or touch account WebKit state.
 @MainActor
 private struct NativeMacAppPreview: SwiftUI.View {
-    @StateObject private var store = NativeMacModelStore()
+    @SwiftUI.StateObject private var store = NativeMacModelStore()
     let colorScheme: SwiftUI.ColorScheme?
     let height: CGFloat
 
