@@ -91,6 +91,9 @@ final class ServiceClientConcurrencyTests: XCTestCase {
             if case .failure(let error) = result { XCTFail("slow request failed: \(error)") }
             slowAnswered.fulfill()
         }
+        // Timed and judged inside the answer rather than through a variable the test reads
+        // afterwards: that variable is written on the transport's thread and read on this one,
+        // which is a data race whatever the timing makes of it.
         client.send(command: "playback.sample") { result in
             if case .failure(let error) = result { XCTFail("fast request failed: \(error)") }
             let elapsed = Date().timeIntervalSince(started)
