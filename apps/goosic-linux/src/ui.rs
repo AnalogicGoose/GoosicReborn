@@ -12,7 +12,7 @@ use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 
 use crate::artwork::ArtworkCache;
-use crate::pages::{route_title, size_text, MoreRow, PageRow, ShellFacts};
+use crate::pages::{route_title, size_text, LibrarySection, MoreRow, PageRow, ShellFacts};
 use crate::theme;
 use goosic_protocol::DownloadedTrack;
 
@@ -24,6 +24,9 @@ pub struct Actions {
     pub retry: Box<dyn Fn()>,
     pub back: Box<dyn Fn()>,
     pub set_theme: Box<dyn Fn(Theme)>,
+    pub set_hide_explicit: Box<dyn Fn(bool)>,
+    pub set_start_page: Box<dyn Fn(String)>,
+    pub set_reduce_motion: Box<dyn Fn(bool)>,
     pub import_legacy: Box<dyn Fn()>,
     /// Fetches the next part of a page that continues.
     pub load_more: Box<dyn Fn()>,
@@ -34,6 +37,14 @@ pub struct Actions {
     pub switch_account: Box<dyn Fn(String)>,
     pub sign_out: Box<dyn Fn()>,
     pub remove_account: Box<dyn Fn(String)>,
+    pub select_library_section: Box<dyn Fn(LibrarySection)>,
+    pub create_playlist: Box<dyn Fn()>,
+    pub manage_playlist: Box<dyn Fn(String)>,
+    pub save_playlist: Box<dyn Fn(String, bool)>,
+    pub like_track: Box<dyn Fn(String)>,
+    pub unlike_track: Box<dyn Fn(String)>,
+    pub add_to_playlist: Box<dyn Fn(String)>,
+    pub can_edit_library: Box<dyn Fn() -> bool>,
     pub artwork: Rc<ArtworkCache>,
 }
 
@@ -382,6 +393,48 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
             ));
             padded(&notice, 0, 8)
         }
+        PageRow::LibrarySections(active) => {
+            let tabs = row(6);
+            for section in LibrarySection::ALL {
+                let button = gtk::Button::with_label(section.title());
+                button.add_css_class(if section == *active {
+                    "suggested-action"
+                } else {
+                    "flat"
+                });
+                let actions = actions.clone();
+                button.connect_clicked(move |_| (actions.select_library_section)(section));
+                tabs.append(&button);
+            }
+            padded(&tabs, 4, 12)
+        }
+        PageRow::LibraryActions => {
+            let button = gtk::Button::with_label("Create playlist");
+            button.set_halign(gtk::Align::Start);
+            let actions = actions.clone();
+            button.connect_clicked(move |_| (actions.create_playlist)());
+            padded(&button, 4, 12)
+        }
+        PageRow::PlaylistActions(id) => {
+            let controls = row(6);
+            let save = gtk::Button::with_label("Save to library");
+            let remove = gtk::Button::with_label("Remove from library");
+            let manage = gtk::Button::with_label("Manage playlist");
+            let (id, actions) = (id.clone(), actions.clone());
+            let saved_id = id.clone();
+            let saved_actions = actions.clone();
+            save.connect_clicked(move |_| (saved_actions.save_playlist)(saved_id.clone(), true));
+            let removed_id = id.clone();
+            let removed_actions = actions.clone();
+            remove.connect_clicked(move |_| {
+                (removed_actions.save_playlist)(removed_id.clone(), false)
+            });
+            manage.connect_clicked(move |_| (actions.manage_playlist)(id.clone()));
+            controls.append(&save);
+            controls.append(&remove);
+            controls.append(&manage);
+            padded(&controls, 4, 10)
+        }
         PageRow::Loading { subject } => {
             let loading = row(8);
             loading.append(&gtk::Spinner::builder().spinning(true).build());
@@ -486,7 +539,7 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
     }
 }
 
-fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::Button {
+fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::Box {
     let line = row(10);
     line.append(&artwork(actions, track.thumbnail.as_deref(), "♪", 40));
 
@@ -515,9 +568,57 @@ fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk
         .build();
     button.add_css_class("flat");
     button.add_css_class("goosic-track-row");
-    let (track, context, actions) = (track.clone(), context.clone(), actions.clone());
-    button.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
-    button
+    let (selected, context, play_actions) = (track.clone(), context.clone(), actions.clone());
+    button.connect_clicked(move |_| (play_actions.play)(selected.clone(), context.clone()));
+    let outer = row(4);
+    button.set_hexpand(true);
+    outer.append(&button);
+    if (actions.can_edit_library)() {
+        outer.append(&track_menu(&track.video_id, actions));
+    }
+    outer
+}
+
+fn track_menu(video_id: &str, actions: &Rc<Actions>) -> gtk::MenuButton {
+    let popover = gtk::Popover::new();
+    let menu = column(4);
+    menu.set_margin_start(8);
+    menu.set_margin_end(8);
+    menu.set_margin_top(8);
+    menu.set_margin_bottom(8);
+    let like = gtk::Button::with_label("Like song");
+    let unlike = gtk::Button::with_label("Remove like");
+    let add = gtk::Button::with_label("Add to playlist");
+    let id = video_id.to_owned();
+    let action = actions.clone();
+    let close = popover.clone();
+    like.connect_clicked(move |_| {
+        close.popdown();
+        (action.like_track)(id.clone());
+    });
+    let id = video_id.to_owned();
+    let action = actions.clone();
+    let close = popover.clone();
+    unlike.connect_clicked(move |_| {
+        close.popdown();
+        (action.unlike_track)(id.clone());
+    });
+    let id = video_id.to_owned();
+    let action = actions.clone();
+    let close = popover.clone();
+    add.connect_clicked(move |_| {
+        close.popdown();
+        (action.add_to_playlist)(id.clone());
+    });
+    menu.append(&like);
+    menu.append(&unlike);
+    menu.append(&add);
+    popover.set_child(Some(&menu));
+    gtk::MenuButton::builder()
+        .icon_name("view-more-symbolic")
+        .tooltip_text("Song actions")
+        .popover(&popover)
+        .build()
 }
 
 fn track_shelf(tracks: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::ScrolledWindow {
@@ -543,8 +644,16 @@ fn track_shelf(tracks: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::ScrolledWind
             button.add_css_class("flat");
             button.add_css_class("goosic-track-row");
             let (track, context, actions) = (track.clone(), tracks.clone(), actions.clone());
+            let video_id = track.video_id.clone();
+            let menu_actions = actions.clone();
             button.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
-            track_column.append(&button);
+            let item = row(4);
+            button.set_hexpand(true);
+            item.append(&button);
+            if (menu_actions.can_edit_library)() {
+                item.append(&track_menu(&video_id, &menu_actions));
+            }
+            track_column.append(&item);
         }
         columns.append(&track_column);
     }
@@ -667,6 +776,50 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
     }
     appearance.append(&themes);
     page.append(&appearance);
+
+    let content = settings_group("Content");
+    let explicit = gtk::CheckButton::with_label("Hide explicit songs");
+    explicit.set_active(facts.hide_explicit);
+    {
+        let actions = actions.clone();
+        explicit.connect_toggled(move |button| (actions.set_hide_explicit)(button.is_active()));
+    }
+    content.append(&explicit);
+    let start = row(8);
+    start.append(&plain("Start page"));
+    let mut first_start: Option<gtk::ToggleButton> = None;
+    for (value, label) in [
+        ("home", "Home"),
+        ("library", "Library"),
+        ("liked", "Liked songs"),
+        ("last", "Last page"),
+    ] {
+        let button = gtk::ToggleButton::with_label(label);
+        match &first_start {
+            Some(first) => button.set_group(Some(first)),
+            None => first_start = Some(button.clone()),
+        }
+        button.set_active(facts.start_page == value);
+        let actions = actions.clone();
+        button.connect_toggled(move |button| {
+            if button.is_active() {
+                (actions.set_start_page)(value.to_owned());
+            }
+        });
+        start.append(&button);
+    }
+    content.append(&start);
+    page.append(&content);
+
+    let motion = settings_group("Motion");
+    let reduce = gtk::CheckButton::with_label("Reduce decorative motion");
+    reduce.set_active(facts.reduce_motion);
+    {
+        let actions = actions.clone();
+        reduce.connect_toggled(move |button| (actions.set_reduce_motion)(button.is_active()));
+    }
+    motion.append(&reduce);
+    page.append(&motion);
 
     let accounts = settings_group("Account");
     accounts.append(&dim(if facts.accounts.is_empty() {

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Goosic
+Comment=Listen to music with a native Linux player
+Exec=goosic-linux
+Icon=io.github.analogicgoose.Goosic
+Categories=AudioVideo;Audio;Player;
+Keywords=Music;Player;YouTube Music;
+StartupNotify=true

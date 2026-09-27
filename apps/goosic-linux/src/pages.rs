@@ -8,8 +8,12 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use goosic_protocol::{AccountSummary, DownloadedTrack, RequestPayload, ResponseEnvelope};
-use goosic_shell_support::catalog::{detail_subtitle, failure_text, Card, PageView, Track};
+use goosic_protocol::{
+    AccountSummary, CatalogPage, DownloadedTrack, RequestPayload, ResponseEnvelope,
+};
+use goosic_shell_support::catalog::{
+    detail_subtitle, failure_text, Card, CardAction, PageView, Track,
+};
 use goosic_shell_support::navigation::{CatalogKey, EntityReference, Route, SearchFilter, Theme};
 use goosic_shell_support::TransportError;
 
@@ -38,6 +42,9 @@ pub struct ShellFacts {
     pub active_account_id: Option<String>,
     /// A sign-in, switch or removal is in flight; nothing else about accounts may start.
     pub account_busy: bool,
+    pub hide_explicit: bool,
+    pub start_page: String,
+    pub reduce_motion: bool,
     pub downloads: DownloadsState,
     /// A read or import of the downloaded files is in flight.
     pub downloads_busy: bool,
@@ -54,6 +61,9 @@ impl Default for ShellFacts {
             accounts: Vec::new(),
             active_account_id: None,
             account_busy: false,
+            hide_explicit: false,
+            start_page: "home".into(),
+            reduce_motion: false,
             downloads: DownloadsState::NotRead,
             downloads_busy: false,
         }
@@ -89,6 +99,9 @@ pub enum PageRow {
     },
     /// Says plainly that the catalog is anonymous, so nobody reads a guest shelf as their own mix.
     GuestNotice,
+    LibrarySections(LibrarySection),
+    LibraryActions,
+    PlaylistActions(String),
     Loading {
         subject: String,
     },
@@ -127,6 +140,44 @@ pub enum PageRow {
     Download(DownloadedTrack),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibrarySection {
+    Playlists,
+    Songs,
+    Albums,
+    Artists,
+}
+
+impl LibrarySection {
+    pub const ALL: [Self; 4] = [Self::Playlists, Self::Songs, Self::Albums, Self::Artists];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Playlists => "Playlists",
+            Self::Songs => "Songs",
+            Self::Albums => "Albums",
+            Self::Artists => "Artists",
+        }
+    }
+
+    pub fn browse_id(self) -> &'static str {
+        match self {
+            Self::Playlists => "FEmusic_liked_playlists",
+            Self::Songs => "VLLM",
+            Self::Albums => "FEmusic_liked_albums",
+            Self::Artists => "FEmusic_library_corpus_track_artists",
+        }
+    }
+
+    pub fn shape(self) -> &'static str {
+        if self == Self::Songs {
+            "tracks"
+        } else {
+            "shelves"
+        }
+    }
+}
+
 /// The row at the end of a page that continues.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MoreRow {
@@ -153,6 +204,7 @@ pub struct Browser {
     detail: Option<EntityReference>,
     submitted_query: String,
     filter: SearchFilter,
+    library_section: LibrarySection,
     pages: HashMap<CatalogKey, LoadState>,
     more: HashMap<CatalogKey, More>,
 }
@@ -170,6 +222,7 @@ impl Browser {
             detail: None,
             submitted_query: String::new(),
             filter: SearchFilter::All,
+            library_section: LibrarySection::Playlists,
             pages: HashMap::new(),
             more: HashMap::new(),
         }
@@ -209,6 +262,38 @@ impl Browser {
         true
     }
 
+    pub fn library_section(&self) -> LibrarySection {
+        self.library_section
+    }
+
+    pub fn select_library_section(&mut self, section: LibrarySection) -> bool {
+        if self.library_section == section {
+            return false;
+        }
+        self.library_section = section;
+        self.pages.remove(&CatalogKey::Route(Route::Library));
+        self.more.remove(&CatalogKey::Route(Route::Library));
+        true
+    }
+
+    pub fn clear_account_pages(&mut self) {
+        self.pages.remove(&CatalogKey::Route(Route::Home));
+        self.pages.remove(&CatalogKey::Route(Route::Library));
+        self.pages
+            .retain(|key, _| !matches!(key, CatalogKey::Playlist(_) | CatalogKey::Album(_)));
+        self.more.clear();
+    }
+
+    pub fn cancel_loading(&mut self) {
+        self.pages
+            .retain(|_, state| !matches!(state, LoadState::Loading));
+        for more in self.more.values_mut() {
+            if let More::Loading(cursor) = more {
+                *more = More::Available(cursor.clone());
+            }
+        }
+    }
+
     /// The page the screen is showing, if it shows one.
     pub fn current_key(&self) -> Option<CatalogKey> {
         if let Some(entity) = &self.detail {
@@ -219,6 +304,7 @@ impl Browser {
                 query: self.submitted_query.clone(),
                 filter: self.filter,
             }),
+            Route::Library => Some(CatalogKey::Route(Route::Library)),
             route => route.catalog_route().map(|_| CatalogKey::Route(route)),
         }
     }
@@ -240,6 +326,60 @@ impl Browser {
         let request = request_for(key)?;
         self.pages.insert(key.clone(), LoadState::Loading);
         Some(request)
+    }
+
+    pub fn begin_personal(&mut self, key: &CatalogKey, force: bool) -> bool {
+        if !force && matches!(self.state(key), LoadState::Loading | LoadState::Loaded(_)) {
+            return false;
+        }
+        self.more.remove(key);
+        self.pages.insert(key.clone(), LoadState::Loading);
+        true
+    }
+
+    pub fn finish_personal(&mut self, key: CatalogKey, result: Result<CatalogPage, String>) {
+        let state = match result {
+            Ok(page) => {
+                self.set_cursor(&key, page.next_cursor.clone());
+                LoadState::Loaded(PageView::from_wire(&page))
+            }
+            Err(message) => LoadState::Failed {
+                code: "accountUnavailable".to_owned(),
+                message,
+            },
+        };
+        self.pages.insert(key, state);
+    }
+
+    pub fn finish_more_personal(
+        &mut self,
+        key: CatalogKey,
+        cursor: &str,
+        result: Result<CatalogPage, String>,
+    ) {
+        if self.more.get(&key) != Some(&More::Loading(cursor.to_owned())) {
+            return;
+        }
+        match result {
+            Ok(page) => {
+                self.set_cursor(&key, page.next_cursor.clone());
+                let next = PageView::from_wire(&page);
+                if let Some(LoadState::Loaded(loaded)) = self.pages.get_mut(&key) {
+                    loaded.tracks.extend(next.tracks);
+                    loaded.shelves.extend(next.shelves);
+                    loaded.truncated |= next.truncated;
+                }
+            }
+            Err(message) => {
+                self.more.insert(
+                    key,
+                    More::Failed {
+                        cursor: cursor.to_owned(),
+                        message,
+                    },
+                );
+            }
+        }
     }
 
     /// Stores the service's answer for `key`, whichever page is on screen now.
@@ -372,12 +512,15 @@ impl Browser {
                 More::Failed { message, .. } => MoreRow::Failed(message.clone()),
             })
         }));
+        if facts.hide_explicit {
+            rows = rows.into_iter().filter_map(without_explicit).collect();
+        }
         rows
     }
 
     fn screen_rows(&self, facts: &ShellFacts) -> Vec<PageRow> {
         if let Some(entity) = &self.detail {
-            return self.detail_rows(entity);
+            return self.detail_rows(entity, facts);
         }
         let title = route_title(self.route);
         let mut rows = vec![PageRow::Header {
@@ -421,28 +564,29 @@ impl Browser {
                     }
                 }
             }
-            Route::Library => rows.push(match facts.account {
-                None => PageRow::Empty {
+            Route::Library => match facts.account {
+                None => rows.push(PageRow::Empty {
                     title: "Not connected to an account".to_owned(),
                     message: "The catalog is browsed as a guest, so there is no personal \
                               library to read. Sign in from Settings to create an isolated \
                               account profile."
                         .to_owned(),
-                },
-                // The previous Goosic's library reader runs inside the account's web profile, and
-                // only macOS has that reader so far. Showing guest shelves here would pass them off
-                // as this account's library.
-                Some(_) => PageRow::Empty {
-                    title: "Your library is not on Linux yet".to_owned(),
-                    message: "Playback runs under this account, but reading its playlists, liked \
-                              songs, albums and artists needs an account reader inside its web \
-                              profile, which the Linux shell does not have yet. The catalog is \
-                              still browsed anonymously."
-                        .to_owned(),
-                },
-            }),
+                }),
+                Some(_) => {
+                    rows.push(PageRow::LibrarySections(self.library_section));
+                    if self.library_section == LibrarySection::Playlists {
+                        rows.push(PageRow::LibraryActions);
+                    }
+                    rows.extend(body_rows(
+                        self.state(&CatalogKey::Route(Route::Library)),
+                        self.library_section.title(),
+                    ));
+                }
+            },
             route if route.catalog_route().is_some() => {
-                rows.push(PageRow::GuestNotice);
+                if route != Route::Home || facts.account.is_none() {
+                    rows.push(PageRow::GuestNotice);
+                }
                 rows.extend(body_rows(
                     self.state(&CatalogKey::Route(route)),
                     &title.to_lowercase(),
@@ -456,7 +600,7 @@ impl Browser {
         rows
     }
 
-    fn detail_rows(&self, entity: &EntityReference) -> Vec<PageRow> {
+    fn detail_rows(&self, entity: &EntityReference, facts: &ShellFacts) -> Vec<PageRow> {
         let state = self.state(&CatalogKey::entity(entity));
         let kind = entity.kind_label();
         let header = match state {
@@ -470,6 +614,9 @@ impl Browser {
             },
         };
         let mut rows = vec![PageRow::Back, header];
+        if let (EntityReference::Playlist(id), Some(_)) = (entity, &facts.account) {
+            rows.push(PageRow::PlaylistActions(id.clone()));
+        }
         if let LoadState::Loaded(page) = state {
             if !page.tracks.is_empty() {
                 rows.push(PageRow::PlayAll(page.tracks.clone().into()));
@@ -535,7 +682,7 @@ pub fn route_title(route: Route) -> &'static str {
 
 fn route_subtitle(route: Route) -> &'static str {
     match route {
-        Route::Home => "Live from YouTube Music, browsed as a guest",
+        Route::Home => "Music picked for this session",
         Route::Explore => "New releases, charts, moods, and genres",
         Route::Search => "Search YouTube Music by title, artist, or album",
         Route::Library => "Your saved music",
@@ -581,6 +728,51 @@ fn body_rows(state: &LoadState, subject: &str) -> Vec<PageRow> {
             }
             rows
         }
+    }
+}
+
+fn without_explicit(row: PageRow) -> Option<PageRow> {
+    match row {
+        PageRow::Track { track, context } => {
+            if track.explicit {
+                return None;
+            }
+            let context = context
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            Some(PageRow::Track { track, context })
+        }
+        PageRow::PlayAll(tracks) => {
+            let tracks: Rc<[Track]> = tracks
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            (!tracks.is_empty()).then_some(PageRow::PlayAll(tracks))
+        }
+        PageRow::TrackShelf(tracks) => {
+            let tracks: Rc<[Track]> = tracks
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            (!tracks.is_empty()).then_some(PageRow::TrackShelf(tracks))
+        }
+        PageRow::Cards(cards) => {
+            let cards = cards
+                .into_iter()
+                .filter(
+                    |card| !matches!(&card.action, Some(CardAction::Play(track)) if track.explicit),
+                )
+                .collect::<Vec<_>>();
+            (!cards.is_empty()).then_some(PageRow::Cards(cards))
+        }
+        other => Some(other),
     }
 }
 
@@ -984,5 +1176,116 @@ mod tests {
         assert_eq!(size_text(1), "1 KB");
         assert_eq!(size_text(512 * 1024), "512 KB");
         assert_eq!(size_text(5 * 1024 * 1024 + 512 * 1024), "5.5 MB");
+    }
+
+    #[test]
+    fn signed_in_home_shows_personal_shelves_without_a_guest_badge() {
+        let mut browser = Browser::new();
+        let key = browser.current_key().unwrap();
+        assert!(browser.begin_personal(&key, false));
+        browser.finish_personal(key, Ok(home_page()));
+        let facts = ShellFacts {
+            account: Some("Listener".into()),
+            ..Default::default()
+        };
+        let rows = browser.rows(&facts);
+        assert!(!rows.contains(&PageRow::GuestNotice));
+        assert!(rows.contains(&PageRow::ShelfTitle("Quick picks".into())));
+    }
+
+    #[test]
+    fn library_switches_account_sections_and_drops_the_previous_answer() {
+        let mut browser = Browser::new();
+        browser.navigate(Route::Library);
+        let key = browser.current_key().unwrap();
+        assert!(browser.begin_personal(&key, false));
+        browser.finish_personal(
+            key.clone(),
+            Ok(CatalogPage {
+                title: "Playlists".into(),
+                id: "personal:playlists".into(),
+                ..Default::default()
+            }),
+        );
+        assert!(browser.select_library_section(LibrarySection::Songs));
+        assert_eq!(browser.state(&key), &LoadState::Idle);
+        assert!(browser.begin_personal(&key, false));
+        browser.finish_personal(
+            key,
+            Ok(CatalogPage {
+                title: "Songs".into(),
+                id: "personal:songs".into(),
+                tracks: vec![item(CatalogItemKind::Song, "a", Some("a"))],
+                ..Default::default()
+            }),
+        );
+        let facts = ShellFacts {
+            account: Some("Listener".into()),
+            ..Default::default()
+        };
+        let rows = browser.rows(&facts);
+        assert!(rows.contains(&PageRow::LibrarySections(LibrarySection::Songs)));
+        assert!(rows.iter().any(|row| matches!(row, PageRow::Track { .. })));
+        assert!(!rows.contains(&PageRow::GuestNotice));
+        browser.clear_account_pages();
+        assert_eq!(
+            browser.state(&CatalogKey::Route(Route::Library)),
+            &LoadState::Idle
+        );
+    }
+
+    #[test]
+    fn playlist_actions_only_appear_for_a_signed_in_account() {
+        let mut browser = Browser::new();
+        browser.open(EntityReference::Playlist("VLPL123".into()));
+        assert!(!browser
+            .rows(&ShellFacts::default())
+            .iter()
+            .any(|row| matches!(row, PageRow::PlaylistActions(_))));
+        let facts = ShellFacts {
+            account: Some("Listener".into()),
+            ..Default::default()
+        };
+        assert!(browser
+            .rows(&facts)
+            .contains(&PageRow::PlaylistActions("VLPL123".into())));
+    }
+
+    #[test]
+    fn hiding_explicit_tracks_removes_them_from_rows_and_playback_context() {
+        let mut browser = Browser::new();
+        let entity = EntityReference::Album("MPRE1".into());
+        browser.open(entity.clone());
+        let key = browser.current_key().unwrap();
+        browser.begin(&key, false);
+        let mut explicit = item(CatalogItemKind::Song, "b", Some("b"));
+        explicit.explicit = true;
+        browser.finish(
+            key,
+            answer(CatalogPage {
+                id: "MPRE1".into(),
+                title: "Album".into(),
+                tracks: vec![item(CatalogItemKind::Song, "a", Some("a")), explicit],
+                ..Default::default()
+            }),
+        );
+        let facts = ShellFacts {
+            hide_explicit: true,
+            ..Default::default()
+        };
+        let rows = browser.rows(&facts);
+        assert!(
+            matches!(rows.iter().find(|row| matches!(row, PageRow::PlayAll(_))), Some(PageRow::PlayAll(tracks)) if tracks.len() == 1)
+        );
+        let tracks = rows
+            .iter()
+            .filter_map(|row| match row {
+                PageRow::Track { track, context } => Some((track, context)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].0.video_id, "a");
+        assert_eq!(tracks[0].1.len(), 1);
     }
 }

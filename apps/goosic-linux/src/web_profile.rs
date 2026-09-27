@@ -4,6 +4,8 @@
 //! into a staging directory that becomes a profile only once Rust has accepted the account. This is
 //! the filesystem half of that, and the guard the official player and the sign-in window share.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use goosic_shell_support::bridge;
@@ -11,6 +13,10 @@ use gtk::glib;
 use uuid::Uuid;
 use webkit6::prelude::*;
 use webkit6::{CookiePersistentStorage, LoadEvent, NetworkSession, PolicyDecisionType, WebView};
+
+thread_local! {
+    static PROFILE_SESSIONS: RefCell<HashMap<Uuid, NetworkSession>> = RefCell::new(HashMap::new());
+}
 
 /// A profile directory is named by its uppercase UUID, as the Swift Linux shell named it, so a
 /// profile that shell wrote is found again.
@@ -42,19 +48,28 @@ fn staging_directory(profile: Uuid) -> PathBuf {
 
 /// A renderer over the storage of a profile playback uses.
 pub fn profile_view(profile: Uuid) -> WebView {
-    view(
-        &profile_directory(profile).join("data"),
-        &cache_directory(profile),
-    )
+    let session = PROFILE_SESSIONS.with(|sessions| {
+        sessions
+            .borrow_mut()
+            .entry(profile)
+            .or_insert_with(|| {
+                session(
+                    &profile_directory(profile).join("data"),
+                    &cache_directory(profile),
+                )
+            })
+            .clone()
+    });
+    view(&session)
 }
 
 /// A renderer over a sign-in's staged storage.
 pub fn staging_view(profile: Uuid) -> WebView {
     let staging = staging_directory(profile);
-    view(&staging.join("data"), &staging.join("cache"))
+    view(&session(&staging.join("data"), &staging.join("cache")))
 }
 
-fn view(data: &Path, cache: &Path) -> WebView {
+fn session(data: &Path, cache: &Path) -> NetworkSession {
     let _ = std::fs::create_dir_all(data);
     let session = NetworkSession::new(
         Some(&*data.to_string_lossy()),
@@ -68,7 +83,11 @@ fn view(data: &Path, cache: &Path) -> WebView {
             CookiePersistentStorage::Sqlite,
         );
     }
-    let view = WebView::builder().network_session(&session).build();
+    session
+}
+
+fn view(session: &NetworkSession) -> WebView {
+    let view = WebView::builder().network_session(session).build();
     if let Some(settings) = WebViewExt::settings(&view) {
         // YouTube Music refuses to run its player under a bare engine agent, and Google's sign-in
         // is wary of one, so the agent names a Safari version, as the macOS host does.
@@ -120,6 +139,9 @@ pub fn delete_profile(profile: Uuid) {
     if profile == bridge::GUEST_PROFILE_ID {
         return;
     }
+    PROFILE_SESSIONS.with(|sessions| {
+        sessions.borrow_mut().remove(&profile);
+    });
     let _ = std::fs::remove_dir_all(profile_directory(profile));
     let _ = std::fs::remove_dir_all(cache_directory(profile));
 }

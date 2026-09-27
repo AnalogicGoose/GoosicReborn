@@ -1,0 +1,56 @@
+id: io.github.analogicgoose.Goosic
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: goosic-linux
+finish-args:
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --own-name=org.mpris.MediaPlayer2.goosic
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --filesystem=xdg-data/goosic:ro
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+modules:
+  - name: goosic-service
+    buildsystem: simple
+    build-commands:
+      - CARGO_HOME="$PWD/cargo" cargo build --offline --release -p goosic-service
+      - install -Dm755 target/release/goosic-service /app/bin/goosic-service
+    sources:
+      - type: dir
+        path: ../../../..
+        skip:
+          - .git
+          - .flatpak-builder
+          - target
+          - apps/goosic-linux/target
+          - apps/goosic-swift/.build
+      - cargo-sources-service.json
+  - name: goosic-linux
+    buildsystem: simple
+    run-tests: true
+    test-commands:
+      - GOOSIC_SERVICE_PATH=/app/bin/goosic-service CARGO_HOME="$PWD/cargo" cargo test --offline --manifest-path apps/goosic-linux/Cargo.toml
+    build-commands:
+      - CARGO_HOME="$PWD/cargo" cargo build --offline --release --manifest-path apps/goosic-linux/Cargo.toml
+      - install -Dm755 apps/goosic-linux/target/release/goosic-linux /app/bin/goosic-linux
+      - install -Dm644 apps/goosic-linux/data/io.github.analogicgoose.Goosic.desktop /app/share/applications/io.github.analogicgoose.Goosic.desktop
+      - install -Dm644 apps/goosic-linux/data/io.github.analogicgoose.Goosic.metainfo.xml /app/share/metainfo/io.github.analogicgoose.Goosic.metainfo.xml
+      - install -Dm644 apps/goosic-linux/data/io.github.analogicgoose.Goosic.svg /app/share/icons/hicolor/scalable/apps/io.github.analogicgoose.Goosic.svg
+      - install -Dm644 LICENSE-GPL-3.0 /app/share/licenses/io.github.analogicgoose.Goosic/LICENSE
+    sources:
+      - type: dir
+        path: ../../../..
+        skip:
+          - .git
+          - .flatpak-builder
+          - target
+          - apps/goosic-linux/target
+          - apps/goosic-swift/.build
+      - cargo-sources-shell.json

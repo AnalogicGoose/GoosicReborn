@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.analogicgoose.Goosic</id>
+  <name>Goosic</name>
+  <summary>Native music player for Linux</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <url type="homepage">https://github.com/AnalogicGoose/GoosicReborn</url>
+  <developer id="io.github.analogicgoose">
+    <name>AnalogicGoose</name>
+  </developer>
+  <description>
+    <p>Browse YouTube Music, play with the official web player, and listen to finalized files imported from an earlier Goosic installation.</p>
+    <p>Sign in to see personalized recommendations, your library, and your playlists.</p>
+  </description>
+  <launchable type="desktop-id">io.github.analogicgoose.Goosic.desktop</launchable>
+  <provides>
+    <binary>goosic-linux</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>
