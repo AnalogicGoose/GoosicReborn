@@ -45,6 +45,13 @@ struct RouteScreen: View {
             SearchScreen(model: model)
         case .library:
             LibraryScreen(model: model)
+        case .history:
+            CatalogRouteScreen(
+                route: .history,
+                title: "History",
+                subtitle: "What this account played recently",
+                model: model
+            )
         case .downloads:
             DownloadsScreen(model: model)
         case .settings:

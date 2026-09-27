@@ -64,6 +64,23 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         if profileIdentifier != nil { ensurePage() }
     }
 
+    /// Starts the account's page again, for after its session has been renewed in place.
+    func reload() {
+        failAll(with: PersonalCatalogError.accountChanged)
+        destroyPage()
+        if profileIdentifier != nil { ensurePage() }
+    }
+
+    /// Deletes everything the bound account's profile holds, for signing out: its cookies are
+    /// its sign-in, and signing out means this computer no longer has one.
+    func clearProfile(_ identifier: UUID, completion: @escaping @MainActor () -> Void) {
+        if identifier == profileIdentifier { destroyPage() }
+        WKWebsiteDataStore(forIdentifier: identifier).removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: Date(timeIntervalSince1970: 0)
+        ) { completion() }
+    }
+
     func load(
         section: PersonalLibrarySection,
         continuation: String? = nil,
@@ -181,7 +198,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
                             "reason": error.localizedDescription,
                         ])
                         self.finishMutation(
-                            key, .failure(PersonalCatalogError.scriptFailed(error.localizedDescription))
+                            key, .failure(PersonalCatalogError.from(error.localizedDescription))
                         )
                     case .success(let value):
                         guard let json = value as? String, let data = json.data(using: .utf8),
@@ -332,7 +349,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
                 let elapsed = Int(Date().timeIntervalSince(request.submittedAt) * 1000)
                 if let failure {
                     self.note("failed", ["browse": request.browseID, "elapsed": "\(elapsed)ms", "reason": failure])
-                    request.completion(.failure(PersonalCatalogError.scriptFailed(failure)))
+                    request.completion(.failure(PersonalCatalogError.from(failure)))
                     return
                 }
                 guard let json, let data = json.data(using: .utf8) else {
@@ -358,6 +375,12 @@ private enum PersonalCatalogError: LocalizedError {
     case scriptFailed(String)
     case programMissing
     case timedOut
+
+    /// A script failure, or the session having ended when the script says so.
+    static func from(_ message: String) -> Error {
+        message.contains(PersonalSessionExpired.marker)
+            ? PersonalSessionExpired() : PersonalCatalogError.scriptFailed(message)
+    }
 
     var errorDescription: String? {
         switch self {

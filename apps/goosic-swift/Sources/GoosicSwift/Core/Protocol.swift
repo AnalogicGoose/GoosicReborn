@@ -91,6 +91,9 @@ struct GoosicPreferencesPatch: Codable {
     var shuffle: Bool?
     var repeatMode: String?
     var artworkBackground: Bool?
+    var hideExplicit: Bool?
+    var startPage: String?
+    var reduceMotion: Bool?
 
     init(
         theme: String? = nil,
@@ -101,7 +104,10 @@ struct GoosicPreferencesPatch: Codable {
         queueVisible: Bool? = nil,
         shuffle: Bool? = nil,
         repeatMode: String? = nil,
-        artworkBackground: Bool? = nil
+        artworkBackground: Bool? = nil,
+        hideExplicit: Bool? = nil,
+        startPage: String? = nil,
+        reduceMotion: Bool? = nil
     ) {
         self.theme = theme
         self.volume = volume
@@ -112,6 +118,9 @@ struct GoosicPreferencesPatch: Codable {
         self.shuffle = shuffle
         self.repeatMode = repeatMode
         self.artworkBackground = artworkBackground
+        self.hideExplicit = hideExplicit
+        self.startPage = startPage
+        self.reduceMotion = reduceMotion
     }
 }
 
@@ -183,6 +192,8 @@ enum GoosicCatalogKind: String, Codable {
     case album
     case artist
     case playlist
+    /// A mood or genre from Moods & genres, opened with `catalog.category`. Its id is opaque.
+    case category
     case unknown
 
     init(from decoder: Decoder) throws {
@@ -205,12 +216,23 @@ struct GoosicCatalogItem: Codable {
     /// Present only when this row can be handed to the official player.
     var videoId: String?
     var explicit: Bool?
+    /// A category's stripe colour, `#RRGGBB`.
+    var color: String?
+    /// A playlist's own identifier for this row, set only by the account's reader. Removing a
+    /// row needs it, because the same song may sit in a playlist twice.
+    var entryId: String?
 }
 
 struct GoosicCatalogShelf: Codable {
     var id: String
     var title: String
     var items: [GoosicCatalogItem]
+    /// `list` when YouTube Music presents the shelf as song rows; absent means cards.
+    var layout: String?
+
+    init(id: String, title: String, items: [GoosicCatalogItem], layout: String? = nil) {
+        self.id = id; self.title = title; self.items = items; self.layout = layout
+    }
 }
 
 struct GoosicCatalogPage: Codable {
@@ -273,6 +295,12 @@ struct GoosicSettings: Codable {
     /// Optional on the wire so a service built before this preference existed still decodes;
     /// absent means the default, which is on.
     var artworkBackground: Bool?
+    /// Leave explicit tracks out of lists. Optional so an older service still decodes.
+    var hideExplicit: Bool?
+    /// Where the shell opens: `home`, `library`, `liked`, or `last`.
+    var startPage: String?
+    /// Skip decorative motion, on top of the system's own setting.
+    var reduceMotion: Bool?
     /// Whether preferences from a previous Goosic install have been imported.
     var importedFromLegacy: Bool
     /// Whether a previous Goosic install's preferences are present to import.

@@ -1,6 +1,13 @@
 // swift-tools-version: 6.0
 
+import Foundation
 import PackageDescription
+
+/// The macOS SDK the app is linked against, as the Makefile reads it from `xcrun`. AppKit picks
+/// its design — menus with icons, the Liquid Glass toolbar — from the SDK stamped into the
+/// binary, so a fixed older number would make a newer Mac draw the app as if it were older.
+let macOSSDK = ProcessInfo.processInfo.environment["GOOSIC_MACOS_SDK"]
+    .flatMap { $0.isEmpty ? nil : $0 } ?? "26.0"
 
 let package = Package(
     name: "goosic-swift",
@@ -29,6 +36,18 @@ let package = Package(
             resources: [
                 .copy("Resources/PersonalCatalog.js"),
                 .copy("Resources/AppIcons"),
+            ],
+            // SwiftPM stamps the executable's build version with the deployment target as its
+            // SDK (`sdk 14.0`), and AppKit chooses its design from that stamp: the app ran with
+            // the pre-26 look everywhere, Liquid Glass included, despite being built against the
+            // current SDK. This states the SDK actually used (see `macOSSDK`) while keeping
+            // macOS 14 as the minimum it runs on.
+            linkerSettings: [
+                .unsafeFlags(
+                    ["-Xlinker", "-platform_version", "-Xlinker", "macos",
+                     "-Xlinker", "14.0", "-Xlinker", macOSSDK],
+                    .when(platforms: [.macOS])
+                ),
             ]
         ),
         // WebKitGTK's GTK 4 binding. Only Linux depends on it; macOS keeps using WebKit.framework.

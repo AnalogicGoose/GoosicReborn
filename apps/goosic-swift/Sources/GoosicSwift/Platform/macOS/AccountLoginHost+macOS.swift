@@ -27,13 +27,28 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         Diagnostics.note(.accountLogin, event, fields)
     }
 
+    /// Set when signing an existing account in again: the profile is the account's own, not a
+    /// staging store, so a cancelled or failed attempt must leave it exactly as it was.
+    private var reusingProfile = false
+
     func start() {
-        guard window == nil else { return }
         // Both UUIDs are generated before the login surface opens and are never derived from
         // provider data. They are stable for this staged login and distinct by construction.
         let accountId = UUID()
         var profileId = UUID()
         while profileId == accountId { profileId = UUID() }
+        open(accountId: accountId, profileId: profileId)
+    }
+
+    /// Signs an account whose session ended in again, into its own profile. Nothing is staged:
+    /// the account and its profile already exist, and only their cookies are renewed.
+    func start(reusing accountId: UUID, profileId: UUID) {
+        reusingProfile = true
+        open(accountId: accountId, profileId: profileId)
+    }
+
+    private func open(accountId: UUID, profileId: UUID) {
+        guard window == nil else { return }
         self.accountId = accountId
         self.profileId = profileId
 
@@ -107,6 +122,7 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     private func deleteStagingStore() {
+        guard !reusingProfile else { return }
         guard let store = stagingStore ?? webView?.configuration.websiteDataStore else { return }
         store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: Date(timeIntervalSince1970: 0)) { }
     }
