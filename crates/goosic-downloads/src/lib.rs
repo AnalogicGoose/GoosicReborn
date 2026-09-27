@@ -475,12 +475,17 @@ mod tests {
             after.len(),
             "the legacy directory is unchanged"
         );
-        assert!(
-            opened
-                .document
-                .tracks
-                .iter()
-                .any(|track| track.path == media.join("abcdefghijk.webm")),
+        // Compared as a path rather than as text in the index: the separator inside that JSON
+        // is the platform's, and a `/` here made this pass on Unix and fail on Windows.
+        let imported = opened
+            .document
+            .tracks
+            .iter()
+            .find(|track| track.video_id == "abcdefghijk")
+            .expect("the imported track is in the index");
+        assert_eq!(
+            imported.path,
+            media.join("abcdefghijk.webm"),
             "files are referenced in place"
         );
     }
@@ -556,6 +561,10 @@ mod tests {
         let media = legacy_media(directory.path());
         std::fs::write(media.join("a.b.webm"), b"not a video id").unwrap();
         std::fs::write(media.join("not-a-video-id.webm"), b"also not a video id").unwrap();
+        // `?` is not a legal character in a Windows filename, so that stem can only be tried
+        // where such a file can exist at all.
+        #[cfg(unix)]
+        std::fs::write(media.join("a?b.webm"), b"also not a video id").unwrap();
         let mut opened = library(directory.path());
         opened.import_legacy(&media).unwrap();
         assert!(opened
