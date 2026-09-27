@@ -8,5 +8,5 @@ apps/goosic-swift/.swiftpm/
 # and a backend that differs by platform, so it cannot be shared.
 .vscode/
 
-# Packaged builds (apps/goosic-windows/package.ps1)
+# Packaged builds (tools/package-macos.sh, apps/goosic-windows/package.ps1)
 /dist/
