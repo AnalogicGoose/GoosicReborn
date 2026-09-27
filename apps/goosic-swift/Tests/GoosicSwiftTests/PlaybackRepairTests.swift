@@ -103,7 +103,11 @@ final class PlaybackJavaScriptTests: XCTestCase {
         js.evaluateScript(OfficialVolumeBootstrap.script(volume: 0.2, muted: false))
         js.evaluateScript("var first = new HTMLMediaElement(); media.push(first); first.play();")
         XCTAssertEqual(js.evaluateScript("JSON.stringify(writes)")?.toString(),
-                       "[[\"muted\",true],[\"volume\",0.2],[\"muted\",false],[\"play\",0.2,false]]")
+                       "[[\"volume\",0.2],[\"play\",0.2,false]]")
+        // A level change while playing touches only the level: no mute, which was audible.
+        js.evaluateScript("writes = []; goosicSetVolumePreference(0.3, false); goosicSetVolumePreference(0.2, false);")
+        XCTAssertEqual(js.evaluateScript("JSON.stringify(writes)")?.toString(),
+                       "[[\"volume\",0.3],[\"volume\",0.2]]")
         js.evaluateScript("first.volume = 1; first.muted = false;")
         XCTAssertEqual(js.evaluateScript("first.volume")?.toDouble(), 0.2)
         js.evaluateScript("var replacement = new HTMLMediaElement(); media.push(replacement); replacement.play();")
