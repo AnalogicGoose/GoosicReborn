@@ -178,9 +178,11 @@ fixture becomes `static`.
 
 ### The GTK shell on Linux
 
-`apps/goosic-linux` is designed but not yet written, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md)
-holds the decisions. When you work on it, these are settled and not yours to reopen without
-asking:
+`apps/goosic-linux` is the native GTK 4 shell on `platform/linux`. It plays through the Rust
+service, reads personal content inside the account's WebKitGTK profile, and builds as a Flatpak.
+[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) records what has been verified and what still needs a
+real account or desktop session. When you work on it, these are settled and not yours to reopen
+without asking:
 
 - It is its own Cargo workspace, not a member of the root one. CI runs
   `cargo test --workspace` on macOS and Windows, and a member that needs GTK would fail there.
