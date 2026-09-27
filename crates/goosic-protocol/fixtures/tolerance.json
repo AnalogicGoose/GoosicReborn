@@ -5,25 +5,25 @@
       "name": "unknown-field-in-envelope",
       "envelope": "response",
       "why": "A field added by a newer service. It is ignored, not refused.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":null,\"error\":null,\"servedBy\":\"goosic-service/9.9.9\"}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":null,\"error\":null,\"servedBy\":\"goosic-service/9.9.9\"}"
     },
     {
       "name": "unknown-field-in-payload",
       "envelope": "response",
       "why": "The same, one level down. Payload growth is the common case.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{\"message\":\"ok\",\"elapsedMs\":12},\"error\":null}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{\"message\":\"ok\",\"elapsedMs\":12},\"error\":null}"
     },
     {
       "name": "absent-optional-payload-fields",
       "envelope": "response",
       "why": "Everything optional omitted at once, which is what a minimal acknowledgement looks like.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{},\"error\":null}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{},\"error\":null}"
     },
     {
       "name": "request-payload-omitted-entirely",
       "envelope": "request",
       "why": "`payload` carries a serde default, so a sender may leave it out even though this crate always writes it.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"command\":\"playback.release\"}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"command\":\"playback.release\"}"
     },
     {
       "name": "future-protocol-version",
@@ -35,7 +35,7 @@
       "name": "unknown-catalog-item-kind",
       "envelope": "response",
       "why": "A catalog row of a kind a newer service knows and this build does not. It decodes as unknown and the shell shows it inert. Refusing it would fail the whole page, and an undecodable frame ends the connection, so one podcast row would take playback down with it.",
-      "wire": "{\"protocolVersion\":\"0.3.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{\"catalog\":{\"id\":\"search:x\",\"title\":\"x\",\"shelves\":[{\"id\":\"s\",\"title\":\"Shows\",\"items\":[{\"kind\":\"podcast\",\"id\":\"p\",\"title\":\"A show\",\"subtitle\":\"Podcast\"}]}]}},\"error\":null}"
+      "wire": "{\"protocolVersion\":\"0.4.0\",\"requestId\":\"r-1\",\"ok\":true,\"payload\":{\"catalog\":{\"id\":\"search:x\",\"title\":\"x\",\"shelves\":[{\"id\":\"s\",\"title\":\"Shows\",\"items\":[{\"kind\":\"podcast\",\"id\":\"p\",\"title\":\"A show\",\"subtitle\":\"Podcast\"}]}]}},\"error\":null}"
     }
   ]
 }

@@ -465,7 +465,7 @@ struct NativeMacFullPlayerVolume: View {
                 model.setVolume($0)
             }
         } else {
-            Slider(value: Binding(get: { shownVolume }, set: model.setVolume), in: 0...1)
+            Slider(value: Binding(get: { shownVolume }, set: { model.setVolume($0) }), in: 0...1)
                 .controlSize(.small)
                 .accessibilityLabel("Volume")
         }

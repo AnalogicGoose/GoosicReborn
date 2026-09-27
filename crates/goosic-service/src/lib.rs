@@ -242,7 +242,7 @@ mod tests {
         );
         assert!(response.ok);
         let wire = serde_json::to_string(&response).unwrap();
-        assert!(wire.contains("\"protocolVersion\":\"0.3.0\""));
+        assert!(wire.contains("\"protocolVersion\":\"0.4.0\""));
         let decoded: ResponseEnvelope = serde_json::from_str(&wire).unwrap();
         assert_eq!(decoded.request_id, "1");
     }
