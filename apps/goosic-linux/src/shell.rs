@@ -30,7 +30,7 @@ use goosic_shell_support::navigation::{
 };
 use goosic_shell_support::playback::{
     believes_sample, clamp_seek, clamp_volume, is_seekable, merge_preferences,
-    should_advance_after_end, volume_sync, PendingSeek, ReportedSample, VolumeSync,
+    should_advance_after_end, volume_sync, EndSample, PendingSeek, ReportedSample, VolumeSync,
     PREFERENCE_SAVE_DELAY,
 };
 use goosic_shell_support::{ServiceClient, TransportError};
@@ -1349,10 +1349,15 @@ impl Shell {
                 player.pending_seek = None;
             }
             let advance = should_advance_after_end(
-                &event.state,
-                event.is_advertisement,
-                &event.video_id,
+                &EndSample {
+                    state: &event.state,
+                    is_advertisement: event.is_advertisement,
+                    video_id: &event.video_id,
+                    position: event.current_time,
+                    duration: event.duration,
+                },
                 player.ended_video_id.as_deref(),
+                player.listener_paused,
             );
             if advance {
                 player.ended_video_id = Some(event.video_id.clone());
@@ -1360,7 +1365,10 @@ impl Shell {
             // The page's own autoplay is not guaranteed: on a fresh profile YouTube Music loads
             // the track paused. The user asked for this track to play, so the load's first paused
             // report is answered with one play request — once, so a pause the user makes is kept.
-            let nudge = player.start_pending && !event.is_advertisement && event.state == "paused";
+            let nudge = player.start_pending
+                && !player.listener_paused
+                && !event.is_advertisement
+                && event.state == "paused";
             if nudge || event.state == "playing" {
                 player.start_pending = false;
             }
@@ -1618,6 +1626,7 @@ impl Shell {
             .holds(Owner::OfficialWebView, generation)
             && self.official.is_loaded_for(generation)
         {
+            self.player.borrow_mut().listener_paused = !paused;
             if paused {
                 self.official.play();
                 self.set_status("Play requested; waiting for the player to confirm.");
@@ -1632,6 +1641,7 @@ impl Shell {
             .borrow()
             .holds(Owner::LocalDownloadedFile, generation);
         if local_owns && self.local.is_loaded_for(generation) {
+            self.player.borrow_mut().listener_paused = !paused;
             if paused {
                 self.local.play();
             } else {
@@ -2267,10 +2277,15 @@ impl Shell {
                 player.pending_seek = None;
             }
             let advance = should_advance_after_end(
-                event.state,
-                false,
-                &event.video_id,
+                &EndSample {
+                    state: event.state,
+                    is_advertisement: false,
+                    video_id: &event.video_id,
+                    position: event.current_time,
+                    duration: event.duration,
+                },
                 player.ended_video_id.as_deref(),
+                player.listener_paused,
             );
             if advance {
                 player.ended_video_id = Some(event.video_id.clone());

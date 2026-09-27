@@ -22,6 +22,8 @@ pub struct Player {
     transition: PlaybackTransition,
     transition_token: u64,
     pub paused: bool,
+    /// A pause requested by the listener, distinct from the official page stopping at its end.
+    pub listener_paused: bool,
     pub current_time: f64,
     pub duration: f64,
     pub volume: f64,
@@ -76,6 +78,7 @@ impl Player {
             transition: PlaybackTransition::Idle,
             transition_token: 0,
             paused: true,
+            listener_paused: false,
             current_time: 0.0,
             duration: 0.0,
             volume: 1.0,
@@ -130,6 +133,7 @@ impl Player {
     /// decision is carried into the next one.
     pub fn begin_track(&mut self) {
         self.paused = true;
+        self.listener_paused = false;
         self.current_time = 0.0;
         self.duration = 0.0;
         self.pending_seek = None;
@@ -331,12 +335,14 @@ mod tests {
         let mut player = Player::new();
         player.confirmed = true;
         player.paused = false;
+        player.listener_paused = true;
         player.current_time = 42.0;
         player.ended_video_id = Some("a".into());
         player.volume_applied_for_load = true;
         player.begin_track();
         assert!(!player.confirmed);
         assert!(player.paused);
+        assert!(!player.listener_paused);
         assert_eq!(player.current_time, 0.0);
         assert_eq!(player.ended_video_id, None);
         assert!(!player.volume_applied_for_load);
