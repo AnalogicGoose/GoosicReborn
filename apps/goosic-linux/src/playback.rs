@@ -102,6 +102,11 @@ impl Player {
         self.transition
     }
 
+    /// A renderer may start only under the exact owner and generation Rust last granted.
+    pub fn holds(&self, owner: Owner, generation: u64) -> bool {
+        owner != Owner::None && self.lease.owner == owner && self.lease.generation == generation
+    }
+
     /// Starts a lease transition and returns the token its answer must present.
     pub fn begin_transition(&mut self, kind: PlaybackTransition) -> u64 {
         self.transition_token += 1;
@@ -272,6 +277,18 @@ mod tests {
             generation,
             sample_sequence: 0,
         }
+    }
+
+    #[test]
+    fn a_host_requires_rusts_exact_owner_and_generation() {
+        let mut player = Player::new();
+        assert!(!player.holds(Owner::OfficialWebView, 0));
+        player.apply_lease(lease(Owner::OfficialWebView, 7));
+        assert!(player.holds(Owner::OfficialWebView, 7));
+        assert!(!player.holds(Owner::OfficialWebView, 6));
+        assert!(!player.holds(Owner::LocalDownloadedFile, 7));
+        player.apply_lease(lease(Owner::None, 8));
+        assert!(!player.holds(Owner::OfficialWebView, 8));
     }
 
     #[test]

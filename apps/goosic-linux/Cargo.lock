@@ -371,6 +371,7 @@ dependencies = [
  "goosic-shell-support",
  "gstreamer",
  "gtk4",
+ "serde_json",
  "soup3",
  "url",
  "uuid",

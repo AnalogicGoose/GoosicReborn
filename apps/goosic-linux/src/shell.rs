@@ -36,6 +36,7 @@ use goosic_shell_support::playback::{
 use goosic_shell_support::{ServiceClient, TransportError};
 use gtk::prelude::*;
 use gtk::{gio, glib};
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::artwork::ArtworkCache;
@@ -45,7 +46,9 @@ use crate::login_host::{LoginHandlers, LoginHost};
 use crate::lyrics::Lyrics;
 use crate::mpris::{Mpris, MprisHandlers};
 use crate::official_host::{self, OfficialHost};
+use crate::pages::LibrarySection;
 use crate::pages::{Browser, DownloadsState, ShellFacts};
+use crate::personal_host::PersonalHost;
 use crate::playback::Player;
 use crate::player_bar::{BarActions, PlayerBar};
 use crate::side_panels::{LyricsPanel, QueuePanel};
@@ -69,6 +72,7 @@ pub struct Shell {
     facts: RefCell<ShellFacts>,
     queue_visible: Cell<bool>,
     official: Rc<OfficialHost>,
+    personal: Rc<PersonalHost>,
     local: Rc<LocalHost>,
     mpris: Rc<Mpris>,
     background: Rc<Background>,
@@ -76,6 +80,7 @@ pub struct Shell {
     login: RefCell<Option<Rc<LoginHost>>>,
     /// The epoch of the accounts snapshot on screen, so a late answer cannot replace a newer one.
     account_epoch: Cell<u64>,
+    catalog_epoch: Cell<u64>,
     accounts_read: Cell<bool>,
     rows: gio::ListStore,
     scroller: gtk::ScrolledWindow,
@@ -119,6 +124,9 @@ impl Shell {
                 retry: Box::new(forward_unit(weak, Shell::retry)),
                 back: Box::new(forward_unit(weak, Shell::back)),
                 set_theme: Box::new(forward(weak, Shell::set_theme)),
+                set_hide_explicit: Box::new(forward(weak, Shell::set_hide_explicit)),
+                set_start_page: Box::new(forward(weak, Shell::set_start_page)),
+                set_reduce_motion: Box::new(forward(weak, Shell::set_reduce_motion)),
                 import_legacy: Box::new(forward_unit(weak, Shell::import_legacy_preferences)),
                 load_more: Box::new(forward_unit(weak, Shell::load_more)),
                 play_download: Box::new(forward(weak, Shell::play_download)),
@@ -128,6 +136,27 @@ impl Shell {
                 switch_account: Box::new(forward(weak, Shell::switch_account)),
                 sign_out: Box::new(forward_unit(weak, Shell::sign_out)),
                 remove_account: Box::new(forward(weak, Shell::remove_account)),
+                select_library_section: Box::new(forward(weak, Shell::select_library_section)),
+                create_playlist: Box::new(forward_unit(weak, Shell::create_playlist)),
+                manage_playlist: Box::new(forward(weak, Shell::manage_playlist)),
+                save_playlist: Box::new({
+                    let weak = weak.clone();
+                    move |id, saved| {
+                        if let Some(shell) = weak.upgrade() {
+                            shell.save_playlist(id, saved);
+                        }
+                    }
+                }),
+                like_track: Box::new(forward(weak, Shell::like_track)),
+                unlike_track: Box::new(forward(weak, Shell::unlike_track)),
+                add_to_playlist: Box::new(forward(weak, Shell::add_to_playlist)),
+                can_edit_library: Box::new({
+                    let weak = weak.clone();
+                    move || {
+                        weak.upgrade()
+                            .is_some_and(|shell| shell.facts.borrow().active_account_id.is_some())
+                    }
+                }),
                 artwork: artwork.clone(),
             });
             let (scroller, rows) = ui::page_list(actions);
@@ -145,6 +174,7 @@ impl Shell {
                 on_page_advanced: Box::new(forward(weak, Shell::official_moved_on)),
                 on_diagnostics: Box::new(forward(weak, Shell::host_diagnostics)),
             });
+            let personal = PersonalHost::new();
             let local = LocalHost::new(LocalHandlers {
                 on_event: Box::new(forward(weak, Shell::receive_local)),
                 on_status: Box::new(forward(weak, Shell::local_status)),
@@ -227,6 +257,7 @@ impl Shell {
             content.set_vexpand(true);
             content.append(&main);
             content.append(official.widget());
+            content.append(personal.widget());
             let root = gtk::Overlay::new();
             root.set_child(Some(&content));
             sidebar.root.set_width_request(280);
@@ -303,12 +334,14 @@ impl Shell {
                 facts: RefCell::new(ShellFacts::default()),
                 queue_visible: Cell::new(false),
                 official,
+                personal,
                 local,
                 mpris,
                 background,
                 status_icon,
                 login: RefCell::new(None),
                 account_epoch: Cell::new(0),
+                catalog_epoch: Cell::new(0),
                 accounts_read: Cell::new(false),
                 rows,
                 scroller,
@@ -424,10 +457,19 @@ impl Shell {
                     .and_then(|payload| payload.settings);
                 if let Some(settings) = settings {
                     shell.adopt_settings(&settings);
-                    if let Some(route) = Route::from_raw(&settings.last_route) {
-                        shell.browser.borrow_mut().navigate(route);
-                        ui::select_route(&shell.routes, route);
+                    let route = match settings.start_page.as_str() {
+                        "library" | "liked" => Route::Library,
+                        "last" => Route::from_raw(&settings.last_route).unwrap_or(Route::Home),
+                        _ => Route::Home,
+                    };
+                    {
+                        let mut browser = shell.browser.borrow_mut();
+                        browser.navigate(route);
+                        if settings.start_page == "liked" {
+                            browser.select_library_section(LibrarySection::Songs);
+                        }
                     }
+                    ui::select_route(&shell.routes, route);
                 }
                 shell.refresh_player();
                 shell.show_new_page();
@@ -451,6 +493,9 @@ impl Shell {
             facts.theme = theme;
             facts.legacy_imported = settings.imported_from_legacy;
             facts.legacy_available = settings.legacy_available;
+            facts.hide_explicit = settings.hide_explicit;
+            facts.start_page = settings.start_page.clone();
+            facts.reduce_motion = settings.reduce_motion;
         }
         theme::apply(theme);
         theme::apply_window(&self.window, theme);
@@ -500,6 +545,33 @@ impl Shell {
             theme: Some(theme.raw_value().to_owned()),
             ..Default::default()
         });
+    }
+
+    fn set_hide_explicit(self: &Rc<Self>, enabled: bool) {
+        self.facts.borrow_mut().hide_explicit = enabled;
+        self.save_preferences(PreferencesPatch {
+            hide_explicit: Some(enabled),
+            ..Default::default()
+        });
+        self.render_soon();
+    }
+
+    fn set_start_page(self: &Rc<Self>, page: String) {
+        self.facts.borrow_mut().start_page = page.clone();
+        self.save_preferences(PreferencesPatch {
+            start_page: Some(page),
+            ..Default::default()
+        });
+        self.render_soon();
+    }
+
+    fn set_reduce_motion(self: &Rc<Self>, enabled: bool) {
+        self.facts.borrow_mut().reduce_motion = enabled;
+        self.save_preferences(PreferencesPatch {
+            reduce_motion: Some(enabled),
+            ..Default::default()
+        });
+        self.render_soon();
     }
 
     /// Reads the previous Goosic's preferences. The service reads them without changing them and
@@ -573,8 +645,34 @@ impl Shell {
         let Some((cursor, payload)) = request else {
             return;
         };
+        let epoch = self.catalog_epoch.get();
         self.render();
+        if let Some((browse_id, title, shape)) = self.personal_source(&key) {
+            let weak = Rc::downgrade(self);
+            let requested_cursor = cursor.clone();
+            self.personal
+                .browse(&browse_id, &title, Some(&cursor), shape, move |answer| {
+                    let Some(shell) = weak.upgrade() else {
+                        return;
+                    };
+                    if shell.catalog_epoch.get() != epoch {
+                        return;
+                    }
+                    shell.browser.borrow_mut().finish_more_personal(
+                        key.clone(),
+                        &requested_cursor,
+                        answer,
+                    );
+                    if shell.browser.borrow().current_key().as_ref() == Some(&key) {
+                        shell.render();
+                    }
+                });
+            return;
+        }
         self.send("catalog.continue", payload, move |shell, answer| {
+            if shell.catalog_epoch.get() != epoch {
+                return;
+            }
             shell
                 .browser
                 .borrow_mut()
@@ -598,7 +696,356 @@ impl Shell {
         }
     }
 
+    fn select_library_section(self: &Rc<Self>, section: LibrarySection) {
+        if self.browser.borrow_mut().select_library_section(section) {
+            self.show_new_page();
+        }
+    }
+
+    fn create_playlist(self: &Rc<Self>) {
+        if self.facts.borrow().active_account_id.is_none() {
+            return;
+        }
+        let form = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        form.set_margin_start(20);
+        form.set_margin_end(20);
+        form.set_margin_top(20);
+        form.set_margin_bottom(20);
+        let entry = gtk::Entry::builder()
+            .placeholder_text("Playlist name")
+            .build();
+        form.append(&entry);
+        let create = gtk::Button::with_label("Create private playlist");
+        form.append(&create);
+        let window = gtk::Window::builder()
+            .title("Create playlist")
+            .transient_for(&self.window)
+            .modal(true)
+            .default_width(320)
+            .child(&form)
+            .build();
+        let weak = Rc::downgrade(self);
+        let dismiss = window.downgrade();
+        create.connect_clicked(move |_| {
+            let title = entry.text().trim().to_owned();
+            if let Some(shell) = weak.upgrade() {
+                if title.is_empty() {
+                    shell.set_status("Enter a playlist name.");
+                } else {
+                    shell.mutate_library(
+                        "createPlaylist",
+                        json!({"title": title, "privacy": "PRIVATE"}),
+                        "Playlist created.",
+                    );
+                    if let Some(window) = dismiss.upgrade() {
+                        window.close();
+                    }
+                }
+            }
+        });
+        window.present();
+    }
+
+    fn like_track(self: &Rc<Self>, video_id: String) {
+        self.mutate_library(
+            "rateTrack",
+            json!({"videoId": video_id, "status": "LIKE"}),
+            "Song liked.",
+        );
+    }
+
+    fn unlike_track(self: &Rc<Self>, video_id: String) {
+        self.mutate_library(
+            "rateTrack",
+            json!({"videoId": video_id, "status": "INDIFFERENT"}),
+            "Song removed from liked songs.",
+        );
+    }
+
+    fn save_playlist(self: &Rc<Self>, playlist_id: String, saved: bool) {
+        self.mutate_library(
+            "ratePlaylist",
+            json!({"playlistId": playlist_id, "saved": saved}),
+            if saved {
+                "Playlist saved to Library."
+            } else {
+                "Playlist removed from Library."
+            },
+        );
+    }
+
+    fn manage_playlist(self: &Rc<Self>, playlist_id: String) {
+        if self.facts.borrow().active_account_id.is_none() {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        let epoch = self.catalog_epoch.get();
+        self.personal
+            .mutate("listUserPlaylists", json!({}), move |result| {
+                let Some(shell) = weak.upgrade() else {
+                    return;
+                };
+                if shell.catalog_epoch.get() != epoch {
+                    return;
+                }
+                let owned = match result {
+                    Ok(value) => value,
+                    Err(message) => {
+                        shell.set_status(&message);
+                        return;
+                    }
+                };
+                let bare = playlist_id.strip_prefix("VL").unwrap_or(&playlist_id);
+                let found = owned["value"].as_array().and_then(|playlists| {
+                    playlists
+                        .iter()
+                        .find(|item| item["id"].as_str() == Some(bare))
+                });
+                let Some(found) = found else {
+                    shell.set_status("Only a playlist you own can be managed.");
+                    return;
+                };
+                let title = found["title"].as_str().unwrap_or("Playlist").to_owned();
+                shell.show_playlist_manager(playlist_id, title);
+            });
+    }
+
+    fn show_playlist_manager(self: &Rc<Self>, playlist_id: String, title: String) {
+        let form = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        form.set_margin_start(20);
+        form.set_margin_end(20);
+        form.set_margin_top(20);
+        form.set_margin_bottom(20);
+        let name = gtk::Entry::builder().text(&title).build();
+        form.append(&gtk::Label::new(Some("Playlist name")));
+        form.append(&name);
+        let rename = gtk::Button::with_label("Rename playlist");
+        let public = gtk::Button::with_label("Make public");
+        let private = gtk::Button::with_label("Make private");
+        let delete = gtk::Button::with_label("Delete playlist…");
+        for button in [&rename, &public, &private, &delete] {
+            form.append(button);
+        }
+        let window = gtk::Window::builder()
+            .title("Manage playlist")
+            .transient_for(&self.window)
+            .modal(true)
+            .default_width(360)
+            .child(&form)
+            .build();
+        let weak = Rc::downgrade(self);
+        let id = playlist_id.clone();
+        rename.connect_clicked(move |_| {
+            if let Some(shell) = weak.upgrade() {
+                let title = name.text().trim().to_owned();
+                if title.is_empty() {
+                    shell.set_status("Enter a playlist name.");
+                } else {
+                    shell.mutate_library(
+                        "renamePlaylist",
+                        json!({"playlistId": id, "title": title}),
+                        "Playlist renamed.",
+                    );
+                }
+            }
+        });
+        for (button, privacy, label) in [
+            (&public, "PUBLIC", "Playlist is public."),
+            (&private, "PRIVATE", "Playlist is private."),
+        ] {
+            let weak = Rc::downgrade(self);
+            let id = playlist_id.clone();
+            button.connect_clicked(move |_| {
+                if let Some(shell) = weak.upgrade() {
+                    shell.mutate_library(
+                        "setPlaylistPrivacy",
+                        json!({"playlistId": id, "privacy": privacy}),
+                        label,
+                    );
+                }
+            });
+        }
+        let weak = Rc::downgrade(self);
+        let parent = window.downgrade();
+        delete.connect_clicked(move |_| {
+            if let (Some(shell), Some(parent)) = (weak.upgrade(), parent.upgrade()) {
+                shell.confirm_playlist_deletion(&parent, playlist_id.clone());
+            }
+        });
+        window.present();
+    }
+
+    fn confirm_playlist_deletion(self: &Rc<Self>, parent: &gtk::Window, playlist_id: String) {
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        content.set_margin_start(20);
+        content.set_margin_end(20);
+        content.set_margin_top(20);
+        content.set_margin_bottom(20);
+        content.append(&gtk::Label::new(Some("Delete this playlist permanently?")));
+        let cancel = gtk::Button::with_label("Keep playlist");
+        let delete = gtk::Button::with_label("Delete playlist");
+        content.append(&cancel);
+        content.append(&delete);
+        let window = gtk::Window::builder()
+            .title("Delete playlist")
+            .transient_for(parent)
+            .modal(true)
+            .child(&content)
+            .build();
+        let dismiss = window.downgrade();
+        cancel.connect_clicked(move |_| {
+            if let Some(window) = dismiss.upgrade() {
+                window.close();
+            }
+        });
+        let weak = Rc::downgrade(self);
+        let dismiss = window.downgrade();
+        let manager = parent.downgrade();
+        delete.connect_clicked(move |_| {
+            if let Some(shell) = weak.upgrade() {
+                shell.delete_playlist(playlist_id.clone());
+            }
+            if let Some(window) = dismiss.upgrade() {
+                window.close();
+            }
+            if let Some(window) = manager.upgrade() {
+                window.close();
+            }
+        });
+        window.present();
+    }
+
+    fn delete_playlist(self: &Rc<Self>, playlist_id: String) {
+        let account = self.facts.borrow().active_account_id.clone();
+        let weak = Rc::downgrade(self);
+        self.personal.mutate(
+            "deletePlaylist",
+            json!({"playlistId": playlist_id}),
+            move |result| {
+                let Some(shell) = weak.upgrade() else {
+                    return;
+                };
+                if shell.facts.borrow().active_account_id != account {
+                    return;
+                }
+                match result {
+                    Ok(_) => {
+                        shell.browser.borrow_mut().clear_account_pages();
+                        shell.navigate(Route::Library);
+                        shell.set_status("Playlist deleted.");
+                    }
+                    Err(message) => shell.set_status(&message),
+                }
+            },
+        );
+    }
+
+    fn add_to_playlist(self: &Rc<Self>, video_id: String) {
+        if self.facts.borrow().active_account_id.is_none() {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        let epoch = self.catalog_epoch.get();
+        self.personal
+            .mutate("listUserPlaylists", json!({}), move |result| {
+                let Some(shell) = weak.upgrade() else {
+                    return;
+                };
+                if shell.catalog_epoch.get() != epoch {
+                    return;
+                }
+                let value = match result {
+                    Ok(value) => value,
+                    Err(message) => {
+                        shell.set_status(&message);
+                        return;
+                    }
+                };
+                let playlists = value
+                    .get("value")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                if playlists.is_empty() {
+                    shell.set_status("Create a playlist in Library before adding a song.");
+                    return;
+                }
+                let list = gtk::Box::new(gtk::Orientation::Vertical, 6);
+                list.set_margin_start(20);
+                list.set_margin_end(20);
+                list.set_margin_top(20);
+                list.set_margin_bottom(20);
+                let window = gtk::Window::builder()
+                    .title("Add to playlist")
+                    .transient_for(&shell.window)
+                    .modal(true)
+                    .default_width(320)
+                    .child(&list)
+                    .build();
+                for playlist in &playlists {
+                    if let (Some(id), Some(title)) =
+                        (playlist["id"].as_str(), playlist["title"].as_str())
+                    {
+                        let button = gtk::Button::with_label(title);
+                        let weak = Rc::downgrade(&shell);
+                        let dismiss = window.downgrade();
+                        let playlist_id = id.to_owned();
+                        let video_id = video_id.clone();
+                        button.connect_clicked(move |_| {
+                            if let Some(shell) = weak.upgrade() {
+                                shell.mutate_library(
+                                    "addToPlaylist",
+                                    json!({"playlistId": playlist_id, "videoId": video_id}),
+                                    "Song added to playlist.",
+                                );
+                            }
+                            if let Some(window) = dismiss.upgrade() {
+                                window.close();
+                            }
+                        });
+                        list.append(&button);
+                    }
+                }
+                window.present();
+            });
+    }
+
+    fn mutate_library(
+        self: &Rc<Self>,
+        operation: &str,
+        args: serde_json::Value,
+        success: &'static str,
+    ) {
+        let account = self.facts.borrow().active_account_id.clone();
+        if account.is_none() {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        self.personal.mutate(operation, args, move |result| {
+            let Some(shell) = weak.upgrade() else {
+                return;
+            };
+            if shell.facts.borrow().active_account_id != account {
+                return;
+            }
+            match result {
+                Ok(_) => {
+                    shell
+                        .catalog_epoch
+                        .set(shell.catalog_epoch.get().wrapping_add(1));
+                    shell.browser.borrow_mut().clear_account_pages();
+                    shell.set_status(success);
+                    shell.load_current(true);
+                }
+                Err(message) => shell.set_status(&message),
+            }
+        });
+    }
+
     fn show_new_page(self: &Rc<Self>) {
+        self.catalog_epoch
+            .set(self.catalog_epoch.get().wrapping_add(1));
+        self.browser.borrow_mut().cancel_loading();
         self.render();
         self.scroller.vadjustment().set_value(0.0);
         self.load_current(false);
@@ -622,12 +1069,53 @@ impl Shell {
             self.render();
             return;
         }
+        if let Some((browse_id, title, shape)) = self.personal_source(&key) {
+            if !self.browser.borrow_mut().begin_personal(&key, force) {
+                return;
+            }
+            let epoch = self.catalog_epoch.get();
+            let weak = Rc::downgrade(self);
+            self.render();
+            self.personal
+                .browse(&browse_id, &title, None, shape, move |answer| {
+                    let Some(shell) = weak.upgrade() else {
+                        return;
+                    };
+                    if shell.catalog_epoch.get() != epoch {
+                        return;
+                    }
+                    if matches!(key, CatalogKey::Playlist(_) | CatalogKey::Album(_))
+                        && answer.as_ref().map_or(true, |page| {
+                            page.shelves.is_empty() && page.tracks.is_empty()
+                        })
+                    {
+                        shell.load_anonymous(key, true);
+                        return;
+                    }
+                    shell
+                        .browser
+                        .borrow_mut()
+                        .finish_personal(key.clone(), answer);
+                    if shell.browser.borrow().current_key().as_ref() == Some(&key) {
+                        shell.render();
+                    }
+                });
+            return;
+        }
+        self.load_anonymous(key, force);
+    }
+
+    fn load_anonymous(self: &Rc<Self>, key: CatalogKey, force: bool) {
         let request = self.browser.borrow_mut().begin(&key, force);
         let Some((command, payload)) = request else {
             return;
         };
+        let epoch = self.catalog_epoch.get();
         self.render();
         self.send(command, payload, move |shell, answer| {
+            if shell.catalog_epoch.get() != epoch {
+                return;
+            }
             shell.browser.borrow_mut().finish(key.clone(), answer);
             // An answer for a page the user has left is kept for when they come back, not drawn
             // over the page they are on now.
@@ -636,6 +1124,34 @@ impl Shell {
                 shell.render();
             }
         });
+    }
+
+    fn personal_source(&self, key: &CatalogKey) -> Option<(String, String, &'static str)> {
+        self.facts.borrow().active_account_id.as_ref()?;
+        match key {
+            CatalogKey::Route(Route::Home) => {
+                Some(("FEmusic_home".into(), "Home".into(), "shelves"))
+            }
+            CatalogKey::Route(Route::Library) => {
+                let section = self.browser.borrow().library_section();
+                Some((
+                    section.browse_id().into(),
+                    section.title().into(),
+                    section.shape(),
+                ))
+            }
+            CatalogKey::Playlist(id) => Some((
+                if id.starts_with("VL") {
+                    id.clone()
+                } else {
+                    format!("VL{id}")
+                },
+                "Playlist".into(),
+                "tracks",
+            )),
+            CatalogKey::Album(id) => Some((id.clone(), "Album".into(), "tracks")),
+            _ => None,
+        }
     }
 
     fn render(&self) {
@@ -752,6 +1268,15 @@ impl Shell {
 
     /// Loads `track` into the official renderer under the lease already held.
     fn load_official(self: &Rc<Self>, track: Track) {
+        let generation = self.player.borrow().lease.generation;
+        if !self
+            .player
+            .borrow()
+            .holds(Owner::OfficialWebView, generation)
+        {
+            self.set_status("Rust has not granted the official player.");
+            return;
+        }
         let (generation, changed) = {
             let mut player = self.player.borrow_mut();
             let changed =
@@ -1086,7 +1611,13 @@ impl Shell {
         if !idle {
             return self.set_status(PENDING);
         }
-        if self.official.loaded_video_id().is_some() {
+        let generation = self.player.borrow().lease.generation;
+        if self
+            .player
+            .borrow()
+            .holds(Owner::OfficialWebView, generation)
+            && self.official.is_loaded_for(generation)
+        {
             if paused {
                 self.official.play();
                 self.set_status("Play requested; waiting for the player to confirm.");
@@ -1096,8 +1627,11 @@ impl Shell {
             }
             return;
         }
-        let local_owns = self.player.borrow().lease.owner == Owner::LocalDownloadedFile;
-        if local_owns && self.local.is_loaded() {
+        let local_owns = self
+            .player
+            .borrow()
+            .holds(Owner::LocalDownloadedFile, generation);
+        if local_owns && self.local.is_loaded_for(generation) {
             if paused {
                 self.local.play();
             } else {
@@ -1630,6 +2164,16 @@ impl Shell {
                 let player = shell.player.borrow();
                 (player.lease.generation, player.volume, player.muted)
             };
+            if !shell
+                .player
+                .borrow()
+                .holds(Owner::LocalDownloadedFile, generation)
+            {
+                return shell.fail_local(
+                    token,
+                    "Rust no longer holds the local playback lease.".to_owned(),
+                );
+            }
             shell.local.set_volume(volume);
             shell.local.set_muted(muted);
             if let Err(reason) = shell
@@ -1817,6 +2361,7 @@ impl Shell {
         if !login::accepts_snapshot_epoch(snapshot.epoch, self.account_epoch.get(), initial) {
             return;
         }
+        let previous = self.facts.borrow().active_account_id.clone();
         self.account_epoch.set(snapshot.epoch);
         self.accounts_read.set(true);
         let profile = {
@@ -1829,12 +2374,21 @@ impl Shell {
             facts.accounts = snapshot.accounts.clone();
             profile
         };
+        if self.facts.borrow().active_account_id != previous {
+            self.catalog_epoch
+                .set(self.catalog_epoch.get().wrapping_add(1));
+            self.browser.borrow_mut().clear_account_pages();
+        }
         self.render_soon();
         // An account remembered from the last run is where this run starts, not a change to make:
         // nothing plays yet, so its profile is bound directly.
         if initial && self.player.borrow().lease.owner == Owner::None {
             self.official
                 .bind_profile(profile.unwrap_or(goosic_shell_support::bridge::GUEST_PROFILE_ID));
+        }
+        if initial {
+            self.personal.bind(profile);
+            self.load_current(false);
         }
     }
 
@@ -1933,8 +2487,16 @@ impl Shell {
 
     fn end_account_operation(self: &Rc<Self>, message: &str) {
         self.facts.borrow_mut().account_busy = false;
+        let profile = self
+            .facts
+            .borrow()
+            .active_account_id
+            .as_deref()
+            .map(|_| self.active_profile());
+        self.personal.bind(profile);
         self.render_soon();
         self.set_status(message);
+        self.load_current(false);
     }
 
     /// Stops whatever plays, gives its lease back and blanks the page before an account changes,
@@ -2242,6 +2804,7 @@ impl Shell {
     /// Forgets what played under the previous account, so nothing from one account is shown or
     /// resumed under another.
     fn clear_account_scoped(self: &Rc<Self>) {
+        self.personal.bind(None);
         {
             let mut player = self.player.borrow_mut();
             player.queue.clear();

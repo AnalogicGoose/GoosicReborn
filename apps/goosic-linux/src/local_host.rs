@@ -84,6 +84,15 @@ impl LocalHost {
         self.loaded.borrow().is_some()
     }
 
+    pub fn is_loaded_for(&self, generation: u64) -> bool {
+        self.is_loaded()
+            && self
+                .identity
+                .borrow()
+                .as_ref()
+                .is_some_and(|(owned, _)| *owned == generation)
+    }
+
     /// Opens a decoded file, paused. The caller must already hold Rust's local lease; playing is a
     /// separate request.
     pub fn prepare(
@@ -417,10 +426,13 @@ mod tests {
             host.duration()
         );
         assert_eq!(host.loaded_video_id().as_deref(), Some("dQw4w9WgXcQ"));
+        assert!(host.is_loaded_for(3));
+        assert!(!host.is_loaded_for(2));
         assert!(!host.is_playing(), "prepared, not playing");
 
         host.stop();
         assert!(!host.is_loaded());
+        assert!(!host.is_loaded_for(3));
         assert!(host.loaded_video_id().is_none());
         let _ = std::fs::remove_dir_all(&directory);
     }

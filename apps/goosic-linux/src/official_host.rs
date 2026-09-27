@@ -109,6 +109,15 @@ impl OfficialHost {
             .map(|expected| expected.video_id.clone())
     }
 
+    pub fn is_loaded_for(&self, generation: u64) -> bool {
+        self.view.borrow().is_some()
+            && self
+                .expected
+                .borrow()
+                .as_ref()
+                .is_some_and(|expected| expected.generation == generation)
+    }
+
     pub fn is_advertisement(&self) -> bool {
         self.advertisement.get()
     }
@@ -487,7 +496,7 @@ fn build_view(profile: Uuid) -> webkit6::WebView {
 /// The host must match exactly. The Swift shell compared a string prefix, which also admits
 /// `music.youtube.com.evil.example`; a parsed host cannot be fooled that way. `about:blank` is
 /// where a fresh view starts and carries no origin to be redirected to.
-fn is_official_page(uri: &str) -> bool {
+pub(crate) fn is_official_page(uri: &str) -> bool {
     uri == "about:blank"
         || url::Url::parse(uri).is_ok_and(|url| {
             url.scheme() == "https"
