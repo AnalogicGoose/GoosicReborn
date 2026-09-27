@@ -80,6 +80,7 @@ final class OfficialPlaybackHost {
                 self.isLoading = false
                 self.onStatus?("Official host is ready; waiting for a validated player event.")
                 self.probePage()
+                self.turnOffAutomix(token: self.expectedToken)
             }
         }
         widget.openBridge { [weak self] json in
@@ -294,6 +295,27 @@ final class OfficialPlaybackHost {
                     self.onDiagnostics?(Self.text(fromJSON: json))
                 } else {
                     self.onDiagnostics?("Page probe returned nothing.")
+                }
+            }
+        }
+    }
+
+    /// Runs `OfficialBridge.automixOffScript` until the page answers, for this load only, so a
+    /// track plays to its end instead of fading into one YouTube Music chose.
+    func turnOffAutomix(token: String?, attempt: Int = 0) {
+        guard let widget, let token, token == expectedToken,
+              attempt < OfficialBridge.automixAttempts else { return }
+        widget.evaluate(OfficialBridge.automixOffScript) { json, _ in
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                let answer = json.map(Self.text(fromJSON:)) ?? "absent"
+                guard answer == "absent" else {
+                    Diagnostics.note(.officialPlayback, "automix", ["result": answer])
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    self?.turnOffAutomix(token: token, attempt: attempt + 1)
                 }
             }
         }
