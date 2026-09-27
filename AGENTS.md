@@ -53,6 +53,7 @@ make test-swift      # Swift only
 make build-swift     # build the shell for the host platform
 make run-swift       # build the service and launch the shell against it
 make test-rust-live  # opt-in; hits music.youtube.com. Do not run it in a normal check.
+make package-macos   # the download a tester installs; see docs/RELEASING.md
 ```
 
 `make test` must pass before you hand work back. CI repeats it on Linux, macOS, and
