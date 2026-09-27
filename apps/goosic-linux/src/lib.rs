@@ -13,6 +13,7 @@ pub mod lyrics;
 mod mpris;
 pub mod official_host;
 pub mod pages;
+mod personal_host;
 pub mod playback;
 mod player_bar;
 pub mod service;
