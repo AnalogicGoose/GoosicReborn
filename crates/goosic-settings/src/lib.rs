@@ -71,6 +71,14 @@ pub struct Preferences {
     pub shuffle: bool,
     /// `off`, `all`, or `one`.
     pub repeat_mode: String,
+    /// Draw the playing track's artwork, blurred, behind the content.
+    pub artwork_background: bool,
+    /// Leave explicit tracks out of shelves, searches, and lists.
+    pub hide_explicit: bool,
+    /// `home`, `library`, `liked`, or `last` (which reopens `last_route`).
+    pub start_page: String,
+    /// Skip decorative motion.
+    pub reduce_motion: bool,
 }
 
 impl Default for Preferences {
@@ -84,6 +92,10 @@ impl Default for Preferences {
             queue_visible: false,
             shuffle: false,
             repeat_mode: "off".into(),
+            artwork_background: true,
+            hide_explicit: false,
+            start_page: "home".into(),
+            reduce_motion: false,
         }
     }
 }
@@ -107,6 +119,12 @@ impl Preferences {
         }
         if !matches!(self.repeat_mode.as_str(), "off" | "all" | "one") {
             self.repeat_mode = "off".into();
+        }
+        if !matches!(
+            self.start_page.as_str(),
+            "home" | "library" | "liked" | "last"
+        ) {
+            self.start_page = "home".into();
         }
         self
     }
@@ -139,6 +157,18 @@ fn apply_patch(patch: PreferencesPatch, preferences: &mut Preferences) {
     }
     if let Some(mode) = patch.repeat_mode {
         preferences.repeat_mode = mode;
+    }
+    if let Some(enabled) = patch.artwork_background {
+        preferences.artwork_background = enabled;
+    }
+    if let Some(hidden) = patch.hide_explicit {
+        preferences.hide_explicit = hidden;
+    }
+    if let Some(page) = patch.start_page {
+        preferences.start_page = page;
+    }
+    if let Some(reduced) = patch.reduce_motion {
+        preferences.reduce_motion = reduced;
     }
 }
 
@@ -249,6 +279,10 @@ impl SettingsStore {
             queue_visible: preferences.queue_visible,
             shuffle: preferences.shuffle,
             repeat_mode: preferences.repeat_mode.clone(),
+            artwork_background: preferences.artwork_background,
+            hide_explicit: preferences.hide_explicit,
+            start_page: preferences.start_page.clone(),
+            reduce_motion: preferences.reduce_motion,
             imported_from_legacy: self.has_imported(),
             legacy_available,
         }
@@ -360,6 +394,69 @@ mod tests {
         assert!(second.preferences().muted);
         assert_eq!(second.preferences().last_route, "charts");
         assert!(second.preferences().autoplay, "untouched fields survive");
+    }
+
+    #[test]
+    fn the_artwork_background_is_on_until_turned_off_and_then_stays_off() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut first = store(directory.path());
+        assert!(first.snapshot(false).artwork_background);
+        first
+            .update(PreferencesPatch {
+                artwork_background: Some(false),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let second = store(directory.path());
+        assert!(!second.preferences().artwork_background);
+        assert!(!second.snapshot(false).artwork_background);
+    }
+
+    #[test]
+    fn listening_preferences_persist_and_an_unknown_start_page_falls_back_to_home() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut first = store(directory.path());
+        let fresh = first.snapshot(false);
+        assert!(!fresh.hide_explicit && !fresh.reduce_motion);
+        assert_eq!(fresh.start_page, "home");
+        first
+            .update(PreferencesPatch {
+                hide_explicit: Some(true),
+                start_page: Some("liked".into()),
+                reduce_motion: Some(true),
+                ..Default::default()
+            })
+            .unwrap();
+
+        let mut second = store(directory.path());
+        let snapshot = second.snapshot(false);
+        assert!(snapshot.hide_explicit && snapshot.reduce_motion);
+        assert_eq!(snapshot.start_page, "liked");
+
+        second
+            .update(PreferencesPatch {
+                start_page: Some("somewhere".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(second.preferences().start_page, "home");
+    }
+
+    #[test]
+    fn a_settings_file_from_before_the_artwork_background_still_opens() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("settings.json"),
+            r#"{"version":1,"preferences":{"theme":"dark","shuffle":true}}"#,
+        )
+        .unwrap();
+        let opened = store(directory.path());
+        assert!(opened.preferences().shuffle);
+        assert!(
+            opened.preferences().artwork_background,
+            "someone upgrading gets the new default"
+        );
     }
 
     #[test]

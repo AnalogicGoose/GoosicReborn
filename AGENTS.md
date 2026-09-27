@@ -53,6 +53,7 @@ make test-swift      # Swift only
 make build-swift     # build the shell for the host platform
 make run-swift       # build the service and launch the shell against it
 make test-rust-live  # opt-in; hits music.youtube.com. Do not run it in a normal check.
+make package-macos   # the download a tester installs; see docs/RELEASING.md
 ```
 
 `make test` must pass before you hand work back. CI repeats it on Linux, macOS, and
@@ -78,13 +79,20 @@ task seems to require breaking one, stop and say so instead of working around it
 - **Credentials never cross the protocol and never reach stdout.** Cookies, bridge tokens,
   signing keys, and media URLs stay in platform-secure storage.
 - **Advertisements are reported, never bypassed.** They are informational markers.
-- **No GPL source is copied into this repository.** The previous Goosic is read for
-  compatibility of formats and storage keys only — see
-  [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md). The legacy import reads old
-  data and never modifies or deletes it, and never carries credentials over.
+- **Code from the previous Goosic keeps its notice.** The previous Goosic is GPL-3.0 and may
+  be ported here directly — reuse working code rather than rewriting it — but a ported file
+  carries the GPL header and the original authors' copyright, and the combined program is
+  distributed under GPL-3.0 (`LICENSE-GPL-3.0`); see
+  [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md). Porting does not relax the
+  other invariants: ported fetch code runs where the cookies already live, inside the account's
+  WebKit profile, never through the service protocol. The legacy import reads old data and
+  never modifies or deletes it, and never carries credentials over.
 - **No downloader.** `goosic-downloads` imports finalized legacy files and decodes them. It
   contains no yt-dlp path and no account-cookie path, and must not grow one.
-- **A clamped catalog page says so.** Never present a partial list as complete.
+- **A clamped catalog page says so.** Never present a partial list as complete. A page with
+  more shelves than one frame holds is paged, not clamped: the service sends what fits and a
+  cursor for the rest. A list that is still partial says so in its count ("100+ songs"); the
+  sentence explaining why is a detail, shown in debug mode and always logged.
 
 ## 4. Where platform-specific code lives
 
@@ -171,9 +179,11 @@ fixture becomes `static`.
 
 ### The GTK shell on Linux
 
-`apps/goosic-linux` is designed but not yet written, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md)
-holds the decisions. When you work on it, these are settled and not yours to reopen without
-asking:
+`apps/goosic-linux` is the native GTK 4 shell on `platform/linux`. It plays through the Rust
+service, reads personal content inside the account's WebKitGTK profile, and builds as a Flatpak.
+[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) records what has been verified and what still needs a
+real account or desktop session. When you work on it, these are settled and not yours to reopen
+without asking:
 
 - It is its own Cargo workspace, not a member of the root one. CI runs
   `cargo test --workspace` on macOS and Windows, and a member that needs GTK would fail there.

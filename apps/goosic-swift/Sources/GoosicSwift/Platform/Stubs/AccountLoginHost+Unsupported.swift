@@ -1,6 +1,6 @@
 // Linux opens a real sign-in window from Platform/Linux. What remains here is the stub for
 // platforms with no login surface yet.
-#if !os(macOS) && !os(Linux)
+#if (!os(macOS) && !os(Linux)) || GOOSIC_PREVIEW_NO_WEBKIT
 import Foundation
 
 @MainActor

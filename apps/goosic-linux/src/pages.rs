@@ -6,10 +6,15 @@
 //! every shell turns a page into the same rows.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use goosic_protocol::{RequestPayload, ResponseEnvelope};
-use goosic_shell_support::catalog::{detail_subtitle, failure_text, Card, PageView, Track};
-use goosic_shell_support::navigation::{CatalogKey, EntityReference, Route, SearchFilter};
+use goosic_protocol::{
+    AccountSummary, CatalogPage, DownloadedTrack, RequestPayload, ResponseEnvelope,
+};
+use goosic_shell_support::catalog::{
+    detail_subtitle, failure_text, Card, CardAction, PageView, Track,
+};
+use goosic_shell_support::navigation::{CatalogKey, EntityReference, Route, SearchFilter, Theme};
 use goosic_shell_support::TransportError;
 
 /// Where one catalog page stands.
@@ -23,6 +28,67 @@ pub enum LoadState {
 
 static IDLE: LoadState = LoadState::Idle;
 
+/// What the shell knows that some screens show — the connection, stored preferences, the account.
+/// It is handed in, so those screens are decided here without GTK like the rest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShellFacts {
+    pub connected: bool,
+    pub theme: Theme,
+    pub legacy_imported: bool,
+    pub legacy_available: bool,
+    /// The name of the account playback runs under, or `None` for the guest.
+    pub account: Option<String>,
+    pub accounts: Vec<AccountSummary>,
+    pub active_account_id: Option<String>,
+    /// A sign-in, switch or removal is in flight; nothing else about accounts may start.
+    pub account_busy: bool,
+    pub hide_explicit: bool,
+    pub start_page: String,
+    pub reduce_motion: bool,
+    pub downloads: DownloadsState,
+    /// A read or import of the downloaded files is in flight.
+    pub downloads_busy: bool,
+}
+
+impl Default for ShellFacts {
+    fn default() -> Self {
+        ShellFacts {
+            connected: false,
+            theme: Theme::System,
+            legacy_imported: false,
+            legacy_available: false,
+            account: None,
+            accounts: Vec::new(),
+            active_account_id: None,
+            account_busy: false,
+            hide_explicit: false,
+            start_page: "home".into(),
+            reduce_motion: false,
+            downloads: DownloadsState::NotRead,
+            downloads_busy: false,
+        }
+    }
+}
+
+/// What the shell has read of the downloaded files.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum DownloadsState {
+    #[default]
+    NotRead,
+    Read(Vec<DownloadedTrack>),
+    Failed(String),
+}
+
+/// A file size as people read it.
+pub fn size_text(bytes: u64) -> String {
+    const MEGABYTE: f64 = 1024.0 * 1024.0;
+    if bytes as f64 >= MEGABYTE {
+        format!("{:.1} MB", bytes as f64 / MEGABYTE)
+    } else {
+        format!("{} KB", bytes.div_ceil(1024))
+    }
+}
+
 /// One row of a screen, in the order it is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PageRow {
@@ -33,6 +99,9 @@ pub enum PageRow {
     },
     /// Says plainly that the catalog is anonymous, so nobody reads a guest shelf as their own mix.
     GuestNotice,
+    LibrarySections(LibrarySection),
+    LibraryActions,
+    PlaylistActions(String),
     Loading {
         subject: String,
     },
@@ -47,12 +116,82 @@ pub enum PageRow {
     NotLoaded {
         subject: String,
     },
-    /// Boxed because a track is several times the size of every other row.
-    Track(Box<Track>),
+    /// Plays a whole list from its first track.
+    PlayAll(Rc<[Track]>),
+    /// A track, and the list it belongs to: playing it queues its neighbours too.
+    Track {
+        track: Box<Track>,
+        context: Rc<[Track]>,
+    },
     ShelfTitle(String),
+    /// Four compact song rows per horizontal column, matching the Windows shelf.
+    TrackShelf(Rc<[Track]>),
     Cards(Vec<Card>),
     /// The service clamped the page to fit one protocol frame, and the screen has to say so.
     Truncated,
+    /// The settings screen's sections.
+    Settings(ShellFacts),
+    /// The end of a page that continues upstream.
+    More(MoreRow),
+    /// Refresh and import, with what the screen does and does not do.
+    DownloadsToolbar {
+        busy: bool,
+    },
+    Download(DownloadedTrack),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibrarySection {
+    Playlists,
+    Songs,
+    Albums,
+    Artists,
+}
+
+impl LibrarySection {
+    pub const ALL: [Self; 4] = [Self::Playlists, Self::Songs, Self::Albums, Self::Artists];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Playlists => "Playlists",
+            Self::Songs => "Songs",
+            Self::Albums => "Albums",
+            Self::Artists => "Artists",
+        }
+    }
+
+    pub fn browse_id(self) -> &'static str {
+        match self {
+            Self::Playlists => "FEmusic_liked_playlists",
+            Self::Songs => "VLLM",
+            Self::Albums => "FEmusic_liked_albums",
+            Self::Artists => "FEmusic_library_corpus_track_artists",
+        }
+    }
+
+    pub fn shape(self) -> &'static str {
+        if self == Self::Songs {
+            "tracks"
+        } else {
+            "shelves"
+        }
+    }
+}
+
+/// The row at the end of a page that continues.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MoreRow {
+    Available,
+    Loading,
+    Failed(String),
+}
+
+/// Where a page's next part stands. Only a page the service returned a cursor for has one.
+#[derive(Debug, Clone, PartialEq)]
+enum More {
+    Available(String),
+    Loading(String),
+    Failed { cursor: String, message: String },
 }
 
 /// The shell's navigation, and the catalog pages it has loaded.
@@ -65,7 +204,9 @@ pub struct Browser {
     detail: Option<EntityReference>,
     submitted_query: String,
     filter: SearchFilter,
+    library_section: LibrarySection,
     pages: HashMap<CatalogKey, LoadState>,
+    more: HashMap<CatalogKey, More>,
 }
 
 impl Default for Browser {
@@ -81,8 +222,14 @@ impl Browser {
             detail: None,
             submitted_query: String::new(),
             filter: SearchFilter::All,
+            library_section: LibrarySection::Playlists,
             pages: HashMap::new(),
+            more: HashMap::new(),
         }
+    }
+
+    pub fn route(&self) -> Route {
+        self.route
     }
 
     pub fn navigate(&mut self, route: Route) {
@@ -115,6 +262,38 @@ impl Browser {
         true
     }
 
+    pub fn library_section(&self) -> LibrarySection {
+        self.library_section
+    }
+
+    pub fn select_library_section(&mut self, section: LibrarySection) -> bool {
+        if self.library_section == section {
+            return false;
+        }
+        self.library_section = section;
+        self.pages.remove(&CatalogKey::Route(Route::Library));
+        self.more.remove(&CatalogKey::Route(Route::Library));
+        true
+    }
+
+    pub fn clear_account_pages(&mut self) {
+        self.pages.remove(&CatalogKey::Route(Route::Home));
+        self.pages.remove(&CatalogKey::Route(Route::Library));
+        self.pages
+            .retain(|key, _| !matches!(key, CatalogKey::Playlist(_) | CatalogKey::Album(_)));
+        self.more.clear();
+    }
+
+    pub fn cancel_loading(&mut self) {
+        self.pages
+            .retain(|_, state| !matches!(state, LoadState::Loading));
+        for more in self.more.values_mut() {
+            if let More::Loading(cursor) = more {
+                *more = More::Available(cursor.clone());
+            }
+        }
+    }
+
     /// The page the screen is showing, if it shows one.
     pub fn current_key(&self) -> Option<CatalogKey> {
         if let Some(entity) = &self.detail {
@@ -125,6 +304,7 @@ impl Browser {
                 query: self.submitted_query.clone(),
                 filter: self.filter,
             }),
+            Route::Library => Some(CatalogKey::Route(Route::Library)),
             route => route.catalog_route().map(|_| CatalogKey::Route(route)),
         }
     }
@@ -148,11 +328,68 @@ impl Browser {
         Some(request)
     }
 
+    pub fn begin_personal(&mut self, key: &CatalogKey, force: bool) -> bool {
+        if !force && matches!(self.state(key), LoadState::Loading | LoadState::Loaded(_)) {
+            return false;
+        }
+        self.more.remove(key);
+        self.pages.insert(key.clone(), LoadState::Loading);
+        true
+    }
+
+    pub fn finish_personal(&mut self, key: CatalogKey, result: Result<CatalogPage, String>) {
+        let state = match result {
+            Ok(page) => {
+                self.set_cursor(&key, page.next_cursor.clone());
+                LoadState::Loaded(PageView::from_wire(&page))
+            }
+            Err(message) => LoadState::Failed {
+                code: "accountUnavailable".to_owned(),
+                message,
+            },
+        };
+        self.pages.insert(key, state);
+    }
+
+    pub fn finish_more_personal(
+        &mut self,
+        key: CatalogKey,
+        cursor: &str,
+        result: Result<CatalogPage, String>,
+    ) {
+        if self.more.get(&key) != Some(&More::Loading(cursor.to_owned())) {
+            return;
+        }
+        match result {
+            Ok(page) => {
+                self.set_cursor(&key, page.next_cursor.clone());
+                let next = PageView::from_wire(&page);
+                if let Some(LoadState::Loaded(loaded)) = self.pages.get_mut(&key) {
+                    loaded.tracks.extend(next.tracks);
+                    loaded.shelves.extend(next.shelves);
+                    loaded.truncated |= next.truncated;
+                }
+            }
+            Err(message) => {
+                self.more.insert(
+                    key,
+                    More::Failed {
+                        cursor: cursor.to_owned(),
+                        message,
+                    },
+                );
+            }
+        }
+    }
+
     /// Stores the service's answer for `key`, whichever page is on screen now.
     pub fn finish(&mut self, key: CatalogKey, result: Result<ResponseEnvelope, TransportError>) {
         let state = match result {
             Ok(response) => match response.payload.and_then(|payload| payload.catalog) {
-                Some(page) => LoadState::Loaded(PageView::from_wire(&page)),
+                Some(page) => {
+                    self.set_cursor(&key, page.next_cursor.clone());
+                    LoadState::Loaded(PageView::from_wire(&page))
+                }
                 None => LoadState::Failed {
                     code: "invalidResponse".to_owned(),
                     message: "The service answered without a catalog page.".to_owned(),
@@ -181,10 +418,109 @@ impl Browser {
         self.detail.is_none() && self.route == Route::Search
     }
 
+    /// The continuation the page `key` needs next — the cursor being followed and the payload for
+    /// `catalog.continue` — marked as loading. `None` when the page is not loaded, has no next part,
+    /// or is already fetching it.
+    pub fn begin_more(&mut self, key: &CatalogKey) -> Option<(String, RequestPayload)> {
+        if !matches!(self.state(key), LoadState::Loaded(_)) {
+            return None;
+        }
+        let cursor = match self.more.get(key)? {
+            More::Available(cursor) | More::Failed { cursor, .. } => cursor.clone(),
+            More::Loading(_) => return None,
+        };
+        self.more.insert(key.clone(), More::Loading(cursor.clone()));
+        let payload = RequestPayload {
+            continuation: Some(cursor.clone()),
+            ..Default::default()
+        };
+        Some((cursor, payload))
+    }
+
+    /// Appends the next part of `key` to what is already loaded. An answer for a cursor the page is
+    /// no longer following is dropped, so a slow continuation cannot land twice or out of order.
+    pub fn finish_more(
+        &mut self,
+        key: CatalogKey,
+        cursor: &str,
+        result: Result<ResponseEnvelope, TransportError>,
+    ) {
+        if self.more.get(&key) != Some(&More::Loading(cursor.to_owned())) {
+            return;
+        }
+        match result {
+            Ok(response) => {
+                let Some(page) = response.payload.and_then(|payload| payload.catalog) else {
+                    self.more.insert(
+                        key,
+                        More::Failed {
+                            cursor: cursor.to_owned(),
+                            message: "The service answered without a catalog page.".to_owned(),
+                        },
+                    );
+                    return;
+                };
+                self.set_cursor(&key, page.next_cursor.clone());
+                let next = PageView::from_wire(&page);
+                if let Some(LoadState::Loaded(loaded)) = self.pages.get_mut(&key) {
+                    loaded.tracks.extend(next.tracks);
+                    loaded.shelves.extend(next.shelves);
+                    loaded.truncated |= next.truncated;
+                }
+            }
+            Err(error) => {
+                let (code, message) = error.describe();
+                // Upstream answers the end of a feed with an empty page, which is not a failure.
+                if code == "catalogEmpty" {
+                    self.more.remove(&key);
+                } else {
+                    self.more.insert(
+                        key,
+                        More::Failed {
+                            cursor: cursor.to_owned(),
+                            message,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    fn set_cursor(&mut self, key: &CatalogKey, cursor: Option<String>) {
+        match cursor.filter(|cursor| !cursor.trim().is_empty()) {
+            Some(cursor) => {
+                self.more.insert(key.clone(), More::Available(cursor));
+            }
+            None => {
+                self.more.remove(key);
+            }
+        }
+    }
+
     /// Everything the screen draws, top to bottom.
-    pub fn rows(&self) -> Vec<PageRow> {
+    pub fn rows(&self, facts: &ShellFacts) -> Vec<PageRow> {
+        let mut rows = self.screen_rows(facts);
+        let key = self.current_key();
+        let more = key
+            .as_ref()
+            .filter(|key| matches!(self.state(key), LoadState::Loaded(_)))
+            .and_then(|key| self.more.get(key));
+        rows.extend(more.map(|more| {
+            PageRow::More(match more {
+                More::Available(_) => MoreRow::Available,
+                More::Loading(_) => MoreRow::Loading,
+                More::Failed { message, .. } => MoreRow::Failed(message.clone()),
+            })
+        }));
+        if facts.hide_explicit {
+            rows = rows.into_iter().filter_map(without_explicit).collect();
+        }
+        rows
+    }
+
+    fn screen_rows(&self, facts: &ShellFacts) -> Vec<PageRow> {
         if let Some(entity) = &self.detail {
-            return self.detail_rows(entity);
+            return self.detail_rows(entity, facts);
         }
         let title = route_title(self.route);
         let mut rows = vec![PageRow::Header {
@@ -202,8 +538,55 @@ impl Browser {
                     message: "Every result is a real YouTube Music entry.".to_owned(),
                 }),
             },
+            Route::Settings => rows.push(PageRow::Settings(facts.clone())),
+            Route::Downloads => {
+                rows.push(PageRow::DownloadsToolbar {
+                    busy: facts.downloads_busy,
+                });
+                match &facts.downloads {
+                    DownloadsState::NotRead => rows.push(PageRow::Loading {
+                        subject: "downloaded files".to_owned(),
+                    }),
+                    DownloadsState::Failed(message) => rows.push(PageRow::Failure {
+                        title: "Could not read downloaded files".to_owned(),
+                        detail: message.clone(),
+                    }),
+                    DownloadsState::Read(tracks) if tracks.is_empty() => {
+                        rows.push(PageRow::Empty {
+                            title: "No downloaded files".to_owned(),
+                            message: "Import the finalized files a previous Goosic left on this \
+                                      machine. Nothing is downloaded here."
+                                .to_owned(),
+                        })
+                    }
+                    DownloadsState::Read(tracks) => {
+                        rows.extend(tracks.iter().cloned().map(PageRow::Download))
+                    }
+                }
+            }
+            Route::Library => match facts.account {
+                None => rows.push(PageRow::Empty {
+                    title: "Not connected to an account".to_owned(),
+                    message: "The catalog is browsed as a guest, so there is no personal \
+                              library to read. Sign in from Settings to create an isolated \
+                              account profile."
+                        .to_owned(),
+                }),
+                Some(_) => {
+                    rows.push(PageRow::LibrarySections(self.library_section));
+                    if self.library_section == LibrarySection::Playlists {
+                        rows.push(PageRow::LibraryActions);
+                    }
+                    rows.extend(body_rows(
+                        self.state(&CatalogKey::Route(Route::Library)),
+                        self.library_section.title(),
+                    ));
+                }
+            },
             route if route.catalog_route().is_some() => {
-                rows.push(PageRow::GuestNotice);
+                if route != Route::Home || facts.account.is_none() {
+                    rows.push(PageRow::GuestNotice);
+                }
                 rows.extend(body_rows(
                     self.state(&CatalogKey::Route(route)),
                     &title.to_lowercase(),
@@ -217,7 +600,7 @@ impl Browser {
         rows
     }
 
-    fn detail_rows(&self, entity: &EntityReference) -> Vec<PageRow> {
+    fn detail_rows(&self, entity: &EntityReference, facts: &ShellFacts) -> Vec<PageRow> {
         let state = self.state(&CatalogKey::entity(entity));
         let kind = entity.kind_label();
         let header = match state {
@@ -231,6 +614,14 @@ impl Browser {
             },
         };
         let mut rows = vec![PageRow::Back, header];
+        if let (EntityReference::Playlist(id), Some(_)) = (entity, &facts.account) {
+            rows.push(PageRow::PlaylistActions(id.clone()));
+        }
+        if let LoadState::Loaded(page) = state {
+            if !page.tracks.is_empty() {
+                rows.push(PageRow::PlayAll(page.tracks.clone().into()));
+            }
+        }
         rows.extend(body_rows(state, &format!("this {}", kind.to_lowercase())));
         rows
     }
@@ -271,6 +662,7 @@ pub fn request_for(key: &CatalogKey) -> Option<(&'static str, RequestPayload)> {
         CatalogKey::Album(id) => entity("catalog.album", id),
         CatalogKey::Artist(id) => entity("catalog.artist", id),
         CatalogKey::Playlist(id) => entity("catalog.playlist", id),
+        CatalogKey::Category(id) => entity("catalog.category", id),
     })
 }
 
@@ -290,7 +682,7 @@ pub fn route_title(route: Route) -> &'static str {
 
 fn route_subtitle(route: Route) -> &'static str {
     match route {
-        Route::Home => "Live from YouTube Music, browsed as a guest",
+        Route::Home => "Music picked for this session",
         Route::Explore => "New releases, charts, moods, and genres",
         Route::Search => "Search YouTube Music by title, artist, or album",
         Route::Library => "Your saved music",
@@ -323,19 +715,11 @@ fn body_rows(state: &LoadState, subject: &str) -> Vec<PageRow> {
             message: format!("{subject} came back empty."),
         }],
         LoadState::Loaded(page) => {
-            let mut rows: Vec<PageRow> = page
-                .tracks
-                .iter()
-                .map(|track| PageRow::Track(Box::new(track.clone())))
-                .collect();
+            let mut rows = track_rows(&page.tracks.clone().into());
             for shelf in &page.shelves {
                 rows.push(PageRow::ShelfTitle(shelf.title.clone()));
-                // Songs read far better as rows than as artwork cards, so a shelf that holds only
-                // songs is drawn as a track list.
                 match shelf.track_list() {
-                    Some(tracks) => {
-                        rows.extend(tracks.into_iter().map(|t| PageRow::Track(Box::new(t))))
-                    }
+                    Some(tracks) => rows.push(PageRow::TrackShelf(tracks.into())),
                     None => rows.push(PageRow::Cards(shelf.cards.clone())),
                 }
             }
@@ -345,6 +729,61 @@ fn body_rows(state: &LoadState, subject: &str) -> Vec<PageRow> {
             rows
         }
     }
+}
+
+fn without_explicit(row: PageRow) -> Option<PageRow> {
+    match row {
+        PageRow::Track { track, context } => {
+            if track.explicit {
+                return None;
+            }
+            let context = context
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            Some(PageRow::Track { track, context })
+        }
+        PageRow::PlayAll(tracks) => {
+            let tracks: Rc<[Track]> = tracks
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            (!tracks.is_empty()).then_some(PageRow::PlayAll(tracks))
+        }
+        PageRow::TrackShelf(tracks) => {
+            let tracks: Rc<[Track]> = tracks
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            (!tracks.is_empty()).then_some(PageRow::TrackShelf(tracks))
+        }
+        PageRow::Cards(cards) => {
+            let cards = cards
+                .into_iter()
+                .filter(
+                    |card| !matches!(&card.action, Some(CardAction::Play(track)) if track.explicit),
+                )
+                .collect::<Vec<_>>();
+            (!cards.is_empty()).then_some(PageRow::Cards(cards))
+        }
+        other => Some(other),
+    }
+}
+
+/// One row per track, each carrying the whole list so playing one queues the rest.
+fn track_rows(list: &Rc<[Track]>) -> Vec<PageRow> {
+    list.iter()
+        .map(|track| PageRow::Track {
+            track: Box::new(track.clone()),
+            context: list.clone(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -366,6 +805,7 @@ mod tests {
             album_id: None,
             duration: None,
             thumbnail: None,
+            color: None,
             video_id: video_id.map(Into::into),
             explicit: false,
         }
@@ -390,11 +830,13 @@ mod tests {
                     id: "songs".into(),
                     title: "Quick picks".into(),
                     items: vec![item(CatalogItemKind::Song, "a", Some("a"))],
+                    layout: Default::default(),
                 },
                 CatalogShelf {
                     id: "albums".into(),
                     title: "Albums".into(),
                     items: vec![item(CatalogItemKind::Album, "MPRE1", None)],
+                    layout: Default::default(),
                 },
             ],
             truncated: true,
@@ -408,6 +850,10 @@ mod tests {
         browser.begin(&key, false).unwrap();
         browser.finish(key, answer(home_page()));
         browser
+    }
+
+    fn rows(browser: &Browser) -> Vec<PageRow> {
+        browser.rows(&ShellFacts::default())
     }
 
     #[test]
@@ -436,15 +882,46 @@ mod tests {
 
     #[test]
     fn a_loaded_page_draws_its_header_notice_shelves_and_truncation() {
-        let rows = loaded_home().rows();
+        let rows = rows(&loaded_home());
         assert!(matches!(&rows[0], PageRow::Header { title, .. } if title == "Home"));
         assert_eq!(rows[1], PageRow::GuestNotice);
         assert_eq!(rows[2], PageRow::ShelfTitle("Quick picks".into()));
-        // A shelf of songs is drawn as rows, and a shelf of albums as cards.
-        assert!(matches!(&rows[3], PageRow::Track(track) if track.video_id == "a"));
+        // Song shelves keep their playback context in one horizontal group.
+        assert!(matches!(&rows[3], PageRow::TrackShelf(tracks) if tracks[0].video_id == "a"));
         assert_eq!(rows[4], PageRow::ShelfTitle("Albums".into()));
         assert!(matches!(&rows[5], PageRow::Cards(cards) if cards.len() == 1));
         assert_eq!(rows.last(), Some(&PageRow::Truncated));
+    }
+
+    #[test]
+    fn a_track_row_carries_the_list_it_belongs_to_and_a_detail_page_can_play_all() {
+        let mut browser = Browser::new();
+        let entity = EntityReference::Album("MPRE1".into());
+        browser.open(entity.clone());
+        let key = browser.current_key().unwrap();
+        browser.begin(&key, false);
+        browser.finish(
+            key,
+            answer(CatalogPage {
+                id: "MPRE1".into(),
+                title: "Night Windows".into(),
+                tracks: vec![
+                    item(CatalogItemKind::Song, "a", Some("a")),
+                    item(CatalogItemKind::Song, "b", Some("b")),
+                ],
+                ..Default::default()
+            }),
+        );
+        let rows = rows(&browser);
+        assert!(matches!(&rows[2], PageRow::PlayAll(tracks) if tracks.len() == 2));
+        match &rows[4] {
+            PageRow::Track { track, context } => {
+                assert_eq!(track.video_id, "b");
+                let ids: Vec<&str> = context.iter().map(|t| t.video_id.as_str()).collect();
+                assert_eq!(ids, ["a", "b"], "playing b queues the album around it");
+            }
+            other => panic!("expected a track row, got {other:?}"),
+        }
     }
 
     #[test]
@@ -459,7 +936,7 @@ mod tests {
                 message: "timed out upstream".into(),
             }),
         );
-        let rows = browser.rows();
+        let rows = rows(&browser);
         assert!(
             matches!(&rows[2], PageRow::Failure { title, .. } if title == "Catalog unreachable")
         );
@@ -470,7 +947,7 @@ mod tests {
         let mut browser = Browser::new();
         let key = browser.current_key().unwrap();
         browser.fail_offline(key);
-        let rows = browser.rows();
+        let rows = rows(&browser);
         assert!(
             matches!(&rows[2], PageRow::Failure { title, .. } if title == "Service not connected")
         );
@@ -483,7 +960,7 @@ mod tests {
         assert!(browser.shows_search_bar());
         assert_eq!(browser.current_key(), None);
         assert!(
-            matches!(&browser.rows()[1], PageRow::Empty { title, .. } if title == "Start a search")
+            matches!(&rows(&browser)[1], PageRow::Empty { title, .. } if title == "Start a search")
         );
 
         assert!(!browser.submit_search("   "), "blank is not a query");
@@ -509,7 +986,7 @@ mod tests {
         assert!(!browser.shows_search_bar());
         let key = browser.current_key().unwrap();
         assert_eq!(request_for(&key).unwrap().0, "catalog.album");
-        let rows = browser.rows();
+        let rows = rows(&browser);
         assert_eq!(rows[0], PageRow::Back);
         assert!(matches!(&rows[1], PageRow::Header { title, .. } if title == "Album"));
         browser.back();
@@ -523,7 +1000,7 @@ mod tests {
         browser.begin(&home, false);
         browser.navigate(Route::Charts);
         browser.finish(home.clone(), answer(home_page()));
-        assert!(matches!(&browser.rows()[0], PageRow::Header { title, .. } if title == "Charts"));
+        assert!(matches!(&rows(&browser)[0], PageRow::Header { title, .. } if title == "Charts"));
         assert!(
             matches!(browser.state(&home), LoadState::Loaded(_)),
             "kept for coming back"
@@ -531,12 +1008,284 @@ mod tests {
     }
 
     #[test]
-    fn screens_this_shell_does_not_have_yet_say_so() {
+    fn settings_shows_the_facts_the_shell_hands_it() {
+        let mut browser = Browser::new();
+        browser.navigate(Route::Settings);
+        assert_eq!(
+            browser.current_key(),
+            None,
+            "settings reads no catalog page"
+        );
+        let facts = ShellFacts {
+            connected: true,
+            theme: Theme::Dark,
+            legacy_available: true,
+            ..ShellFacts::default()
+        };
+        assert_eq!(browser.rows(&facts)[1], PageRow::Settings(facts.clone()));
+    }
+
+    #[test]
+    fn the_library_says_why_it_is_empty_for_a_guest() {
+        let mut browser = Browser::new();
+        browser.navigate(Route::Library);
+        assert!(matches!(
+            &rows(&browser)[1],
+            PageRow::Empty { title, .. } if title == "Not connected to an account"
+        ));
+    }
+
+    fn loaded_with_cursor(cursor: &str) -> (Browser, CatalogKey) {
+        let mut browser = Browser::new();
+        let key = browser.current_key().unwrap();
+        browser.begin(&key, false);
+        browser.finish(
+            key.clone(),
+            answer(CatalogPage {
+                next_cursor: Some(cursor.into()),
+                ..home_page()
+            }),
+        );
+        (browser, key)
+    }
+
+    fn next_part(title: &str) -> Result<ResponseEnvelope, TransportError> {
+        answer(CatalogPage {
+            shelves: vec![CatalogShelf {
+                id: "more".into(),
+                title: title.into(),
+                items: vec![item(CatalogItemKind::Album, "MPRE2", None)],
+                layout: Default::default(),
+            }],
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn a_page_that_continues_offers_more_and_appends_what_comes_back() {
+        let (mut browser, key) = loaded_with_cursor("page-2");
+        assert_eq!(
+            rows(&browser).last(),
+            Some(&PageRow::More(MoreRow::Available))
+        );
+
+        let (cursor, payload) = browser.begin_more(&key).expect("a cursor to follow");
+        assert_eq!(cursor, "page-2");
+        assert_eq!(payload.continuation.as_deref(), Some("page-2"));
+        assert!(browser.begin_more(&key).is_none(), "already loading");
+        assert_eq!(
+            rows(&browser).last(),
+            Some(&PageRow::More(MoreRow::Loading))
+        );
+
+        browser.finish_more(key, &cursor, next_part("More picks"));
+        let rows = rows(&browser);
+        assert!(
+            rows.contains(&PageRow::ShelfTitle("Quick picks".into())),
+            "the first part stays"
+        );
+        assert!(rows.contains(&PageRow::ShelfTitle("More picks".into())));
+        assert!(
+            !rows.iter().any(|row| matches!(row, PageRow::More(_))),
+            "a part without a cursor ends the feed"
+        );
+    }
+
+    #[test]
+    fn a_stale_continuation_is_dropped_and_a_failed_one_can_be_retried() {
+        let (mut browser, key) = loaded_with_cursor("page-2");
+        let (cursor, _) = browser.begin_more(&key).unwrap();
+
+        browser.finish_more(key.clone(), "an-older-cursor", next_part("Stale"));
+        assert!(!rows(&browser).contains(&PageRow::ShelfTitle("Stale".into())));
+
+        browser.finish_more(
+            key.clone(),
+            &cursor,
+            Err(TransportError::Remote {
+                code: "catalogUnavailable".into(),
+                message: "timed out upstream".into(),
+            }),
+        );
+        assert_eq!(
+            rows(&browser).last(),
+            Some(&PageRow::More(MoreRow::Failed("timed out upstream".into())))
+        );
+
+        let (retry, _) = browser.begin_more(&key).expect("a failure can be retried");
+        assert_eq!(retry, "page-2");
+        browser.finish_more(
+            key,
+            &retry,
+            Err(TransportError::Remote {
+                code: "catalogEmpty".into(),
+                message: "nothing more".into(),
+            }),
+        );
+        assert!(
+            !rows(&browser)
+                .iter()
+                .any(|row| matches!(row, PageRow::More(_))),
+            "an empty next part is the end of the feed, not an error"
+        );
+    }
+
+    #[test]
+    fn downloads_show_what_was_read_and_say_why_when_nothing_was() {
         let mut browser = Browser::new();
         browser.navigate(Route::Downloads);
-        assert_eq!(browser.current_key(), None);
-        assert!(
-            matches!(&browser.rows()[1], PageRow::Empty { title, .. } if title == "Not in the Linux shell yet")
+        assert_eq!(
+            browser.current_key(),
+            None,
+            "downloads read no catalog page"
         );
+
+        let mut facts = ShellFacts::default();
+        assert!(matches!(browser.rows(&facts)[2], PageRow::Loading { .. }));
+
+        let track = DownloadedTrack {
+            video_id: "dQw4w9WgXcQ".into(),
+            title: "Song".into(),
+            artist: "Artist".into(),
+            bytes: 3 * 1024 * 1024,
+            available: true,
+            imported: true,
+        };
+        facts.downloads = DownloadsState::Read(vec![track.clone()]);
+        facts.downloads_busy = true;
+        let rows = browser.rows(&facts);
+        assert_eq!(rows[1], PageRow::DownloadsToolbar { busy: true });
+        assert_eq!(rows[2], PageRow::Download(track));
+
+        facts.downloads = DownloadsState::Read(Vec::new());
+        assert!(matches!(
+            &browser.rows(&facts)[2],
+            PageRow::Empty { title, .. } if title == "No downloaded files"
+        ));
+
+        facts.downloads = DownloadsState::Failed("store unavailable".into());
+        assert!(matches!(
+            &browser.rows(&facts)[2],
+            PageRow::Failure { detail, .. } if detail == "store unavailable"
+        ));
+    }
+
+    #[test]
+    fn sizes_read_as_people_say_them() {
+        assert_eq!(size_text(0), "0 KB");
+        assert_eq!(size_text(1), "1 KB");
+        assert_eq!(size_text(512 * 1024), "512 KB");
+        assert_eq!(size_text(5 * 1024 * 1024 + 512 * 1024), "5.5 MB");
+    }
+
+    #[test]
+    fn signed_in_home_shows_personal_shelves_without_a_guest_badge() {
+        let mut browser = Browser::new();
+        let key = browser.current_key().unwrap();
+        assert!(browser.begin_personal(&key, false));
+        browser.finish_personal(key, Ok(home_page()));
+        let facts = ShellFacts {
+            account: Some("Listener".into()),
+            ..Default::default()
+        };
+        let rows = browser.rows(&facts);
+        assert!(!rows.contains(&PageRow::GuestNotice));
+        assert!(rows.contains(&PageRow::ShelfTitle("Quick picks".into())));
+    }
+
+    #[test]
+    fn library_switches_account_sections_and_drops_the_previous_answer() {
+        let mut browser = Browser::new();
+        browser.navigate(Route::Library);
+        let key = browser.current_key().unwrap();
+        assert!(browser.begin_personal(&key, false));
+        browser.finish_personal(
+            key.clone(),
+            Ok(CatalogPage {
+                title: "Playlists".into(),
+                id: "personal:playlists".into(),
+                ..Default::default()
+            }),
+        );
+        assert!(browser.select_library_section(LibrarySection::Songs));
+        assert_eq!(browser.state(&key), &LoadState::Idle);
+        assert!(browser.begin_personal(&key, false));
+        browser.finish_personal(
+            key,
+            Ok(CatalogPage {
+                title: "Songs".into(),
+                id: "personal:songs".into(),
+                tracks: vec![item(CatalogItemKind::Song, "a", Some("a"))],
+                ..Default::default()
+            }),
+        );
+        let facts = ShellFacts {
+            account: Some("Listener".into()),
+            ..Default::default()
+        };
+        let rows = browser.rows(&facts);
+        assert!(rows.contains(&PageRow::LibrarySections(LibrarySection::Songs)));
+        assert!(rows.iter().any(|row| matches!(row, PageRow::Track { .. })));
+        assert!(!rows.contains(&PageRow::GuestNotice));
+        browser.clear_account_pages();
+        assert_eq!(
+            browser.state(&CatalogKey::Route(Route::Library)),
+            &LoadState::Idle
+        );
+    }
+
+    #[test]
+    fn playlist_actions_only_appear_for_a_signed_in_account() {
+        let mut browser = Browser::new();
+        browser.open(EntityReference::Playlist("VLPL123".into()));
+        assert!(!browser
+            .rows(&ShellFacts::default())
+            .iter()
+            .any(|row| matches!(row, PageRow::PlaylistActions(_))));
+        let facts = ShellFacts {
+            account: Some("Listener".into()),
+            ..Default::default()
+        };
+        assert!(browser
+            .rows(&facts)
+            .contains(&PageRow::PlaylistActions("VLPL123".into())));
+    }
+
+    #[test]
+    fn hiding_explicit_tracks_removes_them_from_rows_and_playback_context() {
+        let mut browser = Browser::new();
+        let entity = EntityReference::Album("MPRE1".into());
+        browser.open(entity.clone());
+        let key = browser.current_key().unwrap();
+        browser.begin(&key, false);
+        let mut explicit = item(CatalogItemKind::Song, "b", Some("b"));
+        explicit.explicit = true;
+        browser.finish(
+            key,
+            answer(CatalogPage {
+                id: "MPRE1".into(),
+                title: "Album".into(),
+                tracks: vec![item(CatalogItemKind::Song, "a", Some("a")), explicit],
+                ..Default::default()
+            }),
+        );
+        let facts = ShellFacts {
+            hide_explicit: true,
+            ..Default::default()
+        };
+        let rows = browser.rows(&facts);
+        assert!(
+            matches!(rows.iter().find(|row| matches!(row, PageRow::PlayAll(_))), Some(PageRow::PlayAll(tracks)) if tracks.len() == 1)
+        );
+        let tracks = rows
+            .iter()
+            .filter_map(|row| match row {
+                PageRow::Track { track, context } => Some((track, context)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].0.video_id, "a");
+        assert_eq!(tracks[0].1.len(), 1);
     }
 }

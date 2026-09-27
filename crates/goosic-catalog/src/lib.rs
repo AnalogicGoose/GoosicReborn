@@ -10,7 +10,8 @@ mod parse;
 
 pub use client::{search_params, InnertubeClient};
 pub use parse::{
-    artist_page, browse_page, browse_shelves, queue_item, radio_page, search_page,
+    artist_page, browse_continuation_page, browse_page, browse_shelves, continuation_token,
+    navigation_button_item, queue_item, radio_page, search_page, split_category_id,
     track_list_page,
 };
 
@@ -63,6 +64,14 @@ pub fn browse_id_for_route(route: &str) -> Option<&'static str> {
     }
 }
 
+/// The first title a page header carries, whichever header renderer it arrived in.
+fn header_title(header: &serde_json::Value) -> Option<String> {
+    json::collect(header, "title")
+        .into_iter()
+        .map(json::runs_text)
+        .find(|title| !title.is_empty())
+}
+
 /// A playlist's browse id is its playlist id with the `VL` browse prefix.
 pub fn playlist_browse_id(id: &str) -> String {
     if id.starts_with("VL") {
@@ -111,6 +120,32 @@ impl Catalog {
         Ok(page)
     }
 
+    /// Opens a mood or genre from Moods & genres by the opaque id its button carried.
+    pub fn category(&self, id: &str) -> Result<CatalogPage, CatalogError> {
+        let (browse_id, params) = split_category_id(id)
+            .ok_or_else(|| CatalogError::InvalidRequest(format!("`{id}` is not a category id")))?;
+        let response = self.client.browse_with_params(browse_id, params)?;
+        let title = response
+            .get("header")
+            .and_then(header_title)
+            .unwrap_or_default();
+        let mut page = parse::browse_page(id, &title, &response);
+        if page.shelves.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        page.id = id.to_owned();
+        Ok(page)
+    }
+
+    pub fn browse_continuation(&self, cursor: &str) -> Result<CatalogPage, CatalogError> {
+        let response = self.client.browse_continuation(cursor)?;
+        let page = parse::browse_continuation_page(&response);
+        if page.shelves.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        Ok(page)
+    }
+
     pub fn album(&self, browse_id: &str) -> Result<CatalogPage, CatalogError> {
         let response = self.client.browse(browse_id)?;
         let page = parse::track_list_page(browse_id, &response);
@@ -135,6 +170,22 @@ impl Catalog {
     pub fn radio(&self, video_id: &str) -> Result<CatalogPage, CatalogError> {
         let response = self.client.radio(video_id)?;
         let page = parse::radio_page(video_id, &response);
+        if page.tracks.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        Ok(page)
+    }
+
+    /// Continues the same radio station rather than treating its last recommendation as a new
+    /// seed. The caller keeps the original seed for queue ownership; the service only needs the
+    /// opaque station cursor.
+    pub fn radio_continuation(
+        &self,
+        seed_video_id: &str,
+        continuation: &str,
+    ) -> Result<CatalogPage, CatalogError> {
+        let response = self.client.radio_continuation(continuation)?;
+        let page = parse::radio_page(seed_video_id, &response);
         if page.tracks.is_empty() {
             return Err(CatalogError::Empty);
         }

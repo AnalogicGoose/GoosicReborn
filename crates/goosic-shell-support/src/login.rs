@@ -16,12 +16,13 @@ use uuid::Uuid;
 use crate::navigation::PlaybackTransition;
 use crate::text::{is_control_or_format, trim_whitespace};
 
-/// How long a staged sign-in may stay open before it is abandoned.
+/// How long a staged sign-in may sit on one page before it is abandoned. A shell restarts it on
+/// every navigation, including the in-page ones YouTube Music makes without loading a document,
+/// because a second-factor prompt can easily take a minute of the user's attention.
 ///
-/// The macOS branch has since raised this to three minutes and restarts it on every navigation,
-/// because a second-factor prompt can take a minute of attention. This is the `development` value
-/// and moves with that branch when it lands.
-pub const COMPLETION_TIMEOUT: Duration = Duration::from_secs(30);
+/// Thirty seconds was the old value, and it failed in a way that looked like a sign-in that never
+/// finished: the window stayed signed in while the shell had already stopped watching it.
+pub const COMPLETION_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// The YouTube hosts a sign-in passes through. These have no country variants, so they stay an
 /// exact list.
@@ -274,40 +275,44 @@ pub fn should_discard_staging(upsert: bool, activation: bool, rebind: bool) -> b
 /// affordance in the authenticated shell; arriving at music.youtube.com alone is not enough.
 ///
 /// This lives beside the rules that judge its output rather than in any host: what counts as a
-/// completed sign-in must not depend on which WebKit is running. It is the `development` version,
-/// evaluated as an expression; the macOS branch has since rewritten it as an async body that reads
-/// the page's own `LOGGED_IN` flag, and this copy moves with that branch when it lands.
-pub const COMPLETION_SCRIPT: &str = r#"(() => {
-  if (location.origin !== 'https://music.youtube.com') return '';
-  const marker = document.querySelector('#avatar-btn, button[aria-label*="Account"], [aria-label*="Google Account"]');
-  if (!marker) return '';
-  const clip = (value, limit) => (value || '').trim().slice(0, limit);
-  const text = (selector, limit) => clip(document.querySelector(selector)?.textContent, limit);
-  const attr = (selector, name, limit) => clip(document.querySelector(selector)?.getAttribute(name), limit);
-  const visible = (element) => {
-    if (!element) return false;
-    const style = getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
-  };
-  const signInVisible = Array.from(document.querySelectorAll('a,button,[role="button"]'))
-    .some((element) => visible(element) && /sign\s*in|log\s*in/i.test(element.textContent || element.getAttribute('aria-label') || ''));
-  if (signInVisible) return '';
-  const identity = clip(marker.getAttribute('aria-label') || marker.getAttribute('title') || '', 320);
-  const signedOut = /sign\s*in|log\s*in|not\s*signed/i.test(identity);
-  const email = text('#account-email', 320);
-  const channel = text('ytmusic-account-menu-renderer #channel-title', 128);
-  const avatarUrl = attr('#avatar-btn img', 'src', 2048);
-  if (signedOut) return '';
-  if (!identity && !email && !channel) {
-    try { marker.click(); } catch (_) {}
-    return '';
-  }
-  return JSON.stringify({
-    displayName: text('#account-name', 128) || clip(identity, 128),
-    email, channel, avatarUrl
-  });
-})();
+/// completed sign-in must not depend on which WebKit is running. It is the same program as the
+/// Swift shell's `AccountLoginValidation.completionScript`, and a change to one is a change to both.
+///
+/// It is the body of an async function, not an expression, so a host must run it as one —
+/// `callAsyncJavaScript` on macOS, `call_async_javascript_function` on WebKitGTK — because it opens
+/// the account menu and waits for it. It returns `''` until the page itself says it is signed in and
+/// an account-specific field is visible. YouTube Music is not YouTube: the header control is
+/// `ytmusic-settings-button`, stamped only once signed in, and the name and email live in the menu it
+/// opens. `ytcfg.LOGGED_IN` is the page's own signed-in flag, which is what makes the marker a
+/// confirmation rather than a guess. The expression it replaced looked for `#avatar-btn` and
+/// `#account-email`, which YouTube Music does not have, so a real sign-in was never recognised.
+pub const COMPLETION_SCRIPT: &str = r#"if (location.origin !== 'https://music.youtube.com') return '';
+const cfg = window.ytcfg;
+const loggedIn = !!(cfg && typeof cfg.get === 'function' && cfg.get('LOGGED_IN'));
+if (!loggedIn) return '';
+const clip = (value, limit) => (value || '').trim().slice(0, limit);
+const text = (selector, limit) => clip(document.querySelector(selector)?.textContent, limit);
+const isAvatar = (src) => /^https:\/\/(?:[a-z0-9-]+\.)*(?:googleusercontent\.com|ggpht\.com)\//i.test(src || '');
+const avatarOf = (root) => Array.from((root || document).querySelectorAll('img')).map((img) => img.src).find(isAvatar) || '';
+const marker = document.querySelector('ytmusic-settings-button, #avatar-btn, [aria-label*="ccount menu" i]');
+const read = () => ({
+  name: text('#account-name', 128),
+  email: text('#email, #account-email', 320),
+  channel: text('#channel-handle, #channel-title', 128),
+});
+let identity = read();
+let avatarUrl = avatarOf(marker) || avatarOf(document.querySelector('ytmusic-nav-bar'));
+if (!identity.email && !identity.name && marker) {
+  try { (marker.querySelector('button, tp-yt-paper-icon-button, yt-icon-button, [role="button"]') || marker).click(); } catch (_) {}
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  identity = read();
+  avatarUrl = avatarUrl || avatarOf(document.querySelector('ytmusic-popup-container, tp-yt-iron-dropdown'));
+}
+if (!identity.email && !identity.channel && !avatarUrl) return '';
+return JSON.stringify({
+  displayName: identity.name || identity.email || 'YouTube Music account',
+  email: identity.email, channel: identity.channel, avatarUrl
+});
 "#;
 
 fn clean(value: Option<&str>, max_bytes: usize) -> Option<String> {

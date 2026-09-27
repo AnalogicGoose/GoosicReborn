@@ -1,6 +1,6 @@
 // Linux has a real host of its own under Platform/Linux. What remains here is the stub for
 // platforms with no renderer yet.
-#if !os(macOS) && !os(Linux)
+#if (!os(macOS) && !os(Linux)) || GOOSIC_PREVIEW_NO_WEBKIT
 import Foundation
 import SwiftCrossUI
 
@@ -12,7 +12,7 @@ final class OfficialPlaybackHost {
     var onDiagnostics: ((String) -> Void)?
     private(set) var loadedVideoID: String?
 
-    func load(videoID: String, generation: UInt64) {
+    func load(videoID: String, generation: UInt64, volume: Double = 1, muted: Bool = false) {
         loadedVideoID = nil
         onStatus?("Official playback host is only available on macOS.")
     }

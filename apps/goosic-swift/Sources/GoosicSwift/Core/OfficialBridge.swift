@@ -100,6 +100,41 @@ enum OfficialBridge {
         return videoID.allSatisfy { $0.isNumber || $0.isLetter || $0 == "-" || $0 == "_" }
     }
 
+    /// Chooses the media element that is actually playing, rather than whichever audio or video
+    /// tag happened to be first in the page. YouTube Music can retain a paused element while it
+    /// swaps in the one carrying the next track or an advertisement.
+    static let activeMediaElementScript = """
+    (() => {
+      const candidates = Array.from(document.querySelectorAll('audio, video'));
+      return candidates.find(candidate => !candidate.paused && candidate.readyState > 0)
+        ?? candidates.find(candidate => candidate.readyState > 0)
+        ?? candidates[0]
+        ?? null;
+    })()
+    """
+
+    /// Turns the official page's Automix off, answering `absent`, `off`, `turned off` or
+    /// `still on`.
+    ///
+    /// With Automix on, YouTube Music fades into a track of its own choosing some seconds before
+    /// the requested one ends. The observer sees another video, the page is paused, and the queue
+    /// moves on -- having cut the song's last seconds. With it off, the page plays the track
+    /// through and reports its end (see `TrackEnd`). The switch sits in the page's Up Next tab,
+    /// which renders after the player, so a host runs this until it answers something other than
+    /// `absent`, up to `automixAttempts` times half a second apart. The Swift copy of
+    /// `bridge::AUTOMIX_OFF_SCRIPT` in `goosic-shell-support`.
+    static let automixOffScript = """
+    (() => {
+      const toggle = document.getElementById('automix');
+      if (!toggle || typeof toggle.checked !== 'boolean') return 'absent';
+      if (!toggle.checked) return 'off';
+      toggle.click();
+      return toggle.checked ? 'still on' : 'turned off';
+    })()
+    """
+
+    static let automixAttempts = 40
+
     /// The per-load page observer.
     ///
     /// Identity is injected rather than read from the URL: the official app rewrites its own
@@ -115,13 +150,14 @@ enum OfficialBridge {
           const requestedVideoId = \(encodedVideoID);
           let sequence = 0;
           let media;
+          const activeMedia = () => \(activeMediaElementScript);
           const currentVideoId = () =>
             new URLSearchParams(window.location.search).get('v') || requestedVideoId;
           const isAd = () => Boolean(document.querySelector(
             '.ad-showing, .ytp-ad-player-overlay, .ytp-ad-text, [class*=ad-showing]'
           ));
           const send = () => {
-            media = document.querySelector('audio,video');
+            media = activeMedia();
             if (!media || !window.webkit?.messageHandlers?.goosicBridge) return;
             const actualVideoId = currentVideoId();
             const advertisement = isAd();
@@ -147,7 +183,7 @@ enum OfficialBridge {
             });
           };
           const install = () => {
-            const next = document.querySelector('audio,video');
+            const next = activeMedia();
             if (next === media) return;
             media = next;
             if (!media) return;

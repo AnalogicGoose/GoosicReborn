@@ -1,6 +1,11 @@
 import DefaultBackend
 import SwiftCrossUI
 
+// macOS builds its own entry point in `Platform/macOS/NativeMacApp.swift`, against Apple's
+// SwiftUI. Exactly one `@main` may exist per platform, so this one is the entry point
+// everywhere else — and under `GOOSIC_PORTABLE`, which compiles the portable paths on any host.
+// `GoosicShell` below stays outside the gate: it is the SwiftCrossUI shell those backends render.
+#if (!os(macOS) || GOOSIC_PORTABLE) && !GOOSIC_UI_TEST_HOST
 @main
 struct GoosicApp: App {
     var body: some Scene {
@@ -10,6 +15,7 @@ struct GoosicApp: App {
         .defaultSize(width: 1_080, height: 720)
     }
 }
+#endif
 
 struct GoosicShell: View {
     @State private var model = GoosicAppModel()
