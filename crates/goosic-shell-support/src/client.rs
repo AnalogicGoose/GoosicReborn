@@ -424,7 +424,7 @@ def answer(request):
         return emit("this is not a protocol frame")
     if command.startswith("exit."):
         os._exit(0)
-    version = "0.4.0" if command.startswith("foreign.") else "0.3.0"
+    version = "0.5.0" if command.startswith("foreign.") else "0.4.0"
     if command.startswith("refuse."):
         return emit(json.dumps({
             "protocolVersion": version, "requestId": request["requestId"], "ok": False,
@@ -488,26 +488,27 @@ for thread in threads:
         }
     }
 
-    /// Spawns a stub, retrying while the file is still held open elsewhere.
+    /// Spawns a stub, retrying while Linux reports the program busy.
     ///
-    /// Linux refuses to execute a file that any process still has open for writing. These tests
-    /// write their stub scripts while sibling tests are spawning theirs, and a spawn forked in
-    /// between inherits the writing descriptor for the moment it takes to exec, so the launch can
-    /// come back `Text file busy`. That is the harness racing itself, not the client failing, and
-    /// waiting is the whole fix.
-    fn spawning(
+    /// These tests run in parallel and each writes a small script and then execs it. A thread
+    /// that forks while another is still writing its script inherits that write descriptor, and
+    /// keeps it until it execs; Linux refuses to exec a file that anyone holds open for writing,
+    /// so the spawn fails with `ETXTBSY`. Nothing is wrong with either file, and the window
+    /// closes on its own within microseconds -- so the answer is to try again rather than to
+    /// serialise the suite.
+    fn spawn_stub(
         mut attempt: impl FnMut() -> Result<ServiceClient, TransportError>,
     ) -> ServiceClient {
         for _ in 0..50 {
             match attempt() {
                 Ok(client) => return client,
                 Err(TransportError::Unavailable(reason)) if reason.contains("Text file busy") => {
-                    std::thread::sleep(Duration::from_millis(20));
+                    thread::sleep(Duration::from_millis(20));
                 }
-                Err(error) => panic!("the stub service did not start: {error:?}"),
+                Err(other) => panic!("could not launch the stub service: {other:?}"),
             }
         }
-        panic!("the stub service stayed busy")
+        panic!("the stub service stayed busy for a second");
     }
 
     fn message(result: &Result<ResponseEnvelope, TransportError>) -> Option<String> {
@@ -519,7 +520,7 @@ for thread in threads:
     #[test]
     fn a_slow_request_does_not_delay_the_commands_behind_it() {
         let stub = Stub::new();
-        let client = spawning(|| ServiceClientBuilder::new(stub.with_delay(2.0)).spawn());
+        let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(2.0)).spawn());
         let (slow_answer, slow_answered) = mpsc::channel();
         let started = Instant::now();
         client.send("slow.browse", RequestPayload::default(), move |result| {
@@ -540,7 +541,7 @@ for thread in threads:
     #[test]
     fn every_outstanding_request_gets_its_own_answer() {
         let stub = Stub::new();
-        let client = spawning(|| ServiceClientBuilder::new(stub.with_delay(0.4)).spawn());
+        let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(0.4)).spawn());
         let commands = ["slow.a", "playback.claim", "slow.b", "state.get", "slow.c"];
         let (answer, answers) = mpsc::channel();
         for command in commands {
@@ -562,15 +563,17 @@ for thread in threads:
     #[test]
     fn a_timed_out_request_does_not_take_the_service_down() {
         let stub = Stub::new();
-        let client = spawning(|| ServiceClientBuilder::new(stub.with_delay(1.0))
-            .timeouts(|command| {
-                if command.starts_with("slow.") {
-                    Duration::from_millis(200)
-                } else {
-                    Duration::from_secs(5)
-                }
-            })
-            .spawn());
+        let client = spawn_stub(|| {
+            ServiceClientBuilder::new(stub.with_delay(1.0))
+                .timeouts(|command| {
+                    if command.starts_with("slow.") {
+                        Duration::from_millis(200)
+                    } else {
+                        Duration::from_secs(5)
+                    }
+                })
+                .spawn()
+        });
         let calls = Arc::new(AtomicUsize::new(0));
         let (answer, answered) = mpsc::channel();
         {
@@ -594,7 +597,7 @@ for thread in threads:
     #[test]
     fn a_refusal_is_an_answer_and_the_conversation_continues() {
         let stub = Stub::new();
-        let client = spawning(|| ServiceClientBuilder::new(stub.with_delay(0.0)).spawn());
+        let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(0.0)).spawn());
         let refused = client.request("refuse.claim", RequestPayload::default()).unwrap_err();
         assert_eq!(
             refused,
@@ -610,7 +613,7 @@ for thread in threads:
     #[test]
     fn an_undecodable_line_fails_everything_outstanding_and_closes_the_client() {
         let stub = Stub::new();
-        let client = spawning(|| ServiceClientBuilder::new(stub.with_delay(2.0)).spawn());
+        let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(2.0)).spawn());
         let (answer, answered) = mpsc::channel();
         client.send("slow.innocent", RequestPayload::default(), move |result| {
             let _ = answer.send(result);
@@ -627,7 +630,7 @@ for thread in threads:
     #[test]
     fn a_service_speaking_another_protocol_version_closes_the_client() {
         let stub = Stub::new();
-        let client = spawning(|| ServiceClientBuilder::new(stub.with_delay(0.0)).spawn());
+        let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(0.0)).spawn());
         let error = client.request("foreign.hello", RequestPayload::default()).unwrap_err();
         assert!(matches!(error, TransportError::ProtocolVersionMismatch { .. }));
         assert!(client.closed_reason().is_some());
@@ -636,7 +639,7 @@ for thread in threads:
     #[test]
     fn the_service_exiting_answers_what_was_outstanding() {
         let stub = Stub::new();
-        let client = spawning(|| ServiceClientBuilder::new(stub.with_delay(5.0)).spawn());
+        let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(5.0)).spawn());
         let (answer, answered) = mpsc::channel();
         client.send("slow.never", RequestPayload::default(), move |result| {
             let _ = answer.send(result);
@@ -650,7 +653,7 @@ for thread in threads:
     #[test]
     fn dropping_the_client_answers_what_was_outstanding() {
         let stub = Stub::new();
-        let client = spawning(|| ServiceClientBuilder::new(stub.with_delay(5.0)).spawn());
+        let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(5.0)).spawn());
         let (answer, answered) = mpsc::channel();
         client.send("slow.abandoned", RequestPayload::default(), move |result| {
             let _ = answer.send(result);

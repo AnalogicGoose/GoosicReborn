@@ -25,8 +25,7 @@ final class ServiceClientConcurrencyTests: XCTestCase {
             .appendingPathComponent("goosic-stub-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         stubDirectory = directory
-        let script = directory.appendingPathComponent("stub-service")
-        try """
+        let body = """
         #!/usr/bin/env python3
         import json, sys, threading, time
 
@@ -56,9 +55,26 @@ final class ServiceClientConcurrencyTests: XCTestCase {
             threads.append(thread)
         for thread in threads:
             thread.join()
-        """.write(to: script, atomically: true, encoding: .utf8)
+        """
+
+        #if os(Windows)
+        // Windows has no shebang. An extensionless text file is not executable there whatever
+        // its permissions say, so the interpreter the first line would have chosen is named by a
+        // launcher instead, and that is what the client is given to run.
+        let script = directory.appendingPathComponent("stub-service.py")
+        try body.write(to: script, atomically: true, encoding: .utf8)
+        let launcher = directory.appendingPathComponent("stub-service.cmd")
+        try """
+        @echo off
+        python "%~dp0stub-service.py" %*
+        """.write(to: launcher, atomically: true, encoding: .utf8)
+        return launcher.path
+        #else
+        let script = directory.appendingPathComponent("stub-service")
+        try body.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         return script.path
+        #endif
     }
 
     /// The failure this exists for: a catalog browse waiting on a third-party host used to hold

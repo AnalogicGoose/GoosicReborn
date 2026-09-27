@@ -23,7 +23,7 @@ The shell requests transitions; it never decides whether a playback transition i
 Every request is one JSON object per line:
 
 ```json
-{"protocolVersion":"0.3.0","requestId":"r-1","command":"playback.claim","payload":{"owner":"officialWebView","generation":0}}
+{"protocolVersion":"0.4.0","requestId":"r-1","command":"playback.claim","payload":{"owner":"officialWebView","generation":0}}
 ```
 
 Every request produces exactly one response line, and responses are matched by request id rather than by arrival order. A response has `ok: true` and a payload, or `ok: false` and a structured `{code,message}` error. That distinction used to be theoretical and is now load-bearing. The service answered one request at a time, so a catalog browse waiting on a third-party host held every command queued behind it — pause, seek, release included — for as long as the upstream took, and the client, which read the pipe until its own request's answer appeared, could not have noticed a different answer if one had arrived. A transport control that does nothing for twenty seconds is indistinguishable from a broken player.
@@ -134,6 +134,8 @@ Three things about that host are load-bearing and easy to break:
 Bridge events are accepted only when the version, nonce, generation, and video id all match the active load, the sequence advances, and the reported position, duration, and volume are possible. A rejection says which check failed; an opaque rejection is unactionable.
 
 The official app runs its own "up next" queue. When it follows that queue to a video Goosic did not request, the observer pauses it and the host reports the move; Goosic then plays its own next track. Goosic owns the queue, so the app never plays something the user did not choose.
+
+That rule alone cost every song its ending. With YouTube Music's Automix on, the app does not wait for a track to finish: it fades into its own choice some seconds early, so the move the observer reported came before the song was over. After each load the host therefore switches the page's Automix off (`AUTOMIX_OFF_SCRIPT` in `goosic-shell-support`, `OfficialBridge.automixOffScript` in Swift), and the page plays the requested track through. With Automix off the page does not report `ended`, though: it stops a fraction of a second short and reports `paused`. A pause within `END_TOLERANCE_SECONDS` of the length is treated as the end unless the listener paused it (`has_finished`, `TrackEnd.hasFinished`); without that, playback sat silent after every song.
 
 ## Local downloaded-file host
 

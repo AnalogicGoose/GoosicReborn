@@ -139,6 +139,19 @@ final class CatalogConversionTests: XCTestCase {
         XCTAssertEqual(CatalogPageView(wire: page).playableTracks.map(\.id), ["a", "b"])
     }
 
+    func testAPageViewKeepsTheFullListBehindShowAll() {
+        let linked = GoosicCatalogPage(
+            id: "UCartist", title: "Signal Fires", subtitle: nil, shelves: nil, tracks: nil,
+            thumbnail: nil, allTracksId: "VLOLAK5uy_every_song", truncated: nil
+        )
+        let blank = GoosicCatalogPage(
+            id: "UCartist", title: "Signal Fires", subtitle: nil, shelves: nil, tracks: nil,
+            thumbnail: nil, allTracksId: "", truncated: nil
+        )
+        XCTAssertEqual(CatalogPageView(wire: linked).allTracksID, "VLOLAK5uy_every_song")
+        XCTAssertNil(CatalogPageView(wire: blank).allTracksID)
+    }
+
     func testContinuationPagesAppendWithoutLosingTheNextCursor() {
         let first = CatalogPageView(wire: GoosicCatalogPage(
             id: "home", title: "Home", subtitle: nil,

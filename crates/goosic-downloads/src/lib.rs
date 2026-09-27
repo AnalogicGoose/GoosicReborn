@@ -297,7 +297,7 @@ impl DownloadLibrary {
         self.document.tracks.extend(found.into_values());
         self.document
             .tracks
-            .sort_by(|left, right| left.title.to_lowercase().cmp(&right.title.to_lowercase()));
+            .sort_by_key(|track| track.title.to_lowercase());
         self.save()?;
         Ok(added)
     }
@@ -560,6 +560,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let media = legacy_media(directory.path());
         std::fs::write(media.join("a.b.webm"), b"not a video id").unwrap();
+        std::fs::write(media.join("not-a-video-id.webm"), b"also not a video id").unwrap();
         // `?` is not a legal character in a Windows filename, so that stem can only be tried
         // where such a file can exist at all.
         #[cfg(unix)]
