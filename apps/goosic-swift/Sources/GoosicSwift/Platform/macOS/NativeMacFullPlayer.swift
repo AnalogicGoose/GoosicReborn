@@ -158,10 +158,10 @@ private struct NativeMacFullPlayerCover: View {
 struct NativeMacFullPlayer: View {
     @ObservedObject var store: NativeMacModelStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var palette: [MeshSample]?
-    @State private var lyricsShown = true
-    @State private var scrubPosition: Double = 0
-    @State private var isScrubbing = false
+    @SwiftUI.State private var palette: [MeshSample]?
+    @SwiftUI.State private var lyricsShown = true
+    @SwiftUI.State private var scrubPosition: Double = 0
+    @SwiftUI.State private var isScrubbing = false
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
@@ -465,7 +465,7 @@ struct NativeMacFullPlayerVolume: View {
                 model.setVolume($0)
             }
         } else {
-            Slider(value: Binding(get: { shownVolume }, set: model.setVolume), in: 0...1)
+            Slider(value: Binding(get: { shownVolume }, set: { model.setVolume($0) }), in: 0...1)
                 .controlSize(.small)
                 .accessibilityLabel("Volume")
         }

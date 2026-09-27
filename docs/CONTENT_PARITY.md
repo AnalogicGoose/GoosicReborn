@@ -8,7 +8,11 @@ The public discovery surfaces are Home, Explore, Search, Charts, Moods & genres,
 artist pages, album pages, and playlist pages. Their metadata can be read anonymously and stays
 inside `goosic-catalog`. Home is paged with YouTube Music's opaque continuation cursor, and its
 parser covers artwork carousels, responsive song shelves such as Quick picks, and direct grids.
-The shell appends each page when the user reaches the end instead of presenting the first browse
+It reads them in the page's own order, and each shelf carries a `layout`: `list` for song rows,
+which YouTube Music shows as a compact grid of rows, and cards otherwise (the default, left off
+the wire). The personal reader sets the same field for signed-in Home. Before either existed,
+every carousel was listed ahead of every row shelf, and every shelf was drawn as large cards, so
+Home did not look like the page it came from. The shell appends each page when the user reaches the end instead of presenting the first browse
 response as the whole feed.
 
 Signed-in Home is different from guest Home. On a platform with a real account host, it is read

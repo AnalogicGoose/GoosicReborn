@@ -103,6 +103,9 @@ impl Card {
             CatalogItemKind::Playlist => {
                 Some(CardAction::Show(EntityReference::Playlist(item.id.clone())))
             }
+            CatalogItemKind::Category => {
+                Some(CardAction::Show(EntityReference::Category(item.id.clone())))
+            }
             // A row this build does not understand stays visible but inert rather than
             // navigating somewhere the shell cannot render.
             CatalogItemKind::Unknown => None,
@@ -158,6 +161,8 @@ pub struct PageView {
     pub subtitle: String,
     pub shelves: Vec<Shelf>,
     pub tracks: Vec<Track>,
+    /// The playlist behind "Show all" when `tracks` is only the first few of a longer list.
+    pub all_tracks_id: Option<String>,
     /// The service clamped this page to fit one protocol frame. A screen must say so.
     pub truncated: bool,
 }
@@ -190,6 +195,7 @@ impl PageView {
             subtitle: page.subtitle.clone(),
             shelves,
             tracks: page.tracks.iter().filter_map(Track::from_catalog).collect(),
+            all_tracks_id: page.all_tracks_id.clone().filter(|id| !id.is_empty()),
             truncated: page.truncated,
         }
     }
@@ -268,6 +274,7 @@ mod tests {
             thumbnail: None,
             video_id: video_id.map(Into::into),
             explicit: false,
+            color: None,
         }
     }
 
@@ -349,8 +356,14 @@ mod tests {
                     id: "shelf".into(),
                     title: "One".into(),
                     items: vec![repeated.clone(), repeated.clone()],
+                    layout: Default::default(),
                 },
-                CatalogShelf { id: "shelf".into(), title: "Two".into(), items: vec![repeated] },
+                CatalogShelf {
+                    id: "shelf".into(),
+                    title: "Two".into(),
+                    items: vec![repeated],
+                    layout: Default::default(),
+                },
             ],
             ..Default::default()
         };
@@ -377,6 +390,24 @@ mod tests {
         };
         assert_eq!(songs.track_list().map(|tracks| tracks.len()), Some(2));
         assert_eq!(mixed.track_list(), None);
+    }
+
+    #[test]
+    fn a_page_view_keeps_the_full_list_behind_show_all() {
+        let linked = CatalogPage {
+            id: "UCartist".into(),
+            all_tracks_id: Some("VLOLAK5uy_every_song".into()),
+            ..Default::default()
+        };
+        let blank = CatalogPage {
+            all_tracks_id: Some(String::new()),
+            ..Default::default()
+        };
+        assert_eq!(
+            PageView::from_wire(&linked).all_tracks_id.as_deref(),
+            Some("VLOLAK5uy_every_song")
+        );
+        assert_eq!(PageView::from_wire(&blank).all_tracks_id, None);
     }
 
     #[test]
@@ -407,6 +438,7 @@ mod tests {
                 id: "s".into(),
                 title: "Songs".into(),
                 items: vec![item(CatalogItemKind::Song, "b", "B", Some("b"))],
+                layout: Default::default(),
             }],
             tracks: vec![item(CatalogItemKind::Song, "a", "A", Some("a"))],
             ..Default::default()
