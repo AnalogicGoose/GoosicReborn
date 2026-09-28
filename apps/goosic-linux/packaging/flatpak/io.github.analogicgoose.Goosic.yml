@@ -13,7 +13,7 @@ finish-args:
   - --device=dri
   - --own-name=org.mpris.MediaPlayer2.goosic
   - --talk-name=org.kde.StatusNotifierWatcher
-  - --filesystem=xdg-data/goosic:ro
+  - --filesystem=~/.local/share/com.github.ivasy.ytubic:ro
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
 modules:
