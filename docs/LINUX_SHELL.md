@@ -395,10 +395,11 @@ Goosic's chosen volume and mute state when a report drifts. A user then heard br
 before that asynchronous correction arrived, both with the window open and in the tray. The Linux
 host now injects a page-world guard before the player loads: it caps media volume synchronously
 when the page writes it, before a new element plays, and when a new element enters the document.
-Goosic's own volume and mute controls update that guard. The Rust report reconciliation remains a
-fallback, and the host logs when WebKit cannot install the guard. A live Flatpak playback check in
-both window states is still needed; compilation and a simulated page-element test do not establish
-that the installed YouTube Music page uses only those guarded elements.
+Goosic's own volume and mute controls update that guard. The whole WebKit view stays muted until
+the new document confirms the guard, and remains muted with a terminal warning if WebKit cannot
+install it. The Rust report reconciliation still checks the reported state. A live Flatpak playback
+check in both window states is still needed. Compilation and a simulated page-element test do not
+establish that the installed YouTube Music page uses only those guarded elements.
 
 An installed Flatpak session on 27 September 2026 also logged WebKit's
 `WebLoaderStrategy::internallyFailedLoadTimerFired` error and GLib socket warnings. The system
