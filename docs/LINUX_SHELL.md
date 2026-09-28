@@ -394,6 +394,13 @@ the page's resulting 100% report as a new choice and turned the player up. The s
 reapplies Goosic's chosen volume and mute state whenever a non-advertisement report drifts, matching
 the Swift shell's existing safeguard. A live hidden-window playback check is still needed.
 
+An installed Flatpak session on 27 September 2026 also logged WebKit's
+`WebLoaderStrategy::internallyFailedLoadTimerFired` error and GLib socket warnings. The system
+recorded a `SIGSEGV` from `WebKitNetworkProcess` in that Flatpak's control group. The installed
+GNOME 50 runtime matched Flathub's current revision when checked. The available log does not show
+whether this crash interrupted playback or caused the volume reset, so the WebKit failure needs its
+own reproduction and diagnosis.
+
 ## What is left
 
 The shell plays through Rust's lease and now has an offline Flatpak build. Signed-in Home and
@@ -417,6 +424,7 @@ Linux also imports and plays finalized legacy downloads. This comparison is agai
 | What | Where it belongs | Why it is still open |
 | --- | --- | --- |
 | The Background portal request while windowless in the installed Flatpak | `platform/linux` | The sandbox smoke run connected to the service, but did not hide a playing window |
+| WebKit network-process stability in the installed Flatpak | `platform/linux` | One real session produced a network-process crash and socket warnings; its effect on playback and the trigger are not established |
 | An end-to-end test proving neither host can sound without Rust's lease | `platform/linux` | The exact owner/generation guard has a unit test and runs before host calls; the renderer-level refusal still needs a harness |
 | Account persistence and authenticated reads after a fresh Flatpak sign-in | a person | A user completed sign-in with writable sandbox storage; restart and account-page checks are still open |
 | A whole track ending with the window hidden | a person | WebKitGTK may throttle timers in a hidden view; end of track is expected to survive, unobserved |
