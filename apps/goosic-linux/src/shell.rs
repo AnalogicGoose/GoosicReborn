@@ -1277,16 +1277,22 @@ impl Shell {
             self.set_status("Rust has not granted the official player.");
             return;
         }
-        let (generation, changed) = {
+        let (generation, changed, volume, muted) = {
             let mut player = self.player.borrow_mut();
             let changed =
                 player.current.as_ref().map(|current| &current.video_id) != Some(&track.video_id);
             player.current = Some(track.clone());
             player.begin_track();
             player.begin_load();
-            (player.lease.generation, changed)
+            (
+                player.lease.generation,
+                changed,
+                player.volume,
+                player.muted,
+            )
         };
-        self.official.load(&track.video_id, generation);
+        self.official
+            .load(&track.video_id, generation, volume, muted);
         if changed {
             self.lyrics.borrow_mut().track_changed();
             self.load_lyrics();
@@ -1328,10 +1334,9 @@ impl Shell {
             );
             let push = match sync {
                 VolumeSync::Ignore => None,
-                VolumeSync::Follow { volume, muted } => {
-                    ((volume - player.volume).abs() > 0.01 || muted != player.muted)
-                        .then_some((player.volume, player.muted))
-                }
+                VolumeSync::Follow { volume, muted } => ((volume - player.volume).abs() > 0.01
+                    || muted != player.muted)
+                    .then_some((player.volume, player.muted)),
                 VolumeSync::PushStored => {
                     player.volume_applied_for_load = true;
                     Some((player.volume, player.muted))
