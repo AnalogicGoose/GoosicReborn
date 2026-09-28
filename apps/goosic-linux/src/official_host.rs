@@ -37,7 +37,7 @@ const QUIESCE_TIMEOUT: Duration = Duration::from_secs(2);
 /// full volume or be reset by the page; correcting a later bridge report is already too late to
 /// prevent a loud burst. The setter and play guards cap output synchronously, while the observer
 /// still reports the real media state to Rust.
-const VOLUME_GUARD_SCRIPT: &str = r#"function(initialVolume, initialMuted) {
+const VOLUME_GUARD_SCRIPT: &str = r#"function(initialToken, initialVolume, initialMuted) {
   const find = name => {
     for (let owner = HTMLMediaElement.prototype; owner; owner = Object.getPrototypeOf(owner)) {
       const descriptor = Object.getOwnPropertyDescriptor(owner, name);
@@ -97,6 +97,7 @@ const VOLUME_GUARD_SCRIPT: &str = r#"function(initialVolume, initialMuted) {
   document.addEventListener('DOMContentLoaded', scan, { once: true });
   Object.defineProperty(window, '__goosicVolumeGuard', {
     value: Object.freeze({
+      token: initialToken,
       synchronous: volumeIntercepted && muteIntercepted && playIntercepted,
       set(nextVolume, nextMuted) {
         if (!Number.isFinite(nextVolume) || nextVolume < 0 || nextVolume > 1) return 'invalid';
@@ -147,6 +148,7 @@ pub struct OfficialHost {
     advertisement: Cell<bool>,
     desired_volume: Cell<f64>,
     desired_muted: Cell<bool>,
+    volume_guard_sequence: Cell<u64>,
     warned_volume_guard: Cell<bool>,
     handlers: Handlers,
 }
@@ -175,6 +177,7 @@ impl OfficialHost {
             advertisement: Cell::new(false),
             desired_volume: Cell::new(1.0),
             desired_muted: Cell::new(false),
+            volume_guard_sequence: Cell::new(0),
             warned_volume_guard: Cell::new(false),
             handlers,
         });
@@ -243,7 +246,11 @@ impl OfficialHost {
         web_profile::guard_navigation(view, is_official_page);
 
         let weak = Rc::downgrade(self);
-        view.connect_load_changed(move |_, event| {
+        view.connect_load_changed(move |view, event| {
+            if event == LoadEvent::Started {
+                view.set_is_muted(true);
+                return;
+            }
             if event != LoadEvent::Finished {
                 return;
             }
@@ -297,7 +304,10 @@ impl OfficialHost {
         self.advertisement.set(false);
         self.desired_volume.set(clamp_volume(volume).unwrap_or(1.0));
         self.desired_muted.set(muted);
+        self.volume_guard_sequence.set(0);
         self.warned_volume_guard.set(false);
+        // Keep the whole view silent until its new document confirms the page-world guard.
+        view.set_is_muted(true);
 
         // Each load gets its own observer carrying this load's identity, so a document from an
         // earlier load can never satisfy the checks a report has to pass.
@@ -316,7 +326,8 @@ impl OfficialHost {
             ));
             content.add_script(&UserScript::new(
                 &format!(
-                    "({VOLUME_GUARD_SCRIPT})({:.3}, {});",
+                    "({VOLUME_GUARD_SCRIPT})({}, {:.3}, {});",
+                    bridge::js_string_literal(&token),
                     self.desired_volume.get(),
                     self.desired_muted.get()
                 ),
@@ -412,16 +423,27 @@ impl OfficialHost {
     /// Updates the page-world guard and its current media elements together. A fallback is kept
     /// for a WebKit build that refuses to install the synchronous property interceptors.
     fn sync_volume_guard(self: &Rc<Self>) {
+        let Some(token) = self
+            .expected
+            .borrow()
+            .as_ref()
+            .map(|expected| expected.token.clone())
+        else {
+            return;
+        };
+        let sequence = self.volume_guard_sequence.get().wrapping_add(1);
+        self.volume_guard_sequence.set(sequence);
         let script = format!(
             "(() => {{
   const guard = window.__goosicVolumeGuard;
-  if (guard) return guard.set({:.3}, {});
+  if (guard?.token === {}) return guard.set({:.3}, {});
   for (const media of document.querySelectorAll('audio,video')) {{
     media.volume = {:.3};
     media.muted = {};
   }}
   return 'fallback';
 }})();",
+            bridge::js_string_literal(&token),
             self.desired_volume.get(),
             self.desired_muted.get(),
             self.desired_volume.get(),
@@ -432,24 +454,37 @@ impl OfficialHost {
             let Some(host) = weak.upgrade() else {
                 return;
             };
-            let failure = match result {
-                Ok(Some(json)) if json.contains("fallback") => {
-                    Some("the page rejected its volume guard")
-                }
-                Err(_) => Some("the page could not update its volume guard"),
-                _ => None,
-            };
-            let Some(failure) = failure else {
-                return;
-            };
-            let loading = host
-                .view
+            if host
+                .expected
                 .borrow()
                 .as_ref()
-                .is_some_and(|view| view.is_loading());
+                .map(|expected| expected.token.as_str())
+                != Some(token.as_str())
+                || host.volume_guard_sequence.get() != sequence
+            {
+                return;
+            }
+            let view = host.view.borrow().clone();
+            if result
+                .as_ref()
+                .is_ok_and(|json| json.as_deref() == Some("\"guarded\""))
+            {
+                if let Some(view) = view {
+                    view.set_is_muted(false);
+                }
+                return;
+            }
+            let failure = match result {
+                Err(_) => "the page could not update its volume guard",
+                _ => "the page rejected its volume guard",
+            };
+            let loading = view.as_ref().is_some_and(|view| view.is_loading());
+            if let Some(view) = view {
+                view.set_is_muted(true);
+            }
             if !loading && !host.warned_volume_guard.replace(true) {
-                eprintln!("goosic: {failure}; transient loud playback may still occur");
-                host.status("Volume protection is unavailable in this WebKit page.");
+                eprintln!("goosic: {failure}; WebKit playback is muted for safety");
+                host.status("Volume protection is unavailable; WebKit playback is muted.");
             }
         });
     }
