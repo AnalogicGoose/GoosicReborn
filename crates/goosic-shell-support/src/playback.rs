@@ -221,21 +221,22 @@ pub fn should_advance_after_end(
 pub enum VolumeSync {
     /// Advertisements never touch the stored volume.
     Ignore,
-    /// The stored preference has been applied to this load; follow what the player says.
+    /// Kept for source compatibility with existing shells; a hidden official renderer never
+    /// supplies a user volume choice, so `volume_sync` no longer returns this variant.
     Follow { volume: f64, muted: bool },
-    /// A fresh page started at its own volume. Push the stored preference once.
+    /// The page differs from the chosen volume or mute state. Reapply that choice.
     PushStored,
-    /// The page already matches the stored preference; nothing to push.
+    /// The page matches the chosen volume and mute state.
     AlreadyMatches,
 }
 
-/// Reconciles a fresh page's volume with the user's.
+/// Reconciles a hidden official page's volume with the user's.
 ///
-/// A new official page starts at whatever volume it likes. Until the stored preference has been
-/// applied to this load, a difference means the page is wrong and the preference is pushed; after
-/// that, the page is the truth, because the user may have changed the volume inside it.
+/// Its renderer cannot receive a user's volume input. A different value, even after the first
+/// preference push, means the page reset or replaced its media element. Keep the chosen value
+/// authoritative so a background page cannot silently turn itself up to full volume.
 pub fn volume_sync(
-    applied_for_load: bool,
+    _applied_for_load: bool,
     is_advertisement: bool,
     reported_volume: f64,
     reported_muted: bool,
@@ -244,8 +245,6 @@ pub fn volume_sync(
 ) -> VolumeSync {
     if is_advertisement {
         VolumeSync::Ignore
-    } else if applied_for_load {
-        VolumeSync::Follow { volume: reported_volume, muted: reported_muted }
     } else if (reported_volume - stored_volume).abs() > 0.01 || reported_muted != stored_muted {
         VolumeSync::PushStored
     } else {
@@ -473,14 +472,13 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_page_gets_the_stored_volume_once_and_is_followed_after() {
+    fn a_hidden_page_reapplies_the_chosen_volume_after_any_reset() {
         assert_eq!(volume_sync(false, false, 1.0, false, 0.4, false), VolumeSync::PushStored);
         assert_eq!(volume_sync(false, false, 0.4, true, 0.4, false), VolumeSync::PushStored);
         assert_eq!(volume_sync(false, false, 0.405, false, 0.4, false), VolumeSync::AlreadyMatches);
-        assert_eq!(
-            volume_sync(true, false, 0.7, false, 0.4, false),
-            VolumeSync::Follow { volume: 0.7, muted: false }
-        );
+        assert_eq!(volume_sync(true, false, 1.0, false, 0.4, false), VolumeSync::PushStored);
+        assert_eq!(volume_sync(true, false, 0.4, true, 0.4, false), VolumeSync::PushStored);
+        assert_eq!(volume_sync(true, false, 0.4, false, 0.4, false), VolumeSync::AlreadyMatches);
         assert_eq!(volume_sync(false, true, 1.0, false, 0.4, false), VolumeSync::Ignore);
     }
 
