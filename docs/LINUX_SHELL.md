@@ -388,6 +388,12 @@ Wayland. The usual escape hatch is `WEBKIT_DISABLE_DMABUF_RENDERER=1`. The shell
 default, and it is set only if a test on NVIDIA hardware fails. That test has not happened: the
 machine every check so far ran on loaded Intel's video driver, so the NVIDIA case is still open.
 
+The official WebKit view is hidden and cannot receive a person's volume input. YouTube Music can
+reset or replace its media element while the window is closed; an earlier Linux volume rule treated
+the page's resulting 100% report as a new choice and turned the player up. The shared Rust rule now
+reapplies Goosic's chosen volume and mute state whenever a non-advertisement report drifts, matching
+the Swift shell's existing safeguard. A live hidden-window playback check is still needed.
+
 ## What is left
 
 The shell plays through Rust's lease and now has an offline Flatpak build. Signed-in Home and
@@ -396,8 +402,10 @@ The tests cover page conversion, account-page invalidation, the service client's
 against the shared protocol fixtures, and the renderer's
 exact owner/generation guard. A live native WebKitGTK read succeeded for signed-in Home, playlists,
 liked songs and the owned-playlist picker without sending credentials to Rust's service. What
-remains is proving sign-in, mutations and playback in a real packaged session, and closing the
+remains is proving account mutations and playback in a real packaged session, and closing the
 product gaps below. Shared crate, protocol, Makefile and CI work lands on `development` first.
+After the Flatpak stopped mounting Goosic's own data directory read-only, a user completed a real
+sign-in in the sandbox. That has not yet been followed by a restart and authenticated reads there.
 
 The current Windows shell still has more product features. Its queue editing, full-window player,
 artwork-driven background and installer updates are not in Linux. The GTK shell now recreates the
@@ -410,7 +418,7 @@ Linux also imports and plays finalized legacy downloads. This comparison is agai
 | --- | --- | --- |
 | The Background portal request while windowless in the installed Flatpak | `platform/linux` | The sandbox smoke run connected to the service, but did not hide a playing window |
 | An end-to-end test proving neither host can sound without Rust's lease | `platform/linux` | The exact owner/generation guard has a unit test and runs before host calls; the renderer-level refusal still needs a harness |
-| A complete sign-in with a real account | a person | Needs credentials; the completion fix was proven against an imitation page only |
+| Account persistence and authenticated reads after a fresh Flatpak sign-in | a person | A user completed sign-in with writable sandbox storage; restart and account-page checks are still open |
 | A whole track ending with the window hidden | a person | WebKitGTK may throttle timers in a hidden view; end of track is expected to survive, unobserved |
 | An import from a real previous Goosic install | a person | Only a scratch `.webm` has been imported and played |
 | NVIDIA hardware, and GNOME, Xfce and COSMIC sessions | a person | Every live check ran on Plasma with Intel graphics |
