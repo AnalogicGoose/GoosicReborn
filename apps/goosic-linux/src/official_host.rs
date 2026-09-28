@@ -33,6 +33,86 @@ const SCRIPT_WORLD: &str = "goosic";
 /// Rust's lease forever; forgetting the load's identity still stops its late reports.
 const QUIESCE_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Installed in the page world before YouTube Music starts. Its media elements can default to
+/// full volume or be reset by the page; correcting a later bridge report is already too late to
+/// prevent a loud burst. The setter and play guards cap output synchronously, while the observer
+/// still reports the real media state to Rust.
+const VOLUME_GUARD_SCRIPT: &str = r#"function(initialVolume, initialMuted) {
+  const find = name => {
+    for (let owner = HTMLMediaElement.prototype; owner; owner = Object.getPrototypeOf(owner)) {
+      const descriptor = Object.getOwnPropertyDescriptor(owner, name);
+      if (descriptor) return { owner, descriptor };
+    }
+    return null;
+  };
+  const volume = find('volume');
+  const muted = find('muted');
+  if (!volume?.descriptor?.get || !volume.descriptor.set ||
+      !muted?.descriptor?.get || !muted.descriptor.set) return;
+  let chosenVolume = initialVolume;
+  let chosenMuted = initialMuted;
+  const apply = media => {
+    if (volume.descriptor.get.call(media) > chosenVolume)
+      volume.descriptor.set.call(media, chosenVolume);
+    if (chosenMuted && !muted.descriptor.get.call(media))
+      muted.descriptor.set.call(media, true);
+  };
+  let volumeIntercepted = false;
+  let muteIntercepted = false;
+  try {
+    if (volume.descriptor.configurable) {
+      Object.defineProperty(volume.owner, 'volume', {
+        configurable: true, enumerable: volume.descriptor.enumerable,
+        get() { return volume.descriptor.get.call(this); },
+        set(value) { volume.descriptor.set.call(this, Math.min(value, chosenVolume)); }
+      });
+      volumeIntercepted = true;
+    }
+    if (muted.descriptor.configurable) {
+      Object.defineProperty(muted.owner, 'muted', {
+        configurable: true, enumerable: muted.descriptor.enumerable,
+        get() { return muted.descriptor.get.call(this); },
+        set(value) { muted.descriptor.set.call(this, chosenMuted || value); }
+      });
+      muteIntercepted = true;
+    }
+  } catch (_) { /* The play and element guards below still cap new media. */ }
+  const originalPlay = HTMLMediaElement.prototype.play;
+  const guardedPlay = function(...args) {
+    apply(this);
+    return originalPlay.apply(this, args);
+  };
+  try { HTMLMediaElement.prototype.play = guardedPlay; } catch (_) {}
+  const playIntercepted = HTMLMediaElement.prototype.play === guardedPlay;
+  const seen = new WeakSet();
+  const scan = () => {
+    for (const media of document.querySelectorAll('audio,video')) {
+      apply(media);
+      if (seen.has(media)) continue;
+      seen.add(media);
+      media.addEventListener('volumechange', () => apply(media), { passive: true });
+    }
+  };
+  new MutationObserver(scan).observe(document, { childList: true, subtree: true });
+  document.addEventListener('DOMContentLoaded', scan, { once: true });
+  Object.defineProperty(window, '__goosicVolumeGuard', {
+    value: Object.freeze({
+      synchronous: volumeIntercepted && muteIntercepted && playIntercepted,
+      set(nextVolume, nextMuted) {
+        if (!Number.isFinite(nextVolume) || nextVolume < 0 || nextVolume > 1) return 'invalid';
+        chosenVolume = nextVolume;
+        chosenMuted = Boolean(nextMuted);
+        for (const media of document.querySelectorAll('audio,video')) {
+          volume.descriptor.set.call(media, chosenVolume);
+          muted.descriptor.set.call(media, chosenMuted);
+        }
+        return this.synchronous ? 'guarded' : 'fallback';
+      }
+    }), configurable: false, writable: false
+  });
+  scan();
+}"#;
+
 /// Where the host tells the shell what happened.
 pub struct Handlers {
     pub on_event: Box<dyn Fn(BridgeEvent)>,
@@ -65,6 +145,9 @@ pub struct OfficialHost {
     expected: RefCell<Option<Expectation>>,
     last_sequence: Cell<u64>,
     advertisement: Cell<bool>,
+    desired_volume: Cell<f64>,
+    desired_muted: Cell<bool>,
+    warned_volume_guard: Cell<bool>,
     handlers: Handlers,
 }
 
@@ -90,6 +173,9 @@ impl OfficialHost {
             expected: RefCell::new(None),
             last_sequence: Cell::new(0),
             advertisement: Cell::new(false),
+            desired_volume: Cell::new(1.0),
+            desired_muted: Cell::new(false),
+            warned_volume_guard: Cell::new(false),
             handlers,
         });
         host.rebuild_renderer();
@@ -170,6 +256,7 @@ impl OfficialHost {
                 return;
             }
             host.status("Official host is ready; waiting for a validated player event.");
+            host.sync_volume_guard();
             host.probe_page();
         });
 
@@ -190,7 +277,7 @@ impl OfficialHost {
 
     /// Loads the official page for `video_id`. Only call this while Rust holds the lease for
     /// `generation`: the page starts playing as soon as it can.
-    pub fn load(&self, video_id: &str, generation: u64) {
+    pub fn load(&self, video_id: &str, generation: u64, volume: f64, muted: bool) {
         let view = self.view.borrow().clone();
         let Some(view) = view else {
             self.status("Official host is not attached to the window.");
@@ -208,6 +295,9 @@ impl OfficialHost {
         });
         self.last_sequence.set(0);
         self.advertisement.set(false);
+        self.desired_volume.set(clamp_volume(volume).unwrap_or(1.0));
+        self.desired_muted.set(muted);
+        self.warned_volume_guard.set(false);
 
         // Each load gets its own observer carrying this load's identity, so a document from an
         // earlier load can never satisfy the checks a report has to pass.
@@ -219,6 +309,17 @@ impl OfficialHost {
             // untouched.
             content.add_script(&UserScript::new(
                 bridge::MEDIA_SESSION_GUARD_SCRIPT,
+                UserContentInjectedFrames::TopFrame,
+                UserScriptInjectionTime::Start,
+                &[allow.as_str()],
+                &[],
+            ));
+            content.add_script(&UserScript::new(
+                &format!(
+                    "({VOLUME_GUARD_SCRIPT})({:.3}, {});",
+                    self.desired_volume.get(),
+                    self.desired_muted.get()
+                ),
                 UserContentInjectedFrames::TopFrame,
                 UserScriptInjectionTime::Start,
                 &[allow.as_str()],
@@ -295,9 +396,8 @@ impl OfficialHost {
         let Some(volume) = clamp_volume(volume) else {
             return;
         };
-        self.run_on_media(&format!(
-            "media => {{ media.volume = {volume:.3}; return 'volume-requested'; }}"
-        ));
+        self.desired_volume.set(volume);
+        self.sync_volume_guard();
     }
 
     pub fn set_muted(self: &Rc<Self>, muted: bool) {
@@ -305,9 +405,53 @@ impl OfficialHost {
             self.status("Mute is unavailable while the official player shows an advertisement.");
             return;
         }
-        self.run_on_media(&format!(
-            "media => {{ media.muted = {muted}; return 'mute-requested'; }}"
-        ));
+        self.desired_muted.set(muted);
+        self.sync_volume_guard();
+    }
+
+    /// Updates the page-world guard and its current media elements together. A fallback is kept
+    /// for a WebKit build that refuses to install the synchronous property interceptors.
+    fn sync_volume_guard(self: &Rc<Self>) {
+        let script = format!(
+            "(() => {{
+  const guard = window.__goosicVolumeGuard;
+  if (guard) return guard.set({:.3}, {});
+  for (const media of document.querySelectorAll('audio,video')) {{
+    media.volume = {:.3};
+    media.muted = {};
+  }}
+  return 'fallback';
+}})();",
+            self.desired_volume.get(),
+            self.desired_muted.get(),
+            self.desired_volume.get(),
+            self.desired_muted.get()
+        );
+        let weak = Rc::downgrade(self);
+        self.evaluate_in_world(&script, None, move |result| {
+            let Some(host) = weak.upgrade() else {
+                return;
+            };
+            let failure = match result {
+                Ok(Some(json)) if json.contains("fallback") => {
+                    Some("the page rejected its volume guard")
+                }
+                Err(_) => Some("the page could not update its volume guard"),
+                _ => None,
+            };
+            let Some(failure) = failure else {
+                return;
+            };
+            let loading = host
+                .view
+                .borrow()
+                .as_ref()
+                .is_some_and(|view| view.is_loading());
+            if !loading && !host.warned_volume_guard.replace(true) {
+                eprintln!("goosic: {failure}; transient loud playback may still occur");
+                host.status("Volume protection is unavailable in this WebKit page.");
+            }
+        });
     }
 
     /// Pauses every media element on the page, then calls `done` — or calls it after
@@ -397,6 +541,15 @@ impl OfficialHost {
     /// Runs `script` in the bridge's world, which shares the page's DOM but not its scope, so the
     /// player can be driven without the page observing the driver. The result arrives as JSON.
     fn evaluate(&self, script: &str, done: impl FnOnce(Result<Option<String>, String>) + 'static) {
+        self.evaluate_in_world(script, Some(SCRIPT_WORLD), done);
+    }
+
+    fn evaluate_in_world(
+        &self,
+        script: &str,
+        world: Option<&str>,
+        done: impl FnOnce(Result<Option<String>, String>) + 'static,
+    ) {
         let view = self.view.borrow().clone();
         let Some(view) = view else {
             done(Err("the renderer is not attached".to_owned()));
@@ -404,7 +557,7 @@ impl OfficialHost {
         };
         view.evaluate_javascript(
             script,
-            Some(SCRIPT_WORLD),
+            world,
             None,
             None::<&gio::Cancellable>,
             move |result| {
