@@ -388,11 +388,17 @@ Wayland. The usual escape hatch is `WEBKIT_DISABLE_DMABUF_RENDERER=1`. The shell
 default, and it is set only if a test on NVIDIA hardware fails. That test has not happened: the
 machine every check so far ran on loaded Intel's video driver, so the NVIDIA case is still open.
 
-The official WebKit view is hidden and cannot receive a person's volume input. YouTube Music can
-reset or replace its media element while the window is closed; an earlier Linux volume rule treated
-the page's resulting 100% report as a new choice and turned the player up. The shared Rust rule now
-reapplies Goosic's chosen volume and mute state whenever a non-advertisement report drifts, matching
-the Swift shell's existing safeguard. A live hidden-window playback check is still needed.
+The official WebKit view is one pixel wide and cannot receive a person's volume input, whether the
+GTK window is open or in the tray. YouTube Music can reset or replace its media element. An earlier
+Linux rule treated the resulting 100% report as a new choice; the shared Rust rule now reapplies
+Goosic's chosen volume and mute state when a report drifts. A user then heard brief loud bursts
+before that asynchronous correction arrived, both with the window open and in the tray. The Linux
+host now injects a page-world guard before the player loads: it caps media volume synchronously
+when the page writes it, before a new element plays, and when a new element enters the document.
+Goosic's own volume and mute controls update that guard. The Rust report reconciliation remains a
+fallback, and the host logs when WebKit cannot install the guard. A live Flatpak playback check in
+both window states is still needed; compilation and a simulated page-element test do not establish
+that the installed YouTube Music page uses only those guarded elements.
 
 An installed Flatpak session on 27 September 2026 also logged WebKit's
 `WebLoaderStrategy::internallyFailedLoadTimerFired` error and GLib socket warnings. The system
@@ -424,6 +430,7 @@ Linux also imports and plays finalized legacy downloads. This comparison is agai
 | What | Where it belongs | Why it is still open |
 | --- | --- | --- |
 | The Background portal request while windowless in the installed Flatpak | `platform/linux` | The sandbox smoke run connected to the service, but did not hide a playing window |
+| The absence of brief volume bursts in the installed Flatpak | a person | The earlier report-based correction still allowed audible bursts; the new page-world guard needs live playback checks with the window open and in the tray |
 | WebKit network-process stability in the installed Flatpak | `platform/linux` | One real session produced a network-process crash and socket warnings; its effect on playback and the trigger are not established |
 | An end-to-end test proving neither host can sound without Rust's lease | `platform/linux` | The exact owner/generation guard has a unit test and runs before host calls; the renderer-level refusal still needs a harness |
 | Account persistence and authenticated reads after a fresh Flatpak sign-in | a person | A user completed sign-in with writable sandbox storage; restart and account-page checks are still open |
