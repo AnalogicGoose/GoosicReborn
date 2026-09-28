@@ -296,7 +296,7 @@ impl OfficialHost {
             return;
         };
         self.run_on_media(&format!(
-            "media => {{ media.muted = false; media.volume = {volume:.3}; return 'volume-requested'; }}"
+            "media => {{ media.volume = {volume:.3}; return 'volume-requested'; }}"
         ));
     }
 
