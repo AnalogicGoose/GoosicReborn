@@ -1329,9 +1329,8 @@ impl Shell {
             let push = match sync {
                 VolumeSync::Ignore => None,
                 VolumeSync::Follow { volume, muted } => {
-                    player.volume = volume;
-                    player.muted = muted;
-                    None
+                    ((volume - player.volume).abs() > 0.01 || muted != player.muted)
+                        .then_some((player.volume, player.muted))
                 }
                 VolumeSync::PushStored => {
                     player.volume_applied_for_load = true;
@@ -1730,6 +1729,7 @@ impl Shell {
             player.volume_applied_for_load = true;
         }
         self.official.set_volume(volume);
+        self.official.set_muted(false);
         self.local.set_volume(volume);
         self.local.set_muted(false);
         self.save_preferences(PreferencesPatch {
