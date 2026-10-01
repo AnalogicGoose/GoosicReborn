@@ -420,7 +420,7 @@ final class ThemeTests: XCTestCase {
     }
 
     func testSystemMeansNoPreferenceSoTheOSKeepsDeciding() {
-        // A nil colour scheme is SwiftCrossUI's "follow the system"; the app does not
+        // A nil colour scheme is SwiftUI's "follow the system"; the app does not
         // reimplement light and dark.
         XCTAssertNil(GoosicTheme.system.colorScheme)
         XCTAssertNotNil(GoosicTheme.light.colorScheme)

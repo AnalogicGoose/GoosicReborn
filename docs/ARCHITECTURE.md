@@ -4,7 +4,7 @@
 
 `shell -> client (GoosicServiceClient in Swift, goosic-shell-support in Rust) -> goosic-service (NDJSON) -> goosic-core | goosic-catalog | goosic-lyrics | goosic-settings | goosic-downloads | goosic-accounts -> goosic-protocol`
 
-The shell is SwiftCrossUI today, on macOS and Linux. The [native-shell migration](NATIVE_SHELL_MIGRATION.md) replaces it with one native shell per platform — on Linux a GTK 4 application written in Rust, designed in [LINUX_SHELL.md](LINUX_SHELL.md) — and changes nothing to the right of the first arrow.
+Each operating system has a native shell: SwiftUI/AppKit on macOS, GTK 4 in Rust on Linux, and WinUI 3 on Windows. SwiftCrossUI has been removed. The [native-shell migration](NATIVE_SHELL_MIGRATION.md) preserves the shared service and its playback authority.
 
 The shell requests transitions; it never decides whether a playback transition is valid. `goosic-core` is the single authority and has no UI, WebView, network, cookie, or audio dependencies. The service owns one authority instance for its process lifetime.
 
@@ -59,7 +59,7 @@ Requests are capped at 64 KB. A catalog page is clamped by the service to 192 KB
 
 Catalog rows carry a thumbnail URL, and the shell fetches those itself rather than routing them through Rust. Two reasons: the service protocol is strictly serial, so a dense screen would serialize twenty downloads behind one another; and images are presentation, not authority.
 
-SwiftCrossUI's `Image` reads its source synchronously while computing layout, so it is never handed a remote URL — `ArtworkCache` downloads off the main thread, writes to a local cache, and `Image` only ever opens a local file. A half-written file cannot be picked up mid-download, because each is written beside its destination and renamed.
+On macOS, every native artwork surface uses `ArtworkCache`: downloads and atomic cache writes run in the background through an anonymous, bounded session. Native views decode local files into bounded thumbnails off the main actor, and backdrop blur also runs in a background task. Track changes cancel publication of stale image results. Image views observe artwork completion directly, without requiring a whole-application update for every batch. Decoded thumbnails share a 32 MB cache and concurrent requests for the same size share one decode. Visible rows move ahead of older queued downloads. Only changes to the playing cover refresh the window backdrop and palette. A half-written file cannot be picked up mid-download because each is written beside its destination and renamed.
 
 The fetch is deliberately narrow:
 
@@ -69,7 +69,7 @@ The fetch is deliberately narrow:
 
 ## Platform material
 
-Screens stay portable SwiftCrossUI; only the material behind them is platform-specific. `MaterialSurfacePlatformResolver` is a pure function from platform and OS major version to a backend, so selection is testable without a window:
+Screens use each operating system’s native toolkit. macOS material remains a presentation concern. `MaterialSurfacePlatformResolver` is a pure function from platform and OS major version to a backend, so selection is testable without a window:
 
 | Platform | Backend |
 | --- | --- |
@@ -85,17 +85,13 @@ Unsupported versions fall back rather than failing: there is no private feature 
 
 ## Shell backends
 
-The shell is one SwiftCrossUI target that compiles for more than one backend, and its sources are sorted by the platform that compiles them: `Core/` holds what every platform builds, `Platform/macOS`, `Platform/Linux` and `Platform/Stubs` hold what talks to an operating system. Each file still opens with the `#if os(...)` that makes it true, so the directory is where a reader looks and the guard is what the compiler obeys; a misplaced file fails to build rather than quietly vanishing from a platform. Files under `Platform/` carry their platform as a suffix because SwiftPM names each object file after its source's base name and one target cannot hold two `OfficialPlaybackHost.swift`.
+`apps/goosic-swift` is exclusively the native macOS app. Its `Core/` directory retains model state, protocol DTOs and tested rules; `Platform/macOS/` contains SwiftUI/AppKit, WebKit, AVFoundation and media-control integration. The old portable screens, Swift Linux hosts, Windows stubs and C shims have been deleted. Preview-only macOS hosts refuse playback when WebKit is intentionally disabled.
 
-`OfficialPlaybackHost`, `LocalPlaybackHost`, `AccountLoginHost` and `SystemMediaControls` are real on macOS and on Linux; `MaterialSurface` is real only on macOS, because the platform blur it wraps has no portable equivalent. Everything else has a stub whose surface matches, so a build without a renderer is a real build rather than a broken one. When a stub drifts from that surface the shell stops compiling on the platforms that use it, which is the intended signal — the stubs are part of the contract, not scaffolding, and a stub reports its limitation rather than silently succeeding.
+The model uses Combine publication directly. SwiftUI observes it through `NativeMacModelStore`, without a toolkit publisher or an extra dispatch hop. The separate GTK and WinUI apps use their native state and controls and talk to the same private service. Useful protocol and rule tests remain; the obsolete Swift MPRIS implementation and its implementation-specific tests were retired with that host.
 
-The backend is chosen at build time through `SCUI_DEFAULT_BACKEND`, and the Make targets always set it: `AppKitBackend` on macOS, `GtkBackend` on Linux. It has to be explicit. SwiftCrossUI's `DefaultBackend` otherwise names every platform's backend target and, although each carries a platform condition, SwiftPM still resolves `swift-winui` into the build graph and tries to compile its C targets, which need Windows headers.
+The account catalog WKWebView closes after 90 idle seconds with no outstanding reads, mutations or page waiters. A subsequent request recreates it with the same account data store. This reduces retained page memory without destroying the playback host, sharing credentials with Rust or trying to force WebKit into one process.
 
-Two portability rules follow from the toolchain rather than from this design, and both are load-bearing because breaking either produces a failure far from its cause. `URLSession` lives in `FoundationNetworking` off Darwin, so any file that fetches over HTTP needs a `#if canImport(FoundationNetworking)` import. And swift-corelibs-xctest discovers tests by casting each method to `(Self) -> () throws -> Void`; a `@MainActor`-isolated method does not carry that type. This aborts the entire run before a single test executes, with `Could not cast value of type '... -> @Swift.MainActor () throws -> ()'` and signal 6 — a message that never mentions XCTest. It applies to an isolated method just as much as to an isolated `XCTestCase` subclass, so isolation goes inside the body: `func testX() async throws` wrapping its work in `await MainActor.run`, whose closure must not touch `self`.
-
-Under the Swift 6 language mode that pattern gains a second requirement: the body of `MainActor.run` must not reach for anything on `self`, because sending a non-`Sendable` `XCTestCase` across an isolation boundary is a data race the compiler now rejects. Test fixtures a `MainActor.run` body needs are therefore `static` — `Self.makeCache()`, `Self.model(tracks:)` — which keeps the closure free of `self` while leaving the test method itself unisolated, so discovery still works.
-
-A stub build browses, searches, and renders the transport, but produces no audio. That is deliberate: a renderer that played without claiming a Rust lease would be a hole in the ownership model, so the absence of a host is expressed as a host that refuses rather than as an unguarded fallback.
+Catalog requests begin once the committed document exposes its account context, rather than waiting for the entire web application to finish loading. WebKit exception details are classified inside the native host; only safe categories reach diagnostics. An explicit expired-session signal clears cached account catalog presentation and pending catalog replies, then loads anonymous Home under the guest cache scope. The login window runs one completion probe at a time, begins checking on document commit, and exposes a retry action when navigation stalls or WebKit terminates its process. The stored account remains available for renewing sign-in, but its name and saved feed do not count as a live authenticated session. Playback retains its existing Rust lease until the normal account-transition path quiesces it.
 
 ## The official bridge, and what is not platform-specific about it
 

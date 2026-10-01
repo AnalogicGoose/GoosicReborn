@@ -1,8 +1,6 @@
 #if os(macOS) && !GOOSIC_PREVIEW_NO_WEBKIT
 import AppKit
-import AppKitBackend
 import Foundation
-import SwiftCrossUI
 import WebKit
 
 /// Stable mount point for the renderer. Rebinding replaces its one child in place, so SwiftUI
@@ -46,7 +44,7 @@ final class OfficialPlaybackHost: NSObject {
     func makeWebView(profile: OfficialPlaybackProfile = .guest) -> WKWebView {
         if let webView {
             if activeProfile.identifier == profile.identifier {
-            // SwiftCrossUI may recreate the representable wrapper during layout. Reparent the
+            // SwiftUI may recreate the representable wrapper during layout. Reparent the
             // existing renderer instead of creating a second media owner or crashing.
             webView.removeFromSuperview()
             container?.addSubview(webView)
@@ -561,22 +559,4 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
 
 }
 
-struct OfficialPlaybackSurface: NSViewRepresentable {
-    let model: GoosicAppModel
-
-    func makeNSView(context: Context) -> OfficialPlaybackContainer {
-        model.officialPlaybackHost.makeContainer()
-    }
-
-    func updateNSView(_ nsView: OfficialPlaybackContainer, context: Context) {
-        nsView.wantsLayer = true
-        nsView.layer?.opacity = 0.01
-    }
-
-    nonisolated static func dismantleNSView(_ nsView: OfficialPlaybackContainer, coordinator: Void) {
-        // The model owns the host and performs asynchronous media quiescing before detachment.
-        // This is intentionally a no-op here; SwiftCrossUI may dismantle/recreate wrappers during
-        // layout, and a second WKWebView must never be created for the same model.
-    }
-}
 #endif

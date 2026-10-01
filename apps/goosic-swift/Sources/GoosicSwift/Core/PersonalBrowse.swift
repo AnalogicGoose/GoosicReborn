@@ -44,3 +44,19 @@ enum PersonalBrowseID {
         id.hasPrefix("VL") ? id : "VL\(id)"
     }
 }
+
+/// The account's Google session has ended while Goosic still holds the account.
+///
+/// The profile keeps loading YouTube Music, but every personal read then comes back as a guest's.
+/// The reader refuses those with `marker`, and the shell asks the listener to sign in again
+/// rather than showing guest pages under the account's name.
+struct PersonalSessionExpired: LocalizedError {
+    static let marker = "GOOSIC_SIGNED_OUT"
+
+    var errorDescription: String? { "Your YouTube Music session ended. Sign in again to see your library." }
+
+    /// Whether `error` says the session ended, whichever host reported it.
+    static func matches(_ error: Error) -> Bool {
+        error is PersonalSessionExpired || error.localizedDescription.contains(marker)
+    }
+}
