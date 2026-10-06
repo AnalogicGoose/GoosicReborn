@@ -1202,7 +1202,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
-    private var canAdjustVolume: Bool { !busy && !model.isAdvertisement }
+    private var canAdjustVolume: Bool { !busy }
     /// Keep the player compact while listening. The timeline is the one interaction that needs
     /// additional space, so it alone reveals the full scrubber and elapsed/remaining times.
     /// This prevents a newly selected song from making the whole chrome jump in height.
@@ -1456,12 +1456,9 @@ private struct NativeMacPlayerBar: SwiftUI.View {
 
     private var volumeControl: some SwiftUI.View {
         SwiftUI.HStack(spacing: 8) {
-            SwiftUI.Slider(value: Binding(
-                get: { model.isMuted ? 0 : model.volume },
-                set: { model.setVolume($0) }
-            ), in: 0...1)
-            .controlSize(.small)
-            .tint(SwiftUI.Color.primary)
+            NativeMacVolumeSlider(value: model.isMuted ? 0 : model.volume, isEnabled: canAdjustVolume) {
+                model.setVolume($0)
+            }
             .frame(width: 110)
             .accessibilityLabel("Volume")
             .accessibilityValue("\(Int((model.isMuted ? 0 : model.volume) * 100)) percent")

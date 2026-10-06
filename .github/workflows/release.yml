@@ -1,87 +1,91 @@
 name: Release
 
-# Builds the downloads a tester installs, for a tag like v0.1.0-alpha.2. A tag runs the workflow
-# from its own commit, so a release is built from exactly the tree it names -- which for a build
-# carrying the Windows shell means tagging a ref that has it, today `platform/windows`.
-#
-# The tag publishes the release outright, marked as a pre-release: the point of a test build is a
-# link anyone can open, and this repository is public, so the downloads are too. Deleting a release
-# does not unsend what someone already downloaded -- tag when the tree is one you are happy to hand
-# over.
+# Downloads stay draft until their hashes and contents have been checked.
 on:
     push:
-        # macOS alphas are packaged and verified on the release Mac. They must not build or
-        # advertise a Windows binary with a macOS-only version suffix.
         tags: ['v*', '!v*-macos-*']
-    workflow_dispatch:
-        inputs:
-            version:
-                description: Version name for a build made without a tag
-                required: true
-                default: 0.1.0-alpha.2
-
 permissions:
     contents: write
-
 jobs:
     macos:
-        name: Goosic.app (macOS, universal)
+        name: Goosic.app (macOS, universal alpha)
         runs-on: macos-latest
         steps:
-            -   uses: actions/checkout@v4
-            -   uses: maxim-lobanov/setup-xcode@v1
-                with:
-                    xcode-version: latest-stable
-            -   uses: dtolnay/rust-toolchain@stable
-                with:
-                    targets: aarch64-apple-darwin,x86_64-apple-darwin
-            -   name: Build the app bundle
-                run: sh tools/package-macos.sh "${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}"
-            -   uses: actions/upload-artifact@v4
-                with:
-                    name: macos
-                    path: dist/*.zip
-
+            - uses: actions/checkout@v4
+            - uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: latest-stable
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: aarch64-apple-darwin,x86_64-apple-darwin
+            - name: Test the release tree
+              run: make test
+            - name: Package and verify the app
+              run: |
+                  version="${GITHUB_REF_NAME#v}"
+                  GOOSIC_MACOS_BUILD_VERSION=3 sh tools/package-macos.sh "$version"
+                  unzip -q "dist/Goosic-$version-macos-universal.zip" -d dist/verify
+                  app=dist/verify/Goosic.app
+                  codesign --verify --deep --strict "$app"
+                  lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Goosic"
+                  lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/goosic-service"
+                  test -d "$app/Contents/Frameworks/Sparkle.framework"
+                  test -f "$app/Contents/Resources/LICENSE-GPL-3.0"
+                  cd dist
+                  shasum -a 256 "Goosic-$version-macos-universal.zip" > SHA256SUMS-macos.txt
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: macos
+                  path: |
+                      dist/*.zip
+                      dist/SHA256SUMS-macos.txt
+                  if-no-files-found: error
     windows:
         name: Goosic (Windows, x64)
         runs-on: windows-latest
         steps:
-            -   uses: actions/checkout@v4
-            -   uses: dtolnay/rust-toolchain@stable
-            # The WinUI shell lives on `platform/windows` until it lands on the trunk, so a tag
-            # cut elsewhere has no Windows app to build and says so rather than failing.
-            -   name: Look for the Windows shell
-                id: shell
-                shell: bash
-                run: test -f apps/goosic-windows/package.ps1 && echo present=true >>"$GITHUB_OUTPUT" || echo present=false >>"$GITHUB_OUTPUT"
-            -   name: Build the package
-                if: steps.shell.outputs.present == 'true'
-                run: ./apps/goosic-windows/package.ps1 -Version "${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}"
-            -   uses: actions/upload-artifact@v4
-                if: steps.shell.outputs.present == 'true'
-                with:
-                    name: windows
-                    path: dist/*.zip
-
-    publish:
-        name: Publish the downloads
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: x86_64-pc-windows-msvc
+            - uses: actions/setup-dotnet@v4
+              with:
+                  dotnet-version: '9.0.x'
+            - run: cargo test --workspace
+            - run: dotnet test apps/goosic-windows/Goosic.Windows.Tests/Goosic.Windows.Tests.csproj
+            - name: Install Inno Setup
+              run: choco install innosetup --no-progress -y
+            - name: Build installer and portable archive
+              run: |
+                  $version = $env:GITHUB_REF_NAME.Substring(1)
+                  ./apps/goosic-windows/build-installer.ps1 -Version $version
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: windows
+                  path: |
+                      dist/*-windows-x64.zip
+                      dist/*-windows-x64-setup.exe
+                      dist/SHA256SUMS.txt
+                  if-no-files-found: error
+    draft:
+        name: Create the release draft
         needs: [macos, windows]
         runs-on: ubuntu-latest
         steps:
-            -   uses: actions/download-artifact@v4
-                with:
-                    path: downloads
-            -   uses: softprops/action-gh-release@v2
-                with:
-                    prerelease: true
-                    name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
-                    tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
-                    files: downloads/*/*.zip
-                    body: |
-                        A test build. Neither download is signed with a paid developer certificate,
-                        so each operating system asks once before it will open it -- see
-                        [docs/RELEASING.md](docs/RELEASING.md) for what a tester has to click.
-
-                        **macOS** — universal, macOS 14 or later.
-                        **Windows** — x64, Windows 10 1809 or later. Nothing to install: unzip it
-                        and run `Goosic.Windows.exe`.
+            - uses: actions/checkout@v4
+            - uses: actions/download-artifact@v4
+              with:
+                  path: downloads
+            - uses: softprops/action-gh-release@v2
+              with:
+                  draft: true
+                  prerelease: false
+                  name: Goosic ${{ github.ref_name }}
+                  body_path: docs/RELEASE_0.2.5.md
+                  fail_on_unmatched_files: true
+                  files: |
+                      downloads/macos/*.zip
+                      downloads/macos/SHA256SUMS-macos.txt
+                      downloads/windows/*.zip
+                      downloads/windows/*-setup.exe
+                      downloads/windows/SHA256SUMS.txt

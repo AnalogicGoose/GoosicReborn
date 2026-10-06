@@ -5,27 +5,23 @@ There are two kinds of build here, and only one of them is a deployment.
 A **deployment** is `development` → `main`, described in [BRANCHING.md](BRANCHING.md). It is what
 "shipped" means, and it happens when the trunk is coherent on every platform it claims.
 
-A **test build** is what this document is about: a download handed to a few people so they can use
-Goosic on their own machine and say what breaks. It is cut from wherever the code actually is,
-which today is not the trunk — the WinUI shell lives on `platform/windows` until the port is
-coherent enough to land, so a build that includes Windows is tagged there. That is the honest
-shape of a pre-1.0 project, and pretending otherwise by rushing a half-port onto the trunk is the
-thing the branching model exists to prevent.
+A **test build** is a pre-release download for platform acceptance. A deployment can contain a
+stable Windows build and an explicitly labeled macOS alpha without claiming Linux acceptance.
+The native shells are now integrated on development; releases no longer tag a platform branch.
 
 ## Making one
 
-Tag the ref that has everything the build claims, and push the tag:
+Merge the coherent platform changes into development, run the required tests, and deploy
+by merging development into main. Tag that deployment commit with a numeric version such as
+`v0.2.5` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
+builds the Windows installer and portable ZIP and the universal macOS app, verifies the Mac
+bundle signature and architectures, and attaches both checksum files to a draft release.
 
-```sh
-git tag -a v0.1.0-alpha.2 -m v0.1.0-alpha.2
-git push origin v0.1.0-alpha.2
-```
-
-`.github/workflows/release.yml` runs from the tagged commit, builds both downloads, and publishes
-them as a pre-release. The repository is public, so the release is: the link works for anyone who
-finds it, not only the people it is sent to. Pushing the tag is therefore the decision to hand the
-build out, and it is the only step here that cannot be taken back -- a deleted release does not
-unsend a download someone already has.
+Inspect the downloads and their hashes before publishing the draft. Publication makes the
+Windows updater offer the version. The macOS download remains an alpha until native acceptance
+is complete. Updating its Sparkle feed separately requires the existing private signing key;
+without it, publish the manual download and leave the signed feed unchanged. Never replace the
+key merely to make CI able to sign.
 
 The two halves are built by scripts that also work locally, which is how they are debugged:
 

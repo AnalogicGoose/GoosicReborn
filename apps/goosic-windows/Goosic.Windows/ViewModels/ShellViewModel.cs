@@ -1013,7 +1013,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (sample.State == "playing" && !_endHandled)
             {
                 _endArmed = true;
-                _listenerPaused = false;
+                // A sample queued before Pause cannot clear the listener's intent.
+                // NoteListenerToggle and Point handle explicit resume and new tracks.
             }
 
             if (changed)

@@ -3367,7 +3367,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             duration = event.duration
             presentationChanged = true
         }
-        if !event.isAdvertisement {
+        do {
             if volumeAppliedForLoad {
                 switch VolumeSync.reconcileOfficialRenderer(
                     reported: event.volume, preferred: volume, requested: requestedVolume
@@ -3391,7 +3391,7 @@ final class GoosicAppModel: Combine.ObservableObject {
                 }
             } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
                 // A fresh content page starts at its own volume. Push the stored preference once,
-                // then follow what the player reports. Advertisements never enter this path.
+                // then follow what the player reports, including advertisement media elements.
                 volumeAppliedForLoad = true
                 requestedVolume = volume
                 requestedMuted = isMuted
@@ -3406,9 +3406,8 @@ final class GoosicAppModel: Combine.ObservableObject {
             || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
             pendingSeek = nil
         }
-        if event.state == "playing", !event.isAdvertisement {
-            listenerPaused = false
-        }
+        // A queued playing sample must not undo a listener's asynchronous pause request.
+        // Explicit resume and a new load clear this intent.
         if adRecovery.observe(advertisement: event.isAdvertisement, state: event.state, listenerPaused: listenerPaused) {
             officialPlaybackHost.play()
         }
