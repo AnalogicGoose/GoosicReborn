@@ -132,6 +132,7 @@ public sealed partial class MainWindow : Window
         }
 
         FullPlayerCover.Source = image;
+        FadePlayerArtwork(FullPlayerCover);
         _fullPlayerMesh.SetPalette(paletteTask.Result);
         ArtworkBackdropImage.Source = backdropTask.Result;
         FullPlayerBlur.Source = backdropTask.Result;

@@ -9,6 +9,8 @@ public enum QueueRepeat { Off, All, One }
 /// <summary>What the queue should do when asked to move.</summary>
 public enum MoveKind
 {
+    /// <summary>There is no valid current entry to move from.</summary>
+    None,
     /// <summary>Play the entry at <see cref="MoveDecision.Index"/>.</summary>
     Play,
     /// <summary>Start the current entry again from the beginning.</summary>
@@ -46,7 +48,7 @@ public static class PlaybackOrder
         {
             // A current entry the queue no longer holds has no neighbours; guessing one from a
             // stale position is how Previous used to land on an unrelated song.
-            return new(forward ? MoveKind.NeedMore : MoveKind.Restart);
+            return new(MoveKind.None);
         }
 
         if (natural && repeat == QueueRepeat.One)
