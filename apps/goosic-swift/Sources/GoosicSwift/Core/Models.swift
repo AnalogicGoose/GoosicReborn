@@ -2261,6 +2261,8 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// on by itself while Goosic still believes the finished track is paused.
     private func pauseForSleep(evenIfPaused: Bool = false) {
         guard evenIfPaused || !isPaused else { return }
+        // A timer pause is intentional even when the renderer is near the natural end.
+        listenerPaused = true
         if playbackState.owner == .localDownloadedFile {
             localPlaybackHost.pause()
         } else if officialPlaybackHost.loadedVideoID != nil {
@@ -2555,7 +2557,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     private var pageScope: String { sessionExpired ? "guest" : activeAccountId ?? "guest" }
 
     private func storedPage(for key: CatalogKey) -> CatalogPageView? {
-        pageStore.load(key, scope: pageScope).map(CatalogPageView.init(wire:))
+        pageStore.load(key, scope: pageScope)
     }
 
     private func storePage(_ wire: GoosicCatalogPage, for key: CatalogKey) {
