@@ -112,7 +112,10 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ShowFromTray()
+    private void ShowFromTray() => ShowForActivation();
+
+    /// <summary>Restores the existing listening window after a tray click or another launch.</summary>
+    internal void ShowForActivation()
     {
         AppWindow.Show();
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } presenter)
