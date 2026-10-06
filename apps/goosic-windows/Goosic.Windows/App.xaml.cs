@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using Goosic.Windows.Service;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -10,6 +11,10 @@ public partial class App : Application
 {
     private MainWindow? _window;
     private AppInstance? _instance;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AllowSetForegroundWindow(uint processId);
 
     public App()
     {
@@ -25,6 +30,8 @@ public partial class App : Application
         {
             try
             {
+                // The user-launched process can let the existing hidden window take focus.
+                _ = AllowSetForegroundWindow(instance.ProcessId);
                 await instance.RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs());
             }
             catch (Exception error)
