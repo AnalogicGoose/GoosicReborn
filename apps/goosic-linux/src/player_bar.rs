@@ -155,6 +155,21 @@ impl PlayerBar {
                 glib::Propagation::Proceed
             });
         }
+        {
+            let scroll = gtk::EventControllerScroll::new(
+                gtk::EventControllerScrollFlags::VERTICAL
+                    | gtk::EventControllerScrollFlags::DISCRETE,
+            );
+            let (actions, scroll_volume) = (actions.clone(), volume.clone());
+            scroll.connect_scroll(move |_, _, dy| {
+                if !scroll_volume.is_sensitive() || dy == 0.0 {
+                    return glib::Propagation::Proceed;
+                }
+                (actions.volume)((scroll_volume.value() - dy * 0.05).clamp(0.0, 1.0));
+                glib::Propagation::Stop
+            });
+            volume.add_controller(scroll);
+        }
 
         let elapsed = gtk::Label::new(Some("0:00"));
         elapsed.add_css_class("goosic-time");
@@ -304,15 +319,25 @@ impl PlayerBar {
 
         self.volume
             .set_value(if player.muted { 0.0 } else { player.volume });
-        self.volume.set_sensitive(!player.advertisement);
+        self.volume.set_sensitive(idle);
         self.mute.set_icon_name(if player.muted {
             "audio-volume-muted-symbolic"
         } else {
             "audio-volume-high-symbolic"
         });
-        self.mute.set_sensitive(!player.advertisement);
+        self.mute.set_sensitive(idle);
 
         self.shuffle.set_active(player.shuffle);
+        self.shuffle.set_tooltip_text(Some(if player.shuffle {
+            "Shuffle on"
+        } else {
+            "Shuffle off"
+        }));
+        if player.shuffle {
+            self.shuffle.add_css_class("goosic-mode-active");
+        } else {
+            self.shuffle.remove_css_class("goosic-mode-active");
+        }
         let (icon, tip) = match player.repeat {
             RepeatMode::Off => ("media-playlist-repeat-symbolic", "Repeat off"),
             RepeatMode::All => ("media-playlist-repeat-symbolic", "Repeat all"),
@@ -321,8 +346,10 @@ impl PlayerBar {
         self.repeat.set_icon_name(icon);
         self.repeat.set_tooltip_text(Some(tip));
         if player.repeat == RepeatMode::Off {
+            self.repeat.remove_css_class("goosic-mode-active");
             self.repeat.add_css_class("dim-label");
         } else {
+            self.repeat.add_css_class("goosic-mode-active");
             self.repeat.remove_css_class("dim-label");
         }
         self.autoplay.set_active(player.autoplay);

@@ -192,19 +192,11 @@ final class OfficialPlaybackHost {
 
     func setVolume(_ volume: Double) {
         guard volume.isFinite else { return }
-        guard !advertisementActive else {
-            onStatus?("Volume is unchanged while the official player is showing an advertisement.")
-            return
-        }
         let target = Self.javaScriptNumber(min(max(volume, 0), 1))
         evaluateMediaScript("media => { media.muted = false; media.volume = \(target); return 'volume-requested'; }")
     }
 
     func setMuted(_ muted: Bool) {
-        guard !advertisementActive else {
-            onStatus?("Mute is unavailable while the official player is showing an advertisement.")
-            return
-        }
         evaluateMediaScript("media => { media.muted = \(muted ? "true" : "false"); return 'mute-requested'; }")
     }
 

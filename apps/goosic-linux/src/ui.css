@@ -92,6 +92,12 @@ button.goosic-sidebar-toggle:hover { background: alpha(white, 0.08); }
   padding: 0;
 }
 .goosic-player-pill .goosic-play-button { min-width: 46px; background: transparent; color: white; }
+.goosic-player-pill button.goosic-mode-active,
+.goosic-light .goosic-player-pill button.goosic-mode-active {
+  color: #fa3d70;
+  background-color: alpha(#fa3d70, 0.14);
+  box-shadow: inset 0 -2px #fa3d70;
+}
 .goosic-player-metadata { margin-left: 8px; margin-right: 8px; }
 .goosic-player-pill frame {
   border: 0;
