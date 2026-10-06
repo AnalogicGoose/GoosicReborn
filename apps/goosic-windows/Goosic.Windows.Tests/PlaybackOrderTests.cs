@@ -45,9 +45,11 @@ public class PlaybackOrderTests
     [Fact]
     public void ACurrentSongMissingFromTheQueueNeverPicksAStrangerOne()
     {
-        Assert.Equal(MoveKind.Restart, PlaybackOrder.Move(5, -1, forward: false, natural: false, QueueRepeat.All).Kind);
-        Assert.Equal(MoveKind.NeedMore, PlaybackOrder.Move(5, -1, forward: true, natural: false, QueueRepeat.All).Kind);
-        Assert.Equal(MoveKind.NeedMore, PlaybackOrder.Move(0, 0, forward: true, natural: true, QueueRepeat.Off).Kind);
+        Assert.Equal(MoveKind.None, PlaybackOrder.Move(5, -1, forward: false, natural: false, QueueRepeat.All).Kind);
+        Assert.Equal(MoveKind.None, PlaybackOrder.Move(5, -1, forward: true, natural: false, QueueRepeat.All).Kind);
+        Assert.Equal(MoveKind.None, PlaybackOrder.Move(0, 0, forward: true, natural: true, QueueRepeat.Off).Kind);
+        Assert.Equal(MoveKind.None, PlaybackOrder.Move(5, 5, forward: true, natural: false, QueueRepeat.One).Kind);
+        Assert.Equal(MoveKind.None, PlaybackOrder.Move(5, 5, forward: false, natural: false, QueueRepeat.Off).Kind);
     }
 
     [Fact]

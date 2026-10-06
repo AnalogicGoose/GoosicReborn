@@ -134,7 +134,7 @@ struct SystemMediaCommandAvailability: Equatable {
             previous: contentCommands && snapshot.hasQueue,
             changePosition: contentCommands && snapshot.duration.isFinite && snapshot.duration > 0,
             stop: ready,
-            changeVolume: ready && !snapshot.isAdvertisement
+            changeVolume: ready
         )
     }
 }

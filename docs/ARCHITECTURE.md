@@ -133,6 +133,17 @@ Three things about that host are load-bearing and easy to break:
 
 Bridge events are accepted only when the version, nonce, generation, and video id all match the active load, the sequence advances, and the reported position, duration, and volume are possible. A rejection says which check failed; an opaque rejection is unactionable.
 
+Volume and mute remain available during advertisements: they change loudness, not whether an
+advertisement plays. Seeking and track changes remain unavailable. The native volume preference
+also applies to replacement media elements, while an ad's reported level never overwrites that
+preference. After an advertisement, end detection waits until content plays again; a paused
+handoff requests play once unless the listener paused it. This prevents a stale ad end from
+advancing the queue and leaves a deliberate pause alone.
+
+Previous restarts the first queue entry unless repeat-all explicitly allows wrapping, and an
+empty or stale selection has no neighbour. Repeat-one governs natural ends; pressing Next still
+moves to another track.
+
 The official app runs its own "up next" queue. When it follows that queue to a video Goosic did not request, the observer pauses it and the host reports the move; Goosic then plays its own next track. Goosic owns the queue, so the app never plays something the user did not choose.
 
 That rule alone cost every song its ending. With YouTube Music's Automix on, the app does not wait for a track to finish: it fades into its own choice some seconds early, so the move the observer reported came before the song was over. After each load the host therefore switches the page's Automix off (`AUTOMIX_OFF_SCRIPT` in `goosic-shell-support`, `OfficialBridge.automixOffScript` in Swift), and the page plays the requested track through. With Automix off the page does not report `ended`, though: it stops a fraction of a second short and reports `paused`. A pause within `END_TOLERANCE_SECONDS` of the length is treated as the end unless the listener paused it (`has_finished`, `TrackEnd.hasFinished`); without that, playback sat silent after every song.

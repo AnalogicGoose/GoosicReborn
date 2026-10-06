@@ -84,7 +84,7 @@ final class OfficialBridgeWireTests: XCTestCase {
 
     func testTheObserverPrefersTheMediaElementThatIsActuallyPlaying() {
         let script = OfficialBridge.observerScript(token: "t", generation: 1, videoID: "v")
-        XCTAssertTrue(script.contains("!candidate.paused && candidate.readyState > 0"))
+        XCTAssertTrue(script.contains("!candidate.paused && !candidate.ended && candidate.readyState > 0"))
         XCTAssertTrue(script.contains("const activeMedia"))
     }
 }
