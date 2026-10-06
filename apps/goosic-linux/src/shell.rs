@@ -1352,27 +1352,34 @@ impl Shell {
             if settled {
                 player.pending_seek = None;
             }
-            let advance = should_advance_after_end(
-                &EndSample {
-                    state: &event.state,
-                    is_advertisement: event.is_advertisement,
-                    video_id: &event.video_id,
-                    position: event.current_time,
-                    duration: event.duration,
-                },
-                player.ended_video_id.as_deref(),
-                player.listener_paused,
-            );
+            let listener_paused = player.listener_paused;
+            let resume_content =
+                player
+                    .ad_recovery
+                    .observe(event.is_advertisement, &event.state, listener_paused);
+            let advance = !player.ad_recovery.awaiting_content
+                && should_advance_after_end(
+                    &EndSample {
+                        state: &event.state,
+                        is_advertisement: event.is_advertisement,
+                        video_id: &event.video_id,
+                        position: event.current_time,
+                        duration: event.duration,
+                    },
+                    player.ended_video_id.as_deref(),
+                    player.listener_paused,
+                );
             if advance {
                 player.ended_video_id = Some(event.video_id.clone());
             }
             // The page's own autoplay is not guaranteed: on a fresh profile YouTube Music loads
             // the track paused. The user asked for this track to play, so the load's first paused
             // report is answered with one play request — once, so a pause the user makes is kept.
-            let nudge = player.start_pending
-                && !player.listener_paused
-                && !event.is_advertisement
-                && event.state == "paused";
+            let nudge = resume_content
+                || player.start_pending
+                    && !player.listener_paused
+                    && !event.is_advertisement
+                    && event.state == "paused";
             if nudge || event.state == "playing" {
                 player.start_pending = false;
             }
@@ -1721,9 +1728,6 @@ impl Shell {
     }
 
     fn set_volume(self: &Rc<Self>, volume: f64) {
-        if self.player.borrow().advertisement {
-            return self.set_status("Volume is unchanged during advertisements.");
-        }
         let Some(volume) = clamp_volume(volume) else {
             return;
         };
@@ -1748,16 +1752,9 @@ impl Shell {
     fn toggle_muted(self: &Rc<Self>) {
         let muted = {
             let mut player = self.player.borrow_mut();
-            if player.advertisement {
-                None
-            } else {
-                player.muted = !player.muted;
-                player.volume_applied_for_load = true;
-                Some(player.muted)
-            }
-        };
-        let Some(muted) = muted else {
-            return self.set_status("Mute is unavailable during advertisements.");
+            player.muted = !player.muted;
+            player.volume_applied_for_load = true;
+            player.muted
         };
         self.official.set_muted(muted);
         self.local.set_muted(muted);
