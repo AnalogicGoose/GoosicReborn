@@ -38,18 +38,15 @@ pub fn index_after(
     wrapping: bool,
     pick: impl FnOnce(usize) -> usize,
 ) -> Option<usize> {
-    if count == 0 {
+    if count == 0 || index >= count {
         return None;
     }
-    if repeat == RepeatMode::One {
+    if repeat == RepeatMode::One && !wrapping {
         return Some(index);
     }
     if shuffle {
         if count == 1 {
             return (repeat == RepeatMode::All || wrapping).then_some(index);
-        }
-        if index >= count {
-            return Some(pick(count) % count);
         }
         // Any position but the current one, so shuffle never repeats a track back to back. The
         // Swift shell drew until it missed; drawing from the other positions directly gives the
@@ -62,6 +59,50 @@ pub fn index_after(
         return Some(next);
     }
     (repeat == RepeatMode::All || wrapping).then_some(0)
+}
+
+/// Previous restarts the first track unless repeat-all explicitly permits wrapping.
+/// A missing current entry has no neighbours.
+pub fn index_before(index: usize, count: usize, repeat: RepeatMode) -> Option<usize> {
+    if count == 0 || index >= count {
+        return None;
+    }
+    Some(if index > 0 {
+        index - 1
+    } else if repeat == RepeatMode::All {
+        count - 1
+    } else {
+        0
+    })
+}
+
+/// An ad's final media state can outlive its DOM marker. Suppress end detection until content
+/// plays again, and request play once if the handoff leaves content paused. A listener's pause
+/// always wins. This state is reset for each load and never seeks or skips an advertisement.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AdPlaybackRecovery {
+    pub awaiting_content: bool,
+    resume_requested: bool,
+}
+
+impl AdPlaybackRecovery {
+    pub fn observe(&mut self, advertisement: bool, state: &str, listener_paused: bool) -> bool {
+        if advertisement {
+            self.awaiting_content = true;
+            self.resume_requested = false;
+            return false;
+        }
+        if state == "playing" {
+            self.awaiting_content = false;
+            self.resume_requested = false;
+            return false;
+        }
+        if self.awaiting_content && state == "paused" && !listener_paused && !self.resume_requested {
+            self.resume_requested = true;
+            return true;
+        }
+        false
+    }
 }
 
 /// A position in `0..count` that differs from call to call. Not cryptographic, and it does not
@@ -333,7 +374,35 @@ mod tests {
     #[test]
     fn repeat_one_stays_on_the_same_track() {
         assert_eq!(next(1, 3, RepeatMode::One, false, false), Some(1));
-        assert_eq!(next(1, 3, RepeatMode::One, false, true), Some(1));
+        assert_eq!(next(1, 3, RepeatMode::One, false, true), Some(2));
+    }
+
+    #[test]
+    fn previous_does_not_invent_a_neighbour() {
+        assert_eq!(index_before(0, 0, RepeatMode::Off), None);
+        assert_eq!(index_before(3, 3, RepeatMode::All), None);
+        assert_eq!(index_before(0, 3, RepeatMode::Off), Some(0));
+        assert_eq!(index_before(0, 3, RepeatMode::One), Some(0));
+        assert_eq!(index_before(0, 3, RepeatMode::All), Some(2));
+        assert_eq!(index_before(2, 3, RepeatMode::Off), Some(1));
+        assert_eq!(next(3, 3, RepeatMode::One, true, true), None);
+    }
+
+    #[test]
+    fn ad_handoff_waits_for_content_and_resumes_only_once() {
+        let mut recovery = AdPlaybackRecovery::default();
+        assert!(!recovery.observe(true, "playing", false));
+        assert!(!recovery.observe(true, "ended", false));
+        assert!(!recovery.observe(false, "ended", false));
+        assert!(recovery.awaiting_content);
+        assert!(recovery.observe(false, "paused", false));
+        assert!(!recovery.observe(false, "paused", false));
+        assert!(!recovery.observe(false, "playing", false));
+        assert!(!recovery.awaiting_content);
+        assert!(!recovery.observe(false, "paused", false));
+        assert!(!recovery.observe(true, "paused", true));
+        assert!(!recovery.observe(false, "paused", true));
+        assert!(recovery.awaiting_content);
     }
 
     #[test]

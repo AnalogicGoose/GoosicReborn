@@ -154,13 +154,20 @@ pub fn observer_script(token: &str, generation: u64, video_id: &str) -> String {
 
 const OBSERVER_BODY: &str = r#"  let sequence = 0;
   let media;
+  const activeMedia = () => {
+    const candidates = Array.from(document.querySelectorAll('audio, video'));
+    return candidates.find(candidate => !candidate.paused && !candidate.ended && candidate.readyState > 0)
+      ?? candidates.find(candidate => !candidate.ended && candidate.readyState > 0)
+      ?? candidates[0]
+      ?? null;
+  };
   const currentVideoId = () =>
     new URLSearchParams(window.location.search).get('v') || requestedVideoId;
   const isAd = () => Boolean(document.querySelector(
-    '.ad-showing, .ytp-ad-player-overlay, .ytp-ad-text, [class*=ad-showing]'
+    '.ad-showing, .ad-interrupting'
   ));
   const send = () => {
-    media = document.querySelector('audio,video');
+    media = activeMedia();
     if (!media || !window.webkit?.messageHandlers?.goosicBridge) return;
     const actualVideoId = currentVideoId();
     const advertisement = isAd();
@@ -186,7 +193,7 @@ const OBSERVER_BODY: &str = r#"  let sequence = 0;
     });
   };
   const install = () => {
-    const next = document.querySelector('audio,video');
+    const next = activeMedia();
     if (next === media) return;
     media = next;
     if (!media) return;
