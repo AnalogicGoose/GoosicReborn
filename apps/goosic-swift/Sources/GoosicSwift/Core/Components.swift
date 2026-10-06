@@ -324,7 +324,7 @@ struct PlaybackTransportBar: View {
                 .frame(minWidth: 42)
             Button(model.isMuted ? "Unmute" : "Mute") { model.toggleMuted() }
                 .font(.caption2)
-                .disabled(model.accountOperationInProgress || model.isAdvertisement)
+                .disabled(model.accountOperationInProgress)
             Slider(
                 value: Binding(
                     get: { model.isMuted ? 0 : model.volume },
@@ -333,7 +333,7 @@ struct PlaybackTransportBar: View {
                 in: 0...1
             )
             .frame(width: 90)
-            .disabled(model.accountOperationInProgress || model.isAdvertisement)
+            .disabled(model.accountOperationInProgress)
             Button(model.shuffle ? "Shuffle on" : "Shuffle off") { model.toggleShuffle() }
                 .font(.caption2)
             Button(model.repeatMode.label) { model.cycleRepeatMode() }
