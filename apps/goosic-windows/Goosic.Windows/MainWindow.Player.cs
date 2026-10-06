@@ -404,6 +404,7 @@ public sealed partial class MainWindow : Window
     /// <summary>A wheel over a volume control changes its slider, consuming the gesture once.</summary>
     private void OnVolumeWheel(object sender, PointerRoutedEventArgs e)
     {
+        if (e.Handled) return;
         if (sender is not Slider slider || !Model.CanAdjustSound()) return;
         var point = e.GetCurrentPoint(slider).Properties;
         if (point.IsHorizontalMouseWheel || point.MouseWheelDelta == 0) return;
