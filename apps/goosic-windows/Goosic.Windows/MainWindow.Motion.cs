@@ -45,12 +45,20 @@ public sealed partial class MainWindow
         _easeOut = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.1f, 0.9f), new Vector2(0.2f, 1f));
         _easeIn = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.7f, 0f), new Vector2(1f, 0.5f));
         ApplyMotion();
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
+        {
+            _uiSettings.AnimationsEnabledChanged += (_, _) => DispatcherQueue.TryEnqueue(ApplyMotion);
+        }
         // Preferences arrive after the window, and the setting can change while it is open.
         Model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ShellViewModel.ReduceMotion))
             {
                 ApplyMotion();
+            }
+            else if (e.PropertyName == nameof(ShellViewModel.NowPlayingArtwork) && Model.NowPlayingArtwork is not null)
+            {
+                FadePlayerArtwork(NowPlayingArtwork);
             }
         };
     }
@@ -75,6 +83,68 @@ public sealed partial class MainWindow
         AttachShowHide(BackButton, new Vector3(-8, 0, 0));
         AttachShowHide(ToastHost, new Vector3(0, 10, 0));
         AttachShowHide(ArtworkBackdrop, Vector3.Zero, ShowDuration * 2);
+        AttachShowHide(PillElapsed, new Vector3(4, 0, 0), TimeSpan.FromMilliseconds(150));
+        AttachShowHide(PillRemaining, new Vector3(-4, 0, 0), TimeSpan.FromMilliseconds(150));
+        if (!enabled)
+        {
+            foreach (var element in new UIElement[] { PlayerPill, PillCoverHover, NowPlayingArtwork, FullPlayerCover,
+                PillTrack, PillFill, ShuffleButton, RepeatButton })
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(element);
+                visual.StopAnimation("Scale");
+                visual.StopAnimation("Opacity");
+                visual.Scale = Vector3.One;
+                visual.Opacity = (float)element.Opacity;
+            }
+        }
+    }
+
+    /// <summary>Uses the same short spring and time-label fade as the macOS player bar.</summary>
+    private void AnimatePlayerHover(bool hovered)
+    {
+        if (_compositor is null || !AnimationsEnabled) return;
+        SpringPlayerScale(PlayerPill, new Vector3(hovered ? 1.012f : 1f, hovered ? 1.012f : 1f, 1));
+        SpringPlayerScale(PillTrack, new Vector3(1, hovered ? 1.6f : 1f, 1));
+        SpringPlayerScale(PillFill, new Vector3(1, hovered ? 1.6f : 1f, 1));
+    }
+
+    private void SpringPlayerScale(UIElement element, Vector3 target)
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(element);
+        visual.CenterPoint = new Vector3(visual.Size.X / 2, visual.Size.Y / 2, 0);
+        var spring = _compositor!.CreateSpringVector3Animation();
+        spring.FinalValue = target;
+        spring.DampingRatio = 0.85f;
+        spring.Period = TimeSpan.FromMilliseconds(280);
+        visual.StartAnimation("Scale", spring);
+    }
+
+    private void PulsePlayerControl(UIElement element)
+    {
+        if (_compositor is null || !AnimationsEnabled) return;
+        var visual = ElementCompositionPreview.GetElementVisual(element);
+        visual.StopAnimation("Scale");
+        visual.Scale = new Vector3(0.9f, 0.9f, 1);
+        SpringPlayerScale(element, Vector3.One);
+    }
+
+    private void FadePlayerElement(UIElement element, float opacity)
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(element);
+        var previous = visual.Opacity;
+        element.Opacity = opacity;
+        if (_compositor is not null && AnimationsEnabled)
+        {
+            visual.StartAnimation("Opacity", Scalar("Opacity", previous, opacity,
+                TimeSpan.FromMilliseconds(150), _easeOut!));
+        }
+    }
+
+    private void FadePlayerArtwork(UIElement element)
+    {
+        if (_compositor is null || !AnimationsEnabled) return;
+        ElementCompositionPreview.GetElementVisual(element).StartAnimation("Opacity",
+            Scalar("Opacity", 0, 1, TimeSpan.FromMilliseconds(600), _easeOut!));
     }
 
     /// <summary>Makes an element fade and slide in from <paramref name="offset"/> when shown, and back out when hidden.</summary>
