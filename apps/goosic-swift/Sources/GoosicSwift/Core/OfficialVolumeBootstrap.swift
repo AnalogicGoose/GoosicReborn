@@ -12,13 +12,11 @@ enum OfficialVolumeBootstrap {
           const volume = Object.getOwnPropertyDescriptor(proto, 'volume');
           const muted = Object.getOwnPropertyDescriptor(proto, 'muted');
           const originalPlay = proto.play;
-          const advertisement = () => !!document.querySelector('.ad-showing, .ad-interrupting');
           // Changes only what differs, and never mutes on the way. Muting, setting the level and
           // unmuting cut a playing song to silence and back on every step of the volume slider,
           // which was heard as crackling. Muting goes first and unmuting last, so the old level
           // is never heard at the new state.
           function apply(media) {
-            if (advertisement()) return;
             const isMuted = muted.get.call(media);
             if (intendedMute && !isMuted) muted.set.call(media, true);
             if (volume.get.call(media) !== preferred) volume.set.call(media, preferred);
@@ -27,21 +25,18 @@ enum OfficialVolumeBootstrap {
           Object.defineProperty(proto, 'volume', {
             ...volume,
             set(value) {
-              if (advertisement()) { volume.set.call(this, value); return; }
               apply(this);
             }
           });
           Object.defineProperty(proto, 'muted', {
             ...muted,
             set(value) {
-              if (advertisement()) { muted.set.call(this, value); return; }
               apply(this);
             }
           });
           proto.play = function(...args) { apply(this); return originalPlay.apply(this, args); };
           const applyAll = () => document.querySelectorAll('video, audio').forEach(apply);
           window.goosicSetVolumePreference = (value, mute) => {
-            if (advertisement()) return;
             if (Number.isFinite(value)) preferred = Math.min(1, Math.max(0, value));
             if (typeof mute === 'boolean') intendedMute = mute;
             applyAll();

@@ -2,6 +2,32 @@ import XCTest
 
 @testable import GoosicSwift
 
+final class AdPlaybackRecoveryTests: XCTestCase {
+    func testPreviousDoesNotInventANeighbour() {
+        XCTAssertNil(QueueNavigation.indexBefore(0, count: 0, repeatMode: .off))
+        XCTAssertNil(QueueNavigation.indexBefore(3, count: 3, repeatMode: .all))
+        XCTAssertEqual(QueueNavigation.indexBefore(0, count: 3, repeatMode: .off), 0)
+        XCTAssertEqual(QueueNavigation.indexBefore(0, count: 3, repeatMode: .one), 0)
+        XCTAssertEqual(QueueNavigation.indexBefore(0, count: 3, repeatMode: .all), 2)
+        XCTAssertEqual(QueueNavigation.indexBefore(2, count: 3, repeatMode: .off), 1)
+    }
+    func testAdHandoffWaitsForContentAndResumesOnlyOnce() {
+        var recovery = AdPlaybackRecovery()
+        XCTAssertFalse(recovery.observe(advertisement: true, state: "playing", listenerPaused: false))
+        XCTAssertFalse(recovery.observe(advertisement: true, state: "ended", listenerPaused: false))
+        XCTAssertFalse(recovery.observe(advertisement: false, state: "ended", listenerPaused: false))
+        XCTAssertTrue(recovery.awaitingContent)
+        XCTAssertTrue(recovery.observe(advertisement: false, state: "paused", listenerPaused: false))
+        XCTAssertFalse(recovery.observe(advertisement: false, state: "paused", listenerPaused: false))
+        XCTAssertFalse(recovery.observe(advertisement: false, state: "playing", listenerPaused: false))
+        XCTAssertFalse(recovery.awaitingContent)
+        XCTAssertFalse(recovery.observe(advertisement: false, state: "paused", listenerPaused: false))
+        XCTAssertFalse(recovery.observe(advertisement: true, state: "paused", listenerPaused: true))
+        XCTAssertFalse(recovery.observe(advertisement: false, state: "paused", listenerPaused: true))
+        XCTAssertTrue(recovery.awaitingContent)
+    }
+}
+
 /// "Songs lose their last seconds, and then nothing plays." With Automix on, YouTube Music faded
 /// into a track of its own before the requested one ended; with it off, the page stops a
 /// fraction of a second short and reports `paused`, never `ended`. The same cases as the
