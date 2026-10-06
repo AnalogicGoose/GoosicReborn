@@ -89,7 +89,7 @@ final class SystemMediaProjectionTests: XCTestCase {
         XCTAssertFalse(availability.changeVolume)
     }
 
-    func testAdvertisementsRemainPauseableButDisableContentAndVolumeCommands() {
+    func testAdvertisementsAllowPauseAndVolumeButDisableContentCommands() {
         let availability = SystemMediaCommandAvailability.make(from: snapshot(paused: true, advertisement: true))
         XCTAssertTrue(availability.play)
         XCTAssertTrue(availability.pause == false)
@@ -98,7 +98,7 @@ final class SystemMediaProjectionTests: XCTestCase {
         XCTAssertFalse(availability.previous)
         XCTAssertFalse(availability.changePosition)
         XCTAssertTrue(availability.stop)
-        XCTAssertFalse(availability.changeVolume)
+        XCTAssertTrue(availability.changeVolume)
 
         let playingAd = SystemMediaCommandAvailability.make(from: snapshot(advertisement: true))
         XCTAssertFalse(playingAd.play)

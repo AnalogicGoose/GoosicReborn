@@ -224,19 +224,11 @@ final class OfficialPlaybackHost: NSObject {
 
     func setVolume(_ volume: Double) {
         guard volume.isFinite else { return }
-        guard !advertisementActive else {
-            onStatus?("Volume is unchanged while the official player is showing an advertisement.")
-            return
-        }
         let target = Self.javaScriptNumber(min(max(volume, 0), 1))
         evaluateMediaScript("media => { window.goosicSetVolumePreference?.(\(target), undefined); return 'volume-requested'; }")
     }
 
     func setMuted(_ muted: Bool) {
-        guard !advertisementActive else {
-            onStatus?("Mute is unavailable while the official player is showing an advertisement.")
-            return
-        }
         evaluateMediaScript("media => { window.goosicSetVolumePreference?.(undefined, \(muted ? "true" : "false")); return 'mute-requested'; }")
     }
 

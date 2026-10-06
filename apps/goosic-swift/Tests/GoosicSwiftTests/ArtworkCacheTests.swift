@@ -270,7 +270,7 @@ final class QueueAdvanceTests: XCTestCase {
             model.cycleRepeatMode()
             XCTAssertEqual(model.repeatMode, .one)
             XCTAssertEqual(model.indexAfter(1, wrapping: false), 1)
-            XCTAssertEqual(model.indexAfter(1, wrapping: true), 1)
+            XCTAssertEqual(model.indexAfter(1, wrapping: true), 2)
         }
     }
 

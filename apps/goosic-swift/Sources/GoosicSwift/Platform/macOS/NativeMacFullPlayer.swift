@@ -594,28 +594,20 @@ struct NativeMacFullPlayerVolume: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .disabled(busy || model.isAdvertisement)
+        .disabled(busy)
     }
 
     private var shownVolume: Double { model.isMuted ? 0 : model.volume }
 
-    @ViewBuilder
     private var slider: some View {
-        if #available(macOS 26.0, *) {
-            NativeMacVolumeSlider(value: shownVolume, isEnabled: !busy && !model.isAdvertisement) {
-                model.setVolume($0)
-            }
-        } else {
-            Slider(value: Binding(get: { shownVolume }, set: { model.setVolume($0) }), in: 0...1)
-                .controlSize(.small)
-                .accessibilityLabel("Volume")
+        NativeMacVolumeSlider(value: shownVolume, isEnabled: !busy) {
+            model.setVolume($0)
         }
     }
 }
 
 /// AppKit's own `NSSlider`, which on macOS 26 draws the system Liquid Glass track and knob.
-@available(macOS 26.0, *)
-private struct NativeMacVolumeSlider: NSViewRepresentable {
+struct NativeMacVolumeSlider: NSViewRepresentable {
     let value: Double
     let isEnabled: Bool
     let onChange: (Double) -> Void
@@ -623,7 +615,7 @@ private struct NativeMacVolumeSlider: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
 
     func makeNSView(context: Context) -> NSSlider {
-        let slider = NSSlider(
+        let slider = ScrollableVolumeSlider(
             value: value,
             minValue: 0,
             maxValue: 1,
@@ -660,6 +652,19 @@ private struct NativeMacVolumeSlider: NSViewRepresentable {
         }
     }
 }
+
+/// Uses the same model action for dragging, keyboard input and wheel adjustments.
+private final class ScrollableVolumeSlider: NSSlider {
+    override func scrollWheel(with event: NSEvent) {
+        guard isEnabled else { return }
+        let delta = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.scrollingDeltaX
+        guard delta != 0 else { return }
+        let step = event.hasPreciseScrollingDeltas ? delta * 0.002 : (delta > 0 ? 0.05 : -0.05)
+        doubleValue = min(max(doubleValue + step, minValue), maxValue)
+        sendAction(action, to: target)
+    }
+}
+
 /// Groups Liquid Glass shapes so they are drawn and morph together, as system controls are.
 struct NativeMacGlassGroup<Content: View>: View {
     @ViewBuilder let content: Content

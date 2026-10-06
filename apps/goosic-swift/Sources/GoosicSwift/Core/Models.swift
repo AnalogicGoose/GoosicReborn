@@ -450,6 +450,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     private var endedVideoID: String?
     /// The listener paused the current track; a pause at its last second is theirs, not its end.
     private var listenerPaused = false
+    private var adRecovery = AdPlaybackRecovery()
     /// The preferred volume has not been pushed to this load's player yet. The page reports its
     /// own volume, so the preference is applied once per load rather than fought over.
     private var volumeAppliedForLoad = false
@@ -1339,8 +1340,8 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// pressing Next at the end of a list moves rather than stopping.
     func indexAfter(_ index: Int, wrapping: Bool) -> Int? {
         let count = queue.tracks.count
-        guard count > 0 else { return nil }
-        if repeatMode == .one { return index }
+        guard count > 0, queue.tracks.indices.contains(index) else { return nil }
+        if repeatMode == .one && !wrapping { return index }
         if shuffle {
             guard count > 1 else { return (repeatMode == .all || wrapping) ? index : nil }
             // Any position but the current one, so shuffle never repeats a track back to back.
@@ -2767,10 +2768,7 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     func setVolume(_ newVolume: Double) {
         guard allowPlaybackInteraction() else { return }
-        guard !isAdvertisement else {
-            status = "Volume is unchanged during advertisements."
-            return
-        }
+        guard newVolume.isFinite else { return }
         let clamped = min(max(newVolume, 0), 1)
         volume = clamped
         requestedVolume = clamped
@@ -2787,10 +2785,6 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     func toggleMuted() {
         guard allowPlaybackInteraction() else { return }
-        guard !isAdvertisement else {
-            status = "Mute is unavailable during advertisements."
-            return
-        }
         isMuted.toggle()
         volumeAppliedForLoad = true
         if playbackState.owner == .localDownloadedFile {
@@ -3055,12 +3049,12 @@ final class GoosicAppModel: Combine.ObservableObject {
             status = "Playback command pending; previous is temporarily unavailable."
             return
         }
-        guard !queue.tracks.isEmpty else { return }
+        guard currentTrack != nil, queue.current == currentTrack else { return }
         guard !isAdvertisement else {
             status = "Track changes are unavailable while the official player is showing an advertisement."
             return
         }
-        let index = queue.currentIndex > 0 ? queue.currentIndex - 1 : queue.tracks.count - 1
+        guard let index = QueueNavigation.indexBefore(queue.currentIndex, count: queue.tracks.count, repeatMode: repeatMode) else { return }
         play(queue.tracks[index], queueIndex: index)
     }
 
@@ -3070,7 +3064,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             status = "Playback command pending; next is temporarily unavailable."
             return
         }
-        guard !queue.tracks.isEmpty else { return }
+        guard currentTrack != nil, queue.current == currentTrack else { return }
         guard !isAdvertisement else {
             status = "Track changes are unavailable while the official player is showing an advertisement."
             return
@@ -3296,6 +3290,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         pendingSeek = nil
         endedVideoID = nil
         listenerPaused = false
+        adRecovery = AdPlaybackRecovery()
         isAdvertisement = false
         lastLocalEventState = nil
         hasConfirmedPlaybackSample = false
@@ -3372,7 +3367,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             duration = event.duration
             presentationChanged = true
         }
-        if !event.isAdvertisement {
+        do {
             if volumeAppliedForLoad {
                 switch VolumeSync.reconcileOfficialRenderer(
                     reported: event.volume, preferred: volume, requested: requestedVolume
@@ -3396,7 +3391,7 @@ final class GoosicAppModel: Combine.ObservableObject {
                 }
             } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
                 // A fresh content page starts at its own volume. Push the stored preference once,
-                // then follow what the player reports. Advertisements never enter this path.
+                // then follow what the player reports, including advertisement media elements.
                 volumeAppliedForLoad = true
                 requestedVolume = volume
                 requestedMuted = isMuted
@@ -3411,7 +3406,12 @@ final class GoosicAppModel: Combine.ObservableObject {
             || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
             pendingSeek = nil
         }
-        if TrackEnd.shouldAdvance(
+        // A queued playing sample must not undo a listener's asynchronous pause request.
+        // Explicit resume and a new load clear this intent.
+        if adRecovery.observe(advertisement: event.isAdvertisement, state: event.state, listenerPaused: listenerPaused) {
+            officialPlaybackHost.play()
+        }
+        if !adRecovery.awaitingContent && TrackEnd.shouldAdvance(
             state: event.state, isAdvertisement: event.isAdvertisement, videoID: event.videoID,
             position: event.currentTime, duration: event.duration,
             lastEndedVideoID: endedVideoID, listenerPaused: listenerPaused
