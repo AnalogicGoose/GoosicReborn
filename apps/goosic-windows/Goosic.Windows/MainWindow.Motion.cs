@@ -78,6 +78,7 @@ public sealed partial class MainWindow
         AttachShowHide(QueuePanel, new Vector3(0, 10, 0));
         AttachShowHide(LyricsPanel, new Vector3(0, 10, 0));
         AttachShowHide(QueueUndoBar, new Vector3(0, 8, 0));
+        AttachShowHide(PlayerVolumeOverlay, Vector3.Zero, TimeSpan.FromMilliseconds(180));
         AttachShowHide(FullPlayer, new Vector3(0, 36, 0));
         AttachShowHide(FullPlayerLyrics, new Vector3(0, 12, 0));
         AttachShowHide(BackButton, new Vector3(-8, 0, 0));
