@@ -9,7 +9,8 @@ import Foundation
 ///
 /// What is kept is catalog metadata and nothing else: titles, ids, artwork URLs. The continuation
 /// cursor is left out, because it changes on every answer and a stale one would continue the
-/// wrong list; the refresh that follows every copy brings a current one. Searches are not kept.
+/// wrong list; a separate partial marker retains honest counts until refresh brings a current
+/// cursor. Searches are not kept.
 /// A profile's copies are deleted when it signs out.
 struct CatalogPageStore {
     private let root: URL?
@@ -50,16 +51,25 @@ struct CatalogPageStore {
         return directory.appendingPathComponent(name + ".json")
     }
 
-    func load(_ key: CatalogKey, scope: String) -> GoosicCatalogPage? {
-        guard let url = file(for: key, scope: scope), let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(GoosicCatalogPage.self, from: data)
+    private struct StoredPage: Codable {
+        let page: GoosicCatalogPage
+        let partial: Bool
+    }
+
+    func load(_ key: CatalogKey, scope: String) -> CatalogPageView? {
+        guard let url = file(for: key, scope: scope), let data = try? Data(contentsOf: url),
+              let stored = try? JSONDecoder().decode(StoredPage.self, from: data) else { return nil }
+        // Old cache files have no completeness marker, so refresh instead of trusting them.
+        var page = CatalogPageView(wire: stored.page)
+        page.cachedPartial = stored.partial
+        return page
     }
 
     func save(_ page: GoosicCatalogPage, for key: CatalogKey, scope: String) {
         guard let url = file(for: key, scope: scope) else { return }
         var copy = page
         copy.nextCursor = nil
-        guard let data = try? JSONEncoder().encode(copy) else { return }
+        guard let data = try? JSONEncoder().encode(StoredPage(page: copy, partial: !(page.nextCursor ?? "").isEmpty)) else { return }
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true
         )
