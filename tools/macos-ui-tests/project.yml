@@ -2,9 +2,9 @@ name: GoosicMacUITests
 options:
   minimumXcodeGenVersion: 2.38.0
 packages:
-  SwiftCrossUI:
-    url: https://github.com/moreSwift/swift-cross-ui.git
-    exactVersion: 0.9.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    exactVersion: 2.10.0
 targets:
   GoosicDebugHost:
     type: application
@@ -13,18 +13,19 @@ targets:
     sources:
       - path: Host
       - path: ../../apps/goosic-swift/Sources/GoosicSwift
+        excludes: [Resources]
+    resources:
+      - path: ../../apps/goosic-swift/Sources/GoosicSwift/Resources
     dependencies:
-      - package: SwiftCrossUI
-        product: SwiftCrossUI
-      - package: SwiftCrossUI
-        product: DefaultBackend
-      - package: SwiftCrossUI
-        product: AppKitBackend
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goosic.debug-host
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "6.0"
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_IDENTITY: "-"
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: GOOSIC_UI_TEST_HOST
   GoosicDebugHostUITests:
     type: bundle.ui-testing
@@ -37,7 +38,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goosic.debug-host-uitests
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "6.0"
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_IDENTITY: "-"
 schemes:
   GoosicDebugHost:
     build:

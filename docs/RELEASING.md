@@ -58,3 +58,33 @@ from inside a zip in a temporary copy that is thrown away, taking the account's 
 
 `v0.1.0-alpha.N` while the platforms are still being finished. The name is the tag, the release,
 and what the app reports; keep them the same so a bug report names something findable.
+
+Platform alphas can move ahead of the stable Windows release. The September 30 macOS build is
+`v0.2.4-macos-alpha.1`, with notes in [RELEASE_0.2.4_MACOS_ALPHA_1.md](RELEASE_0.2.4_MACOS_ALPHA_1.md).
+It is a test build from the source snapshot containing the native macOS changes, not a
+deployment to main. Tags containing `-macos-` deliberately do not run the combined release
+workflow: build and verify the universal ZIP locally, publish its SHA-256 in
+`SHA256SUMS-macos.txt`, then create a GitHub pre-release from the exact source tag. Leave the
+stable Windows release as latest so its updater continues to find a Windows installer.
+
+For a local universal build, install both Rust Apple targets and use the selected Xcode's SDK
+and compiler. Set `MACOSX_DEPLOYMENT_TARGET=14.0` for the Rust service as well as the shell;
+otherwise the service can inherit a newer build-host minimum. Assemble the app outside a
+file-provider directory and inspect an extracted copy of the final ZIP; Finder metadata can
+invalidate signatures after an earlier signing check. Verify both architectures,
+bundle contents, minimum deployment versions and code signing before uploading. Sparkle is
+available only when the bundle contains a valid feed URL and public key; a bundled framework
+alone does not enable updates. For this alpha, use `GOOSIC_MACOS_BUILD_VERSION=2`; the first
+alpha used build 1, so resetting the build number to `0.2.4` would prevent Sparkle from offering
+the update. Sign the final ZIP using Sparkle's Keychain-backed `sign_update`, verify it against
+the bundled public key, and update `updates/macos-alpha.xml` on development only after the
+release assets are public. Never put a private signing key in source, output or the protocol.
+
+A release website should list one entry per base product version and offer macOS and Windows
+choices inside it. Preserve each platform's original tag, channel, notes and download URL;
+grouping a macOS alpha with a Windows stable release must not describe both as stable or claim
+that either received the other's changes. On GitHub, use a short product-version title and
+platform sections/download links inside its notes; GitHub's sidebar does not expose custom
+platform tabs. Attach later platform builds to the existing version entry rather than creating
+another platform-named entry. Preserve platform source tags separately. A version without a platform build should show its
+actual availability rather than borrowing an older download under the new version.

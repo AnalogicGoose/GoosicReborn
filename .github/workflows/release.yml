@@ -10,7 +10,9 @@ name: Release
 # over.
 on:
     push:
-        tags: ['v*']
+        # macOS alphas are packaged and verified on the release Mac. They must not build or
+        # advertise a Windows binary with a macOS-only version suffix.
+        tags: ['v*', '!v*-macos-*']
     workflow_dispatch:
         inputs:
             version:
