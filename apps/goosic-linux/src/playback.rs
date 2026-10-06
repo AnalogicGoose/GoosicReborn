@@ -9,7 +9,9 @@ use goosic_protocol::{Owner, PlaybackState, SettingsSnapshot};
 use goosic_shell_support::catalog::Track;
 use goosic_shell_support::media::MediaSnapshot;
 use goosic_shell_support::navigation::{PlaybackTransition, RepeatMode};
-use goosic_shell_support::playback::{clamp_volume, index_after, random_index, PendingSeek};
+use goosic_shell_support::playback::{
+    clamp_volume, index_after, index_before, random_index, AdPlaybackRecovery, PendingSeek,
+};
 
 /// The shell's playback state.
 #[derive(Debug)]
@@ -24,6 +26,7 @@ pub struct Player {
     pub paused: bool,
     /// A pause requested by the listener, distinct from the official page stopping at its end.
     pub listener_paused: bool,
+    pub ad_recovery: AdPlaybackRecovery,
     pub current_time: f64,
     pub duration: f64,
     pub volume: f64,
@@ -79,6 +82,7 @@ impl Player {
             transition_token: 0,
             paused: true,
             listener_paused: false,
+            ad_recovery: AdPlaybackRecovery::default(),
             current_time: 0.0,
             duration: 0.0,
             volume: 1.0,
@@ -134,6 +138,7 @@ impl Player {
     pub fn begin_track(&mut self) {
         self.paused = true;
         self.listener_paused = false;
+        self.ad_recovery = AdPlaybackRecovery::default();
         self.current_time = 0.0;
         self.duration = 0.0;
         self.pending_seek = None;
@@ -201,6 +206,9 @@ impl Player {
 
     /// The queue position after the current one. `wrapping` is true for a deliberate Next.
     pub fn next_index(&self, wrapping: bool) -> Option<usize> {
+        if self.current.as_ref() != self.queued() {
+            return None;
+        }
         index_after(
             self.index,
             self.queue.len(),
@@ -211,16 +219,12 @@ impl Player {
         )
     }
 
-    /// The position before the current one, wrapping to the end from the first track.
+    /// The previous entry, restarting the first unless repeat-all permits wrapping.
     pub fn previous_index(&self) -> Option<usize> {
-        if self.queue.is_empty() {
+        if self.current.as_ref() != self.queued() {
             return None;
         }
-        Some(if self.index > 0 {
-            self.index - 1
-        } else {
-            self.queue.len() - 1
-        })
+        index_before(self.index, self.queue.len(), self.repeat)
     }
 
     pub fn queued(&self) -> Option<&Track> {
@@ -379,13 +383,20 @@ mod tests {
     }
 
     #[test]
-    fn previous_wraps_from_the_first_track_to_the_last() {
+    fn previous_restarts_the_first_track_unless_repeat_all_is_enabled() {
         let mut player = Player::new();
         assert_eq!(player.previous_index(), None);
         player.set_queue(vec![track("a"), track("b"), track("c")], &track("a"));
+        player.current = Some(track("a"));
+        assert_eq!(player.previous_index(), Some(0));
+        player.repeat = RepeatMode::All;
         assert_eq!(player.previous_index(), Some(2));
         player.index = 2;
+        player.current = Some(track("c"));
         assert_eq!(player.previous_index(), Some(1));
+        player.current = None;
+        assert_eq!(player.previous_index(), None);
+        assert_eq!(player.next_index(true), None);
     }
 
     #[test]

@@ -400,10 +400,6 @@ impl OfficialHost {
     }
 
     pub fn set_volume(self: &Rc<Self>, volume: f64) {
-        if self.advertisement.get() {
-            self.status("Volume is unchanged while the official player shows an advertisement.");
-            return;
-        }
         let Some(volume) = clamp_volume(volume) else {
             return;
         };
@@ -412,10 +408,6 @@ impl OfficialHost {
     }
 
     pub fn set_muted(self: &Rc<Self>, muted: bool) {
-        if self.advertisement.get() {
-            self.status("Mute is unavailable while the official player shows an advertisement.");
-            return;
-        }
         self.desired_muted.set(muted);
         self.sync_volume_guard();
     }
