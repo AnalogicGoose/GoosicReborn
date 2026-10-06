@@ -89,10 +89,12 @@ struct CatalogPageView: Hashable {
     /// The page's own cover. A playlist and Liked Music carry one; without it the hero falls
     /// back to the first song's art.
     var thumbnail: String? = nil
+    /// A disk copy omitted its upstream cursor and still needs a fresh continuation.
+    var cachedPartial = false
 
     /// Whether more rows are still to come. A list that is not finished must not count itself
     /// as complete, so this decides between "100 songs" and "100+ songs".
-    var hasMore: Bool { !(nextCursor ?? "").isEmpty }
+    var hasMore: Bool { cachedPartial || truncated || !(nextCursor ?? "").isEmpty }
 
     var isEmpty: Bool { shelves.isEmpty && tracks.isEmpty }
 
