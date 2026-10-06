@@ -81,6 +81,7 @@ final class PlaybackJavaScriptTests: XCTestCase {
         var activeAd = false, events = [], poll;
         var window = this;
         window.location = {search:'?v=requested'};
+        class URLSearchParams { get() { return 'requested'; } }
         window.webkit = {messageHandlers:{goosicBridge:{postMessage:event => events.push(event)}}};
         window.setInterval = callback => { poll = callback; };
         var media = {paused:false, ended:false, readyState:4, currentTime:10, duration:180,
