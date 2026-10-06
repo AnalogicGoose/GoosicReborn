@@ -106,8 +106,8 @@ enum OfficialBridge {
     static let activeMediaElementScript = """
     (() => {
       const candidates = Array.from(document.querySelectorAll('audio, video'));
-      return candidates.find(candidate => !candidate.paused && candidate.readyState > 0)
-        ?? candidates.find(candidate => candidate.readyState > 0)
+      return candidates.find(candidate => !candidate.paused && !candidate.ended && candidate.readyState > 0)
+        ?? candidates.find(candidate => !candidate.ended && candidate.readyState > 0)
         ?? candidates[0]
         ?? null;
     })()
@@ -154,7 +154,7 @@ enum OfficialBridge {
           const currentVideoId = () =>
             new URLSearchParams(window.location.search).get('v') || requestedVideoId;
           const isAd = () => Boolean(document.querySelector(
-            '.ad-showing, .ytp-ad-player-overlay, .ytp-ad-text, [class*=ad-showing]'
+            '.ad-showing, .ad-interrupting'
           ));
           const send = () => {
             media = activeMedia();
