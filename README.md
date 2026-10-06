@@ -32,7 +32,8 @@ supports official WebView2 playback, sign-in, personal catalog, queue, lyrics an
 local downloaded-file playback and legacy preference import remain unavailable. Only Windows
 x64 binaries are distributed in the stable 0.2.5 release. The
 [0.2.5 macOS alpha](docs/RELEASE_0.2.5.md) provides a universal macOS download
-with the native UI and lyrics improvements. Windows gains matching player transitions and playback corrections in 0.2.5; Linux packages
+with the native UI and lyrics improvements. Windows gains matching player transitions, playback corrections and single-instance activation
+in 0.2.5; Linux packages
 remain pending. See [the release notes](docs/RELEASE_0.2.5.md). compilation does not establish live playback or visual acceptance.
 
 - **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
