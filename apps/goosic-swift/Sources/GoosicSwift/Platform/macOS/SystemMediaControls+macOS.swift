@@ -167,11 +167,20 @@ final class SystemMediaControls {
 
     private func applyArtwork(data: Data, token: UInt64) {
         guard token == artworkToken,
-              let image = NSImage(data: data),
+              let artwork = Self.makeArtwork(from: data),
               var info = MPNowPlayingInfoCenter.default().nowPlayingInfo,
               projection?.isActive == true else { return }
-        info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        info[MPMediaItemPropertyArtwork] = artwork
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    /// MediaPlayer invokes this request handler on its own access queue. Building it from an
+    /// actor-isolated method makes the closure inherit `MainActor`, which traps as soon as Now
+    /// Playing asks for JPEG data. Keep the factory nonisolated and capture only the immutable
+    /// image that the handler returns.
+    nonisolated static func makeArtwork(from data: Data) -> MPMediaItemArtwork? {
+        guard let image = NSImage(data: data) else { return nil }
+        return MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 }
 

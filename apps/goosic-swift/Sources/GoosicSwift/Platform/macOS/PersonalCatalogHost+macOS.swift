@@ -11,10 +11,8 @@ import WebKit
 /// can await the same-origin fetch; the session cookie it hashes for authorization is read
 /// from the document and never leaves it.
 ///
-/// One page serves every request for an account. Loading YouTube Music's application takes
-/// tens of seconds in an off-screen view, so it is loaded once when the account is bound and
-/// kept; each read is then a single fetch from that page. Requests made before the page is
-/// ready wait for it rather than starting a page of their own.
+/// One page serves requests for the active account. It is warmed at sign-in, then discarded
+/// after an idle spell so WebKit can release its content process. A later read reloads it.
 @MainActor
 final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
     private struct Request {
@@ -29,23 +27,26 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
     }
 
     private static let program: String? = {
-        guard let url = Bundle.module.url(forResource: "PersonalCatalog", withExtension: "js") else { return nil }
+        guard let url = GoosicResources.bundle.url(forResource: "PersonalCatalog", withExtension: "js") else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
     }()
 
     /// How long a request may wait, page load included, before it fails instead of leaving a
     /// screen on "Loading…".
     private static let requestTimeout: TimeInterval = 45
+    private static let idleCloseDelay: Duration = .seconds(90)
 
     private var profileIdentifier: UUID?
     private var webView: WKWebView?
     private var pageReady = false
+    private var preparingPage = false
     private var waiting: [Request] = []
     private var running: [UUID: Request] = [:]
     /// Mutations in flight, by coalescing key, each with everyone waiting on that same change.
     private var coalescing: [String: [(Result<PersonalMutationResult, Error>) -> Void]] = [:]
     /// Callers holding for the page rather than for a read of their own.
     private var pageWaiters: [(Result<WKWebView, Error>) -> Void] = []
+    private var idleCloseTask: Task<Void, Never>?
 
     /// Diagnostics go to stderr, never to the protocol: browse ids, origins, byte counts. See
     /// `Diagnostics` for why a URL never appears whole.
@@ -62,6 +63,23 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         // Warm the page now so the first Library or Home read after sign-in does not pay for
         // the application load.
         if profileIdentifier != nil { ensurePage() }
+    }
+
+    /// Starts the account's page again, for after its session has been renewed in place.
+    func reload() {
+        failAll(with: PersonalCatalogError.accountChanged)
+        destroyPage()
+        if profileIdentifier != nil { ensurePage() }
+    }
+
+    /// Deletes everything the bound account's profile holds, for signing out: its cookies are
+    /// its sign-in, and signing out means this computer no longer has one.
+    func clearProfile(_ identifier: UUID, completion: @escaping @MainActor () -> Void) {
+        if identifier == profileIdentifier { destroyPage() }
+        WKWebsiteDataStore(forIdentifier: identifier).removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: Date(timeIntervalSince1970: 0)
+        ) { completion() }
     }
 
     func load(
@@ -95,6 +113,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
             shape: shape, radio: radio, submittedAt: Date(), completion: completion
         )
         note("request", ["browse": browseID, "continuation": "\(continuation != nil)", "pageReady": "\(pageReady)"])
+        cancelIdleClose()
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(Self.requestTimeout))
             guard let self else { return }
@@ -108,6 +127,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
             } else if let stale = self.running.removeValue(forKey: request.id) {
                 self.note("timeout", ["browse": stale.browseID, "phase": "running"])
                 stale.completion(.failure(PersonalCatalogError.timedOut))
+                self.scheduleIdleClose()
             }
         }
         if pageReady, let webView {
@@ -151,6 +171,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
             return
         }
         coalescing[key] = [completion]
+        cancelIdleClose()
 
         let submitted = Date()
         note("mutation", ["operation": mutation.operation])
@@ -172,16 +193,16 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
                 in: .page
             ) { [weak self] outcome in
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    guard let self, self.webView === webView else { return }
                     let elapsed = Int(Date().timeIntervalSince(submitted) * 1_000)
                     switch outcome {
                     case .failure(let error):
                         self.note("mutation-failed", [
                             "operation": mutation.operation, "elapsed": "\(elapsed)ms",
-                            "reason": error.localizedDescription,
+                            "reason": PersonalCatalogFailure.normalize(error).localizedDescription,
                         ])
                         self.finishMutation(
-                            key, .failure(PersonalCatalogError.scriptFailed(error.localizedDescription))
+                            key, .failure(PersonalCatalogFailure.normalize(error))
                         )
                     case .success(let value):
                         guard let json = value as? String, let data = json.data(using: .utf8),
@@ -206,6 +227,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
     private func finishMutation(_ key: String, _ result: Result<PersonalMutationResult, Error>) {
         guard let waiting = coalescing.removeValue(forKey: key) else { return }
         for completion in waiting { completion(result) }
+        scheduleIdleClose()
     }
 
     /// Hands back the account's page once it is usable, loading it if it is not.
@@ -213,6 +235,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
     /// Reads have their own path into this because they carry a request that has to be queued;
     /// a mutation only needs the page itself.
     private func withReadyPage(_ body: @escaping (Result<WKWebView, Error>) -> Void) {
+        cancelIdleClose()
         if pageReady, let webView {
             body(.success(webView))
             return
@@ -240,15 +263,37 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         webView.navigationDelegate = self
         self.webView = webView
         pageReady = false
+        preparingPage = false
         note("page-loading")
         webView.load(URLRequest(url: URL(string: "https://music.youtube.com/")!))
     }
 
     private func destroyPage() {
+        cancelIdleClose()
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView = nil
         pageReady = false
+        preparingPage = false
+    }
+
+    private func cancelIdleClose() {
+        idleCloseTask?.cancel()
+        idleCloseTask = nil
+    }
+
+    private func scheduleIdleClose() {
+        guard pageReady, let webView, waiting.isEmpty, running.isEmpty,
+              coalescing.isEmpty, pageWaiters.isEmpty else { return }
+        cancelIdleClose()
+        idleCloseTask = Task { @MainActor [weak self, weak webView] in
+            try? await Task.sleep(for: Self.idleCloseDelay)
+            guard !Task.isCancelled, let self, let webView,
+                  self.webView === webView, self.waiting.isEmpty, self.running.isEmpty,
+                  self.coalescing.isEmpty, self.pageWaiters.isEmpty else { return }
+            self.note("page-idle-closed")
+            self.destroyPage()
+        }
     }
 
     private func failAll(with error: Error) {
@@ -266,8 +311,48 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         for waiter in waiters { waiter(.failure(error)) }
     }
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        preparePage(webView)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard webView === self.webView else { return }
+        preparePage(webView)
+    }
+
+    /// Only the embedded account context is needed. Waiting for the full YouTube Music UI,
+    /// its images and application load delays every native read unnecessarily.
+    private func preparePage(_ webView: WKWebView) {
+        guard webView === self.webView, !pageReady, !preparingPage,
+              webView.url?.scheme == "https", webView.url?.host == "music.youtube.com" else { return }
+        preparingPage = true
+        let script = """
+        for (let attempt = 0; attempt < 200; attempt++) {
+          const c = window.ytcfg;
+          const get = key => c && (typeof c.get === 'function' ? c.get(key) : c.data_?.[key]);
+          if (get('LOGGED_IN') === false) return 'signedOut';
+          if (get('INNERTUBE_CONTEXT') && get('INNERTUBE_API_KEY')) return 'ready';
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        return false;
+        """
+        webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { [weak self] result in
+            guard let self, self.webView === webView else { return }
+            self.preparingPage = false
+            if case .success(let ready) = result, ready as? String == "ready" {
+                self.finishReadyPage(webView)
+            } else {
+                let expired: Bool
+                if case .success(let value) = result { expired = value as? String == "signedOut" }
+                else { expired = false }
+                self.note(expired ? "session-expired" : "context-unavailable")
+                self.failAll(with: expired ? PersonalSessionExpired() : PersonalCatalogFailure.contextUnavailable)
+                self.destroyPage()
+            }
+        }
+    }
+
+    private func finishReadyPage(_ webView: WKWebView) {
+        guard webView === self.webView, !pageReady else { return }
         note("page-ready", ["origin": Diagnostics.origin(of: webView.url), "queued": "\(waiting.count)"])
         pageReady = true
         let queued = waiting
@@ -276,6 +361,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
         let readyWaiters = pageWaiters
         pageWaiters.removeAll()
         for waiter in readyWaiters { waiter(.success(webView)) }
+        scheduleIdleClose()
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -303,6 +389,7 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
     private func run(_ request: Request, in webView: WKWebView) {
         guard let program = Self.program else {
             request.completion(.failure(PersonalCatalogError.programMissing))
+            scheduleIdleClose()
             return
         }
         running[request.id] = request
@@ -325,27 +412,32 @@ final class PersonalCatalogHost: NSObject, WKNavigationDelegate {
                 failure = nil
             case .failure(let error):
                 json = nil
-                failure = error.localizedDescription
+                let normalized = PersonalCatalogFailure.normalize(error)
+                failure = normalized is PersonalSessionExpired ? PersonalSessionExpired.marker : normalized.localizedDescription
             }
             Task { @MainActor [weak self] in
-                guard let self, let request = self.running.removeValue(forKey: id) else { return }
+                guard let self, let request = self.running[id] else { return }
+                defer { self.scheduleIdleClose() }
                 let elapsed = Int(Date().timeIntervalSince(request.submittedAt) * 1000)
                 if let failure {
+                    self.running.removeValue(forKey: id)
                     self.note("failed", ["browse": request.browseID, "elapsed": "\(elapsed)ms", "reason": failure])
-                    request.completion(.failure(PersonalCatalogError.scriptFailed(failure)))
+                    request.completion(.failure(PersonalCatalogError.from(failure)))
                     return
                 }
                 guard let json, let data = json.data(using: .utf8) else {
+                    self.running.removeValue(forKey: id)
                     self.note("empty-answer", ["browse": request.browseID, "elapsed": "\(elapsed)ms"])
                     request.completion(.failure(PersonalCatalogError.invalidResponse))
                     return
                 }
                 self.note("answered", ["browse": request.browseID, "bytes": "\(data.count)", "elapsed": "\(elapsed)ms"])
-                do {
-                    request.completion(.success(try JSONDecoder().decode(GoosicCatalogPage.self, from: data)))
-                } catch {
-                    request.completion(.failure(error))
-                }
+                let decoded = await Task.detached(priority: .userInitiated) {
+                    Result { try JSONDecoder().decode(GoosicCatalogPage.self, from: data) }
+                }.value
+                // Account changes and timeouts may have completed this request while parsing.
+                guard self.running.removeValue(forKey: id) != nil else { return }
+                request.completion(decoded)
             }
         }
     }
@@ -358,6 +450,12 @@ private enum PersonalCatalogError: LocalizedError {
     case scriptFailed(String)
     case programMissing
     case timedOut
+
+    /// A script failure, or the session having ended when the script says so.
+    static func from(_ message: String) -> Error {
+        message.contains(PersonalSessionExpired.marker)
+            ? PersonalSessionExpired() : PersonalCatalogError.scriptFailed(message)
+    }
 
     var errorDescription: String? {
         switch self {

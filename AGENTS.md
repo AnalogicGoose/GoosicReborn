@@ -3,12 +3,10 @@
 Instructions for AI coding agents working in this repository. Read this before making a
 change; it is short because everything in it is load-bearing.
 
-GoosicReborn is a native rewrite of Goosic: a Rust playback authority plus a SwiftCrossUI
-shell, built for macOS, Linux, and Windows out of one repository. Rust decides what is
-allowed; the shell renders and asks. The SwiftCrossUI shell is being replaced by one native
-shell per platform — see [docs/NATIVE_SHELL_MIGRATION.md](docs/NATIVE_SHELL_MIGRATION.md) —
-and on Linux that is a GTK 4 application written in Rust, designed in
-[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
+GoosicReborn is a native rewrite of Goosic: a Rust playback authority with SwiftUI/AppKit
+on macOS, GTK 4 in Rust on Linux, and WinUI 3 on Windows. SwiftCrossUI is removed. Rust decides
+what is allowed; each native shell renders and asks. See [docs/NATIVE_SHELL_MIGRATION.md](docs/NATIVE_SHELL_MIGRATION.md)
+and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
 
 ## 1. Check what branch you are on first
 
@@ -28,7 +26,7 @@ Before you write anything, answer: **would this change be wrong to leave out on 
 platform?**
 
 - **Yes** → it is cross-platform. Work on `feature/<slug>` or `fix/<slug>` cut from
-  `development`. This covers everything in `crates/`, `goosic-protocol`, shared Swift views,
+  `development`. This covers everything in `crates/`, `goosic-protocol`, shared shell rules,
   the Makefile, and every document.
 - **No**, it exists only because of one OS's API → work on `feature/<os>/<slug>` cut from
   `platform/<os>`, where `<os>` is `macos`, `linux`, or `windows`.
@@ -47,12 +45,13 @@ shared, and rewriting their history breaks every other copy.
 ## 2. Commands
 
 ```sh
-make test            # Rust workspace tests + Swift tests, offline and deterministic
+make test            # Rust tests everywhere + native Swift tests on macOS
 make test-rust       # Rust only
 make test-swift      # Swift only
-make build-swift     # build the shell for the host platform
+make build-swift     # build the native macOS shell
 make run-swift       # build the service and launch the shell against it
 make test-rust-live  # opt-in; hits music.youtube.com. Do not run it in a normal check.
+make package-macos   # the download a tester installs; see docs/RELEASING.md
 ```
 
 `make test` must pass before you hand work back. CI repeats it on Linux, macOS, and
@@ -95,42 +94,26 @@ task seems to require breaking one, stop and say so instead of working around it
 
 ## 4. Where platform-specific code lives
 
-The directory says which platform a file belongs to, so nobody has to infer it from a name:
+Each native shell owns its platform integrations:
 
 ```
-Sources/GoosicSwift/
-    Core/                 compiled everywhere; no #if os(...) belongs here
-    Platform/macOS/       AppKit, WebKit, AVFoundation, MediaPlayer
-    Platform/Linux/       GTK 4, WebKitGTK
-    Platform/Stubs/       every platform without a real implementation
+apps/goosic-swift/Sources/GoosicSwift/
+    Core/                 macOS model, protocol DTOs and tested rules
+    Platform/macOS/       SwiftUI, AppKit, WebKit, AVFoundation, MediaPlayer
+apps/goosic-linux/         GTK 4, WebKitGTK, GStreamer, MPRIS
+apps/goosic-windows/       WinUI 3, WebView2, Windows media controls
 ```
 
-Files under `Platform/` carry their platform as a suffix — `OfficialPlaybackHost+macOS.swift`,
-`OfficialPlaybackHost+Unsupported.swift`. That is not decoration and not a second way of
-saying what the directory already says: SwiftPM derives each object file from the source's
-base name, so one target cannot hold two files called `OfficialPlaybackHost.swift`, and the
-build fails with `multiple producers` rather than anything that names the real cause.
+Swift platform files keep unique base names (`OfficialPlaybackHost+macOS.swift` and
+`OfficialPlaybackHost+Preview.swift`) because SwiftPM derives object names from them. The
+preview hosts are guarded by `GOOSIC_PREVIEW_NO_WEBKIT`; they refuse playback rather than
+producing sound outside Rust authority. No portable Swift UI or Linux/Windows Swift host
+should be reintroduced.
 
-Each file still opens with the `#if os(...)` that makes it true. The directory is where a
-reader looks; the guard is what the compiler obeys. Keeping both means a misplaced file
-fails to compile instead of silently vanishing from a platform.
-
-Platform work belongs in these seams, behind the existing abstractions, not scattered through
-the screens:
-
-| Concern | Core | Platform | State |
-| --- | --- | --- | --- |
-| Playback host abstraction | `PlatformPlaybackHost.swift` | — | shared; the extension point |
-| Official (web) playback | `OfficialBridge.swift` | `OfficialPlaybackHost+*.swift`, `WebKitSurface+Linux.swift` | macOS real, Linux written but never yet heard, Windows stubbed |
-| Local decoded-file playback | `LocalPlaybackEvent.swift` | `LocalPlaybackHost+*.swift` | macOS AVFoundation, Linux GStreamer, Windows stubbed |
-| System media controls | `SystemMediaPlayback.swift` | `SystemMediaControls+*.swift` | macOS Now Playing, Linux MPRIS, Windows stubbed |
-| Window material | `MaterialSurfaceKind.swift` | `MaterialSurface+*.swift` | macOS real, plain elsewhere |
-| Account WebKit profiles | `AccountLoginModel.swift` | `AccountLoginHost+*.swift` | macOS and Linux real, Windows stubbed |
-
-The `Core` column is the half that decides things and the `Platform` column is the half that
-talks to an operating system. Rules, wire shapes, and validation belong in `Core` — those are
-the parts a test can reach on any machine, and splitting them out is what makes `may this
-play` have one answer rather than one per platform.
+Rules, wire shapes and validation remain separate from native screens. The protocol and Rust
+shell-support crate are the shared contract, while account profiles, windows and audio hosts
+belong to each operating system. A platform-only change stays in that app; a shared rule change
+lands on `development` first.
 
 Those platform-neutral rules now also live in Rust, in `goosic-shell-support` — login
 navigation policy, bridge event validation, media projection, catalog conversion, queue
@@ -152,18 +135,9 @@ decides anything — a command from the bus is rechecked against
 `SystemMediaCommandAvailability` before it reaches the model, so a remote client cannot ask for
 a transition the app itself would refuse.
 
-The Linux local host is the one seam that is genuinely verified rather than merely compiled:
-`LocalPlaybackHostTests` opens a real WAV through GStreamer and reads back its duration.
-It can do that because `prepare` leaves the pipeline paused, which decodes without opening the
-audio device — silent, and needing no display, so it runs in CI like any other test.
-
-The Linux official host is the one entry above that compiles and passes its tests without
-anyone having heard it play. Treat "written" as exactly that: the wire contract is covered by
-`OfficialBridgeTests`, but nothing has yet confirmed that WebKitGTK reaches the player, so a
-report that it does not work is a bug to investigate rather than a surprise. Its account
-profiles are not isolated either — `bind(profile:)` says so out loud instead of pretending,
-because a caller that believes it is playing under an account would be playing under guest
-storage.
+The GTK shell has played official and local audio on a live desktop. Its packaged account and
+hidden-window acceptance checks remain documented in `docs/LINUX_SHELL.md`; compilation alone
+must never be reported as a live playback check.
 
 Two portability rules bite far from their cause. `URLSession` needs a
 `#if canImport(FoundationNetworking)` import off Darwin. And swift-corelibs-xctest discovers
@@ -178,9 +152,11 @@ fixture becomes `static`.
 
 ### The GTK shell on Linux
 
-`apps/goosic-linux` is designed but not yet written, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md)
-holds the decisions. When you work on it, these are settled and not yours to reopen without
-asking:
+`apps/goosic-linux` is the native GTK 4 shell on `platform/linux`. It plays through the Rust
+service, reads personal content inside the account's WebKitGTK profile, and builds as a Flatpak.
+[docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) records what has been verified and what still needs a
+real account or desktop session. When you work on it, these are settled and not yours to reopen
+without asking:
 
 - It is its own Cargo workspace, not a member of the root one. CI runs
   `cargo test --workspace` on macOS and Windows, and a member that needs GTK would fail there.
@@ -235,3 +211,20 @@ job, and it only removes branches whose commits already live in their parent.
   needs to stay the only one. In tests, a `MainActor.run` body must not touch `self`; make the
   fixture `static` instead.
 - **English** for all code, comments, documents, and commit messages.
+
+## 7. Shared UI requirements for every platform
+
+Before changing any screen, control, layout, theme or animation on macOS, Windows or Linux,
+read [docs/UI_DESIGN.md](docs/UI_DESIGN.md). It is the shared product design contract, including
+native adaptation, visual hierarchy, behavior, accessibility, performance and acceptance cases.
+macOS work also reads [docs/MACOS_UI_GUIDELINES.md](docs/MACOS_UI_GUIDELINES.md).
+
+Use native controls to produce the same product outcome. Do not introduce an opaque header or
+divider behind floating search controls, resize the player for temporary volume UI, drop
+essential narrow-layout actions, or invent a different brand or interaction on one platform.
+Read the implementation-gap audit: existing divergence is work to align, not a design precedent.
+A user-approved design correction updates the shared specification in the same change, and
+platform differences must be recorded there. Shared documentation belongs on development;
+native implementation follows the platform branch rules above. Respect system and app motion,
+transparency and contrast settings. Compilation and tests do not establish visual acceptance;
+report actual inspection and leave live testing to the user when requested.

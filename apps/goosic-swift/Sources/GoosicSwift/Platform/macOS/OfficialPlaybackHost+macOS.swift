@@ -1,8 +1,6 @@
 #if os(macOS) && !GOOSIC_PREVIEW_NO_WEBKIT
 import AppKit
-import AppKitBackend
 import Foundation
-import SwiftCrossUI
 import WebKit
 
 /// Stable mount point for the renderer. Rebinding replaces its one child in place, so SwiftUI
@@ -46,7 +44,7 @@ final class OfficialPlaybackHost: NSObject {
     func makeWebView(profile: OfficialPlaybackProfile = .guest) -> WKWebView {
         if let webView {
             if activeProfile.identifier == profile.identifier {
-            // SwiftCrossUI may recreate the representable wrapper during layout. Reparent the
+            // SwiftUI may recreate the representable wrapper during layout. Reparent the
             // existing renderer instead of creating a second media owner or crashing.
             webView.removeFromSuperview()
             container?.addSubview(webView)
@@ -226,19 +224,11 @@ final class OfficialPlaybackHost: NSObject {
 
     func setVolume(_ volume: Double) {
         guard volume.isFinite else { return }
-        guard !advertisementActive else {
-            onStatus?("Volume is unchanged while the official player is showing an advertisement.")
-            return
-        }
         let target = Self.javaScriptNumber(min(max(volume, 0), 1))
         evaluateMediaScript("media => { window.goosicSetVolumePreference?.(\(target), undefined); return 'volume-requested'; }")
     }
 
     func setMuted(_ muted: Bool) {
-        guard !advertisementActive else {
-            onStatus?("Mute is unavailable while the official player is showing an advertisement.")
-            return
-        }
         evaluateMediaScript("media => { window.goosicSetVolumePreference?.(undefined, \(muted ? "true" : "false")); return 'mute-requested'; }")
     }
 
@@ -415,6 +405,25 @@ final class OfficialPlaybackHost: NSObject {
         }
     }
 
+    /// Runs `OfficialBridge.automixOffScript` until the page answers, for this load only, so a
+    /// track plays to its end instead of fading into one YouTube Music chose.
+    func turnOffAutomix(token: String?, attempt: Int = 0) {
+        guard let webView, let token, token == expectedToken,
+              attempt < OfficialBridge.automixAttempts else { return }
+        webView.evaluateJavaScript(OfficialBridge.automixOffScript) { [weak self] value, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let answer = value as? String ?? "absent"
+                guard answer == "absent" else {
+                    Diagnostics.note(.officialPlayback, "automix", ["result": answer])
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.turnOffAutomix(token: token, attempt: attempt + 1)
+            }
+        }
+    }
+
     private func handleMessage(_ message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame else { return }
         let origin = message.frameInfo.securityOrigin
@@ -524,6 +533,7 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
                 "origin": Diagnostics.origin(of: webView.url),
             ])
             self?.probePage()
+            self?.turnOffAutomix(token: self?.expectedToken)
         }
     }
 
@@ -541,22 +551,4 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
 
 }
 
-struct OfficialPlaybackSurface: NSViewRepresentable {
-    let model: GoosicAppModel
-
-    func makeNSView(context: Context) -> OfficialPlaybackContainer {
-        model.officialPlaybackHost.makeContainer()
-    }
-
-    func updateNSView(_ nsView: OfficialPlaybackContainer, context: Context) {
-        nsView.wantsLayer = true
-        nsView.layer?.opacity = 0.01
-    }
-
-    nonisolated static func dismantleNSView(_ nsView: OfficialPlaybackContainer, coordinator: Void) {
-        // The model owns the host and performs asynchronous media quiescing before detachment.
-        // This is intentionally a no-op here; SwiftCrossUI may dismantle/recreate wrappers during
-        // layout, and a second WKWebView must never be created for the same model.
-    }
-}
 #endif

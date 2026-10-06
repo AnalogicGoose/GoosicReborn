@@ -38,18 +38,15 @@ pub fn index_after(
     wrapping: bool,
     pick: impl FnOnce(usize) -> usize,
 ) -> Option<usize> {
-    if count == 0 {
+    if count == 0 || index >= count {
         return None;
     }
-    if repeat == RepeatMode::One {
+    if repeat == RepeatMode::One && !wrapping {
         return Some(index);
     }
     if shuffle {
         if count == 1 {
             return (repeat == RepeatMode::All || wrapping).then_some(index);
-        }
-        if index >= count {
-            return Some(pick(count) % count);
         }
         // Any position but the current one, so shuffle never repeats a track back to back. The
         // Swift shell drew until it missed; drawing from the other positions directly gives the
@@ -62,6 +59,50 @@ pub fn index_after(
         return Some(next);
     }
     (repeat == RepeatMode::All || wrapping).then_some(0)
+}
+
+/// Previous restarts the first track unless repeat-all explicitly permits wrapping.
+/// A missing current entry has no neighbours.
+pub fn index_before(index: usize, count: usize, repeat: RepeatMode) -> Option<usize> {
+    if count == 0 || index >= count {
+        return None;
+    }
+    Some(if index > 0 {
+        index - 1
+    } else if repeat == RepeatMode::All {
+        count - 1
+    } else {
+        0
+    })
+}
+
+/// An ad's final media state can outlive its DOM marker. Suppress end detection until content
+/// plays again, and request play once if the handoff leaves content paused. A listener's pause
+/// always wins. This state is reset for each load and never seeks or skips an advertisement.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AdPlaybackRecovery {
+    pub awaiting_content: bool,
+    resume_requested: bool,
+}
+
+impl AdPlaybackRecovery {
+    pub fn observe(&mut self, advertisement: bool, state: &str, listener_paused: bool) -> bool {
+        if advertisement {
+            self.awaiting_content = true;
+            self.resume_requested = false;
+            return false;
+        }
+        if state == "playing" {
+            self.awaiting_content = false;
+            self.resume_requested = false;
+            return false;
+        }
+        if self.awaiting_content && state == "paused" && !listener_paused && !self.resume_requested {
+            self.resume_requested = true;
+            return true;
+        }
+        false
+    }
 }
 
 /// A position in `0..count` that differs from call to call. Not cryptographic, and it does not
@@ -172,17 +213,48 @@ pub fn believes_sample(
         && sample.duration >= 0.0
 }
 
+/// How close to its length a stopped track has to be for the stop to count as its end.
+pub const END_TOLERANCE_SECONDS: f64 = 1.5;
+
+/// Whether a report says the track has played through.
+///
+/// A player normally says `ended`. With YouTube Music's Automix off -- see
+/// [`crate::bridge::AUTOMIX_OFF_SCRIPT`] -- the official page instead stops a fraction of a second
+/// short of the length and says `paused`, and a shell that waited for `ended` sat silent after
+/// every song. A pause that close to the end is the end, unless the listener paused it.
+pub fn has_finished(state: &str, position: f64, duration: f64, listener_paused: bool) -> bool {
+    state == "ended"
+        || (state == "paused"
+            && !listener_paused
+            && duration.is_finite()
+            && duration > 0.0
+            && position.is_finite()
+            && position >= duration - END_TOLERANCE_SECONDS)
+}
+
+/// A sample as [`should_advance_after_end`] needs to see it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EndSample<'a> {
+    pub state: &'a str,
+    pub is_advertisement: bool,
+    pub video_id: &'a str,
+    pub position: f64,
+    pub duration: f64,
+}
+
 /// Whether a sample means the queue should move on.
 ///
-/// Advertisements end too, and must never advance the queue; and a player reports `ended`
-/// repeatedly, so only the first report for a video counts.
+/// Advertisements end too, and must never advance the queue; a player reports its end
+/// repeatedly, so only the first report for a video counts; and a pause the listener asked for is
+/// not an end even at the last second -- see [`has_finished`].
 pub fn should_advance_after_end(
-    state: &str,
-    is_advertisement: bool,
-    video_id: &str,
+    sample: &EndSample<'_>,
     last_ended_video_id: Option<&str>,
+    listener_paused: bool,
 ) -> bool {
-    state == "ended" && !is_advertisement && last_ended_video_id != Some(video_id)
+    !sample.is_advertisement
+        && last_ended_video_id != Some(sample.video_id)
+        && has_finished(sample.state, sample.position, sample.duration, listener_paused)
 }
 
 /// What to do with the volume a web player reports.
@@ -190,21 +262,22 @@ pub fn should_advance_after_end(
 pub enum VolumeSync {
     /// Advertisements never touch the stored volume.
     Ignore,
-    /// The stored preference has been applied to this load; follow what the player says.
+    /// Kept for source compatibility with existing shells; a hidden official renderer never
+    /// supplies a user volume choice, so `volume_sync` no longer returns this variant.
     Follow { volume: f64, muted: bool },
-    /// A fresh page started at its own volume. Push the stored preference once.
+    /// The page differs from the chosen volume or mute state. Reapply that choice.
     PushStored,
-    /// The page already matches the stored preference; nothing to push.
+    /// The page matches the chosen volume and mute state.
     AlreadyMatches,
 }
 
-/// Reconciles a fresh page's volume with the user's.
+/// Reconciles a hidden official page's volume with the user's.
 ///
-/// A new official page starts at whatever volume it likes. Until the stored preference has been
-/// applied to this load, a difference means the page is wrong and the preference is pushed; after
-/// that, the page is the truth, because the user may have changed the volume inside it.
+/// Its renderer cannot receive a user's volume input. A different value, even after the first
+/// preference push, means the page reset or replaced its media element. Keep the chosen value
+/// authoritative so a background page cannot silently turn itself up to full volume.
 pub fn volume_sync(
-    applied_for_load: bool,
+    _applied_for_load: bool,
     is_advertisement: bool,
     reported_volume: f64,
     reported_muted: bool,
@@ -213,8 +286,6 @@ pub fn volume_sync(
 ) -> VolumeSync {
     if is_advertisement {
         VolumeSync::Ignore
-    } else if applied_for_load {
-        VolumeSync::Follow { volume: reported_volume, muted: reported_muted }
     } else if (reported_volume - stored_volume).abs() > 0.01 || reported_muted != stored_muted {
         VolumeSync::PushStored
     } else {
@@ -303,7 +374,35 @@ mod tests {
     #[test]
     fn repeat_one_stays_on_the_same_track() {
         assert_eq!(next(1, 3, RepeatMode::One, false, false), Some(1));
-        assert_eq!(next(1, 3, RepeatMode::One, false, true), Some(1));
+        assert_eq!(next(1, 3, RepeatMode::One, false, true), Some(2));
+    }
+
+    #[test]
+    fn previous_does_not_invent_a_neighbour() {
+        assert_eq!(index_before(0, 0, RepeatMode::Off), None);
+        assert_eq!(index_before(3, 3, RepeatMode::All), None);
+        assert_eq!(index_before(0, 3, RepeatMode::Off), Some(0));
+        assert_eq!(index_before(0, 3, RepeatMode::One), Some(0));
+        assert_eq!(index_before(0, 3, RepeatMode::All), Some(2));
+        assert_eq!(index_before(2, 3, RepeatMode::Off), Some(1));
+        assert_eq!(next(3, 3, RepeatMode::One, true, true), None);
+    }
+
+    #[test]
+    fn ad_handoff_waits_for_content_and_resumes_only_once() {
+        let mut recovery = AdPlaybackRecovery::default();
+        assert!(!recovery.observe(true, "playing", false));
+        assert!(!recovery.observe(true, "ended", false));
+        assert!(!recovery.observe(false, "ended", false));
+        assert!(recovery.awaiting_content);
+        assert!(recovery.observe(false, "paused", false));
+        assert!(!recovery.observe(false, "paused", false));
+        assert!(!recovery.observe(false, "playing", false));
+        assert!(!recovery.awaiting_content);
+        assert!(!recovery.observe(false, "paused", false));
+        assert!(!recovery.observe(true, "paused", true));
+        assert!(!recovery.observe(false, "paused", true));
+        assert!(recovery.awaiting_content);
     }
 
     #[test]
@@ -402,22 +501,53 @@ mod tests {
 
     #[test]
     fn only_the_first_real_end_advances_the_queue() {
-        assert!(should_advance_after_end("ended", false, "v", None));
-        assert!(should_advance_after_end("ended", false, "v", Some("u")));
-        assert!(!should_advance_after_end("ended", false, "v", Some("v")), "reported twice");
-        assert!(!should_advance_after_end("ended", true, "v", None), "an advertisement ended");
-        assert!(!should_advance_after_end("paused", false, "v", None));
+        let end = |state, is_advertisement, position| EndSample {
+            state,
+            is_advertisement,
+            video_id: "v",
+            position,
+            duration: 229.0,
+        };
+        assert!(should_advance_after_end(&end("ended", false, 10.0), None, false));
+        assert!(should_advance_after_end(&end("ended", false, 10.0), Some("u"), false));
+        assert!(
+            !should_advance_after_end(&end("ended", false, 10.0), Some("v"), false),
+            "reported twice"
+        );
+        assert!(
+            !should_advance_after_end(&end("ended", true, 10.0), None, false),
+            "an advertisement ended"
+        );
+        assert!(!should_advance_after_end(&end("paused", false, 10.0), None, false));
+        assert!(
+            should_advance_after_end(&end("paused", false, 228.8), None, false),
+            "the official page stops just short of the end with Automix off"
+        );
+        assert!(
+            !should_advance_after_end(&end("paused", false, 228.8), None, true),
+            "the listener paused at the last second"
+        );
     }
 
     #[test]
-    fn a_fresh_page_gets_the_stored_volume_once_and_is_followed_after() {
+    fn a_pause_at_the_last_moment_is_the_end() {
+        assert!(has_finished("ended", 10.0, 229.0, false));
+        assert!(has_finished("paused", 228.8, 229.0, false));
+        assert!(!has_finished("paused", 228.8, 229.0, true));
+        assert!(!has_finished("paused", 120.0, 229.0, false));
+        assert!(!has_finished("paused", 0.0, 0.0, false));
+        assert!(!has_finished("playing", 229.0, 229.0, false));
+        assert!(!has_finished("paused", f64::NAN, 229.0, false));
+    }
+
+    #[test]
+    fn a_hidden_page_reapplies_the_chosen_volume_after_any_reset() {
         assert_eq!(volume_sync(false, false, 1.0, false, 0.4, false), VolumeSync::PushStored);
         assert_eq!(volume_sync(false, false, 0.4, true, 0.4, false), VolumeSync::PushStored);
         assert_eq!(volume_sync(false, false, 0.405, false, 0.4, false), VolumeSync::AlreadyMatches);
-        assert_eq!(
-            volume_sync(true, false, 0.7, false, 0.4, false),
-            VolumeSync::Follow { volume: 0.7, muted: false }
-        );
+        assert_eq!(volume_sync(true, false, 1.0, false, 0.4, false), VolumeSync::PushStored);
+        assert_eq!(volume_sync(true, false, 0.4, true, 0.4, false), VolumeSync::PushStored);
+        assert_eq!(volume_sync(true, false, 0.4, false, 0.4, false), VolumeSync::AlreadyMatches);
         assert_eq!(volume_sync(false, true, 1.0, false, 0.4, false), VolumeSync::Ignore);
     }
 

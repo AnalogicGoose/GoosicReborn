@@ -17,6 +17,11 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     private var completionDelivered = false
     private var navigationToken: UInt64 = 0
     private var pollingTask: Task<Void, Never>?
+    private var completionProbeInFlight = false
+    private var navigationWatchdog: Task<Void, Never>?
+    private var navigationLoadID: UInt64 = 0
+    private var statusLabel: NSTextField?
+    private var signInURL: URL?
     var onCompleted: ((AccountLoginResult, AccountLoginHost) -> Void)?
     var onCancelled: (() -> Void)?
 
@@ -27,13 +32,28 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         Diagnostics.note(.accountLogin, event, fields)
     }
 
+    /// Set when signing an existing account in again: the profile is the account's own, not a
+    /// staging store, so a cancelled or failed attempt must leave it exactly as it was.
+    private var reusingProfile = false
+
     func start() {
-        guard window == nil else { return }
         // Both UUIDs are generated before the login surface opens and are never derived from
         // provider data. They are stable for this staged login and distinct by construction.
         let accountId = UUID()
         var profileId = UUID()
         while profileId == accountId { profileId = UUID() }
+        open(accountId: accountId, profileId: profileId)
+    }
+
+    /// Signs an account whose session ended in again, into its own profile. Nothing is staged:
+    /// the account and its profile already exist, and only their cookies are renewed.
+    func start(reusing accountId: UUID, profileId: UUID) {
+        reusingProfile = true
+        open(accountId: accountId, profileId: profileId)
+    }
+
+    private func open(accountId: UUID, profileId: UUID) {
+        guard window == nil else { return }
         self.accountId = accountId
         self.profileId = profileId
 
@@ -53,7 +73,30 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         let frame = NSRect(x: 0, y: 0, width: 720, height: 640)
         let window = NSWindow(contentRect: frame, styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Sign in to YouTube Music"
-        window.contentView = webView
+        let content = NSView()
+        let status = NSTextField(labelWithString: "Loading sign-in page…")
+        status.textColor = .secondaryLabelColor
+        status.font = .systemFont(ofSize: 12)
+        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        statusLabel = status
+        let retry = NSButton(title: "Try Again", target: self, action: #selector(retrySignIn))
+        let footer = NSStackView(views: [status, retry])
+        footer.orientation = .horizontal
+        footer.spacing = 12
+        for view in [webView, footer] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: content.topAnchor),
+            webView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -8),
+            footer.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            footer.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -8),
+        ])
+        window.contentView = content
         window.delegate = self
         window.isReleasedWhenClosed = false
         self.window = window
@@ -66,12 +109,15 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         components.path = "/ServiceLogin"
         components.queryItems = [URLQueryItem(name: "continue", value: "https://music.youtube.com")]
         guard let url = components.url else { return cancel() }
+        signInURL = url
         webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
     }
 
     func close() {
         guard !closing else { return }
         closing = true
+        navigationWatchdog?.cancel()
+        navigationWatchdog = nil
         pollingTask?.cancel()
         pollingTask = nil
         navigationToken &+= 1
@@ -107,6 +153,7 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
     }
 
     private func deleteStagingStore() {
+        guard !reusingProfile else { return }
         guard let store = stagingStore ?? webView?.configuration.websiteDataStore else { return }
         store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: Date(timeIntervalSince1970: 0)) { }
     }
@@ -128,9 +175,55 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
         decisionHandler(decision == .allow ? .allow : .cancel)
     }
 
+    @objc private func retrySignIn() {
+        guard !closing, !completionDelivered, let webView, let signInURL else { return }
+        note("retry")
+        pollingTask?.cancel()
+        pollingTask = nil
+        navigationToken &+= 1
+        completionProbeInFlight = false
+        webView.stopLoading()
+        webView.load(URLRequest(url: signInURL, cachePolicy: .reloadIgnoringLocalCacheData))
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        guard webView === self.webView else { return }
+        navigationWatchdog?.cancel()
+        navigationLoadID &+= 1
+        let loadID = navigationLoadID
+        statusLabel?.stringValue = "Loading sign-in page…"
+        navigationWatchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled, let self, !self.closing, self.navigationLoadID == loadID else { return }
+            self.note("navigation-stalled")
+            self.statusLabel?.stringValue = "The page is taking too long. Click Try Again to reload it."
+        }
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        if AccountLoginValidation.isExactCompletionOrigin(webView.url) {
+            statusLabel?.stringValue = "Finishing sign-in…"
+            startCompletionPolling(for: webView)
+        }
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard webView === self.webView else { return }
+        note("page-process-terminated")
+        navigationWatchdog?.cancel()
+        pollingTask?.cancel()
+        pollingTask = nil
+        navigationToken &+= 1
+        completionProbeInFlight = false
+        statusLabel?.stringValue = "The sign-in page stopped. Click Try Again to reload it."
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        navigationWatchdog?.cancel()
+        statusLabel?.stringValue = AccountLoginValidation.isExactCompletionOrigin(webView.url)
+            ? "Finishing sign-in…" : "Complete your Google sign-in below."
         note("navigation-finished", ["origin": Diagnostics.origin(of: webView.url), "atCompletionOrigin": "\(AccountLoginValidation.isExactCompletionOrigin(webView.url))"])
-        startCompletionPolling(for: webView)
+        if pollingTask == nil { startCompletionPolling(for: webView) }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -141,13 +234,26 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             return
         }
         note("navigation-failed", ["domain": failure.domain, "code": "\(failure.code)", "origin": Diagnostics.origin(of: webView.url)])
-        cancel()
+        navigationWatchdog?.cancel()
+        pollingTask?.cancel()
+        pollingTask = nil
+        navigationToken &+= 1
+        completionProbeInFlight = false
+        statusLabel?.stringValue = failure.code == NSURLErrorNotConnectedToInternet
+            ? "You’re offline. Reconnect, then click Try Again."
+            : "Could not load the sign-in page. Click Try Again to reload it."
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                 withError error: Error) {
+        self.webView(webView, didFail: navigation, withError: error)
     }
 
     private func startCompletionPolling(for webView: WKWebView) {
         pollingTask?.cancel()
         navigationToken &+= 1
         let token = navigationToken
+        completionProbeInFlight = false
         pollingTask = Task { @MainActor [weak self, weak webView] in
             guard let self else { return }
             let deadline = Date().addingTimeInterval(AccountLoginValidation.completionTimeout)
@@ -157,6 +263,11 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                     try? await Task.sleep(for: .milliseconds(250))
                     continue
                 }
+                if self.completionProbeInFlight {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    continue
+                }
+                self.completionProbeInFlight = true
                 webView.callAsyncJavaScript(AccountLoginValidation.completionScript, arguments: [:], in: nil, in: .page) { [weak self, weak webView] result in
                     var failure: String?
                     var value: String?
@@ -165,12 +276,14 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
                     case .failure(let error): failure = error.localizedDescription
                     }
                     Task { @MainActor [weak self, weak webView] in
-                        if let failure { self?.note("completion-script-failed", ["reason": failure]) }
+                        guard let self, !self.closing, token == self.navigationToken else { return }
+                        self.completionProbeInFlight = false
+                        if failure != nil { self.note("completion-script-failed") }
                         else if let text = value {
                             let summary = text.data(using: .utf8).flatMap(AccountLoginValidation.sanitizeMetadata)
-                            self?.note("completion-probe", ["marker": text.isEmpty ? "absent" : "\(text.utf8.count) bytes", "decision": summary.map { LoginCompletionDecision.from($0) == .wait ? "wait" : "accept" } ?? "wait"])
+                            self.note("completion-probe", ["marker": text.isEmpty ? "absent" : "\(text.utf8.count) bytes", "decision": summary.map { LoginCompletionDecision.from($0) == .wait ? "wait" : "accept" } ?? "wait"])
                         }
-                        guard let self, let webView, !self.closing,
+                        guard let webView, !self.closing,
                               token == self.navigationToken,
                               AccountLoginValidation.isExactCompletionOrigin(webView.url),
                               let value, let data = value.data(using: .utf8),
@@ -191,7 +304,7 @@ final class AccountLoginHost: NSObject, NSWindowDelegate, WKNavigationDelegate, 
             }
             if !Task.isCancelled, token == self.navigationToken, !self.closing {
                 self.note("timeout", ["after": "\(Int(AccountLoginValidation.completionTimeout))s", "origin": Diagnostics.origin(of: self.webView?.url)])
-                self.cancel()
+                self.statusLabel?.stringValue = "Could not confirm sign-in. Click Try Again, or close this window."
             }
         }
     }

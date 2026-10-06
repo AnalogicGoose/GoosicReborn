@@ -120,6 +120,25 @@ pub fn js_string_literal(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_owned())
 }
 
+/// Turns the official page's Automix off, reporting what it found.
+///
+/// With Automix on, YouTube Music fades into a track of its own choosing some seconds before the
+/// requested one ends. The observer then sees another video, the page is paused, and the queue
+/// moves on -- having cut the song's last seconds. With it off, the page plays the track through
+/// and reports its end, and the shell's queue decides what follows. The switch sits in the page's
+/// Up Next tab, which renders after the player, so a host runs this until it answers something
+/// other than `absent`, for a few seconds. It answers `absent`, `off`, `turned off` or `still on`.
+pub const AUTOMIX_OFF_SCRIPT: &str = r#"(() => {
+  const toggle = document.getElementById('automix');
+  if (!toggle || typeof toggle.checked !== 'boolean') return 'absent';
+  if (!toggle.checked) return 'off';
+  toggle.click();
+  return toggle.checked ? 'still on' : 'turned off';
+})()"#;
+
+/// How many times, half a second apart, a host looks for the Automix switch after a load.
+pub const AUTOMIX_ATTEMPTS: u32 = 40;
+
 /// The per-load page observer.
 ///
 /// Identity is injected rather than read from the URL: the official app rewrites its own location
@@ -135,13 +154,20 @@ pub fn observer_script(token: &str, generation: u64, video_id: &str) -> String {
 
 const OBSERVER_BODY: &str = r#"  let sequence = 0;
   let media;
+  const activeMedia = () => {
+    const candidates = Array.from(document.querySelectorAll('audio, video'));
+    return candidates.find(candidate => !candidate.paused && !candidate.ended && candidate.readyState > 0)
+      ?? candidates.find(candidate => !candidate.ended && candidate.readyState > 0)
+      ?? candidates[0]
+      ?? null;
+  };
   const currentVideoId = () =>
     new URLSearchParams(window.location.search).get('v') || requestedVideoId;
   const isAd = () => Boolean(document.querySelector(
-    '.ad-showing, .ytp-ad-player-overlay, .ytp-ad-text, [class*=ad-showing]'
+    '.ad-showing, .ad-interrupting'
   ));
   const send = () => {
-    media = document.querySelector('audio,video');
+    media = activeMedia();
     if (!media || !window.webkit?.messageHandlers?.goosicBridge) return;
     const actualVideoId = currentVideoId();
     const advertisement = isAd();
@@ -167,7 +193,7 @@ const OBSERVER_BODY: &str = r#"  let sequence = 0;
     });
   };
   const install = () => {
-    const next = document.querySelector('audio,video');
+    const next = activeMedia();
     if (next === media) return;
     media = next;
     if (!media) return;
@@ -239,6 +265,15 @@ pub const MEDIA_SESSION_GUARD_SCRIPT: &str = r#"(() => {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automix_script_only_touches_the_automix_switch_and_says_what_it_did() {
+        assert!(AUTOMIX_OFF_SCRIPT.contains("getElementById('automix')"));
+        for answer in ["'absent'", "'off'", "'turned off'", "'still on'"] {
+            assert!(AUTOMIX_OFF_SCRIPT.contains(answer), "{answer}");
+        }
+        assert!(!AUTOMIX_OFF_SCRIPT.contains("location"), "it never navigates");
+    }
 
     /// Exactly the shape `observer_script` posts.
     fn payload(token: &str, generation: u64, sequence: u64) -> String {

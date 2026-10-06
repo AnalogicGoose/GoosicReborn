@@ -128,8 +128,7 @@ jobs:
 
     # The Rust GTK 4 shell in `apps/goosic-linux`, which replaces the Swift build on Linux. Its
     # floor is GTK 4.20 and the hosted Ubuntu image carries an older GTK, so it builds in a Fedora
-    # container whose GTK, WebKitGTK, GStreamer and Rust are all current; the Flatpak builder on
-    # the GNOME runtime takes over once the manifest exists. The service is built first because
+    # container whose GTK, WebKitGTK, GStreamer and Rust are all current. The service is built first because
     # the shell's integration test runs it. Nothing here needs a display or a sound card: the
     # GStreamer test decodes a WAV paused, and no test opens a window.
     shell-gtk:
@@ -167,60 +166,30 @@ jobs:
                 working-directory: apps/goosic-linux
                 run: cargo test
 
-    # The Swift package's Linux build through SwiftCrossUI. It is the conformance reference the
-    # GTK shell is compared against and is deleted once that shell ships, as docs/LINUX_SHELL.md
-    # says. `make test-swift` needs no display: the tests are units and open no window.
-    shell-linux:
-        name: Shell (Linux, SwiftCrossUI reference)
+    # Test the package users install as well as the native development build. The manifest
+    # supplies both locked Rust workspaces as vendored sources and runs the shell's tests with
+    # its installed service; the builder itself has no build-time network access.
+    shell-flatpak:
+        name: Shell (Linux, Flatpak)
         needs: guard
-        if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.swift == 'true'
+        if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.linux == 'true'
         runs-on: ubuntu-latest
         steps:
             -   uses: actions/checkout@v4
-
-            # CGtk resolves gtk4 and CWebKitGTK resolves webkitgtk-6.0, both through pkg-config.
-            -   name: Install GTK 4 and WebKitGTK
+            -   name: Install Flatpak builder and GNOME SDK
                 run: |
                     sudo apt-get update
-                    sudo apt-get install -y --no-install-recommends \
-                        libgtk-4-dev libwebkitgtk-6.0-dev libglib2.0-dev \
-                        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-                        gstreamer1.0-plugins-good pkg-config clang
-
-            # 6.2, not 6.0: the pinned swift-log 1.15 declares swift-tools-version 6.2, and an
-            # older toolchain fails on that manifest before compiling anything of Goosic's.
-            -   uses: swift-actions/setup-swift@v2
-                with:
-                    swift-version: "6.2"
-
-            # Keyed on Package.resolved: dependencies are pinned, so the key only moves when
-            # they do. The path is the scratch directory the Makefile uses on Linux.
-            -   name: Restore the Swift build
-                id: swift-build-cache
-                uses: actions/cache/restore@v4
-                with:
-                    path: ~/.cache/goosic-swift-build
-                    key: swift-linux-${{ hashFiles('apps/goosic-swift/Package.resolved') }}
-                    restore-keys: swift-linux-
-
-            -   run: make build-swift
-            -   run: make test-swift
-
-            # Split from the restore because `actions/cache` writes unconditionally and only
-            # the default branch may write here. Skipped on an exact hit too: the key is the
-            # dependency fingerprint, so an existing entry is already the answer, and writing
-            # a duplicate key is an error rather than a refresh.
-            #
-            # The key comes from the restore rather than being spelled out again. `swift build`
-            # rewrites `Package.resolved` when the toolchain's SwiftPM formats it differently,
-            # so recomputing the hash here stores the build under a key no restore will ever
-            # ask for, and the entry can only ever be found by the prefix fallback.
-            -   name: Save the Swift build
-                if: env.IS_CACHE_WRITER == 'true' && steps.swift-build-cache.outputs.cache-hit != 'true'
-                uses: actions/cache/save@v4
-                with:
-                    path: ~/.cache/goosic-swift-build
-                    key: ${{ steps.swift-build-cache.outputs.cache-primary-key }}
+                    sudo apt-get install -y flatpak flatpak-builder
+                    flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+                    flatpak install --user --noninteractive flathub \
+                        org.gnome.Platform//50 org.gnome.Sdk//50 \
+                        org.freedesktop.Sdk.Extension.rust-stable//25.08
+            -   name: Build and test the offline Flatpak
+                run: |
+                    if [ -f apps/goosic-linux/packaging/flatpak/io.github.analogicgoose.Goosic.yml ]; then
+                        flatpak-builder --user --force-clean build-dir \
+                            apps/goosic-linux/packaging/flatpak/io.github.analogicgoose.Goosic.yml
+                    fi
 
     shell-macos:
         name: Shell (macOS, AppKit)
@@ -258,7 +227,7 @@ jobs:
     # because just documentation moved is never claimed to have been built.
     seal:
         name: Stamp this tree as passing
-        needs: [guard, rust, shell-gtk, shell-linux, shell-macos]
+        needs: [guard, rust, shell-gtk, shell-macos]
         if: >-
             always()
             && needs.guard.outputs.known-good == 'false'

@@ -1,4 +1,4 @@
-.PHONY: build-service test-rust test-rust-live build-swift test-swift test-ui-macos debug-bundle-macos run-service run-swift test
+.PHONY: build-service test-rust test-rust-live build-swift test-swift build-linux test-linux run-linux test-ui-macos debug-bundle-macos package-macos run-service run-swift test
 
 build-service:
 	cargo build -p goosic-service
@@ -12,18 +12,10 @@ test-rust-live:
 
 UNAME_S := $(shell uname -s)
 
-ifeq ($(UNAME_S),Darwin)
-# The repository lives under a file-provider-synced directory, which stamps
-# `com.apple.FinderInfo` onto build products and makes codesign refuse to sign the test bundle.
-# Building outside that directory avoids the problem entirely.
+# The Swift package now contains only the native macOS app.
 SWIFT_SCRATCH := $(HOME)/Library/Caches/goosic-swift-build
-SWIFT_ENV := SCUI_DEFAULT_BACKEND=AppKitBackend
-else
-SWIFT_SCRATCH := $(HOME)/.cache/goosic-swift-build
-# Explicit, not inherited: leaving this unset drags swift-winui's C targets into the build
-# graph, and they need Windows headers.
-SWIFT_ENV := SCUI_DEFAULT_BACKEND=GtkBackend
-endif
+GOOSIC_MACOS_SDK := $(shell xcrun --sdk macosx --show-sdk-version 2>/dev/null)
+SWIFT_ENV := GOOSIC_MACOS_SDK=$(GOOSIC_MACOS_SDK)
 
 SWIFT_FLAGS := --package-path apps/goosic-swift --scratch-path $(SWIFT_SCRATCH)
 
@@ -32,6 +24,15 @@ build-swift:
 
 test-swift:
 	$(SWIFT_ENV) swift test $(SWIFT_FLAGS)
+
+build-linux: build-service
+	cargo build --manifest-path apps/goosic-linux/Cargo.toml
+
+test-linux: build-service
+	cargo test --manifest-path apps/goosic-linux/Cargo.toml
+
+run-linux: build-linux
+	GOOSIC_SERVICE_PATH="$(CURDIR)/target/debug/goosic-service" cargo run --manifest-path apps/goosic-linux/Cargo.toml
 
 # Runs the real macOS shell against local fixture data, including scroll and account-control UI
 # checks. XcodeGen is used only to materialize the disposable Xcode UI-test host.
@@ -44,7 +45,16 @@ debug-bundle-macos:
 	@test "$(UNAME_S)" = Darwin || (echo "Debug bundles require macOS" >&2; exit 2)
 	sh tools/debug-bundle-macos.sh
 
+# The download a tester installs. See docs/RELEASING.md.
+package-macos:
+	@test "$(UNAME_S)" = Darwin || (echo "macOS app bundles are built on macOS" >&2; exit 2)
+	sh tools/package-macos.sh $(VERSION)
+
+ifeq ($(UNAME_S),Darwin)
 test: test-rust test-swift
+else
+test: test-rust
+endif
 
 run-service:
 	@test -n "$(GOOSIC_SERVICE_PATH)" || (echo "set GOOSIC_SERVICE_PATH to the service executable" >&2; exit 2)
