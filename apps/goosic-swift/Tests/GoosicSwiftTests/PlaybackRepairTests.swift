@@ -58,6 +58,23 @@ final class PlaybackJavaScriptTests: XCTestCase {
         try XCTUnwrap(JSContext())
     }
 
+    func testActiveMediaPrefersPausedContentOverAnEndedAdvertisement() throws {
+        let js = try context()
+        js.evaluateScript("""
+        var candidates = [
+          {id:'ad', paused:true, ended:true, readyState:4},
+          {id:'content', paused:true, ended:false, readyState:4}
+        ];
+        var document = {querySelectorAll: () => candidates};
+        """)
+        XCTAssertEqual(js.evaluateScript(OfficialBridge.activeMediaElementScript)?.forProperty("id")?.toString(), "content")
+        js.evaluateScript("candidates.unshift({id:'playing', paused:false, ended:false, readyState:4});")
+        XCTAssertEqual(js.evaluateScript(OfficialBridge.activeMediaElementScript)?.forProperty("id")?.toString(), "playing")
+        js.evaluateScript("candidates = [];")
+        XCTAssertTrue(js.evaluateScript(OfficialBridge.activeMediaElementScript)?.isNull == true)
+        XCTAssertNil(js.exception)
+    }
+
     func testRadioUsesOnlyPanelRowsAndPanelContinuation() throws {
         let js = try context()
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
