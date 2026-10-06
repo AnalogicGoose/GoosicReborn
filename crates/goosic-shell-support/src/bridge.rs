@@ -164,7 +164,7 @@ const OBSERVER_BODY: &str = r#"  let sequence = 0;
   const currentVideoId = () =>
     new URLSearchParams(window.location.search).get('v') || requestedVideoId;
   const isAd = () => Boolean(document.querySelector(
-    '.ad-showing, .ytp-ad-player-overlay, .ytp-ad-text, [class*=ad-showing]'
+    '.ad-showing, .ad-interrupting'
   ));
   const send = () => {
     media = activeMedia();
