@@ -143,7 +143,7 @@ impl CommandAvailability {
                 && snapshot.duration.is_finite()
                 && snapshot.duration > 0.0,
             stop: ready,
-            change_volume: ready && !snapshot.is_advertisement,
+            change_volume: ready,
         }
     }
 
@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn advertisements_stay_pauseable_but_disable_content_and_volume_commands() {
+    fn advertisements_allow_pause_and_volume_but_disable_content_commands() {
         let paused_ad = CommandAvailability::from_snapshot(&MediaSnapshot {
             is_paused: true,
             is_advertisement: true,
@@ -263,7 +263,7 @@ mod tests {
         assert!(!paused_ad.previous);
         assert!(!paused_ad.change_position);
         assert!(paused_ad.stop);
-        assert!(!paused_ad.change_volume);
+        assert!(paused_ad.change_volume);
 
         let playing_ad =
             CommandAvailability::from_snapshot(&MediaSnapshot { is_advertisement: true, ..snapshot() });
