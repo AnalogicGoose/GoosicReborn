@@ -21,7 +21,7 @@ public sealed class ListRulesTests
     [Fact]
     public void Custom_order_is_the_order_the_rows_arrived_in()
     {
-        var shuffled = Playlist.Reverse();
+        var shuffled = Playlist.AsEnumerable().Reverse();
         Assert.Equal([1, 2, 3, 4], TrackOrder.Sort(shuffled, "custom").Select(row => row.Ordinal));
     }
 
