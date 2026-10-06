@@ -961,55 +961,55 @@
                                     IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     ToolTipService.ToolTip="More" AutomationProperties.Name="More options"
                                     Click="OnNowPlayingMore" />
-                            <ToggleButton x:Name="LyricsButton" Style="{StaticResource PillToggleStyle}"
-                                          IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                          Content="&#xE90A;" ToolTipService.ToolTip="Lyrics"
-                                          AutomationProperties.Name="Lyrics"
-                                          Click="OnToggleLyrics" />
-                            <ToggleButton x:Name="QueueButton" Style="{StaticResource PillToggleStyle}"
-                                          IsEnabled="{x:Bind Model.HasQueue, Mode=OneWay}"
-                                          Content="&#xE8FD;" ToolTipService.ToolTip="Playing Next"
-                                          AutomationProperties.Name="Playing Next"
-                                          Click="OnToggleQueue" />
-                            <!-- Volume in reach, as in Apple Music and Spotify; the button's flyout stays for
-                                 the narrow layout, where this is hidden. -->
-                            <Slider x:Name="PillVolumeInline" Width="92" VerticalAlignment="Center" Margin="4,0,2,0"
-                                    Minimum="0" Maximum="100" StepFrequency="1" IsThumbToolTipEnabled="False"
-                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                    Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
-                                    ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume">
-                                <Slider.Resources>
-                                    <StaticResource x:Key="SliderTrackValueFill" ResourceKey="TextFillColorSecondaryBrush" />
-                                    <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
-                                    <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="TextFillColorPrimaryBrush" />
-                                    <StaticResource x:Key="SliderThumbBackground" ResourceKey="TextFillColorPrimaryBrush" />
-                                    <StaticResource x:Key="SliderThumbBackgroundPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
-                                    <StaticResource x:Key="SliderThumbBackgroundPressed" ResourceKey="TextFillColorPrimaryBrush" />
-                                </Slider.Resources>
-                            </Slider>
-                            <Button x:Name="VolumeButton" Style="{StaticResource PillGlyphStyle}"
-                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                    Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume"
-                                    AutomationProperties.Name="Volume">
-                                <Button.Flyout>
-                                    <Flyout Placement="Top" FlyoutPresenterStyle="{StaticResource VolumeFlyoutStyle}">
-                                        <StackPanel Width="44" Spacing="10" HorizontalAlignment="Center">
-                                            <TextBlock Text="{x:Bind Model.VolumePercent, Mode=OneWay}" FontSize="14"
-                                                       FontWeight="SemiBold" HorizontalAlignment="Center" />
-                                            <Slider x:Name="VolumeSlider" Orientation="Vertical" Height="170"
-                                                    Minimum="0" Maximum="100" StepFrequency="1"
-                                                    HorizontalAlignment="Center" IsThumbToolTipEnabled="False"
-                                                    Style="{StaticResource VolumeSliderStyle}"
-                                                    Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
-                                                    ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
-                                            <Button Style="{StaticResource PillGlyphStyle}" HorizontalAlignment="Center"
-                                                    Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
-                                                    ToolTipService.ToolTip="{x:Bind Model.MuteLabel, Mode=OneWay}"
-                                                    Click="OnToggleMuted" />
-                                        </StackPanel>
-                                    </Flyout>
-                                </Button.Flyout>
-                            </Button>
+                            <!-- Both layers occupy the same bounds; opening volume never measures a new bar. -->
+                            <Grid Width="136">
+                                <StackPanel x:Name="PlayerPanelButtons" Orientation="Horizontal" Spacing="2">
+                                    <ToggleButton x:Name="LyricsButton" Style="{StaticResource PillToggleStyle}"
+                                                  IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                                  Content="&#xE90A;" ToolTipService.ToolTip="Lyrics"
+                                                  AutomationProperties.Name="Lyrics" Click="OnToggleLyrics" />
+                                    <ToggleButton x:Name="QueueButton" Style="{StaticResource PillToggleStyle}"
+                                                  IsEnabled="{x:Bind Model.HasQueue, Mode=OneWay}"
+                                                  Content="&#xE8FD;" ToolTipService.ToolTip="Playing Next"
+                                                  AutomationProperties.Name="Playing Next" Click="OnToggleQueue" />
+                                    <Button x:Name="VolumeButton" Style="{StaticResource PillGlyphStyle}"
+                                            IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                            Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
+                                            ToolTipService.ToolTip="Show volume controls"
+                                            AutomationProperties.Name="Show volume controls" Click="OnToggleVolume">
+                                        <Button.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="{x:Bind Model.MuteLabel, Mode=OneWay}" Click="OnToggleMuted" />
+                                            </MenuFlyout>
+                                        </Button.ContextFlyout>
+                                    </Button>
+                                </StackPanel>
+                                <Border x:Name="PlayerVolumeOverlay" Visibility="Collapsed" CornerRadius="22"
+                                        Background="{ThemeResource GoosicPillAcrylicBrush}"
+                                        BorderBrush="{ThemeResource GoosicPillBorderBrush}" BorderThickness="1">
+                                    <Grid Padding="6,0,0,0" ColumnSpacing="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="44" />
+                                        </Grid.ColumnDefinitions>
+                                        <Slider x:Name="VolumeSlider" Minimum="0" Maximum="100" StepFrequency="1"
+                                                MinWidth="0" VerticalAlignment="Center" IsThumbToolTipEnabled="False"
+                                                Style="{StaticResource VolumeSliderStyle}"
+                                                Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
+                                                ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
+                                        <Button x:Name="VolumeCloseButton" Grid.Column="1" Style="{StaticResource PillGlyphStyle}"
+                                                Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
+                                                ToolTipService.ToolTip="Hide volume controls"
+                                                AutomationProperties.Name="Hide volume controls" Click="OnToggleVolume">
+                                            <Button.ContextFlyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem Text="{x:Bind Model.MuteLabel, Mode=OneWay}" Click="OnToggleMuted" />
+                                                </MenuFlyout>
+                                            </Button.ContextFlyout>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </Grid>
                         </StackPanel>
                     </Grid>
                 </Border>

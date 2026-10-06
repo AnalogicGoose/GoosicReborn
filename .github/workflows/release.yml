@@ -9,11 +9,10 @@ on:
             tag:
                 description: Existing release tag to package
                 required: true
-                default: v0.2.5
+                default: v0.2.6
             windows_run_id:
                 description: Successful Windows artifact run for the same tag
                 required: true
-                default: '37398960736'
 permissions:
     contents: write
     actions: read
@@ -38,7 +37,7 @@ jobs:
             - name: Package and verify the app
               run: |
                   version="${RELEASE_TAG#v}"
-                  GOOSIC_MACOS_BUILD_VERSION=3 sh tools/package-macos.sh "$version"
+                  GOOSIC_MACOS_BUILD_VERSION=4 sh tools/package-macos.sh "$version"
                   unzip -q "dist/Goosic-$version-macos-universal.zip" -d dist/verify
                   app=dist/verify/Goosic.app
                   codesign --verify --deep --strict "$app"
@@ -124,7 +123,7 @@ jobs:
                   prerelease: false
                   name: Goosic ${{ env.RELEASE_TAG }}
                   tag_name: ${{ env.RELEASE_TAG }}
-                  body_path: docs/RELEASE_0.2.5.md
+                  body_path: docs/RELEASE_0.2.6.md
                   fail_on_unmatched_files: true
                   files: |
                       downloads/macos/*.zip
