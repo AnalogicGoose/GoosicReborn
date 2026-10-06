@@ -70,6 +70,13 @@ const GoosicPersonalCatalog = (() => {
     const context = cfg("INNERTUBE_CONTEXT");
     const key = cfg("INNERTUBE_API_KEY");
     if (!context || !key) throw new Error("YouTube Music session context is unavailable");
+    // A profile whose Google session has ended still loads YouTube Music, and InnerTube then
+    // answers every personal read as a guest: an empty library, an empty Liked Music, the
+    // anonymous Home. That must not pass for the account's own answer, so it is refused here
+    // with a marker the shell recognises and turns into "sign in again".
+    if (cfg("LOGGED_IN") === false || !(readCookie("__Secure-3PAPISID") || readCookie("SAPISID"))) {
+      throw new Error("GOOSIC_SIGNED_OUT: the YouTube Music session in this profile has ended");
+    }
     const headers = {
       "Content-Type": "application/json",
       "X-Origin": ORIGIN,

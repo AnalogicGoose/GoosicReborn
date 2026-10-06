@@ -820,15 +820,15 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         return true;
     }
 
-    /// <summary>Whether volume or mute may change now; they stay as they are during advertisements.</summary>
+    /// <summary>Volume and mute remain available during advertisements.</summary>
     internal bool CanAdjustSound()
     {
-        if (!IsAdvertisement)
+        if (!IsAccountBusy)
         {
             return true;
         }
 
-        ReportDetail("Volume and mute are unchanged during advertisements.");
+        ReportDetail("Volume and mute wait while the account changes.");
         return false;
     }
     public double Volume
@@ -1013,7 +1013,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (sample.State == "playing" && !_endHandled)
             {
                 _endArmed = true;
-                _listenerPaused = false;
+                // A sample queued before Pause cannot clear the listener's intent.
+                // NoteListenerToggle and Point handle explicit resume and new tracks.
             }
 
             if (changed)
