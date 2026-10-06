@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 // swift-corelibs-foundation splits URLSession out of Foundation; on Darwin this module does not
 // exist and the type is already in scope.
 #if canImport(FoundationNetworking)
@@ -7,14 +8,14 @@ import FoundationNetworking
 
 /// Downloads and caches catalog artwork.
 ///
-/// SwiftCrossUI's `Image` reads its source synchronously while computing layout, so a remote URL
-/// handed to it directly would block the UI on every card. Artwork is therefore fetched here,
-/// off the main thread, and `Image` is only ever given a local file.
+/// Network requests and cache writes run off the main thread. Native views decode the
+/// resulting local files in background tasks rather than during layout.
 ///
 /// The session is ephemeral and carries no cookies: artwork is public CDN content, and a
 /// thumbnail request must never become an authenticated one.
 @MainActor
-final class ArtworkCache {
+final class ArtworkCache: ObservableObject {
+    @Published private(set) var revision: UInt64 = 0
     /// Hosts YouTube Music serves artwork from. Anything else is refused rather than fetched,
     /// so a catalog response cannot point the shell at an arbitrary server.
     nonisolated private static let allowedHostSuffixes = [
@@ -124,6 +125,13 @@ final class ArtworkCache {
         return nil
     }
 
+    /// A row that just appeared should not wait behind covers queued by the previous page.
+    func prioritize(_ remote: String?) {
+        guard let remote, let index = pending.firstIndex(of: remote), index > 0 else { return }
+        pending.remove(at: index)
+        pending.insert(remote, at: 0)
+    }
+
     private func schedule(_ remote: String, destination: URL) {
         guard !inFlight.contains(remote), !pending.contains(remote) else { return }
         guard let url = URL(string: remote), Self.isAllowed(url) else {
@@ -141,10 +149,15 @@ final class ArtworkCache {
     }
 
     private func fetch(remote: String, url: URL, destination: URL) async {
+        let started = Date()
         defer { finish(remote) }
         do {
             let (data, response) = try await session.data(from: url)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                Diagnostics.note(.artwork, "fetch-refused", [
+                    "origin": Diagnostics.origin(of: url),
+                    "status": String((response as? HTTPURLResponse)?.statusCode ?? 0),
+                ])
                 failed.insert(remote)
                 return
             }
@@ -168,12 +181,21 @@ final class ArtworkCache {
             if stored {
                 filesOnDisk.insert(destination.lastPathComponent)
                 ready[remote] = destination
+                Diagnostics.note(.artwork, "fetched", [
+                    "origin": Diagnostics.origin(of: url), "bytes": String(data.count),
+                    "elapsed": Diagnostics.milliseconds(since: started), "queued": String(pending.count),
+                ])
                 scheduleArtworkNotification()
             } else {
                 failed.insert(remote)
             }
         } catch {
             // Artwork is decoration. A failure leaves the placeholder in place.
+            let failure = error as NSError
+            Diagnostics.note(.artwork, "fetch-failed", [
+                "origin": Diagnostics.origin(of: url), "domain": failure.domain,
+                "code": String(failure.code), "elapsed": Diagnostics.milliseconds(since: started),
+            ])
             failed.insert(remote)
         }
     }
@@ -185,6 +207,7 @@ final class ArtworkCache {
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard let self else { return }
             artworkNotificationPending = false
+            revision &+= 1
             onArtworkLoaded?()
         }
     }

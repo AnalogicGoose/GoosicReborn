@@ -87,6 +87,7 @@ pub fn parse_lrc(source: &str) -> Vec<LyricsLine> {
                 break;
             }
             lines.push(LyricsLine {
+                words: Vec::new(),
                 at_ms,
                 text: text.to_owned(),
             });
@@ -105,6 +106,7 @@ pub fn parse_plain(source: &str) -> Vec<LyricsLine> {
         .filter(|line| line.chars().count() <= MAX_LINE_CHARS)
         .take(MAX_LINES)
         .map(|line| LyricsLine {
+            words: Vec::new(),
             at_ms: -1,
             text: line.to_owned(),
         })

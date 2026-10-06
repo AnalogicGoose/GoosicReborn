@@ -31,7 +31,7 @@ enum CatalogFreshness {
         switch key {
         case .library: return 60
         case .route(.home): return 5 * 60
-        case .route: return 15 * 60
+        case .route, .category: return 15 * 60
         case .search: return 10 * 60
         case .album, .playlist: return 60 * 60
         case .artist: return 30 * 60

@@ -1,10 +1,8 @@
 #if os(macOS)
 import Foundation
-import SwiftCrossUI
+import SwiftUI
 
 import AppKit
-// `NSViewRepresentable` and its `Context` are SwiftCrossUI's AppKit backend types, not AppKit's.
-import AppKitBackend
 
 final class MaterialSurfaceHostView: NSView {
     private(set) var selectedBackend: MaterialSurfaceBackend = .staticFallback
@@ -81,8 +79,8 @@ final class MaterialSurfaceHostView: NSView {
     }
 }
 
-/// AppKit leaf used as a background only; it deliberately does not wrap the SwiftCrossUI content.
-struct MaterialSurfaceAppKitBackend: NSViewRepresentable {
+/// AppKit leaf used as a background only; it deliberately does not wrap the SwiftUI content.
+struct NativeMaterialSurface: NSViewRepresentable {
     let kind: MaterialSurfaceKind
 
     func makeNSView(context: Context) -> MaterialSurfaceHostView {
@@ -100,7 +98,7 @@ struct MaterialSurface: View {
     let kind: MaterialSurfaceKind
 
     var body: some View {
-        MaterialSurfaceAppKitBackend(kind: kind)
+        NativeMaterialSurface(kind: kind)
     }
 }
 #endif

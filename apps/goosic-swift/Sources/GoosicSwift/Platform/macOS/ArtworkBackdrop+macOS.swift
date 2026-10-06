@@ -1,6 +1,7 @@
 #if os(macOS)
 import CoreImage
 import Foundation
+import ImageIO
 
 /// Turns a cached artwork file into the blurred backdrop the native macOS shell draws behind
 /// its content.
@@ -13,13 +14,27 @@ enum ArtworkBackdropRenderer {
     /// readable in both light and dark appearances, little enough that the colour still shows.
     static let tintOpacity: Double = 0.55
 
-    private static let context = CIContext(options: [.cacheIntermediates: false])
     /// Only the playing track is ever drawn, so remembering the last one is the whole cache.
     private static var last: (file: URL, image: CGImage)?
 
-    static func backdrop(for file: URL) -> CGImage? {
+    static func backdrop(for file: URL) async -> CGImage? {
         if let last, last.file == file { return last.image }
-        guard let source = CIImage(contentsOf: file) else { return nil }
+        let image = await Task.detached(priority: .utility) {
+            render(file: file)
+        }.value
+        if let image, !Task.isCancelled { last = (file, image) }
+        return image
+    }
+
+    private nonisolated static func render(file: URL) -> CGImage? {
+        guard let fileSource = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(fileSource, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 512,
+                  kCGImageSourceShouldCacheImmediately: true,
+              ] as CFDictionary) else { return nil }
+        let source = CIImage(cgImage: thumbnail)
         let extent = source.extent
         guard extent.width > 0, extent.height > 0 else { return nil }
         // Thumbnails arrive at anything from 60 to over 500 pixels, so the radius follows the
@@ -29,9 +44,8 @@ enum ArtworkBackdropRenderer {
         let blurred = source.clampedToExtent()
             .applyingGaussianBlur(sigma: sigma)
             .cropped(to: extent)
-        guard let image = context.createCGImage(blurred, from: extent) else { return nil }
-        last = (file, image)
-        return image
+        let context = CIContext(options: [.cacheIntermediates: false])
+        return context.createCGImage(blurred, from: extent)
     }
 }
 #endif

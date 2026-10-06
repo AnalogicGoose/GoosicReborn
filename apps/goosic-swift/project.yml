@@ -6,10 +6,9 @@ options:
   createIntermediateGroups: true
 
 packages:
-  SwiftCrossUI:
-    url: https://github.com/moreSwift/swift-cross-ui.git
-    exactVersion: 0.9.0
-
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle.git
+    exactVersion: 2.10.0
 targets:
   GoosicPreview:
     type: application
@@ -18,15 +17,12 @@ targets:
       - path: Sources/GoosicSwift
         excludes:
           - Resources
-          - Core/GoosicApp.swift
-          - Platform/macOS/AppKitRepresentableBridge.swift
-          - Platform/macOS/MaterialSurface+macOS.swift
       - path: PreviewSupport
     resources:
       - path: Sources/GoosicSwift/Resources
     dependencies:
-      - package: SwiftCrossUI
-        product: SwiftCrossUI
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.goosic.preview
