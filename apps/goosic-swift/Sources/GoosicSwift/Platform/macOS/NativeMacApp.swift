@@ -673,7 +673,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
-    private var canAdjustVolume: Bool { !busy && !model.isAdvertisement }
+    private var canAdjustVolume: Bool { !busy }
     /// Music's player grows into a transport surface once there is something to control. The
     /// idle state remains a compact capsule, while a playing (or hovered) bar makes room for a
     /// readable scrubber and elapsed/remaining time.
@@ -811,8 +811,9 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             }
             SwiftUI.HStack(spacing: 6) {
                 if volumeExpanded {
-                    SwiftUI.Slider(value: Binding(get: { model.isMuted ? 0 : model.volume }, set: { model.setVolume($0) }), in: 0...1)
-                        .controlSize(.small)
+                    NativeMacVolumeSlider(value: model.isMuted ? 0 : model.volume, isEnabled: canAdjustVolume) {
+                        model.setVolume($0)
+                    }
                         .frame(width: 84)
                         .accessibilityLabel("Volume")
                         .disabled(!canAdjustVolume)
@@ -858,10 +859,16 @@ private struct NativeMacPlayerBar: SwiftUI.View {
         SwiftUI.Button(action: action) {
             NativeMacFixedSymbol(name: name, glyphSize: size, width: 30, height: 30)
                 .foregroundStyle(active ? SwiftUI.Color.goosicPink : subtle ? SwiftUI.Color.secondary : SwiftUI.Color.primary)
+                .background(active ? SwiftUI.Color.goosicPink.opacity(0.14) : .clear,
+                            in: RoundedRectangle(cornerRadius: 7))
+                .overlay(alignment: .bottom) {
+                    if active { Circle().fill(SwiftUI.Color.goosicPink).frame(width: 3, height: 3) }
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+        .accessibilityAddTraits(active ? .isSelected : [])
         .help(title)
     }
 }
