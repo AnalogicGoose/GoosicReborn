@@ -1,7 +1,8 @@
 //! Lyrics lookup.
 //!
 //! Lyrics come from [LRCLIB](https://lrclib.net), an open database that needs no account and no
-//! key. The previous Goosic also carried Genius and Musixmatch sources; neither is migrated
+//! key. Its Lyricsfile 1.0 field supplies real word timing when contributors have added it;
+//! legacy LRC/plain lyrics remain the fallback. The previous Goosic also carried Genius and Musixmatch sources; neither is migrated
 //! here, because Genius requires scraping rendered HTML and Musixmatch requires a user token —
 //! and a token is a credential, which this migration does not carry over.
 //!
@@ -9,6 +10,7 @@
 //! ownership.
 
 pub mod parse;
+mod lyricsfile;
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -71,6 +73,8 @@ impl LyricsError {
 #[serde(rename_all = "camelCase")]
 struct LrclibRecord {
     #[serde(default)]
+    lyricsfile: Option<String>,
+    #[serde(default)]
     plain_lyrics: Option<String>,
     #[serde(default)]
     synced_lyrics: Option<String>,
@@ -106,17 +110,21 @@ fn falls_back_to_search(error: &LyricsError) -> bool {
     }
 }
 
-/// The best of a search's results: synced lyrics first, then plain ones, then an instrumental.
+/// Prefer usable real word timing, then line timing, plain lyrics and instrumentals.
 ///
 /// Search used to accept only synced results, so a song LRCLIB held as plain text was reported
 /// as having no lyrics at all.
 fn best_search_result(records: Vec<LrclibRecord>) -> Option<LrclibRecord> {
-    let has = |text: &Option<String>| text.as_deref().is_some_and(|text| !text.trim().is_empty());
-    let synced = records.iter().position(|record| has(&record.synced_lyrics));
-    let plain = records.iter().position(|record| has(&record.plain_lyrics));
-    let instrumental = records.iter().position(|record| record.instrumental);
-    let index = synced.or(plain).or(instrumental)?;
-    records.into_iter().nth(index)
+    records.into_iter().filter_map(|record| {
+        let document = LyricsClient::document_ref(&record)?;
+        let rank = if document.lines.iter().any(|line| !line.words.is_empty()) { 3 }
+            else if document.synced { 2 }
+            else if !record.instrumental && document.lines.first().is_some_and(|line| line.text != "♪ Instrumental") { 1 }
+            else { 0 };
+        Some((rank, record))
+    }).fold(None, |best: Option<(u8, LrclibRecord)>, candidate| {
+        if best.as_ref().is_none_or(|(rank, _)| candidate.0 > *rank) { Some(candidate) } else { best }
+    }).map(|(_, record)| record)
 }
 
 /// Live lyrics lookups. Held by the service for its process lifetime.
@@ -260,11 +268,19 @@ impl LyricsClient {
 
     /// Turns a record into the document the shell renders, preferring synced lyrics.
     fn document(record: LrclibRecord) -> Option<LyricsDocument> {
+        Self::document_ref(&record)
+    }
+
+    fn document_ref(record: &LrclibRecord) -> Option<LyricsDocument> {
+        if let Some(source) = record.lyricsfile.as_deref() {
+            if let Some(document) = lyricsfile::parse(source) { return Some(document); }
+        }
         if record.instrumental {
             return Some(LyricsDocument {
                 source: "LRCLIB".into(),
                 synced: false,
                 lines: vec![goosic_protocol::LyricsLine {
+                    words: Vec::new(),
                     at_ms: -1,
                     text: "♪ Instrumental".into(),
                 }],
@@ -289,10 +305,15 @@ impl LyricsClient {
     }
 
     fn clamp(mut lines: Vec<goosic_protocol::LyricsLine>, synced: bool) -> LyricsDocument {
-        let truncated = lines.len() > MAX_LINES_ON_THE_WIRE;
-        if truncated {
-            lines.truncate(MAX_LINES_ON_THE_WIRE);
-        }
+        let original = lines.len();
+        // Reserve space for the response envelope below every native client's 256 KiB limit.
+        let mut bytes = 128;
+        let retained = lines.iter().take(MAX_LINES_ON_THE_WIRE).take_while(|line| {
+            bytes += serde_json::to_vec(line).map_or(usize::MAX / 2, |encoded| encoded.len() + 1);
+            bytes <= 200 * 1024
+        }).count();
+        let truncated = retained < original;
+        lines.truncate(retained);
         LyricsDocument {
             source: "LRCLIB".into(),
             synced,
@@ -337,6 +358,7 @@ mod tests {
     #[test]
     fn synced_lyrics_are_preferred_over_plain_ones() {
         let document = LyricsClient::document(LrclibRecord {
+            lyricsfile: None,
             plain_lyrics: Some("Untimed words".into()),
             synced_lyrics: Some("[00:01.00]Timed words".into()),
             instrumental: false,
@@ -350,6 +372,7 @@ mod tests {
     #[test]
     fn plain_lyrics_are_used_when_there_are_no_synced_ones() {
         let document = LyricsClient::document(LrclibRecord {
+            lyricsfile: None,
             plain_lyrics: Some("First\nSecond".into()),
             synced_lyrics: None,
             instrumental: false,
@@ -362,6 +385,7 @@ mod tests {
     #[test]
     fn synced_lyrics_that_parse_to_nothing_fall_back_to_plain() {
         let document = LyricsClient::document(LrclibRecord {
+            lyricsfile: None,
             plain_lyrics: Some("Real words".into()),
             synced_lyrics: Some("[ar:only metadata]".into()),
             instrumental: false,
@@ -374,6 +398,7 @@ mod tests {
     #[test]
     fn an_instrumental_says_so_rather_than_showing_nothing() {
         let document = LyricsClient::document(LrclibRecord {
+            lyricsfile: None,
             plain_lyrics: None,
             synced_lyrics: None,
             instrumental: true,
@@ -386,6 +411,7 @@ mod tests {
     #[test]
     fn a_record_with_no_lyrics_at_all_produces_nothing() {
         assert!(LyricsClient::document(LrclibRecord {
+            lyricsfile: None,
             plain_lyrics: Some("   ".into()),
             synced_lyrics: Some("".into()),
             instrumental: false,
@@ -399,6 +425,7 @@ mod tests {
             .map(|index| format!("[{:02}:{:02}.00]line {index}\n", index / 60, index % 60))
             .collect();
         let document = LyricsClient::document(LrclibRecord {
+            lyricsfile: None,
             plain_lyrics: None,
             synced_lyrics: Some(synced),
             instrumental: false,
@@ -406,6 +433,39 @@ mod tests {
         .expect("a document");
         assert_eq!(document.lines.len(), MAX_LINES_ON_THE_WIRE);
         assert!(document.truncated);
+    }
+
+    #[test]
+    fn lyricsfile_precedes_legacy_fields_and_search_prefers_real_words() {
+        let rich = || LrclibRecord { lyricsfile: Some(lyricsfile::tests::WORDS.into()),
+            synced_lyrics: Some("[00:01.00]Legacy".into()), plain_lyrics: None, instrumental: false };
+        let document = LyricsClient::document(rich()).unwrap();
+        assert_eq!(document.lines[0].text, "Hello world");
+        assert!(!document.lines[0].words.is_empty());
+        let chosen = best_search_result(vec![record(Some("[00:01.00]Legacy"), None, false), rich()]).unwrap();
+        assert!(chosen.lyricsfile.is_some());
+    }
+
+    #[test]
+    fn broken_lyricsfile_uses_legacy_fallback_without_poisoning_search() {
+        let mut broken = record(Some("[00:01.00]Legacy"), Some("Plain"), false);
+        broken.lyricsfile = Some("version: '2.0'".into());
+        assert_eq!(LyricsClient::document_ref(&broken).unwrap().lines[0].text, "Legacy");
+        let mut empty = record(None, None, false);
+        empty.lyricsfile = Some("invalid: yaml".into());
+        assert!(best_search_result(vec![empty, broken]).is_some());
+    }
+
+    #[test]
+    fn word_rich_documents_fit_the_native_frame_limit_and_report_truncation() {
+        let mut line = lyricsfile::parse(lyricsfile::tests::WORDS).unwrap().lines.remove(0);
+        line.text = "x".repeat(512);
+        line.words = (0..128).map(|index| goosic_protocol::LyricsWord {
+            at_ms: index * 1000, end_ms: Some(index * 1000 + 900), text: "xxxx".into()
+        }).collect();
+        let document = LyricsClient::clamp(vec![line; 900], true);
+        assert!(document.truncated);
+        assert!(serde_json::to_vec(&document).unwrap().len() < 201 * 1024);
     }
 
     #[test]
@@ -437,6 +497,7 @@ mod tests {
 
     fn record(synced: Option<&str>, plain: Option<&str>, instrumental: bool) -> LrclibRecord {
         LrclibRecord {
+            lyricsfile: None,
             synced_lyrics: synced.map(str::to_owned),
             plain_lyrics: plain.map(str::to_owned),
             instrumental,

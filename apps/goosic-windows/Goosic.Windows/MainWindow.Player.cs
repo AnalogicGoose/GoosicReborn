@@ -30,18 +30,20 @@ public sealed partial class MainWindow : Window
 
         PillElapsed.Visibility = Visibility.Visible;
         PillRemaining.Visibility = Visibility.Visible;
+        AnimatePlayerHover(true);
     }
 
     private void OnPillPointerExited(object sender, PointerRoutedEventArgs e)
     {
         PillElapsed.Visibility = Visibility.Collapsed;
         PillRemaining.Visibility = Visibility.Collapsed;
+        AnimatePlayerHover(false);
     }
 
     /// <summary>Pointing at the cover shows that clicking it opens the full-screen player.</summary>
-    private void OnCoverPointerEntered(object sender, PointerRoutedEventArgs e) => PillCoverHover.Opacity = 1;
+    private void OnCoverPointerEntered(object sender, PointerRoutedEventArgs e) => FadePlayerElement(PillCoverHover, 1);
 
-    private void OnCoverPointerExited(object sender, PointerRoutedEventArgs e) => PillCoverHover.Opacity = 0;
+    private void OnCoverPointerExited(object sender, PointerRoutedEventArgs e) => FadePlayerElement(PillCoverHover, 0);
 
     /// <summary>The pill's "more" menu: what the row menu offers, for the track that is playing.</summary>
     private void OnNowPlayingMore(object sender, RoutedEventArgs e)
@@ -203,15 +205,24 @@ public sealed partial class MainWindow : Window
 
     private async void OnShufflePage(object sender, RoutedEventArgs e) => await PlayEntryAsync(Model.PlayPage(shuffle: true));
 
-    private void OnShuffle(object sender, RoutedEventArgs e) => Model.ToggleShuffle();
+    private void OnShuffle(object sender, RoutedEventArgs e)
+    {
+        Model.ToggleShuffle();
+        if (sender is UIElement control) PulsePlayerControl(control);
+    }
 
-    private void OnRepeat(object sender, RoutedEventArgs e) => Model.CycleRepeat();
+    private void OnRepeat(object sender, RoutedEventArgs e)
+    {
+        Model.CycleRepeat();
+        if (sender is UIElement control) PulsePlayerControl(control);
+    }
 
     private async void OnPrevious(object sender, RoutedEventArgs e) => await PreviousAsync();
 
     /// <summary>Restarts the track after its first few seconds, as every player does; otherwise goes back.</summary>
     private async Task PreviousAsync()
     {
+        if (!Model.HasPlayback || Model.NowPlayingEntry is null || !Model.CanChangeTrack()) return;
         if (_playback is not null && Model.IsSeekable && Model.PlaybackPosition > 3)
         {
             await SeekToAsync(0);
@@ -224,6 +235,22 @@ public sealed partial class MainWindow : Window
     private async void OnNext(object sender, RoutedEventArgs e) => await AdvanceAsync(forward: true, natural: false);
 
     private async Task AdvanceAsync(bool forward, bool natural)
+    {
+        if (_advancingQueue) return;
+        _advancingQueue = true;
+        try
+        {
+            await AdvanceCoreAsync(forward, natural);
+        }
+        finally
+        {
+            _advancingQueue = false;
+        }
+    }
+
+    private bool _advancingQueue;
+
+    private async Task AdvanceCoreAsync(bool forward, bool natural)
     {
         // The sleep timer's "end of this song": the song has ended, so nothing follows it.
         if (natural && TakeSleepAtEndOfSong())
@@ -275,6 +302,9 @@ public sealed partial class MainWindow : Window
     /// <summary>Keeps the position line in step with what the page confirmed.</summary>
     private void WireSeekGestures()
     {
+        // Slider's own pointer handling must not consume the wheel before the volume action.
+        VolumeSlider.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(OnVolumeWheel), true);
+        FullPlayerVolume.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(OnVolumeWheel), true);
         Model.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(ShellViewModel.PlaybackPosition) or nameof(ShellViewModel.PlaybackDuration))
@@ -369,6 +399,17 @@ public sealed partial class MainWindow : Window
         var gain = Presentation.VolumeTaper.ToGain(e.NewValue / 100.0);
         await _playback.SetVolumeAsync(gain);
         Model.RememberVolume(gain, _playback.PreferredMuted);
+    }
+
+    /// <summary>A wheel over a volume control changes its slider, consuming the gesture once.</summary>
+    private void OnVolumeWheel(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.Handled) return;
+        if (sender is not Slider slider || !Model.CanAdjustSound()) return;
+        var point = e.GetCurrentPoint(slider).Properties;
+        if (point.IsHorizontalMouseWheel || point.MouseWheelDelta == 0) return;
+        slider.Value = Math.Clamp(slider.Value + point.MouseWheelDelta / 120.0 * 5, slider.Minimum, slider.Maximum);
+        e.Handled = true;
     }
 
     private void OnDismissToast(object sender, RoutedEventArgs e) => Model.DismissToast();

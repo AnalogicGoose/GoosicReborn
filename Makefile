@@ -12,18 +12,10 @@ test-rust-live:
 
 UNAME_S := $(shell uname -s)
 
-ifeq ($(UNAME_S),Darwin)
-# The repository lives under a file-provider-synced directory, which stamps
-# `com.apple.FinderInfo` onto build products and makes codesign refuse to sign the test bundle.
-# Building outside that directory avoids the problem entirely.
+# The Swift package now contains only the native macOS app.
 SWIFT_SCRATCH := $(HOME)/Library/Caches/goosic-swift-build
-SWIFT_ENV := SCUI_DEFAULT_BACKEND=AppKitBackend
-else
-SWIFT_SCRATCH := $(HOME)/.cache/goosic-swift-build
-# Explicit, not inherited: leaving this unset drags swift-winui's C targets into the build
-# graph, and they need Windows headers.
-SWIFT_ENV := SCUI_DEFAULT_BACKEND=GtkBackend
-endif
+GOOSIC_MACOS_SDK := $(shell xcrun --sdk macosx --show-sdk-version 2>/dev/null)
+SWIFT_ENV := GOOSIC_MACOS_SDK=$(GOOSIC_MACOS_SDK)
 
 SWIFT_FLAGS := --package-path apps/goosic-swift --scratch-path $(SWIFT_SCRATCH)
 
@@ -58,7 +50,11 @@ package-macos:
 	@test "$(UNAME_S)" = Darwin || (echo "macOS app bundles are built on macOS" >&2; exit 2)
 	sh tools/package-macos.sh $(VERSION)
 
+ifeq ($(UNAME_S),Darwin)
 test: test-rust test-swift
+else
+test: test-rust
+endif
 
 run-service:
 	@test -n "$(GOOSIC_SERVICE_PATH)" || (echo "set GOOSIC_SERVICE_PATH to the service executable" >&2; exit 2)

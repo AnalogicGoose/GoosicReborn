@@ -442,6 +442,7 @@ Linux also imports and plays finalized legacy downloads. This comparison is agai
 | Exact owned-playlist item edits | `platform/linux` | Rename, privacy and delete are present; removing or moving one entry needs its per-entry `setVideoId`, which the current catalog projection drops |
 | The playing track's artwork drawn, blurred, behind the content | `platform/linux` | The `artwork_background` preference is stored and ignored |
 | Full-window player, with cover, transport and lyrics | `platform/linux` | The Windows shell has one; GTK currently has only the compact player and side lyrics panel |
+| Word-timed lyrics, listening effects and session-only timing import | `platform/linux`, after development is synchronized | The shared service accepts LRCLIB Lyricsfile; GTK rendering/import remain pending. See [the lyrics handoff](LYRICS_TIMING.md) |
 | Adaptive sidebar and narrow-window layout | `platform/linux` | The GTK sidebar remains fixed-width; the first layout work sets a minimum window width |
 | Window and playlist context menus | `platform/linux` | Track actions and a checked owned-playlist manager are present; the native window menu is still pending |
 | Reordering the queue, saved queues, and keyboard shortcuts beyond Ctrl+Q and Ctrl+W | `platform/linux` | Not built; media keys work through MPRIS |

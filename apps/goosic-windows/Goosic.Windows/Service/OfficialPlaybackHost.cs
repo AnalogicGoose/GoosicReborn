@@ -655,7 +655,7 @@ internal sealed class OfficialPlaybackHost
     /// <c>OfficialVolumeBootstrap</c>: installed before the document runs, it holds every media
     /// element's volume and mute setters and its <c>play</c> to the listener's level, so whatever
     /// the page sets, the first sound is already at that level. The host changes the level through
-    /// <c>window.goosicSetVolumePreference</c>. An advertisement's volume is left to the page.
+    /// <c>window.goosicSetVolumePreference</c>. The preference applies to advertisements too.
     /// </remarks>
     private async Task PrimeVolumeAsync(CoreWebView2 core)
     {
@@ -689,13 +689,11 @@ internal sealed class OfficialPlaybackHost
                   const volume = Object.getOwnPropertyDescriptor(proto, 'volume');
                   const muted = Object.getOwnPropertyDescriptor(proto, 'muted');
                   const originalPlay = proto.play;
-                  const advertisement = () => !!document.querySelector('.ad-showing, .ad-interrupting');
                   // Changes only what differs, and never mutes on the way. Muting, setting the
                   // level and unmuting cut a playing song to silence and back on every step of
                   // the slider, which was heard as crackling while the volume moved. Muting
                   // goes first and unmuting last, so the old level is never heard at the new state.
                   function apply(media) {
-                    if (advertisement()) return;
                     const isMuted = muted.get.call(media);
                     if (intendedMute && !isMuted) muted.set.call(media, true);
                     if (volume.get.call(media) !== preferred) volume.set.call(media, preferred);
@@ -704,14 +702,12 @@ internal sealed class OfficialPlaybackHost
                   Object.defineProperty(proto, 'volume', {
                     ...volume,
                     set(value) {
-                      if (advertisement()) { volume.set.call(this, value); return; }
                       apply(this);
                     }
                   });
                   Object.defineProperty(proto, 'muted', {
                     ...muted,
                     set(value) {
-                      if (advertisement()) { muted.set.call(this, value); return; }
                       apply(this);
                     }
                   });
@@ -720,7 +716,7 @@ internal sealed class OfficialPlaybackHost
                   window.goosicSetVolumePreference = (value, mute) => {
                     if (Number.isFinite(value)) preferred = Math.min(1, Math.max(0, value));
                     if (typeof mute === 'boolean') intendedMute = mute;
-                    if (!advertisement()) applyAll();
+                    applyAll();
                   };
                   for (const name of ['loadstart', 'loadedmetadata', 'play', 'volumechange']) {
                     document.addEventListener(name, (event) => {
@@ -984,10 +980,8 @@ internal sealed class OfficialPlaybackHost
     /// <summary>Restores the chosen volume when a report shows the page has moved away from it.</summary>
     private void KeepPreferredVolume(BridgeEvent sample)
     {
-        // An advertisement's volume is left to the page, as on macOS: the listener's level is put
-        // back once the track itself is playing.
-        if (sample.IsAdvertisement
-            || _preferredVolume is not { } volume
+        // Loudness follows the listener's choice for both advertisements and content.
+        if (_preferredVolume is not { } volume
             || (Math.Abs(sample.Volume - volume) < 0.02 && sample.Muted == _preferredMuted)
             || DateTime.UtcNow - _lastVolumeFix < TimeSpan.FromMilliseconds(900))
         {

@@ -1,4 +1,4 @@
-#if os(macOS) && !GOOSIC_PORTABLE
+#if os(macOS)
 /*
  * NativeMacFullPlayer.swift — the immersive full-screen player for the native macOS shell.
  *
@@ -55,7 +55,7 @@ enum NowPlayingPaletteLoader {
 /// field is oversized by 30% on every side so the drift never reveals an edge.
 struct NowPlayingMeshBackground: View {
     let palette: [MeshSample]
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.goosicReduceMotion) private var reduceMotion
 
     var body: some View {
         let cells = NowPlayingMesh.cells(for: palette)
@@ -130,14 +130,12 @@ private struct NativeMacFullPlayerCover: View {
     let thumbnail: String?
 
     var body: some View {
-        let original = thumbnail.flatMap(URL.init(string:))
-        let larger = thumbnail.flatMap { NowPlayingMesh.highResolutionVariant(of: $0) }.flatMap(URL.init(string:))
-        AsyncImage(url: larger) { phase in
-            if case .success(let image) = phase {
-                image.resizable().scaledToFill()
+        NativeMacCachedImage(url: NowPlayingMesh.highResolutionVariant(of: thumbnail ?? ""), maxPixels: 1200) { larger in
+            if let larger {
+                larger.resizable().scaledToFill()
             } else {
-                AsyncImage(url: original) { fallback in
-                    if case .success(let image) = fallback {
+                NativeMacCachedImage(url: thumbnail, maxPixels: 1200) { image in
+                    if let image {
                         image.resizable().scaledToFill()
                     } else {
                         Color.white.opacity(0.08)
@@ -157,48 +155,110 @@ private struct NativeMacFullPlayerCover: View {
 /// closing this never interrupts playback.
 struct NativeMacFullPlayer: View {
     @ObservedObject var store: NativeMacModelStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The mini player: the same layout in a small always-on-top window. Lyrics and the
+    /// fill-the-screen controls step aside while it is small and come back as they were.
+    var compact = false
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.goosicReduceMotion) private var reduceMotion
     @SwiftUI.State private var palette: [MeshSample]?
-    @SwiftUI.State private var lyricsShown = true
+    /// What the right-hand column shows: lyrics, the queue, or nothing, switched by the glass
+    /// capsule at the bottom right as in Music.
+    @SwiftUI.State private var rightPane: RightPane = .lyrics
+    @SwiftUI.State private var lyricsMessage: String?
+
+    enum RightPane { case lyrics, queue, none }
     @SwiftUI.State private var scrubPosition: Double = 0
     @SwiftUI.State private var isScrubbing = false
+    @FocusState private var progressFocused: Bool
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
     private var paletteFile: URL? { model.artworkFile(for: model.currentTrack?.thumbnail) }
+    private var lyricsUnavailable: Bool {
+        model.lyrics == nil && (model.lyricsStatus == "No lyrics were found for this track."
+            || model.lyricsStatus.hasPrefix("Could not load lyrics:"))
+    }
+    private var visibleRightPane: RightPane {
+        lyricsUnavailable && rightPane == .lyrics ? .none : rightPane
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let gutter = min(max(proxy.size.width * 0.07, 32), 128)
-            let inset = min(max(proxy.size.width * 0.09, 40), 176)
-            let cover = min(proxy.size.height * 0.48, 576)
+            let inset = compact ? 22 : min(max(proxy.size.width * 0.09, 40), 176)
+            let cover = compact
+                ? max(min(proxy.size.width - 44, proxy.size.height - 280), 60)
+                : min(proxy.size.height * 0.48, 576)
             HStack(alignment: .center, spacing: gutter) {
-                playerColumn(cover: cover)
+                playerColumn(cover: cover, width: compact ? proxy.size.width - 44 : cover)
                     .frame(maxWidth: 608)
-                if lyricsShown {
+                if !compact && visibleRightPane == .lyrics {
                     lyricsColumn
                         .frame(maxWidth: 768, maxHeight: min(proxy.size.height * 0.7, 832))
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .transition(.opacity)
+                } else if !compact && visibleRightPane == .queue {
+                    NativeMacQueuePanel(store: store)
+                        .frame(maxWidth: 520, maxHeight: min(proxy.size.height * 0.75, 860))
+                        .transition(.opacity)
                 }
             }
             .padding(.horizontal, inset)
-            .padding(.top, 32)
-            .padding(.bottom, 80)
+            .padding(.top, compact ? 44 : 32)
+            .padding(.bottom, compact ? 16 : 80)
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .background(background)
         // Volume and Exit are window toolbar items (see `NativeMacRootView`), not overlays here:
         // this view runs under the transparent title bar, and a slider drawn in that strip loses
         // its drag to the title bar, which moves the window instead.
+        // Lyrics and Queue share one Liquid Glass capsule at the bottom right, as in Music; the
+        // one showing is drawn filled.
         .overlay(alignment: .bottomTrailing) {
-            Button { lyricsShown.toggle() } label: {
-                Image(systemName: lyricsShown ? "quote.bubble.fill" : "quote.bubble")
-                    .frame(width: 18, height: 18)
+            if !compact {
+                NativeMacGlassGroup {
+                    HStack(spacing: 2) {
+                        paneButton(.lyrics, "quote.bubble", "Lyrics")
+                        paneButton(.queue, "list.bullet", "Up Next")
+                    }
+                    .padding(4)
+                    .modifier(NativeMacGlassCapsule())
+                }
+                .padding(18)
             }
-            .modifier(NativeMacGlassButtons())
-            .help(lyricsShown ? "Hide lyrics" : "Show lyrics")
-            .padding(18)
+        }
+        .overlay(alignment: .topLeading) {
+            if compact {
+                Button("Back to Goosic", systemImage: "arrow.up.left.and.arrow.down.right") {
+                    openWindow(id: "main")
+                    model.setFullPlayerOpen(true)
+                    dismissWindow(id: NativeMacMiniPlayer.windowID)
+                }
+                .buttonStyle(.bordered)
+                .padding(.leading, 22)
+                .padding(.top, 32)
+            }
+        }
+        .overlay(alignment: .top) {
+            if let lyricsMessage, !compact {
+                Text(lyricsMessage)
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 72)
+                    .onAppear {
+                        NSAccessibility.post(
+                            element: NSApplication.shared,
+                            notification: .announcementRequested,
+                            userInfo: [
+                                .announcement: lyricsMessage,
+                                .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+                            ]
+                        )
+                    }
+            }
         }
         .ignoresSafeArea()
         .environment(\.colorScheme, .dark)
@@ -210,11 +270,50 @@ struct NativeMacFullPlayer: View {
             guard !Task.isCancelled else { return }
             palette = sampled
         }
-        .animation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1), value: lyricsShown)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: rightPane)
         .onChange(of: model.currentTrack?.id) { _, _ in isScrubbing = false }
+        .onChange(of: model.lyricsStatus) { _, _ in
+            if lyricsUnavailable && rightPane == .lyrics && !compact {
+                lyricsMessage = "Lyrics are not available for this song."
+            }
+        }
+        .onAppear {
+            if lyricsUnavailable && rightPane == .lyrics && !compact {
+                lyricsMessage = "Lyrics are not available for this song."
+            }
+        }
+        .task(id: lyricsMessage) {
+            guard lyricsMessage != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { lyricsMessage = nil }
+        }
     }
 
     private func close() { model.setFullPlayerOpen(false) }
+
+    private func paneButton(_ pane: RightPane, _ symbol: String, _ title: String) -> some View {
+        let active = visibleRightPane == pane
+        return Button {
+            if pane == .lyrics && lyricsUnavailable {
+                lyricsMessage = "Lyrics are not available for this song."
+                return
+            }
+            rightPane = active ? .none : pane
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                // The showing pane is a filled light circle with a dark glyph, as Music draws it.
+                .foregroundStyle(active ? Color.black.opacity(0.85) : Color.white)
+                .frame(width: 34, height: 34)
+                .background(active ? Color.white.opacity(0.9) : Color.clear, in: Circle())
+                .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: active)
+                .contentShape(Circle())
+        }
+        .buttonStyle(NativeMacPlayerButtonStyle())
+        .help(active ? "Hide \(title)" : title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(active ? .isSelected : [])
+    }
 
     // MARK: - Background
 
@@ -236,33 +335,111 @@ struct NativeMacFullPlayer: View {
 
     // MARK: - Player column
 
-    private func playerColumn(cover: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func playerColumn(cover: CGFloat, width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: compact ? 8 : 14) {
             // Clicking the cover goes back, as it did in the previous Goosic.
-            Button(action: close) {
+            if compact {
                 NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail)
                     .frame(width: cover, height: cover)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel("Artwork")
+            } else {
+                Button(action: close) {
+                    NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail)
+                        .frame(width: cover, height: cover)
+                        // Video art is 16:9. Crop at the square so it stays in the column.
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(NativeMacPlayerButtonStyle())
+                .frame(maxWidth: .infinity)
+                .help("Exit full-screen player")
+                .accessibilityLabel("Exit full-screen player")
             }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
-            .help("Exit full-screen player")
-            .accessibilityLabel("Exit full-screen player")
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(model.isAdvertisement ? "Advertisement" : (model.currentTrack?.title ?? "Nothing playing"))
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-                Text(busy ? "Preparing playback…" : model.nowPlayingSubtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.isAdvertisement ? "Advertisement" : (model.currentTrack?.title ?? "Nothing playing"))
+                        .font(compact ? .headline : .title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text(busy ? "Preparing playback…" : fullSubtitle)
+                        .font(compact ? .caption : .callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                // Like and More, each a small Liquid Glass circle beside the title, as in Music.
+                NativeMacGlassGroup {
+                    HStack(spacing: 8) {
+                        Button(action: model.toggleLikeCurrentTrack) {
+                            Image(systemName: model.isCurrentTrackLiked ? "heart.fill" : "heart")
+                                .modifier(NativeMacSymbolTransition(symbol: model.isCurrentTrackLiked ? "heart.fill" : "heart"))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(model.isCurrentTrackLiked ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.white))
+                                .frame(width: 30, height: 30)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(NativeMacPlayerButtonStyle())
+                        .modifier(NativeMacGlassCircle())
+                        .disabled(!model.canRateCurrentTrack || model.libraryOperationInProgress)
+                        .help(model.isCurrentTrackLiked ? "Remove from Liked Music" : "Like")
+                        .accessibilityLabel(model.isCurrentTrackLiked ? "Remove from Liked Music" : "Like")
+
+                        if let track = model.currentTrack {
+                            Menu {
+                                Button("Import Timed Lyrics…", systemImage: "text.badge.plus") {
+                                    NativeMacLyricsImport.open(model: model)
+                                }
+                                NativeMacTrackMenuItems(track: track, model: model, includePlay: false)
+                                if compact {
+                                    Divider()
+                                    Button(model.shuffle ? "Turn shuffle off" : "Turn shuffle on", action: model.toggleShuffle)
+                                    Button(model.repeatMode.label, action: model.cycleRepeatMode)
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(Color.white)
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Circle())
+                            }
+                            .menuStyle(.button)
+                            .buttonStyle(NativeMacPlayerButtonStyle())
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .modifier(NativeMacGlassCircle())
+                            .help("More")
+                            .accessibilityLabel("More playback actions")
+                        }
+                    }
+                }
             }
-            .padding(.top, 18)
+            .padding(.top, compact ? 0 : 18)
 
             progress
-            transport
+            if compact {
+                HStack(spacing: 18) {
+                    control("Previous track", "backward.fill", size: 20, action: model.previous)
+                        .disabled(!canControl || model.isAdvertisement)
+                    playPause
+                    control("Next track", "forward.fill", size: 20, action: model.next)
+                        .disabled(!canControl || model.isAdvertisement)
+                }
+                .frame(maxWidth: .infinity)
+                NativeMacFullPlayerVolume(store: store)
+                    .frame(maxWidth: .infinity)
+            } else {
+                transport
+            }
         }
-        .frame(width: cover)
+        .frame(width: width)
+    }
+
+    /// "Artist — Album", as Music writes it under the title.
+    private var fullSubtitle: String {
+        guard let track = model.currentTrack else { return model.nowPlayingSubtitle }
+        let parts = [track.artist, track.album].filter { !$0.isEmpty }
+        return parts.isEmpty ? model.nowPlayingSubtitle : parts.joined(separator: " — ")
     }
 
     private var progress: some View {
@@ -289,6 +466,7 @@ struct NativeMacFullPlayer: View {
                             guard isScrubbing else { return }
                             model.seek(to: scrubPosition)
                             isScrubbing = false
+                            progressFocused = false
                         }
                 )
             }
@@ -306,31 +484,37 @@ struct NativeMacFullPlayer: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Playback position")
         .accessibilityValue("\(model.elapsedText) of \(model.durationText)")
+        .accessibilityAdjustableAction { direction in
+            guard model.isSeekable, !busy else { return }
+            let step = direction == .increment ? 10.0 : -10.0
+            model.seek(to: min(max(position + step, 0), total))
+        }
+        .focusable(model.isSeekable && !busy)
+        .focused($progressFocused)
+        .focusEffectDisabled()
+        .overlay {
+            if progressFocused {
+                RoundedRectangle(cornerRadius: 4).stroke(.white.opacity(0.45), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onExitCommand { progressFocused = false }
+        .onChange(of: model.currentTrack?.id) { _, _ in progressFocused = false }
+        .onMoveCommand { direction in
+            guard model.isSeekable, !busy else { return }
+            if direction == .left { model.seek(to: max(position - 10, 0)) }
+            if direction == .right { model.seek(to: min(position + 10, total)) }
+        }
     }
 
     private var transport: some View {
         HStack {
-            control("Shuffle", "shuffle", size: 17, active: model.shuffle, action: model.toggleShuffle)
+            control(model.shuffle ? "Turn shuffle off" : "Turn shuffle on", "shuffle", size: 17, active: model.shuffle, action: model.toggleShuffle)
             Spacer()
             control("Previous track", "backward.fill", size: 24, action: model.previous)
                 .disabled(!canControl || model.isAdvertisement)
             Spacer()
-            Button(action: model.togglePause) {
-                ZStack {
-                    if busy {
-                        ProgressView().controlSize(.regular)
-                    } else {
-                        Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
-                            .font(.system(size: 34))
-                    }
-                }
-                .frame(width: 52, height: 52)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(model.isPaused ? "Play" : "Pause")
-            .keyboardShortcut(.space, modifiers: [])
-            .disabled(!canControl)
+            playPause
             Spacer()
             control("Next track", "forward.fill", size: 24, action: model.next)
                 .disabled(!canControl || model.isAdvertisement)
@@ -340,120 +524,77 @@ struct NativeMacFullPlayer: View {
         }
     }
 
+    private var playPause: some View {
+        Button(action: model.togglePause) {
+            ZStack {
+                Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 34))
+                    .modifier(NativeMacSymbolTransition(symbol: model.isPaused ? "play.fill" : "pause.fill"))
+                    .opacity(busy ? 0 : 1)
+                if busy { ProgressView().controlSize(.regular) }
+            }
+            .frame(width: 52, height: 52)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(NativeMacPlayerButtonStyle())
+        .accessibilityLabel(model.isPaused ? "Play" : "Pause")
+
+        .disabled(!canControl)
+    }
+
     private func control(_ title: String, _ symbol: String, size: CGFloat, active: Bool = false,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size))
+                .modifier(NativeMacSymbolTransition(symbol: symbol))
                 // `.tint` is the app's pink, set once at the root.
                 .foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
                 .frame(width: 40, height: 40)
                 .contentShape(Rectangle())
+                .background(active ? Color.white.opacity(0.16) : .clear, in: Circle())
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: active)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NativeMacPlayerButtonStyle())
         .accessibilityLabel(title)
+        .accessibilityAddTraits(active ? .isSelected : [])
         .help(title)
     }
 
     // MARK: - Lyrics
 
-    /// Where the active line settles, as a fraction of the column's height. Lower than centre, so
-    /// more of what is coming is visible than of what has passed.
-    private static let activeLineAnchor = UnitPoint(x: 0, y: 0.36)
-
-    @ViewBuilder
     private var lyricsColumn: some View {
-        if let lyrics = model.lyrics {
-            let active = model.activeLyricIndex
-            ScrollViewReader { reader in
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 26) {
-                        ForEach(Array(lyrics.lines.enumerated()), id: \.element.id) { index, line in
-                            lyricLine(line, isActive: index == active, synced: lyrics.synced)
-                                .id(index)
-                        }
-                    }
-                    .padding(.vertical, 160)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: active)
-                }
-                .onAppear {
-                    if let active { reader.scrollTo(active, anchor: Self.activeLineAnchor) }
-                }
-                .onChange(of: active) { _, next in
-                    guard let next else { return }
-                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.72)) {
-                        reader.scrollTo(next, anchor: Self.activeLineAnchor)
-                    }
-                }
-            }
-            .mask(
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.14),
-                        .init(color: .black, location: 0.84),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-        } else {
-            VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: "quote.bubble")
-                    .font(.system(size: 30))
-                Text(model.lyricsStatus)
-                    .font(.title3.weight(.semibold))
-            }
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
+        NativeMacLyricsView(store: store, immersive: true)
     }
 
-    private func lyricLine(_ line: GoosicLyricsLine, isActive: Bool, synced: Bool) -> some View {
-        // Unsynced lyrics are shown plainly: guessing which line is current would be worse.
-        let dimmed = synced && !isActive
-        return Text(line.text.isEmpty ? "♪" : line.text)
-            .font(.system(size: 30, weight: .bold))
-            .multilineTextAlignment(.leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .opacity(dimmed ? 0.3 : (synced ? 1 : 0.85))
-            .blur(radius: dimmed ? 1.5 : 0)
-            .scaleEffect(isActive ? 1 : 0.97, anchor: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard synced, model.isSeekable, !busy else { return }
-                model.seek(to: Double(line.atMs) / 1_000)
-            }
-    }
 }
 
 /// The full-screen player's volume control, placed in the window toolbar while that player is
-/// open. As a toolbar item it owns its drag, and the system draws it on Liquid Glass.
+/// open. As a toolbar item it owns its drag; the root applies the same glass and appearance
+/// as the bottom Lyrics/Queue capsule.
 struct NativeMacFullPlayerVolume: View {
     @ObservedObject var store: NativeMacModelStore
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
 
+    // Music's order: the slider, then the speaker, which mutes.
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: model.toggleMuted) {
-                Image(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.fill")
-                    .frame(width: 16)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(model.isMuted ? "Unmute" : "Mute")
+        HStack(spacing: 10) {
             slider
-                .frame(width: 110)
-            Image(systemName: "speaker.wave.3.fill")
-                .foregroundStyle(.secondary)
+                .frame(width: 130)
+            Button(action: model.toggleMuted) {
+                Image(systemName: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .modifier(NativeMacSymbolTransition(symbol: model.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"))
+                    .frame(width: 20)
+            }
+            .buttonStyle(NativeMacPlayerButtonStyle())
+            .help(model.isMuted ? "Unmute" : "Mute")
+            .accessibilityLabel(model.isMuted ? "Unmute" : "Mute")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .disabled(busy)
-        .modifier(NativeMacVolumeGlass())
     }
 
     private var shownVolume: Double { model.isMuted ? 0 : model.volume }
@@ -461,18 +602,6 @@ struct NativeMacFullPlayerVolume: View {
     private var slider: some View {
         NativeMacVolumeSlider(value: shownVolume, isEnabled: !busy) {
             model.setVolume($0)
-        }
-    }
-}
-
-/// Liquid Glass behind the volume control on macOS 26, where the system has it.
-private struct NativeMacVolumeGlass: ViewModifier {
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: .capsule)
-        } else {
-            content
         }
     }
 }
@@ -524,8 +653,7 @@ struct NativeMacVolumeSlider: NSViewRepresentable {
     }
 }
 
-/// Wheel steps and precise trackpad deltas change volume only over this control. The same
-/// action handles dragging, keyboard input and scrolling, so all persist through the model.
+/// Uses the same model action for dragging, keyboard input and wheel adjustments.
 private final class ScrollableVolumeSlider: NSSlider {
     override func scrollWheel(with event: NSEvent) {
         guard isEnabled else { return }
@@ -534,6 +662,41 @@ private final class ScrollableVolumeSlider: NSSlider {
         let step = event.hasPreciseScrollingDeltas ? delta * 0.002 : (delta > 0 ? 0.05 : -0.05)
         doubleValue = min(max(doubleValue + step, minValue), maxValue)
         sendAction(action, to: target)
+    }
+}
+
+/// Groups Liquid Glass shapes so they are drawn and morph together, as system controls are.
+struct NativeMacGlassGroup<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer { content }
+        } else {
+            content
+        }
+    }
+}
+
+/// A transparent, interactive Liquid Glass circle; a thin material before macOS 26.
+struct NativeMacGlassCircle: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: .circle)
+        } else {
+            content.background(.ultraThinMaterial, in: Circle())
+        }
+    }
+}
+
+/// A transparent, interactive Liquid Glass capsule; a thin material before macOS 26.
+struct NativeMacGlassCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            content.background(.ultraThinMaterial, in: Capsule())
+        }
     }
 }
 #endif
