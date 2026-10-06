@@ -9,7 +9,9 @@ macOS UI and lyric improvements. No Linux download is included.
 Previous and Next require a valid current song and queue entry; pressing them while idle no
 longer starts an unrelated song. Previous restarts the first queue entry unless Repeat All
 is selected. Manual Next moves forward even with Repeat One. Windows serializes competing
-track-change requests.
+track-change requests. Launching Windows Goosic again restores the existing instance, including
+when its window was closed to the tray while music kept playing. The new process redirects
+activation before it can create another service or playback host.
 
 The bridge selects the active media element instead of an ended advertisement left in the
 page. Advertisement handoff cannot masquerade as a song ending. Volume and mute remain
