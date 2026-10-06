@@ -1,0 +1,23 @@
+{
+  "source": "Local timing example",
+  "synced": true,
+  "lines": [
+    {
+      "atMs": 1000,
+      "text": "Hello music",
+      "words": [
+        { "atMs": 1000, "endMs": 1800, "text": "Hello " },
+        { "atMs": 1800, "endMs": 3000, "text": "music" }
+      ]
+    },
+    {
+      "atMs": 4000,
+      "text": "Here we go",
+      "words": [
+        { "atMs": 4000, "endMs": 4500, "text": "Here " },
+        { "atMs": 4500, "endMs": 5000, "text": "we " },
+        { "atMs": 5000, "endMs": 6500, "text": "go" }
+      ]
+    }
+  ]
+}

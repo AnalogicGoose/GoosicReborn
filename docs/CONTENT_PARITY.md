@@ -15,6 +15,26 @@ every carousel was listed ahead of every row shelf, and every shelf was drawn as
 Home did not look like the page it came from. The shell appends each page when the user reaches the end instead of presenting the first browse
 response as the whole feed.
 
+The macOS Search page keeps a pill-shaped search field and the native segmented picker for
+All, Songs, Albums, Artists, Playlists and Videos floating above its content. macOS draws the
+picker's selection and chrome, including its current system appearance on macOS 26. Results scroll
+behind the controls without a separate header band or divider; their initial clearance is
+measured inside the scrollable content. See [the shared UI design specification](UI_DESIGN.md) and
+[the macOS adaptation](MACOS_UI_GUIDELINES.md).
+Its initial view shows saved recent queries and cards linking to
+the existing Explore, Charts, Moods & genres and New releases routes. Those cards change
+presentation, not catalog coverage. The player keeps Lyrics and Queue controls visible when
+its controls wrap into additional rows in a narrow content column. Main, full and mini-player
+controls share press feedback and symbol replacement transitions; system or app Reduce Motion
+turns those animations off. Timeline focus retains keyboard seeking, uses a subtle focus cue,
+and clears with Escape or a completed pointer seek. The full player's top controls use the same
+dark capsule material as its bottom panel controls. Clicking the main player's speaker opens
+a volume capsule layered over the bar's trailing controls; clicking it again or pressing
+Escape closes it. This overlay does not participate in layout, so opening it never resizes the
+bar or moves the artwork and transport. More stays available in the overlay, with Lyrics and
+Up Next actions while their icons are covered. Mute remains in More and in the volume
+control's context menu and accessibility actions.
+
 Signed-in Home is different from guest Home. On a platform with a real account host, it is read
 inside the active account's WebKit profile so shelves such as Listen again, Mixed for you,
 personal mixes, familiar favourites, and recommendations reflect that account. Cookies stay in
@@ -54,3 +74,14 @@ listening through real advertisement transitions in WebKit.
 The boundary is intentional. Anonymous catalog reads stay in Rust and are testable on every
 platform. Account-scoped reads stay in the native browser profile that already owns the login
 session. Credentials, cookies, and raw account responses never enter the NDJSON service protocol.
+
+## Lyrics timing and native adoption
+
+[LYRICS_TIMING.md](LYRICS_TIMING.md) records the shared LRCLIB Lyricsfile reader, optional word
+wire fields, source fallback and the Windows/GTK implementation handoff. Word following requires
+real timestamps; songs with only line timing emphasize complete lines. The user kept the
+Music-like blur/fade/active-line effects and rejected estimated singing timing and a permanent
+following switch. The service conversion is shared; native word rendering, manual exploration,
+local import and accessibility adoption remain platform work. Do not confuse LRCLIB supporting
+the format with verified word-timed song coverage. The documented September 30 sample had no
+word arrays, so it does not establish live word-following acceptance.
