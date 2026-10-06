@@ -75,6 +75,29 @@ final class PlaybackJavaScriptTests: XCTestCase {
         XCTAssertNil(js.exception)
     }
 
+    func testObserverDoesNotTreatRetainedAdTextAsAnActiveAdvertisement() throws {
+        let js = try context()
+        js.evaluateScript("""
+        var activeAd = false, events = [], poll;
+        var window = this;
+        window.location = {search:'?v=requested'};
+        window.webkit = {messageHandlers:{goosicBridge:{postMessage:event => events.push(event)}}};
+        window.setInterval = callback => { poll = callback; };
+        var media = {paused:false, ended:false, readyState:4, currentTime:10, duration:180,
+          volume:0.2, muted:false, addEventListener:() => {}};
+        var document = {documentElement:{}, querySelectorAll:() => [media],
+          querySelector:selector => activeAd || selector.includes('.ytp-ad-text') ? {} : null};
+        class MutationObserver { observe() {} }
+        """)
+        js.evaluateScript(OfficialBridge.observerScript(token: "token", generation: 1, videoID: "requested"))
+        XCTAssertFalse(js.evaluateScript("events[events.length - 1].isAdvertisement")?.toBool() == true)
+        js.evaluateScript("activeAd = true; poll();")
+        XCTAssertTrue(js.evaluateScript("events[events.length - 1].isAdvertisement")?.toBool() == true)
+        js.evaluateScript("activeAd = false; poll();")
+        XCTAssertFalse(js.evaluateScript("events[events.length - 1].isAdvertisement")?.toBool() == true)
+        XCTAssertNil(js.exception)
+    }
+
     func testRadioUsesOnlyPanelRowsAndPanelContinuation() throws {
         let js = try context()
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
