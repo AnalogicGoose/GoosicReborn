@@ -14,7 +14,8 @@ track-change requests.
 The bridge selects the active media element instead of an ended advertisement left in the
 page. Advertisement handoff cannot masquerade as a song ending. Volume and mute remain
 available during advertisements, and scrolling over volume adjusts it. A queued playing
-sample cannot undo a listener's pause request.
+sample cannot undo a listener's pause request. Sleep-timer pauses remain intentional near
+a song's end, and partial cached lists retain their incomplete counts until refreshed.
 
 Windows adds player hover, progress, cover, mode-button and time-label transitions, respecting
 system animations, Reduce Motion and Efficiency mode. macOS retains its native control,
