@@ -58,6 +58,47 @@ final class PlaybackJavaScriptTests: XCTestCase {
         try XCTUnwrap(JSContext())
     }
 
+    func testActiveMediaPrefersPausedContentOverAnEndedAdvertisement() throws {
+        let js = try context()
+        js.evaluateScript("""
+        var candidates = [
+          {id:'ad', paused:true, ended:true, readyState:4},
+          {id:'content', paused:true, ended:false, readyState:4}
+        ];
+        var document = {querySelectorAll: () => candidates};
+        """)
+        XCTAssertEqual(js.evaluateScript(OfficialBridge.activeMediaElementScript)?.forProperty("id")?.toString(), "content")
+        js.evaluateScript("candidates.unshift({id:'playing', paused:false, ended:false, readyState:4});")
+        XCTAssertEqual(js.evaluateScript(OfficialBridge.activeMediaElementScript)?.forProperty("id")?.toString(), "playing")
+        js.evaluateScript("candidates = [];")
+        XCTAssertTrue(js.evaluateScript(OfficialBridge.activeMediaElementScript)?.isNull == true)
+        XCTAssertNil(js.exception)
+    }
+
+    func testObserverDoesNotTreatRetainedAdTextAsAnActiveAdvertisement() throws {
+        let js = try context()
+        js.evaluateScript("""
+        var activeAd = false, events = [], poll;
+        var window = this;
+        window.location = {search:'?v=requested'};
+        class URLSearchParams { get() { return 'requested'; } }
+        window.webkit = {messageHandlers:{goosicBridge:{postMessage:event => events.push(event)}}};
+        window.setInterval = callback => { poll = callback; };
+        var media = {paused:false, ended:false, readyState:4, currentTime:10, duration:180,
+          volume:0.2, muted:false, addEventListener:() => {}};
+        var document = {documentElement:{}, querySelectorAll:() => [media],
+          querySelector:selector => activeAd || selector.includes('.ytp-ad-text') ? {} : null};
+        class MutationObserver { observe() {} }
+        """)
+        js.evaluateScript(OfficialBridge.observerScript(token: "token", generation: 1, videoID: "requested"))
+        XCTAssertFalse(js.evaluateScript("events[events.length - 1].isAdvertisement")?.toBool() == true)
+        js.evaluateScript("activeAd = true; poll();")
+        XCTAssertTrue(js.evaluateScript("events[events.length - 1].isAdvertisement")?.toBool() == true)
+        js.evaluateScript("activeAd = false; poll();")
+        XCTAssertFalse(js.evaluateScript("events[events.length - 1].isAdvertisement")?.toBool() == true)
+        XCTAssertNil(js.exception)
+    }
+
     func testRadioUsesOnlyPanelRowsAndPanelContinuation() throws {
         let js = try context()
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -113,9 +154,13 @@ final class PlaybackJavaScriptTests: XCTestCase {
         js.evaluateScript("var replacement = new HTMLMediaElement(); media.push(replacement); replacement.play();")
         XCTAssertEqual(js.evaluateScript("replacement.volume")?.toDouble(), 0.2)
         js.evaluateScript("ad = true; first.volume = 1; observer();")
-        XCTAssertEqual(js.evaluateScript("first.volume")?.toDouble(), 1)
-        js.evaluateScript("ad = false; observer(); first.play();")
         XCTAssertEqual(js.evaluateScript("first.volume")?.toDouble(), 0.2)
+        js.evaluateScript("goosicSetVolumePreference(0.25, true);")
+        XCTAssertEqual(js.evaluateScript("first.volume")?.toDouble(), 0.25)
+        XCTAssertEqual(js.evaluateScript("replacement.volume")?.toDouble(), 0.25)
+        XCTAssertEqual(js.evaluateScript("first.muted")?.toBool(), true)
+        js.evaluateScript("ad = false; observer(); first.play();")
+        XCTAssertEqual(js.evaluateScript("first.volume")?.toDouble(), 0.25)
         js.evaluateScript("goosicSetVolumePreference(0.4, true); first.volume = 1; first.muted = false;")
         XCTAssertEqual(js.evaluateScript("first.volume")?.toDouble(), 0.4)
         XCTAssertEqual(js.evaluateScript("first.muted")?.toBool(), true)
