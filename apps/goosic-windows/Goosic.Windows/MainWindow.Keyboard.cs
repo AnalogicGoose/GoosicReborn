@@ -78,7 +78,11 @@ public sealed partial class MainWindow : Window
                 }
                 break;
             case ShellCommand.Escape:
-                if (FullPlayer.Visibility == Visibility.Visible)
+                if (PlayerVolumeOverlay.Visibility == Visibility.Visible)
+                {
+                    SetVolumeOpen(false);
+                }
+                else if (FullPlayer.Visibility == Visibility.Visible)
                 {
                     SetFullPlayerOpen(false);
                 }
