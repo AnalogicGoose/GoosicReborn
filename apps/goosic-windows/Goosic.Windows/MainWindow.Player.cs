@@ -401,6 +401,31 @@ public sealed partial class MainWindow : Window
         Model.RememberVolume(gain, _playback.PreferredMuted);
     }
 
+    private void OnToggleVolume(object sender, RoutedEventArgs e) =>
+        SetVolumeOpen(PlayerVolumeOverlay.Visibility != Visibility.Visible);
+
+    private void SetVolumeOpen(bool open)
+    {
+        // Keep the covered layer's layout footprint, but remove its input and accessibility targets.
+        PlayerPanelButtons.Opacity = open ? 0 : 1;
+        PlayerPanelButtons.IsHitTestVisible = !open;
+        LyricsButton.IsTabStop = QueueButton.IsTabStop = VolumeButton.IsTabStop = !open;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(PlayerPanelButtons,
+            open ? Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw
+                 : Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Content);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(LyricsButton,
+            open ? Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw
+                 : Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Content);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(QueueButton,
+            open ? Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw
+                 : Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Content);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(VolumeButton,
+            open ? Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw
+                 : Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Content);
+        PlayerVolumeOverlay.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        (open ? VolumeCloseButton : VolumeButton).Focus(FocusState.Programmatic);
+    }
+
     /// <summary>A wheel over a volume control changes its slider, consuming the gesture once.</summary>
     private void OnVolumeWheel(object sender, PointerRoutedEventArgs e)
     {
