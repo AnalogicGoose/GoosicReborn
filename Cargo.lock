@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-accounts"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-protocol",
  "libc",
@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-catalog"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-protocol",
  "serde",
@@ -269,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-core"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-protocol",
  "thiserror",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-downloads"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-protocol",
  "matroska-demuxer",
@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-lyrics"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-protocol",
  "serde",
@@ -302,7 +302,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-protocol"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "serde",
  "serde_json",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-service"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-accounts",
  "goosic-catalog",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-settings"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-protocol",
  "rusqlite",
@@ -339,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-shell-support"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-protocol",
  "serde",
@@ -351,7 +351,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-shell-support-ffi"
-version = "0.2.5"
+version = "0.2.7"
 dependencies = [
  "goosic-shell-support",
  "serde",

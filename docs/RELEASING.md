@@ -13,7 +13,7 @@ The native shells are now integrated on development; releases no longer tag a pl
 
 Merge the coherent platform changes into development, run the required tests, and deploy
 by merging development into main. Tag that deployment commit with a numeric version such as
-`v0.2.5` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
+`v0.2.7` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
 builds the Windows installer and portable ZIP and the universal macOS app, verifies the Mac
 bundle signature and architectures, and attaches both checksum files to a draft release.
 

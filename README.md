@@ -10,7 +10,7 @@ The transition to one native shell per operating system is documented in
 
 ## What works today
 
-Version 0.2.5 distributes the native Windows x64 WinUI app as a setup executable and portable
+Version 0.2.7 distributes the native Windows x64 WinUI app as a setup executable and portable
 ZIP. From 0.2.0 an installed copy updates itself: Settings checks GitHub Releases, verifies the
 new Setup against the release's checksums, and installs it. Home is laid out as YouTube Music
 lays it out, with Quick picks as a compact song list, and Settings adds a start page, hiding
@@ -30,10 +30,15 @@ unknown-publisher warning. Download it from
 The Swift package now builds only the native macOS application. The native Windows shell
 supports official WebView2 playback, sign-in, personal catalog, queue, lyrics and media controls;
 local downloaded-file playback and legacy preference import remain unavailable. Only Windows
-x64 binaries are distributed in the stable 0.2.5 release. The
-[0.2.5 macOS alpha](docs/RELEASE_0.2.5.md) provides a universal macOS download
-with the native UI and lyrics improvements. Windows gains matching player transitions and playback corrections in 0.2.5; Linux packages
-remain pending. See [the release notes](docs/RELEASE_0.2.5.md). compilation does not establish live playback or visual acceptance.
+x64 binaries are distributed in the stable 0.2.7 release. The
+[0.2.7 macOS alpha](docs/RELEASE_0.2.7.md) provides a universal macOS download
+with the native UI and lyrics improvements. Windows gains matching player transitions, playback corrections and single-instance activation
+in 0.2.5; Linux packages
+remain pending. Version 0.2.6 reuses one volume control in a transient Windows player capsule,
+matching the macOS interaction without resizing the bar. Version 0.2.7 rebuilds the Windows
+player bar, the fade under the title bar, the full-screen player layout and the lyrics after
+the macOS shell. See [the release notes](docs/RELEASE_0.2.7.md).
+Compilation does not establish live playback or visual acceptance.
 
 - **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
 - **Personal content.** On macOS and in the GTK Linux shell, signed-in Home and Library read inside the active account's WebKit profile. Linux adds playlist creation and management, song likes, save-to-library and add-to-playlist. A native live read of Home, playlists, liked songs and the owned-playlist list passed. A user completed sign-in in the Flatpak after its account storage was made writable; restart, authenticated reads and mutations still need a packaged live check. Cookies never cross the service protocol. See [the content parity map](docs/CONTENT_PARITY.md) and [the feature parity audit](docs/FEATURE_PARITY.md).

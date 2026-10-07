@@ -4,14 +4,28 @@ name: Release
 on:
     push:
         tags: ['v*', '!v*-macos-*']
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: Existing release tag to package
+                required: true
+                default: v0.2.7
+            windows_run_id:
+                description: Successful Windows artifact run for the same tag
+                required: true
 permissions:
     contents: write
+    actions: read
+env:
+    RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 jobs:
     macos:
         name: Goosic.app (macOS, universal alpha)
         runs-on: macos-latest
         steps:
             - uses: actions/checkout@v4
+              with:
+                  ref: ${{ env.RELEASE_TAG }}
             - uses: maxim-lobanov/setup-xcode@v1
               with:
                   xcode-version: latest-stable
@@ -22,13 +36,13 @@ jobs:
               run: make test
             - name: Package and verify the app
               run: |
-                  version="${GITHUB_REF_NAME#v}"
-                  GOOSIC_MACOS_BUILD_VERSION=3 sh tools/package-macos.sh "$version"
+                  version="${RELEASE_TAG#v}"
+                  GOOSIC_MACOS_BUILD_VERSION=5 sh tools/package-macos.sh "$version"
                   unzip -q "dist/Goosic-$version-macos-universal.zip" -d dist/verify
                   app=dist/verify/Goosic.app
                   codesign --verify --deep --strict "$app"
-                  lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Goosic"
-                  lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/goosic-service"
+                  lipo "$app/Contents/MacOS/Goosic" -verify_arch arm64 x86_64
+                  lipo "$app/Contents/MacOS/goosic-service" -verify_arch arm64 x86_64
                   test -d "$app/Contents/Frameworks/Sparkle.framework"
                   test -f "$app/Contents/Resources/LICENSE-GPL-3.0"
                   cd dist
@@ -41,10 +55,13 @@ jobs:
                       dist/SHA256SUMS-macos.txt
                   if-no-files-found: error
     windows:
+        if: github.event_name != 'workflow_dispatch'
         name: Goosic (Windows, x64)
         runs-on: windows-latest
         steps:
             - uses: actions/checkout@v4
+              with:
+                  ref: ${{ env.RELEASE_TAG }}
             - uses: dtolnay/rust-toolchain@stable
               with:
                   targets: x86_64-pc-windows-msvc
@@ -57,7 +74,7 @@ jobs:
               run: choco install innosetup --no-progress -y
             - name: Build installer and portable archive
               run: |
-                  $version = $env:GITHUB_REF_NAME.Substring(1)
+                  $version = $env:RELEASE_TAG.Substring(1)
                   ./apps/goosic-windows/build-installer.ps1 -Version $version
             - uses: actions/upload-artifact@v4
               with:
@@ -70,18 +87,43 @@ jobs:
     draft:
         name: Create the release draft
         needs: [macos, windows]
+        if: >-
+            always() && needs.macos.result == 'success'
+            && (needs.windows.result == 'success' || needs.windows.result == 'skipped')
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
+              with:
+                  ref: ${{ env.RELEASE_TAG }}
             - uses: actions/download-artifact@v4
               with:
                   path: downloads
+            - name: Check the reused Windows run belongs to this source
+              if: github.event_name == 'workflow_dispatch'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  WINDOWS_RUN_ID: ${{ inputs.windows_run_id }}
+              run: |
+                  [[ "$WINDOWS_RUN_ID" =~ ^[0-9]+$ ]]
+                  source_sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WINDOWS_RUN_ID" --jq .head_sha)
+                  test "$source_sha" = "$(git rev-parse HEAD)"
+                  result=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$WINDOWS_RUN_ID/jobs" --jq '.jobs[] | select(.name == "Goosic (Windows, x64)") | .conclusion')
+                  test "$result" = success
+            - name: Reuse verified Windows artifacts for a Mac retry
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/download-artifact@v4
+              with:
+                  name: windows
+                  run-id: ${{ inputs.windows_run_id }}
+                  github-token: ${{ github.token }}
+                  path: downloads/windows
             - uses: softprops/action-gh-release@v2
               with:
                   draft: true
                   prerelease: false
-                  name: Goosic ${{ github.ref_name }}
-                  body_path: docs/RELEASE_0.2.5.md
+                  name: Goosic ${{ env.RELEASE_TAG }}
+                  tag_name: ${{ env.RELEASE_TAG }}
+                  body_path: docs/RELEASE_0.2.7.md
                   fail_on_unmatched_files: true
                   files: |
                       downloads/macos/*.zip
