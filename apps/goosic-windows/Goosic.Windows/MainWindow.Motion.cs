@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Numerics;
 using Goosic.Windows.Service;
 using Goosic.Windows.ViewModels;
@@ -44,6 +45,7 @@ public sealed partial class MainWindow
         // Decelerating in and accelerating out, like the system's own flyouts.
         _easeOut = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.1f, 0.9f), new Vector2(0.2f, 1f));
         _easeIn = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.7f, 0f), new Vector2(1f, 0.5f));
+        WirePlayerPressFeedback();
         ApplyMotion();
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
         {
@@ -78,18 +80,26 @@ public sealed partial class MainWindow
         AttachShowHide(QueuePanel, new Vector3(0, 10, 0));
         AttachShowHide(LyricsPanel, new Vector3(0, 10, 0));
         AttachShowHide(QueueUndoBar, new Vector3(0, 8, 0));
-        AttachShowHide(PlayerVolumeOverlay, Vector3.Zero, TimeSpan.FromMilliseconds(180));
         AttachShowHide(FullPlayer, new Vector3(0, 36, 0));
         AttachShowHide(FullPlayerLyrics, new Vector3(0, 12, 0));
         AttachShowHide(BackButton, new Vector3(-8, 0, 0));
         AttachShowHide(ToastHost, new Vector3(0, 10, 0));
         AttachShowHide(ArtworkBackdrop, Vector3.Zero, ShowDuration * 2);
-        AttachShowHide(PillElapsed, new Vector3(4, 0, 0), TimeSpan.FromMilliseconds(150));
-        AttachShowHide(PillRemaining, new Vector3(-4, 0, 0), TimeSpan.FromMilliseconds(150));
+        foreach (var icon in new UIElement[] { PillPlayIcon, PillPauseIcon, FullPlayIcon, FullPauseIcon })
+        {
+            AttachSymbolReplace(icon);
+        }
+
+        // The position line and its times change through their own properties, which the
+        // framework animates when given a transition and sets at once when given none.
+        var reveal = TimeSpan.FromMilliseconds(150);
+        PillLine.ScaleTransition = enabled ? new Vector3Transition { Duration = reveal } : null;
+        PillElapsed.OpacityTransition = enabled ? new ScalarTransition { Duration = reveal } : null;
+        PillRemaining.OpacityTransition = enabled ? new ScalarTransition { Duration = reveal } : null;
         if (!enabled)
         {
-            foreach (var element in new UIElement[] { PlayerPill, PillCoverHover, NowPlayingArtwork, FullPlayerCover,
-                PillTrack, PillFill, ShuffleButton, RepeatButton })
+            foreach (var element in PlayerPressTargets().Concat([PillCoverButton, PillCoverHover, NowPlayingArtwork,
+                FullPlayerCover]))
             {
                 var visual = ElementCompositionPreview.GetElementVisual(element);
                 visual.StopAnimation("Scale");
@@ -100,33 +110,129 @@ public sealed partial class MainWindow
         }
     }
 
-    /// <summary>Uses the same short spring and time-label fade as the macOS player bar.</summary>
-    private void AnimatePlayerHover(bool hovered)
+    private UIElement[] PlayerPressTargets() =>
+    [
+        ShuffleButton, PreviousButton, PlayButton, NextButton, RepeatButton,
+        PillLikeButton, PillMoreButton, LyricsButton, QueueButton, VolumeButton,
+    ];
+
+    /// <summary>
+    /// Gives every control in the pill the macOS player's press: it dips under the pointer and
+    /// springs back on release.
+    /// </summary>
+    /// <remarks>
+    /// A button marks its own pointer events handled, so these are attached to hear them anyway.
+    /// The pill itself never scales: a bar that swells under a passing pointer reads as the whole
+    /// window flinching.
+    /// </remarks>
+    private void WirePlayerPressFeedback()
     {
-        if (_compositor is null || !AnimationsEnabled) return;
-        SpringPlayerScale(PlayerPill, new Vector3(hovered ? 1.012f : 1f, hovered ? 1.012f : 1f, 1));
-        SpringPlayerScale(PillTrack, new Vector3(1, hovered ? 1.6f : 1f, 1));
-        SpringPlayerScale(PillFill, new Vector3(1, hovered ? 1.6f : 1f, 1));
+        var press = new Microsoft.UI.Xaml.Input.PointerEventHandler((sender, _) => SpringPlayerScale((UIElement)sender, 0.88f));
+        var release = new Microsoft.UI.Xaml.Input.PointerEventHandler((sender, _) => SpringPlayerScale((UIElement)sender, 1));
+        foreach (var control in PlayerPressTargets())
+        {
+            control.AddHandler(UIElement.PointerPressedEvent, press, true);
+            control.AddHandler(UIElement.PointerReleasedEvent, release, true);
+            control.AddHandler(UIElement.PointerCanceledEvent, release, true);
+            control.AddHandler(UIElement.PointerCaptureLostEvent, release, true);
+        }
     }
 
-    private void SpringPlayerScale(UIElement element, Vector3 target)
+    /// <summary>
+    /// Makes play and pause trade places the way a symbol does on macOS: the one leaving shrinks
+    /// and fades as the one arriving grows into the same spot.
+    /// </summary>
+    private void AttachSymbolReplace(UIElement icon)
     {
+        if (_compositor is null)
+        {
+            return;
+        }
+
+        if (!_motionAttached)
+        {
+            ElementCompositionPreview.SetImplicitShowAnimation(icon, null);
+            ElementCompositionPreview.SetImplicitHideAnimation(icon, null);
+            return;
+        }
+
+        // Scaled about its middle, wherever layout has put it by the time it is shown.
+        var visual = ElementCompositionPreview.GetElementVisual(icon);
+        var centre = _compositor.CreateExpressionAnimation("Vector3(this.Target.Size.X / 2, this.Target.Size.Y / 2, 0)");
+        visual.StartAnimation("CenterPoint", centre);
+
+        var duration = TimeSpan.FromMilliseconds(220);
+        var small = new Vector3(0.4f, 0.4f, 1);
+        var show = _compositor.CreateAnimationGroup();
+        show.Add(Scalar("Opacity", 0, 1, duration, _easeOut!));
+        show.Add(Vector("Scale", small, Vector3.One, duration, _easeOut!));
+        var hide = _compositor.CreateAnimationGroup();
+        hide.Add(Scalar("Opacity", 1, 0, duration, _easeOut!));
+        hide.Add(Vector("Scale", Vector3.One, small, duration, _easeOut!));
+        ElementCompositionPreview.SetImplicitShowAnimation(icon, show);
+        ElementCompositionPreview.SetImplicitHideAnimation(icon, hide);
+    }
+
+    /// <summary>
+    /// Pushes Previous or Next a little way in the direction it points and lets it settle back,
+    /// so the press reads as sending the song that way.
+    /// </summary>
+    private void NudgePlayerControl(UIElement? control, int direction)
+    {
+        if (control is null || _compositor is null || !AnimationsEnabled) return;
+        ElementCompositionPreview.SetIsTranslationEnabled(control, true);
+        var nudge = _compositor.CreateVector3KeyFrameAnimation();
+        nudge.InsertKeyFrame(0, Vector3.Zero);
+        nudge.InsertKeyFrame(0.3f, new Vector3(5 * direction, 0, 0), _easeOut);
+        nudge.InsertKeyFrame(1, Vector3.Zero, _easeOut);
+        nudge.Duration = TimeSpan.FromMilliseconds(380);
+        ElementCompositionPreview.GetElementVisual(control).StartAnimation("Translation", nudge);
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _playerGlide;
+
+    /// <summary>
+    /// Lets the pill travel to its next place instead of appearing there, for the one layout
+    /// pass that follows a panel opening or closing.
+    /// </summary>
+    /// <remarks>
+    /// Only for that pass. Left on, the same animation would run while the window is being
+    /// resized, and the pill would trail behind the edge it is supposed to be attached to.
+    /// </remarks>
+    private void GlidePlayerOnce()
+    {
+        if (_compositor is null || !AnimationsEnabled) return;
+        var visual = ElementCompositionPreview.GetElementVisual(PlayerPill);
+        var glide = _compositor.CreateVector3KeyFrameAnimation();
+        glide.Target = "Offset";
+        glide.InsertExpressionKeyFrame(1, "this.FinalValue", _easeOut);
+        glide.Duration = TimeSpan.FromMilliseconds(320);
+        var moves = _compositor.CreateImplicitAnimationCollection();
+        moves["Offset"] = glide;
+        visual.ImplicitAnimations = moves;
+
+        if (_playerGlide is null)
+        {
+            _playerGlide = DispatcherQueue.CreateTimer();
+            _playerGlide.IsRepeating = false;
+            _playerGlide.Interval = TimeSpan.FromMilliseconds(400);
+            _playerGlide.Tick += (_, _) => ElementCompositionPreview.GetElementVisual(PlayerPill).ImplicitAnimations = null;
+        }
+
+        _playerGlide.Stop();
+        _playerGlide.Start();
+    }
+
+    private void SpringPlayerScale(UIElement element, float target)
+    {
+        if (_compositor is null || !AnimationsEnabled) return;
         var visual = ElementCompositionPreview.GetElementVisual(element);
         visual.CenterPoint = new Vector3(visual.Size.X / 2, visual.Size.Y / 2, 0);
-        var spring = _compositor!.CreateSpringVector3Animation();
-        spring.FinalValue = target;
-        spring.DampingRatio = 0.85f;
-        spring.Period = TimeSpan.FromMilliseconds(280);
+        var spring = _compositor.CreateSpringVector3Animation();
+        spring.FinalValue = new Vector3(target, target, 1);
+        spring.DampingRatio = 0.7f;
+        spring.Period = TimeSpan.FromMilliseconds(220);
         visual.StartAnimation("Scale", spring);
-    }
-
-    private void PulsePlayerControl(UIElement element)
-    {
-        if (_compositor is null || !AnimationsEnabled) return;
-        var visual = ElementCompositionPreview.GetElementVisual(element);
-        visual.StopAnimation("Scale");
-        visual.Scale = new Vector3(0.9f, 0.9f, 1);
-        SpringPlayerScale(element, Vector3.One);
     }
 
     private void FadePlayerElement(UIElement element, float opacity)
