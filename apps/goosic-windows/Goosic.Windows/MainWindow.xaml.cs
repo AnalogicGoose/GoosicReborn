@@ -62,6 +62,7 @@ public sealed partial class MainWindow : Window
         ContentStack.SizeChanged += async (_, _) => await LoadMoreIfNearEndAsync();
         WireKeyboard();
         WireFullPlayer();
+        WireLyrics();
         WireMotion();
         WireUpdates();
         WireShellSettings();
@@ -105,6 +106,7 @@ public sealed partial class MainWindow : Window
             Model.CurrentLyricChanged += FollowLyricOnScreen;
             Model.ConfirmedTrackChanged += async () =>
             {
+                FollowLyricsAgain();
                 // Only fetched while the panel is open: lyrics are a third-party lookup, and a
                 // listener who never opens the panel should not send one per track.
                 if (FullPlayer.Visibility == Visibility.Visible && _sidePanel.Content != SidePanelContent.Lyrics)

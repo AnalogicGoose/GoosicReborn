@@ -96,6 +96,7 @@ public sealed partial class MainWindow : Window
     private void ToggleSidebar()
     {
         Sidebar.Visibility = Sidebar.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        GlidePlayerOnce();
         ApplyInsets();
     }
 

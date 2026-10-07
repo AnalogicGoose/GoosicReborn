@@ -40,11 +40,36 @@ public class FullPlayerLayoutTests
         Assert.Equal((72d, 56d, 72d), FullPlayerLayout.Padding(1400));
     }
 
+    [Fact]
+    public void AWideWindowCentresTheTwoColumnsAsOneGroup()
+    {
+        var (inset, gutter, player, lyrics) = FullPlayerLayout.Split(2000, 520);
+        Assert.Equal((176d, 128d, 520d, FullPlayerLayout.LyricsMaxWidth), (inset, gutter, player, lyrics));
+        // What the columns do not use is margin, shared between the two sides.
+        Assert.True(2 * inset + gutter + player + lyrics < 2000);
+    }
+
     [Theory]
-    [InlineData(FullPlayerMode.Split, 64)]
-    [InlineData(FullPlayerMode.Lyrics, 0)]
-    public void OnlySplitLyricsNeedTheirOwnClearance(FullPlayerMode mode, double margin) =>
-        Assert.Equal(margin, FullPlayerLayout.LyricsTopMargin(mode));
+    [InlineData(900, 520)]
+    [InlineData(1100, 520)]
+    [InlineData(1100, 0)]
+    [InlineData(1400, 222)]
+    public void TheColumnsNeverOverflowTheWindow(double width, double cover)
+    {
+        var (inset, gutter, player, lyrics) = FullPlayerLayout.Split(width, cover);
+        Assert.True(2 * inset + gutter + player + lyrics <= width + 0.001);
+        Assert.True(player >= FullPlayerLayout.PlayerColumnMin);
+        // The lyrics keep more than the cover's column does where the two have to share.
+        Assert.True(lyrics >= player || lyrics == FullPlayerLayout.LyricsMaxWidth);
+    }
+
+    [Fact]
+    public void LyricsBesideTheCoverStopShortOfTheWindowsEdges()
+    {
+        Assert.Equal(700, FullPlayerLayout.LyricsMaxHeight(1000, FullPlayerMode.Split));
+        Assert.Equal(832, FullPlayerLayout.LyricsMaxHeight(1600, FullPlayerMode.Split));
+        Assert.Equal(double.PositiveInfinity, FullPlayerLayout.LyricsMaxHeight(1000, FullPlayerMode.Lyrics));
+    }
 
     [Theory]
     [InlineData(true, true, true)]

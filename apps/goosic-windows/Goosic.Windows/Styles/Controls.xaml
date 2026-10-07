@@ -178,11 +178,12 @@
     </Style>
 
     <!-- ===== The floating player pill ===== -->
+    <!-- A 32-pixel canvas around each glyph: the macOS player's 30, rounded up to Windows' grid. -->
     <Style x:Key="PillGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
-        <Setter Property="Width" Value="44" />
-        <Setter Property="Height" Value="44" />
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
         <Setter Property="FontSize" Value="15" />
-        <Setter Property="CornerRadius" Value="22" />
+        <Setter Property="CornerRadius" Value="16" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="Template">
             <Setter.Value>
@@ -214,42 +215,91 @@
     </Style>
 
     <Style x:Key="PillToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource TransportToggleStyle}">
-        <Setter Property="Width" Value="44" />
-        <Setter Property="Height" Value="44" />
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="32" />
         <Setter Property="FontSize" Value="15" />
-        <Setter Property="CornerRadius" Value="22" />
+        <Setter Property="CornerRadius" Value="16" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
                     <Grid x:Name="Root" Background="Transparent">
+                        <!-- What is switched on sits on a faint disc as well as taking the accent. -->
+                        <Border x:Name="Plate" CornerRadius="{TemplateBinding CornerRadius}" Opacity="0"
+                                Background="{ThemeResource GoosicRaisedStrongBrush}" />
                         <ContentPresenter x:Name="Presenter"
                                           HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                           FontFamily="{TemplateBinding FontFamily}"
                                           FontSize="{TemplateBinding FontSize}"
                                           Foreground="{TemplateBinding Foreground}" />
+                        <!--
+                            One group, because a toggle button asks for one state at a time and
+                            names it for both things at once: "CheckedPointerOver", then "Normal".
+                            Kept as two groups, nothing ever asked to leave "Checked", and a
+                            button switched off again stayed drawn as on.
+                        -->
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
                                 <VisualState x:Name="Normal" />
                                 <VisualState x:Name="PointerOver">
-                                    <VisualState.Setters><Setter Target="Root.Opacity" Value="0.78" /></VisualState.Setters>
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.78" />
+                                    </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Pressed">
-                                    <VisualState.Setters><Setter Target="Root.Opacity" Value="0.55" /></VisualState.Setters>
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.55" />
+                                    </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Disabled">
-                                    <VisualState.Setters><Setter Target="Root.Opacity" Value="0.32" /></VisualState.Setters>
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.32" />
+                                    </VisualState.Setters>
                                 </VisualState>
-                            </VisualStateGroup>
-                            <VisualStateGroup x:Name="CheckStates">
-                                <VisualState x:Name="Unchecked" />
                                 <VisualState x:Name="Checked">
                                     <VisualState.Setters>
                                         <Setter Target="Presenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <Setter Target="Plate.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.78" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <Setter Target="Plate.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.55" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <Setter Target="Plate.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.32" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <Setter Target="Plate.Opacity" Value="1" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Indeterminate" />
+                                <VisualState x:Name="IndeterminatePointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.78" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="IndeterminatePressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.55" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="IndeterminateDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.32" />
+                                    </VisualState.Setters>
+                                </VisualState>
                             </VisualStateGroup>
                         </VisualStateManager.VisualStateGroups>
                     </Grid>
@@ -279,6 +329,27 @@
 
     <Style x:Key="VolumeSliderStyle" TargetType="Slider">
         <Setter Property="Foreground" Value="{StaticResource GoosicAccentBrush}" />
+    </Style>
+
+    <!--
+        A lyric line that seeks when clicked. It is only its text: a plate lighting up behind a
+        line under the pointer would be the one thing on the page that is not lyrics.
+    -->
+    <Style x:Key="LyricLineButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0,0,0,26" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <ContentPresenter Background="Transparent" Padding="{TemplateBinding Padding}"
+                                      HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="RailGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
