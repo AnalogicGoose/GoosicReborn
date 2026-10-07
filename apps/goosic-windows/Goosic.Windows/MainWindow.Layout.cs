@@ -41,7 +41,6 @@ public sealed partial class MainWindow : Window
             Sidebar.Visibility = Visibility.Collapsed;
         }
 
-        ApplyPlayerLayout(next);
         ApplyInsets();
     }
 
@@ -57,24 +56,34 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ApplyPlayerLayout(WindowWidthClass widthClass)
+    /// <summary>
+    /// Lays the pill out on one row, or on two where one would crush the title.
+    /// </summary>
+    /// <remarks>
+    /// Decided by the room the pill actually has between the panels, not by the window's width
+    /// class: a medium window with both panels open leaves less than a narrow one with neither.
+    /// Returns whether the two-row layout is in use, for the page's clearance under it.
+    /// </remarks>
+    private bool ApplyPlayerLayout()
     {
-        var compact = widthClass == WindowWidthClass.Narrow;
-        PlayerPill.Height = compact ? 116 : 72;
-        PlayerPill.CornerRadius = new CornerRadius(compact ? 20 : 24);
-        PlayerGrid.Padding = compact ? new Thickness(12, 8, 12, 8) : new Thickness(14, 0, 16, 0);
+        var available = RootGrid.ActualWidth - LeftInset - RightInset - 2 * WindowLayout.PlayerEdgeClearance;
+        var compact = WindowLayout.PlayerUsesTwoRows(available);
+        PlayerPill.Height = compact ? 102 : 64;
+        PlayerPill.CornerRadius = new CornerRadius(compact ? 24 : 28);
+        PlayerGrid.Padding = compact ? new Thickness(16, 8, 16, 8) : new Thickness(16, 0, 16, 0);
+        PlayerGrid.RowSpacing = compact ? 4 : 0;
         PlayerGrid.RowDefinitions[0].Height = new GridLength(1, GridUnitType.Star);
         PlayerGrid.RowDefinitions[1].Height = compact ? GridLength.Auto : new GridLength(0);
 
         Grid.SetRow(PlayerMetadata, 0);
         Grid.SetColumn(PlayerMetadata, compact ? 0 : 1);
         Grid.SetColumnSpan(PlayerMetadata, compact ? 3 : 1);
-        PlayerMetadata.Margin = compact ? new Thickness(0, 0, 0, 4) : new Thickness(14, 0, 8, 0);
 
         Grid.SetRow(TransportControls, compact ? 1 : 0);
         Grid.SetColumn(TransportControls, 0);
         Grid.SetRow(PlayerUtilities, compact ? 1 : 0);
         Grid.SetColumn(PlayerUtilities, 2);
+        return compact;
     }
 
     /// <summary>
@@ -90,10 +99,18 @@ public sealed partial class MainWindow : Window
     {
         var left = LeftInset + ContentGutter;
         var right = RightInset + ContentGutter;
-        var compact = _widthClass == WindowWidthClass.Narrow;
-        ContentStack.Padding = new Thickness(left, 56, right, compact ? 174 : 138);
-        PlayerPill.Margin = new Thickness(LeftInset + 16, 0, RightInset + 16, 14);
-        ToastHost.Margin = new Thickness(LeftInset + 16, 0, RightInset + 16, PlayerPill.Height + 26);
+        var compact = ApplyPlayerLayout();
+        var clearance = WindowLayout.PlayerEdgeClearance;
+        ContentStack.Padding = new Thickness(left, 56, right, compact ? 166 : 128);
+        if (RootGrid.ActualWidth > 0)
+        {
+            // Placed by hand rather than centred between the panels: see PlayerPlacement.
+            var (pillLeft, pillWidth) = WindowLayout.PlayerPlacement(RootGrid.ActualWidth, LeftInset, RightInset);
+            PlayerPill.Width = pillWidth;
+            PlayerPill.Margin = new Thickness(pillLeft, 0, 0, 12);
+        }
+
+        ToastHost.Margin = new Thickness(LeftInset + clearance, 0, RightInset + clearance, PlayerPill.Height + 24);
         // Full height, as on macOS: the player pill sits beside the panel rather than under it.
         SidePanel.Margin = new Thickness(8, 48, 8, 8);
         foreach (var carousel in _carousels)
