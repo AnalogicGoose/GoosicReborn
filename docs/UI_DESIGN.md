@@ -341,7 +341,9 @@ copy; some macOS presentation changes remain uncommitted.
 | --- | --- | --- |
 | Floating composition | Mac overlay search/player; Windows layered content/player; GTK Overlay shell | Preserve scrolling beneath chrome and initial content clearance in every shell |
 | Search control | Mac segmented Picker; Windows independent filter buttons; GTK grouped toggles in a search block | Give all shells the same floating pill/selector composition and native single-selection semantics |
-| Volume | Mac corrected player overlay; Windows reuses its slider in a fixed capsule overlay with speaker/Escape dismissal; GTK inline volume Scale | Keep the bar geometry fixed; Windows live visual/accessibility acceptance remains pending; adopt the overlay on GTK |
+| Volume | Mac corrected player overlay; Windows opens a slider capsule around one fixed speaker button, with speaker/Escape dismissal and the wheel over the speaker; GTK inline volume Scale | Keep the bar geometry fixed; Windows assistive-technology acceptance remains pending; adopt the overlay on GTK |
+| Player bar | Mac 740-wide capsule; Windows now the same width, with a Like button the Mac bar does not have, and it stays in place beside an opening panel until the panel would reach it; GTK differs | Decide whether Like belongs in the bar on every platform; align GTK |
+| Lyrics | Mac blur, dimming and scale by distance with word-by-word fill; Windows the same without the word fill, having no word timings; GTK plain list | Carry word timings to Windows; adopt the treatment on GTK |
 | Accent | Mac components imply #FF0552; Windows palette and GTK CSS use #F53150 | Align the brand token while preserving native/contrast selection exceptions |
 | Density | Mac standard art 158; Windows palette card token 196; GTK artwork/card sizing differs | Compare at equivalent scaling and align perceived density to the current reference |
 | Navigation/inspector | Mac native split navigation and 320-point inspector; Windows adaptive columns/overlays; GTK 280-wide navigation overlays | Keep control access and content hierarchy at each platform's narrow and wide sizes |
