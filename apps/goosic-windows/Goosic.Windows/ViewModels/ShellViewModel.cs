@@ -539,12 +539,16 @@ public sealed class LyricLineViewModel : INotifyPropertyChanged
 {
     private bool _isCurrent;
 
-    internal LyricLineViewModel(string text, long atMilliseconds, bool synced)
+    internal LyricLineViewModel(string text, long atMilliseconds, bool synced, int index)
     {
         Text = text;
         AtMilliseconds = atMilliseconds;
         Synced = synced;
+        Index = index;
     }
+
+    /// <summary>The line's place in its document, which is what its distance from the sung line is measured in.</summary>
+    public int Index { get; }
 
     /// <summary>Whether the document follows the song; unsynced lines have no current line.</summary>
     public bool Synced { get; }
@@ -566,12 +570,8 @@ public sealed class LyricLineViewModel : INotifyPropertyChanged
 
             _isCurrent = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Emphasis)));
         }
     }
-
-    /// <summary>The current line at full strength, the rest receding, as the reference does.</summary>
-    public double Emphasis => !Synced || IsCurrent ? 1.0 : 0.45;
 }
 
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
@@ -901,8 +901,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     internal event Action? ConfirmedTrackChanged;
 
-    /// <summary>Raised with the index of the lyric line the music has reached.</summary>
+    /// <summary>
+    /// Raised with the index of the lyric line the music has reached, or -1 when it is back
+    /// before the first one.
+    /// </summary>
     internal event Action<int>? CurrentLyricChanged;
+
+    /// <summary>The line being sung, or -1 when there is none.</summary>
+    internal int CurrentLyricIndex => _currentLyric;
 
     /// <summary>
     /// Whether the page last confirmed that it is playing.
@@ -979,8 +985,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         if (index >= 0)
         {
             Lyrics[index].IsCurrent = true;
-            CurrentLyricChanged?.Invoke(index);
         }
+
+        CurrentLyricChanged?.Invoke(index);
     }
 
     internal bool ReportPlayback(BridgeEvent sample)
@@ -1184,7 +1191,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             foreach (var line in document.Lines)
             {
-                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds, document.Synced));
+                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds, document.Synced, Lyrics.Count));
             }
 
             _lyricsSynced = document.Synced;

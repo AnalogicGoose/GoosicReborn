@@ -82,7 +82,7 @@ public sealed partial class MainWindow : Window
                 {
                     SetFullPlayerOpen(false);
                 }
-                else if (PlayerVolumeOverlay.Visibility == Visibility.Visible)
+                else if (_volumeOpen)
                 {
                     SetVolumeOpen(false);
                 }
