@@ -5,8 +5,11 @@
 //! here. See `docs/LINUX_SHELL.md` for why it is built this way.
 
 mod artwork;
+mod backdrop;
 mod background;
 pub mod bridge;
+mod full_player;
+pub mod layout;
 pub mod local_host;
 mod login_host;
 pub mod lyrics;

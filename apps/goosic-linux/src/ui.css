@@ -16,7 +16,7 @@ window.goosic-shell { background: #202020; color: #f6f6f8; }
   background: alpha(#050505, 0.90);
   border: 1px solid alpha(white, 0.14);
   border-radius: 24px;
-  padding: 0 16px 0 14px;
+  padding: 8px 16px;
   box-shadow: 0 10px 30px alpha(black, 0.25);
 }
 
@@ -27,7 +27,7 @@ window.goosic-shell { background: #202020; color: #f6f6f8; }
 .goosic-sidebar row:hover, .goosic-track-row:hover { background: alpha(white, 0.07); }
 .goosic-sidebar-section { color: #9e9ea7; font-size: 12px; font-weight: 600; }
 .goosic-playlist-placeholder { color: #9e9ea7; font-size: 14px; }
-.goosic-route-icon { color: #f53150; font-size: 16px; }
+.goosic-route-icon { color: #ff0552; font-size: 16px; }
 .goosic-sidebar entry, .goosic-sidebar entry text {
   min-height: 30px;
   border-radius: 8px;
@@ -55,7 +55,7 @@ button.goosic-account-row {
   min-width: 36px;
   min-height: 36px;
   border-radius: 18px;
-  background: #f53150;
+  background: #ff0552;
   color: white;
   font-weight: 700;
 }
@@ -91,7 +91,7 @@ button.goosic-sidebar-toggle:hover { background: alpha(white, 0.08); }
   min-height: 42px;
   padding: 0;
 }
-.goosic-player-pill .goosic-play-button { min-width: 46px; background: transparent; color: white; }
+.goosic-player-pill .goosic-play-button { min-width: 46px; background: #ff0552; color: white; }
 .goosic-player-metadata { margin-left: 8px; margin-right: 8px; }
 .goosic-player-pill frame {
   border: 0;
@@ -109,17 +109,18 @@ button.goosic-sidebar-toggle:hover { background: alpha(white, 0.08); }
 }
 .goosic-player-pill scale highlight { background: alpha(white, 0.85); border-radius: 2px; }
 .goosic-player-pill scale.goosic-progress slider {
-  min-width: 0;
-  min-height: 0;
-  margin: 0;
+  min-width: 12px;
+  min-height: 12px;
+  margin: -5px;
   padding: 0;
   border: 0;
+  opacity: 0;
   background: transparent;
   box-shadow: none;
 }
 .goosic-player-pill scale.goosic-volume slider {
-  min-width: 10px;
-  min-height: 10px;
+  min-width: 12px;
+  min-height: 12px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -170,3 +171,76 @@ window.goosic-shell.goosic-light { background: #fbfbfd; color: #202026; }
 .goosic-light .goosic-player-pill scale.goosic-volume slider { background: #202026; }
 .goosic-light .goosic-player-pill frame { background: alpha(black, 0.10); }
 .goosic-light .goosic-settings-group { background: alpha(black, 0.05); }
+
+/* Match the Windows player's hierarchy while preserving GTK focus and native window chrome. */
+.goosic-player-pill.goosic-player-stacked { padding-top: 12px; padding-bottom: 8px; }
+.goosic-player-pill menubutton > button { min-width: 34px; min-height: 42px; }
+.goosic-player-pill button.goosic-cover-button { min-width: 42px; min-height: 42px; border-radius: 8px; }
+.goosic-player-pill button.goosic-cover-button:hover { background: alpha(white, 0.16); }
+.goosic-player-pill button:checked, .goosic-player-pill togglebutton:checked { color: #ff0552; }
+.goosic-full-player { color: #f6f6f8; }
+.goosic-full-player list, .goosic-full-player row { background: transparent; }
+.goosic-full-player button, .goosic-full-player menubutton > button {
+  background: alpha(white, 0.08); border: 1px solid alpha(white, 0.12);
+  box-shadow: none; border-radius: 24px; color: #f6f6f8;
+}
+.goosic-full-player button:hover { background: alpha(white, 0.16); }
+.goosic-full-player .goosic-full-cover { border-radius: 18px; box-shadow: 0 18px 42px alpha(black, 0.3); }
+.goosic-full-player .goosic-full-cover image { border-radius: 18px; }
+.goosic-full-player .goosic-full-transport { padding: 0; background: transparent; }
+.goosic-full-transport .goosic-player-metadata label { font-size: 24px; font-weight: 700; }
+.goosic-full-transport .goosic-player-metadata .dim-label { font-size: 16px; font-weight: 400; }
+.goosic-full-transport button { min-width: 34px; min-height: 42px; padding: 0; }
+.goosic-full-transport .goosic-play-button { background: #ff0552; color: white; }
+.goosic-full-transport scale trough { min-height: 4px; background: alpha(white, 0.20); border-radius: 3px; }
+.goosic-full-transport scale highlight { background: #ff0552; border-radius: 3px; }
+.goosic-full-transport .goosic-time { font-size: 12px; }
+.goosic-full-transport scale.goosic-progress slider { min-width: 12px; min-height: 12px; margin: -4px; padding: 0; background: white; border: 0; box-shadow: none; }
+.goosic-queue-row { padding: 8px 0; border-radius: 8px; }
+.goosic-queue-current { background: alpha(#ff0552, 0.10); }
+.goosic-queue-row button { padding: 3px; min-width: 20px; background: transparent; border: 0; box-shadow: none; }
+.goosic-lyrics-lines label { font-size: 18px; font-weight: 600; padding: 8px 0; }
+.goosic-lyrics-lines label.goosic-lyric-active { color: #ff0552; }
+.goosic-full-lyrics .goosic-lyrics-lines label { font-size: 28px; padding: 12px 0; }
+.goosic-light .goosic-player-pill .goosic-play-button { background: #ff0552; color: white; }
+.goosic-full-player .dim-label { opacity: 0.65; }
+
+.goosic-full-transport .goosic-player-metadata label.goosic-time { font-size: 12px; font-weight: 400; }
+.goosic-sidebar .goosic-route-icon { color: #ff0552; }
+.goosic-queue-current label { color: #ff0552; }
+
+.goosic-page .goosic-song-menu > button { min-width: 26px; padding: 3px; background: transparent; border: 0; }
+.goosic-page .goosic-song-menu > button:hover { background: alpha(white, 0.10); }
+
+.goosic-search-chrome { background: alpha(#121214, 0.94); color: #f6f6f8; padding: 12px 16px; border-radius: 24px; border: 1px solid alpha(white, 0.12); }
+.goosic-search-chrome entry { border-radius: 20px; min-height: 30px; }
+.goosic-search-chrome flowbox { background: transparent; }
+.goosic-search-chrome flowboxchild { padding: 0; }
+.goosic-search-chrome button:checked { background: #ff0552; color: white; border-color: transparent; }
+.goosic-light .goosic-search-chrome { background: alpha(#fbfbfd, 0.95); color: #202026; border-color: alpha(black, 0.10); }
+window.goosic-shell.goosic-immersive { background: #121214; }
+.goosic-light .goosic-full-player, .goosic-light .goosic-full-player label { color: #f6f6f8; }
+.goosic-light .goosic-full-player button, .goosic-light .goosic-full-player menubutton > button {
+  background: alpha(white, 0.08); color: #f6f6f8; border-color: alpha(white, 0.12);
+}
+.goosic-light .goosic-full-player .goosic-play-button { background: #ff0552; color: white; }
+.goosic-light .goosic-full-transport scale trough { background: alpha(white, 0.20); }
+.goosic-light .goosic-full-transport scale.goosic-progress slider { background: white; }
+.goosic-full-player .goosic-lyric-active, .goosic-light .goosic-full-player .goosic-lyric-active { color: #ff0552; }
+
+.goosic-lyrics-lines button.goosic-lyric-row { background: transparent; border: 0; padding: 0; box-shadow: none; }
+.goosic-lyrics-lines button.goosic-lyric-row:disabled { opacity: 1; }
+.goosic-lyrics-lines button.goosic-lyric-row:focus label,
+.goosic-lyrics-lines button.goosic-lyric-row:hover label { opacity: 1; }
+
+window.goosic-shell.goosic-high-contrast { background: #000; color: white; }
+.goosic-high-contrast .goosic-page label, .goosic-high-contrast .goosic-sidebar label,
+.goosic-high-contrast .goosic-side-panel label, .goosic-high-contrast .goosic-player-pill label,
+.goosic-high-contrast .goosic-full-player label { color: white; opacity: 1; }
+.goosic-high-contrast .goosic-sidebar, .goosic-high-contrast .goosic-side-panel,
+.goosic-high-contrast .goosic-player-pill, .goosic-high-contrast .goosic-search-chrome { background: black; border: 2px solid white; box-shadow: none; }
+window.goosic-shell.goosic-high-contrast .goosic-play-button,
+.goosic-high-contrast .goosic-search-chrome button:checked { background: white; color: black; border-color: white; }
+.goosic-high-contrast .goosic-queue-current { border: 2px solid white; }
+.goosic-high-contrast .goosic-lyric-active { text-decoration: underline; }
+.goosic-high-contrast .goosic-full-transport scale highlight { background: white; }
