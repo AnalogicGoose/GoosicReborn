@@ -20,28 +20,77 @@ public sealed partial class MainWindow : Window
 {
     // ---- The player pill --------------------------------------------------------------------
 
-    /// <summary>Pointing at the pill shows the times either side of the position line.</summary>
-    private void OnPillPointerEntered(object sender, PointerRoutedEventArgs e)
+    /// <summary>How far the position line draws in at each end to make room for a time.</summary>
+    private const double ProgressTimeInset = 40;
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _progressHoverTimer;
+    private bool _progressHovered;
+    private bool _progressTimesShown;
+
+    /// <summary>
+    /// Pointing at the position line, and only at it, shows the times either side of it.
+    /// </summary>
+    /// <remarks>
+    /// The pause before it reacts is the macOS player's: long enough that a pointer crossing the
+    /// pill on its way elsewhere changes nothing, and uneven so that the line settling under a
+    /// pointer resting on its edge cannot start a leave-and-enter loop.
+    /// </remarks>
+    private void OnProgressPointerEntered(object sender, PointerRoutedEventArgs e) => ScheduleProgressHover(true);
+
+    private void OnProgressPointerExited(object sender, PointerRoutedEventArgs e) => ScheduleProgressHover(false);
+
+    private void ScheduleProgressHover(bool hovered)
     {
-        if (!Model.HasPlayback)
+        if (_progressHoverTimer is null)
         {
-            return;
+            _progressHoverTimer = DispatcherQueue.CreateTimer();
+            _progressHoverTimer.IsRepeating = false;
+            _progressHoverTimer.Tick += (_, _) => UpdateProgressExpansion();
         }
 
-        PillElapsed.Visibility = Visibility.Visible;
-        PillRemaining.Visibility = Visibility.Visible;
+        _progressHovered = hovered;
+        _progressHoverTimer.Stop();
+        _progressHoverTimer.Interval = TimeSpan.FromMilliseconds(hovered ? 240 : 140);
+        _progressHoverTimer.Start();
     }
 
-    private void OnPillPointerExited(object sender, PointerRoutedEventArgs e)
+    /// <summary>
+    /// Draws the position line as a hairline, or shortened between its two times and thicker.
+    /// </summary>
+    /// <remarks>
+    /// Only the line's own scale and the labels' opacity change, so nothing is measured again and
+    /// the pill keeps its size. The length is left alone during a drag: the pointer is being read
+    /// against the line, and a line that moved under it would move the song with it.
+    /// </remarks>
+    private void UpdateProgressExpansion()
     {
-        PillElapsed.Visibility = Visibility.Collapsed;
-        PillRemaining.Visibility = Visibility.Collapsed;
+        if (!_seeking)
+        {
+            _progressTimesShown = _progressHovered && Model.HasPlayback;
+        }
+
+        var width = PillLine.ActualWidth;
+        var length = _progressTimesShown && width > 0
+            ? Math.Max(0.2, (width - 2 * ProgressTimeInset) / width)
+            : 1;
+        var thick = _progressTimesShown || _seeking;
+        PillLine.CenterPoint = new System.Numerics.Vector3((float)(width / 2), (float)(PillLine.ActualHeight / 2), 0);
+        PillLine.Scale = new System.Numerics.Vector3((float)length, thick ? 4f / 3f : 1f, 1);
+        PillElapsed.Opacity = PillRemaining.Opacity = _progressTimesShown ? 1 : 0;
     }
 
     /// <summary>Pointing at the cover shows that clicking it opens the full-screen player.</summary>
-    private void OnCoverPointerEntered(object sender, PointerRoutedEventArgs e) => PillCoverHover.Opacity = 1;
+    private void OnCoverPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        FadePlayerElement(PillCoverHover, 1);
+        SpringPlayerScale(PillCoverButton, 1.06f);
+    }
 
-    private void OnCoverPointerExited(object sender, PointerRoutedEventArgs e) => PillCoverHover.Opacity = 0;
+    private void OnCoverPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        FadePlayerElement(PillCoverHover, 0);
+        SpringPlayerScale(PillCoverButton, 1);
+    }
 
     /// <summary>The pill's "more" menu: what the row menu offers, for the track that is playing.</summary>
     private void OnNowPlayingMore(object sender, RoutedEventArgs e)
@@ -207,11 +256,16 @@ public sealed partial class MainWindow : Window
 
     private void OnRepeat(object sender, RoutedEventArgs e) => Model.CycleRepeat();
 
-    private async void OnPrevious(object sender, RoutedEventArgs e) => await PreviousAsync();
+    private async void OnPrevious(object sender, RoutedEventArgs e)
+    {
+        NudgePlayerControl(sender as UIElement, -1);
+        await PreviousAsync();
+    }
 
     /// <summary>Restarts the track after its first few seconds, as every player does; otherwise goes back.</summary>
     private async Task PreviousAsync()
     {
+        if (!Model.HasPlayback || Model.NowPlayingEntry is null || !Model.CanChangeTrack()) return;
         if (_playback is not null && Model.IsSeekable && Model.PlaybackPosition > 3)
         {
             await SeekToAsync(0);
@@ -221,9 +275,29 @@ public sealed partial class MainWindow : Window
         await AdvanceAsync(forward: false, natural: false);
     }
 
-    private async void OnNext(object sender, RoutedEventArgs e) => await AdvanceAsync(forward: true, natural: false);
+    private async void OnNext(object sender, RoutedEventArgs e)
+    {
+        NudgePlayerControl(sender as UIElement, 1);
+        await AdvanceAsync(forward: true, natural: false);
+    }
 
     private async Task AdvanceAsync(bool forward, bool natural)
+    {
+        if (_advancingQueue) return;
+        _advancingQueue = true;
+        try
+        {
+            await AdvanceCoreAsync(forward, natural);
+        }
+        finally
+        {
+            _advancingQueue = false;
+        }
+    }
+
+    private bool _advancingQueue;
+
+    private async Task AdvanceCoreAsync(bool forward, bool natural)
     {
         // The sleep timer's "end of this song": the song has ended, so nothing follows it.
         if (natural && TakeSleepAtEndOfSong())
@@ -275,31 +349,47 @@ public sealed partial class MainWindow : Window
     /// <summary>Keeps the position line in step with what the page confirmed.</summary>
     private void WireSeekGestures()
     {
+        // Slider's own pointer handling must not consume the wheel before the volume action.
+        VolumeSlider.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(OnVolumeWheel), true);
+        FullPlayerVolume.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(OnVolumeWheel), true);
+        // The speaker takes the wheel too, so the volume can be turned without opening anything.
+        VolumeButton.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler(OnVolumeWheel), true);
         Model.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(ShellViewModel.PlaybackPosition) or nameof(ShellViewModel.PlaybackDuration))
             {
                 DrawProgress(_seeking ? _scrubPosition : Model.PlaybackPosition);
             }
+            else if (args.PropertyName == nameof(ShellViewModel.IsSeekable))
+            {
+                // Still drawn while it cannot be moved, as on macOS, only fainter.
+                PlaybackProgress.Opacity = Model.IsSeekable ? 1 : 0.45;
+            }
         };
+        PlaybackProgress.Opacity = Model.IsSeekable ? 1 : 0.45;
     }
 
     private void DrawProgress(double position)
     {
-        var width = PlaybackProgress.ActualWidth;
+        var width = PillLine.ActualWidth;
         var duration = Model.PlaybackDuration;
         PillFill.Width = duration > 0 && width > 0 ? Math.Clamp(position / duration, 0, 1) * width : 0;
     }
 
+    /// <summary>Reads the pointer against the line as it is drawn, which is shorter between the times.</summary>
     private double PositionAt(PointerRoutedEventArgs e)
     {
-        var x = e.GetCurrentPoint(PlaybackProgress).Position.X;
-        var width = Math.Max(1, PlaybackProgress.ActualWidth);
+        var inset = _progressTimesShown ? ProgressTimeInset : 0;
+        var x = e.GetCurrentPoint(PlaybackProgress).Position.X - inset;
+        var width = Math.Max(1, PlaybackProgress.ActualWidth - 2 * inset);
         return Math.Clamp(x / width, 0, 1) * Model.PlaybackDuration;
     }
 
-    private void OnProgressSizeChanged(object sender, SizeChangedEventArgs e) =>
+    private void OnProgressSizeChanged(object sender, SizeChangedEventArgs e)
+    {
         DrawProgress(_seeking ? _scrubPosition : Model.PlaybackPosition);
+        UpdateProgressExpansion();
+    }
 
     private void OnProgressPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -311,7 +401,7 @@ public sealed partial class MainWindow : Window
         _seeking = true;
         Model.IsScrubbing = true;
         PlaybackProgress.CapturePointer(e.Pointer);
-        PillTrack.Height = PillFill.Height = 5;
+        UpdateProgressExpansion();
         _scrubPosition = PositionAt(e);
         DrawProgress(_scrubPosition);
         e.Handled = true;
@@ -343,7 +433,7 @@ public sealed partial class MainWindow : Window
 
         _seeking = false;
         Model.IsScrubbing = false;
-        PillTrack.Height = PillFill.Height = 3;
+        UpdateProgressExpansion();
         // An advertisement can start while the thumb is held; the seek is dropped then.
         if (_playback is not null && Model.IsSeekable)
         {
@@ -369,6 +459,83 @@ public sealed partial class MainWindow : Window
         var gain = Presentation.VolumeTaper.ToGain(e.NewValue / 100.0);
         await _playback.SetVolumeAsync(gain);
         Model.RememberVolume(gain, _playback.PreferredMuted);
+    }
+
+    private bool _volumeOpen;
+
+    private void OnToggleVolume(object sender, RoutedEventArgs e) => SetVolumeOpen(!_volumeOpen);
+
+    /// <summary>
+    /// Opens the volume capsule around the speaker button, or closes it again.
+    /// </summary>
+    /// <remarks>
+    /// The speaker is one button that stays where it is, so keyboard focus stays on it through
+    /// both changes. That matters beyond tidiness: a focused control that disappears hands focus
+    /// to the first control in the window, which is the search box, and the box answers focus by
+    /// opening its recent searches. The slider is the one thing here that does go away, so focus
+    /// is taken off it before it does.
+    /// </remarks>
+    private void SetVolumeOpen(bool open)
+    {
+        if (open == _volumeOpen)
+        {
+            return;
+        }
+
+        _volumeOpen = open;
+        // The capsule covers these; they keep their place but stop being targets of any kind.
+        foreach (var covered in new Control[] { PillLikeButton, LyricsButton, QueueButton })
+        {
+            covered.IsHitTestVisible = !open;
+            covered.IsTabStop = !open;
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(covered,
+                open ? Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw
+                     : Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Content);
+        }
+
+        var label = open ? "Hide volume controls" : "Show volume controls";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(VolumeButton, label);
+        ToolTipService.SetToolTip(VolumeButton, label);
+
+        if (open)
+        {
+            PlayerVolumeCapsule.Visibility = Visibility.Visible;
+        }
+        else if (VolumeSlider.FocusState != FocusState.Unfocused)
+        {
+            VolumeButton.Focus(FocusState.Programmatic);
+        }
+
+        var storyboard = open ? VolumeOpenStoryboard : VolumeCloseStoryboard;
+        storyboard.Begin();
+        if (!AnimationsEnabled)
+        {
+            storyboard.SkipToFill();
+        }
+    }
+
+    /// <summary>The capsule leaves the tree once it has faded, unless it was reopened meanwhile.</summary>
+    private void OnVolumeCloseCompleted(object? sender, object e)
+    {
+        if (!_volumeOpen)
+        {
+            PlayerVolumeCapsule.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>
+    /// A wheel over a volume control changes its slider, consuming the gesture once. Over the
+    /// speaker button it changes the pill's slider, whether or not the capsule is showing it.
+    /// </summary>
+    private void OnVolumeWheel(object sender, PointerRoutedEventArgs e)
+    {
+        if (e.Handled) return;
+        var slider = sender as Slider ?? VolumeSlider;
+        if (!Model.CanAdjustSound()) return;
+        var point = e.GetCurrentPoint((UIElement)sender).Properties;
+        if (point.IsHorizontalMouseWheel || point.MouseWheelDelta == 0) return;
+        slider.Value = Math.Clamp(slider.Value + point.MouseWheelDelta / 120.0 * 5, slider.Minimum, slider.Maximum);
+        e.Handled = true;
     }
 
     private void OnDismissToast(object sender, RoutedEventArgs e) => Model.DismissToast();

@@ -1,5 +1,4 @@
 import Foundation
-import SwiftCrossUI
 
 /// The native surfaces that share Goosic's material treatment.
 enum MaterialSurfaceKind: String, CaseIterable, Equatable {

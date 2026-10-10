@@ -132,6 +132,7 @@ public sealed partial class MainWindow : Window
         }
 
         FullPlayerCover.Source = image;
+        FadePlayerArtwork(FullPlayerCover);
         _fullPlayerMesh.SetPalette(paletteTask.Result);
         ArtworkBackdropImage.Source = backdropTask.Result;
         FullPlayerBlur.Source = backdropTask.Result;
@@ -156,21 +157,31 @@ public sealed partial class MainWindow : Window
         }
 
         var mode = FullPlayerLayout.Mode(width, FullPlayerLyricsToggle.IsChecked == true);
+        var split = mode == FullPlayerMode.Split;
         var (horizontal, top, bottom) = FullPlayerLayout.Padding(width);
-        FullPlayerLayoutGrid.Padding = new Thickness(horizontal, top, horizontal, bottom);
-        FullPlayerLayoutGrid.ColumnSpacing = mode == FullPlayerMode.Split ? 72 : 0;
-
         var lyricsOnly = mode == FullPlayerMode.Lyrics;
         FullPlayerLyrics.Visibility = mode == FullPlayerMode.Cover ? Visibility.Collapsed : Visibility.Visible;
         // The cover shrinks with the window's height too, so the controls under it stay on screen.
         var cover = FullPlayerLayout.CoverSize(RootGrid.ActualHeight, top, bottom);
+
+        // Side by side, the two columns are sized for what they hold and centred as one group.
+        var (inset, gutter, player, lyrics) = FullPlayerLayout.Split(width, cover);
+        if (split)
+        {
+            horizontal = inset;
+            cover = Math.Min(cover, player);
+        }
+
+        FullPlayerLayoutGrid.Padding = new Thickness(horizontal, top, horizontal, bottom);
+        FullPlayerLayoutGrid.ColumnSpacing = split ? gutter : 0;
+        FullPlayerLayoutGrid.HorizontalAlignment = split ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
+        FullPlayerCoverColumn.Width = split ? new GridLength(player) : new GridLength(1, GridUnitType.Star);
+        FullPlayerCoverColumn.MaxWidth = double.PositiveInfinity;
+        FullPlayerLyricsColumn.Width = new GridLength(split ? lyrics : 0);
+        FullPlayerControls.MaxWidth = split ? player : 520;
         FullPlayerCoverButton.MaxWidth = cover > 0 ? cover : double.PositiveInfinity;
         FullPlayerCoverButton.HorizontalAlignment = HorizontalAlignment.Left;
         FullPlayerCoverButton.Visibility = lyricsOnly || cover == 0 ? Visibility.Collapsed : Visibility.Visible;
-        FullPlayerLyricsColumn.Width = mode == FullPlayerMode.Split
-            ? new GridLength(1.3, GridUnitType.Star)
-            : new GridLength(0);
-        FullPlayerCoverColumn.MaxWidth = mode == FullPlayerMode.Split ? 560 : double.PositiveInfinity;
 
         // Lyrics alone take the top row; the controls sit under them rather than beside.
         Grid.SetColumn(FullPlayerLyrics, lyricsOnly ? 0 : 1);
@@ -179,8 +190,10 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(FullPlayerControls, lyricsOnly ? 1 : 0);
         Grid.SetRowSpan(FullPlayerControls, lyricsOnly ? 1 : 2);
         FullPlayerControls.VerticalAlignment = lyricsOnly ? VerticalAlignment.Bottom : VerticalAlignment.Center;
-        // The volume, full-screen, lyrics and close buttons float over the top right corner.
-        FullPlayerLyrics.Margin = new Thickness(0, FullPlayerLayout.LyricsTopMargin(mode), 0, 0);
+        // Beside the cover the lyrics stop short of the window's top and bottom, clear of the
+        // buttons floating in its corner; alone they take the row they are given.
+        FullPlayerLyrics.MaxHeight = FullPlayerLayout.LyricsMaxHeight(RootGrid.ActualHeight, mode);
+        FullPlayerLyrics.VerticalAlignment = split ? VerticalAlignment.Center : VerticalAlignment.Stretch;
     }
 
     private void UpdateBackdrop() =>
@@ -316,6 +329,8 @@ public sealed partial class MainWindow : Window
     {
         if (sender is Button { Tag: long at } && at > 0 && _playback is not null && Model.IsSeekable)
         {
+            // Choosing a line is choosing to listen from it, so the view follows the song again.
+            _fullLyrics?.SetFollowing(true);
             await SeekToAsync(at / 1000.0);
         }
     }

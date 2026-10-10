@@ -613,7 +613,7 @@ public sealed partial class ShellViewModel
     /// <param name="natural">The track ended by itself, rather than being skipped.</param>
     internal async Task<MoveResult> MoveAsync(bool forward, bool natural)
     {
-        if (_current is not { } current || Queue.Count == 0)
+        if (NowPlayingEntry is not { } current)
         {
             ReportStatus("Choose a track to begin.");
             return default;
@@ -628,6 +628,8 @@ public sealed partial class ShellViewModel
         var decision = PlaybackOrder.Move(Queue.Count, Queue.IndexOf(current), forward, natural, ToQueueRepeat(Repeat));
         switch (decision.Kind)
         {
+            case MoveKind.None:
+                return default;
             case MoveKind.Play:
                 return new(Point(Queue[decision.Index]), false);
             case MoveKind.Restart:

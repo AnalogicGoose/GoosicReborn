@@ -82,6 +82,10 @@ public sealed partial class MainWindow : Window
                 {
                     SetFullPlayerOpen(false);
                 }
+                else if (_volumeOpen)
+                {
+                    SetVolumeOpen(false);
+                }
                 else if (_sidePanel.IsOpen)
                 {
                     CloseSidePanel();
