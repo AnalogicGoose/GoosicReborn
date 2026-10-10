@@ -58,6 +58,12 @@ impl FullPlayer {
         cover_slot.set_halign(gtk::Align::Center);
         cover_slot.add_css_class("goosic-full-cover");
         cover_slot.set_overflow(gtk::Overflow::Hidden);
+        cover_slot.append(
+            &gtk::Image::builder()
+                .icon_name("audio-x-generic-symbolic")
+                .pixel_size(440)
+                .build(),
+        );
         let cover_column = gtk::Box::new(gtk::Orientation::Vertical, 24);
         cover_column.set_hexpand(true);
         cover_column.set_valign(gtk::Align::Center);
