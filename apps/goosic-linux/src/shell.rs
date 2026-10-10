@@ -40,7 +40,10 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::artwork::ArtworkCache;
+use crate::backdrop::ArtworkBackdrop;
 use crate::background::Background;
+use crate::full_player::FullPlayer;
+use crate::layout;
 use crate::local_host::{LocalEvent, LocalHandlers, LocalHost};
 use crate::login_host::{LoginHandlers, LoginHost};
 use crate::lyrics::Lyrics;
@@ -51,10 +54,13 @@ use crate::pages::{Browser, DownloadsState, ShellFacts};
 use crate::personal_host::PersonalHost;
 use crate::playback::Player;
 use crate::player_bar::{BarActions, PlayerBar};
-use crate::side_panels::{LyricsPanel, QueuePanel};
+use crate::side_panels::{LyricsPanel, QueueEdit, QueuePanel};
 use crate::status_icon::{StatusIcon, TrayHandlers};
 use crate::web_profile;
 use crate::{bridge, service, theme, ui};
+
+#[path = "shell_presentation.rs"]
+mod presentation;
 
 type Answer = Result<ResponseEnvelope, TransportError>;
 
@@ -71,6 +77,15 @@ pub struct Shell {
     lyrics: RefCell<Lyrics>,
     facts: RefCell<ShellFacts>,
     queue_visible: Cell<bool>,
+    full_open: Cell<bool>,
+    sidebar_open: Cell<bool>,
+    layout_size: Cell<(i32, i32)>,
+    main: gtk::Box,
+    content: gtk::Box,
+    sidebar: gtk::Box,
+    sidebar_toggle: gtk::Button,
+    backdrop: ArtworkBackdrop,
+    full_player: FullPlayer,
     official: Rc<OfficialHost>,
     personal: Rc<PersonalHost>,
     local: Rc<LocalHost>,
@@ -97,6 +112,9 @@ pub struct Shell {
     diagnostics: RefCell<String>,
     pending_preferences: RefCell<Option<PreferencesPatch>>,
     preference_token: Cell<u64>,
+    theme_subscription: RefCell<Option<gio::SignalSubscription>>,
+    sleep_deadline: Cell<Option<Instant>>,
+    sleep_end_track: RefCell<Option<String>>,
 }
 
 fn no_context() -> Rc<[Track]> {
@@ -127,6 +145,7 @@ impl Shell {
                 set_hide_explicit: Box::new(forward(weak, Shell::set_hide_explicit)),
                 set_start_page: Box::new(forward(weak, Shell::set_start_page)),
                 set_reduce_motion: Box::new(forward(weak, Shell::set_reduce_motion)),
+                set_artwork_background: Box::new(forward(weak, Shell::set_artwork_background)),
                 import_legacy: Box::new(forward_unit(weak, Shell::import_legacy_preferences)),
                 load_more: Box::new(forward_unit(weak, Shell::load_more)),
                 play_download: Box::new(forward(weak, Shell::play_download)),
@@ -155,6 +174,14 @@ impl Shell {
                     move || {
                         weak.upgrade()
                             .is_some_and(|shell| shell.facts.borrow().active_account_id.is_some())
+                    }
+                }),
+                queue_track: Box::new({
+                    let weak = weak.clone();
+                    move |track, next| {
+                        if let Some(shell) = weak.upgrade() {
+                            shell.enqueue(track, next);
+                        }
                     }
                 }),
                 artwork: artwork.clone(),
@@ -196,26 +223,37 @@ impl Shell {
                 raise: Box::new(forward_unit(weak, Shell::raise)),
                 quit: Box::new(forward_unit(weak, Shell::quit)),
             });
-            let bar = PlayerBar::new(
-                BarActions {
-                    toggle_pause: Box::new(forward_unit(weak, Shell::toggle_pause)),
-                    previous: Box::new(forward_unit(weak, Shell::previous)),
-                    next: Box::new(forward_unit(weak, Shell::next)),
-                    seek: Box::new(forward(weak, Shell::seek)),
-                    volume: Box::new(forward(weak, Shell::set_volume)),
-                    mute: Box::new(forward_unit(weak, Shell::toggle_muted)),
-                    shuffle: Box::new(forward_unit(weak, Shell::toggle_shuffle)),
-                    repeat: Box::new(forward_unit(weak, Shell::cycle_repeat)),
-                    autoplay: Box::new(forward_unit(weak, Shell::toggle_autoplay)),
-                    radio: Box::new(forward_unit(weak, Shell::start_radio)),
-                    stop: Box::new(forward_unit(weak, Shell::release_playback)),
-                    lyrics: Box::new(forward_unit(weak, Shell::toggle_lyrics)),
-                    queue: Box::new(forward_unit(weak, Shell::toggle_queue)),
-                },
+            let bar_actions = Rc::new(BarActions {
+                toggle_pause: Box::new(forward_unit(weak, Shell::toggle_pause)),
+                previous: Box::new(forward_unit(weak, Shell::previous)),
+                next: Box::new(forward_unit(weak, Shell::next)),
+                seek: Box::new(forward(weak, Shell::seek)),
+                volume: Box::new(forward(weak, Shell::set_volume)),
+                mute: Box::new(forward_unit(weak, Shell::toggle_muted)),
+                shuffle: Box::new(forward_unit(weak, Shell::toggle_shuffle)),
+                repeat: Box::new(forward_unit(weak, Shell::cycle_repeat)),
+                autoplay: Box::new(forward_unit(weak, Shell::toggle_autoplay)),
+                radio: Box::new(forward_unit(weak, Shell::start_radio)),
+                stop: Box::new(forward_unit(weak, Shell::release_playback)),
+                lyrics: Box::new(forward_unit(weak, Shell::toggle_lyrics)),
+                queue: Box::new(forward_unit(weak, Shell::toggle_queue)),
+                expand: Box::new(forward_unit(weak, Shell::toggle_full_player)),
+                sleep: Box::new(forward(weak, Shell::set_sleep_timer)),
+            });
+            let bar = PlayerBar::new(bar_actions.clone(), artwork.clone());
+            let full_player = FullPlayer::new(
+                bar_actions,
+                artwork.clone(),
+                forward_unit(weak, Shell::close_full_player),
+                forward_unit(weak, Shell::toggle_fullscreen),
+            );
+            let backdrop = ArtworkBackdrop::new(artwork.clone());
+            let queue_panel = QueuePanel::new(
+                forward(weak, Shell::play_queued),
+                forward(weak, Shell::edit_queue),
                 artwork.clone(),
             );
-            let queue_panel = QueuePanel::new(forward(weak, Shell::play_queued));
-            let lyrics_panel = LyricsPanel::new();
+            let lyrics_panel = LyricsPanel::new(forward(weak, Shell::seek));
 
             let client = match launched {
                 Ok(client) => Some(client),
@@ -224,7 +262,8 @@ impl Shell {
                     sidebar.connection.set_label("○ Service offline");
                     sidebar
                         .status
-                        .set_label(&format!("Could not start goosic-service.\n{error}"));
+                        .set_label("The playback service could not start.");
+                    sidebar.status.set_tooltip_text(Some(&error.to_string()));
                     None
                 }
             };
@@ -249,9 +288,12 @@ impl Shell {
             main.set_margin_start(304);
             main.set_margin_end(24);
             main.set_margin_top(42);
-            main.set_margin_bottom(110);
-            main.append(&search_bar);
-            main.append(&scroller);
+            let page_overlay = gtk::Overlay::new();
+            page_overlay.set_child(Some(&scroller));
+            search_bar.set_valign(gtk::Align::Start);
+            search_bar.add_css_class("goosic-search-chrome");
+            page_overlay.add_overlay(&search_bar);
+            main.append(&page_overlay);
             let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
             content.set_hexpand(true);
             content.set_vexpand(true);
@@ -259,7 +301,8 @@ impl Shell {
             content.append(official.widget());
             content.append(personal.widget());
             let root = gtk::Overlay::new();
-            root.set_child(Some(&content));
+            root.set_child(Some(&backdrop.widget));
+            root.add_overlay(&content);
             sidebar.root.set_width_request(280);
             sidebar.root.set_halign(gtk::Align::Start);
             sidebar.root.set_valign(gtk::Align::Fill);
@@ -277,7 +320,7 @@ impl Shell {
             bar.root.add_css_class("goosic-player-pill");
             root.add_overlay(&bar.root);
             let sidebar_toggle = gtk::Button::builder()
-                .icon_name("sidebar-show-symbolic")
+                .icon_name("view-list-symbolic")
                 .tooltip_text("Toggle sidebar")
                 .width_request(34)
                 .height_request(30)
@@ -287,17 +330,12 @@ impl Shell {
                 .margin_top(18)
                 .build();
             sidebar_toggle.add_css_class("goosic-sidebar-toggle");
-            {
-                let (sidebar, main, player) =
-                    (sidebar.root.clone(), main.clone(), bar.root.clone());
-                sidebar_toggle.connect_clicked(move |_| {
-                    let show = !sidebar.is_visible();
-                    sidebar.set_visible(show);
-                    main.set_margin_start(if show { 304 } else { 64 });
-                    player.set_margin_start(if show { 304 } else { 64 });
-                });
-            }
+            sidebar_toggle.connect_clicked({
+                let toggle = forward_unit(weak, Shell::toggle_sidebar);
+                move |_| toggle()
+            });
             root.add_overlay(&sidebar_toggle);
+            root.add_overlay(&full_player.root);
 
             let window = gtk::ApplicationWindow::builder()
                 .application(app)
@@ -306,7 +344,7 @@ impl Shell {
                 .default_height(760)
                 .child(&root)
                 .build();
-            window.set_size_request(950, 560);
+            window.set_size_request(480, 560);
             window.add_css_class("goosic-shell");
             theme::apply_window(&window, Theme::System);
             let background = Background::start(app, &window);
@@ -333,6 +371,15 @@ impl Shell {
                 lyrics: RefCell::new(Lyrics::new()),
                 facts: RefCell::new(ShellFacts::default()),
                 queue_visible: Cell::new(false),
+                full_open: Cell::new(false),
+                sidebar_open: Cell::new(true),
+                layout_size: Cell::new((1100, 760)),
+                main,
+                content,
+                sidebar: sidebar.root,
+                sidebar_toggle,
+                backdrop,
+                full_player,
                 official,
                 personal,
                 local,
@@ -358,8 +405,21 @@ impl Shell {
                 diagnostics: RefCell::new(String::new()),
                 pending_preferences: RefCell::new(None),
                 preference_token: Cell::new(0),
+                theme_subscription: RefCell::new(None),
+                sleep_deadline: Cell::new(None),
+                sleep_end_track: RefCell::new(None),
             }
         });
+        let weak = Rc::downgrade(&shell);
+        *shell.theme_subscription.borrow_mut() = theme::watch_system(move || {
+            if let Some(shell) = weak.upgrade() {
+                theme::apply_window(&shell.window, shell.facts.borrow().theme);
+                shell.refresh_player();
+            }
+        });
+        shell.wire_keyboard();
+        shell.wire_layout();
+        shell.wire_sleep_timer();
         shell.render();
         shell.refresh_player();
         shell.connect();
@@ -496,6 +556,7 @@ impl Shell {
             facts.hide_explicit = settings.hide_explicit;
             facts.start_page = settings.start_page.clone();
             facts.reduce_motion = settings.reduce_motion;
+            facts.artwork_background = settings.artwork_background;
         }
         theme::apply(theme);
         theme::apply_window(&self.window, theme);
@@ -565,6 +626,16 @@ impl Shell {
         self.render_soon();
     }
 
+    fn set_artwork_background(self: &Rc<Self>, enabled: bool) {
+        self.facts.borrow_mut().artwork_background = enabled;
+        self.save_preferences(PreferencesPatch {
+            artwork_background: Some(enabled),
+            ..Default::default()
+        });
+        self.refresh_player();
+        self.render_soon();
+    }
+
     fn set_reduce_motion(self: &Rc<Self>, enabled: bool) {
         self.facts.borrow_mut().reduce_motion = enabled;
         self.save_preferences(PreferencesPatch {
@@ -609,6 +680,10 @@ impl Shell {
     // MARK: navigation
 
     pub fn navigate(self: &Rc<Self>, route: Route) {
+        if self.layout_size.get().0 < 820 {
+            self.sidebar_open.set(false);
+            self.apply_layout();
+        }
         self.browser.borrow_mut().navigate(route);
         // Selecting a row does not activate it, so this cannot come back here.
         ui::select_route(&self.routes, route);
@@ -1173,6 +1248,7 @@ impl Shell {
         };
         ui::set_rows(&self.rows, rows);
         self.search_bar.set_visible(searching);
+        self.apply_layout();
     }
 
     // MARK: playback
@@ -1201,7 +1277,9 @@ impl Shell {
         {
             let mut player = self.player.borrow_mut();
             if context.is_empty() {
-                player.select(&track);
+                if !player.queued().is_some_and(|queued| queued.id == track.id) {
+                    player.select(&track);
+                }
             } else {
                 player.set_queue(context.to_vec(), &track);
             }
@@ -1220,8 +1298,93 @@ impl Shell {
     fn play_queued(self: &Rc<Self>, index: usize) {
         let track = self.player.borrow().queue.get(index).cloned();
         if let Some(track) = track {
+            let reason = {
+                let player = self.player.borrow();
+                if self.facts.borrow().account_busy {
+                    Some(ACCOUNT_CHANGING)
+                } else if player.transition() != PlaybackTransition::Idle {
+                    Some(PENDING)
+                } else if player.advertisement {
+                    Some(IN_ADVERTISEMENT)
+                } else {
+                    None
+                }
+            };
+            if let Some(reason) = reason {
+                return self.set_status(reason);
+            }
+            if self.client.is_none() {
+                return self.set_status("Connect to the Rust service before playing.");
+            }
+            {
+                let mut player = self.player.borrow_mut();
+                if player.index != index {
+                    player.queue_changed();
+                }
+                player.index = index;
+            }
             self.play(track, no_context());
         }
+    }
+
+    fn enqueue(self: &Rc<Self>, track: Track, next: bool) {
+        if self.facts.borrow().account_busy
+            || self.player.borrow().transition() != PlaybackTransition::Idle
+        {
+            return self.set_status(PENDING);
+        }
+        let title = track.title.clone();
+        {
+            let mut player = self.player.borrow_mut();
+            let at = if next && !player.queue.is_empty() {
+                (player.index + 1).min(player.queue.len())
+            } else {
+                player.queue.len()
+            };
+            player.queue.insert(at, track);
+            player.queue_changed();
+        }
+        self.set_status(&format!(
+            "Added {title} {}.",
+            if next { "to play next" } else { "to the queue" }
+        ));
+        self.queue_visible.set(true);
+        self.lyrics.borrow_mut().visible = false;
+        self.save_preferences(PreferencesPatch {
+            queue_visible: Some(true),
+            ..Default::default()
+        });
+        self.sync_side_panels();
+    }
+
+    fn edit_queue(self: &Rc<Self>, edit: QueueEdit) {
+        if self.facts.borrow().account_busy
+            || self.player.borrow().transition() != PlaybackTransition::Idle
+        {
+            return self.set_status(PENDING);
+        }
+        {
+            let mut player = self.player.borrow_mut();
+            match edit {
+                QueueEdit::Remove(index) => {
+                    player.remove_queued(index);
+                }
+                QueueEdit::Move(from, to) => {
+                    player.move_queued(from, to);
+                }
+                QueueEdit::ClearUpcoming => player.clear_upcoming(),
+                QueueEdit::ClearPlayed => player.clear_played(),
+                QueueEdit::UndoClear => {
+                    player.undo_clear(Instant::now());
+                }
+            }
+        }
+        let weak = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            if let Some(shell) = weak.upgrade() {
+                shell.refresh_player();
+            }
+        });
     }
 
     /// Asks Rust for the official player's lease; the page loads only once it is granted.
@@ -1450,18 +1613,27 @@ impl Shell {
     /// Moves to the next queued track when one finishes. Unlike Next this does not wrap: the end
     /// of the queue stops, so a single-track queue cannot loop forever on its own `ended` report.
     fn advance_after_end(self: &Rc<Self>) {
+        let current = self
+            .player
+            .borrow()
+            .current
+            .as_ref()
+            .map(|track| track.video_id.clone());
+        if current.is_some() && *self.sleep_end_track.borrow() == current {
+            self.sleep_end_track.borrow_mut().take();
+            self.pause_for_sleep();
+            return;
+        }
         let (autoplay, next) = {
             let player = self.player.borrow();
-            let next = player
-                .next_index(false)
-                .and_then(|index| player.queue.get(index).cloned());
+            let next = player.next_index(false);
             (player.autoplay, next)
         };
         if !autoplay {
             return self.set_status("Track finished. Autoplay is off.");
         }
         match next {
-            Some(track) => self.play(track, no_context()),
+            Some(index) => self.play_queued(index),
             None => self.extend_with_radio(),
         }
     }
@@ -1545,6 +1717,7 @@ impl Shell {
             {
                 let mut player = shell.player.borrow_mut();
                 player.queue = std::iter::once(seed).chain(tracks).collect();
+                player.queue_changed();
                 player.index = 0;
                 player.radio_cursor = cursor;
             }
@@ -1601,6 +1774,9 @@ impl Shell {
                     .collect();
                 player.radio_cursor = next_cursor;
                 let first = fresh.first().cloned();
+                if !fresh.is_empty() {
+                    player.queue_changed();
+                }
                 player.queue.extend(fresh);
                 first
             };
@@ -1660,27 +1836,16 @@ impl Shell {
     }
 
     fn previous(self: &Rc<Self>) {
-        let track = {
-            let player = self.player.borrow();
-            player
-                .previous_index()
-                .and_then(|index| player.queue.get(index).cloned())
-        };
-        if let Some(track) = track {
-            self.play(track, no_context());
+        let index = self.player.borrow().previous_index();
+        if let Some(index) = index {
+            self.play_queued(index);
         }
     }
 
     fn next(self: &Rc<Self>) {
-        // A deliberate Next wraps even with repeat off; only the end of a track stops.
-        let track = {
-            let player = self.player.borrow();
-            player
-                .next_index(true)
-                .and_then(|index| player.queue.get(index).cloned())
-        };
-        if let Some(track) = track {
-            self.play(track, no_context());
+        let index = self.player.borrow().next_index(true);
+        if let Some(index) = index {
+            self.play_queued(index);
         }
     }
 
@@ -2927,10 +3092,23 @@ impl Shell {
     fn sync_side_panels(&self) {
         let queue = self.queue_visible.get();
         let lyrics = self.lyrics.borrow().visible;
+        if self.full_open.get() && queue {
+            self.full_player.mount_queue(&self.queue_panel.root);
+        } else if let Some(panels) = self.side.first_child().and_downcast::<gtk::Box>() {
+            if self.queue_panel.root.parent().as_ref() != Some(panels.upcast_ref()) {
+                if let Some(parent) = self.queue_panel.root.parent().and_downcast::<gtk::Box>() {
+                    parent.remove(&self.queue_panel.root);
+                }
+                panels.prepend(&self.queue_panel.root);
+            }
+        }
         self.queue_panel.root.set_visible(queue);
         self.lyrics_panel.root.set_visible(lyrics);
-        self.side.set_visible(queue || lyrics);
+        self.side
+            .set_visible((queue || lyrics) && !self.full_open.get());
         self.bar.set_panels(lyrics, queue);
+        self.full_player.bar.set_panels(lyrics, queue);
+        self.apply_layout();
         self.refresh_panels();
     }
 
@@ -2946,8 +3124,16 @@ impl Shell {
                     .map(|_| player.index)
             });
             self.queue_panel.update(&player.queue, current);
+            self.queue_panel
+                .set_undo_available(player.can_undo_clear(Instant::now()));
         }
         let lyrics = self.lyrics.borrow();
+        let seekable = self.facts.borrow().connected
+            && !self.facts.borrow().account_busy
+            && player.transition() == PlaybackTransition::Idle
+            && is_seekable(player.duration, player.lease.owner, player.advertisement);
+        self.lyrics_panel.set_seekable(seekable);
+        self.full_player.lyrics.set_seekable(seekable);
         if lyrics.visible {
             // During an advertisement the clock is the ad's, not the song's, so nothing is lit.
             let position = if player.advertisement {
@@ -2956,6 +3142,9 @@ impl Shell {
                 player.current_time
             };
             self.lyrics_panel.update(&lyrics, position);
+            if self.full_open.get() {
+                self.full_player.lyrics.update(&lyrics, position);
+            }
         }
     }
 
@@ -2969,6 +3158,21 @@ impl Shell {
         {
             let player = self.player.borrow();
             self.bar.update(&player, loaded);
+            let cancel_end_timer = self.sleep_end_track.borrow().as_ref().is_some_and(|id| {
+                player
+                    .current
+                    .as_ref()
+                    .is_none_or(|track| &track.video_id != id)
+            });
+            if cancel_end_timer {
+                self.sleep_end_track.borrow_mut().take();
+            }
+            self.full_player.update(&player, loaded);
+            self.backdrop.update(
+                player.current.as_ref().and_then(|t| t.thumbnail.as_deref()),
+                (self.facts.borrow().artwork_background || self.full_open.get())
+                    && !self.window.has_css_class("goosic-high-contrast"),
+            );
             let snapshot = player.snapshot();
             self.mpris.update(&snapshot);
             self.status_icon.update(&snapshot);
@@ -3014,5 +3218,309 @@ fn forward_unit(weak: &Weak<Shell>, method: fn(&Rc<Shell>)) -> impl Fn() + 'stat
         if let Some(shell) = weak.upgrade() {
             method(&shell);
         }
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+    use crate::pages::PageRow;
+    use gtk::{gdk, graphene};
+
+    fn settle() {
+        let context = glib::MainContext::default();
+        let until = Instant::now() + std::time::Duration::from_millis(350);
+        while Instant::now() < until {
+            while context.pending() {
+                context.iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    fn capture(window: &gtk::ApplicationWindow, name: &str) {
+        let Some(directory) = std::env::var_os("GOOSIC_UI_CAPTURE_DIR") else {
+            return;
+        };
+        let directory = std::path::PathBuf::from(directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let child = window.child().unwrap();
+        let snapshot = gtk::Snapshot::new();
+        let base = if window.has_css_class("goosic-high-contrast") {
+            gdk::RGBA::new(0.0, 0.0, 0.0, 1.0)
+        } else if window.has_css_class("goosic-immersive") {
+            gdk::RGBA::new(0.071, 0.071, 0.078, 1.0)
+        } else if window.has_css_class("goosic-light") {
+            gdk::RGBA::new(0.984, 0.984, 0.992, 1.0)
+        } else {
+            gdk::RGBA::new(0.125, 0.125, 0.125, 1.0)
+        };
+        snapshot.append_color(
+            &base,
+            &graphene::Rect::new(0.0, 0.0, child.width() as f32, child.height() as f32),
+        );
+        let paintable = gtk::WidgetPaintable::new(Some(&child));
+        paintable.snapshot(
+            &snapshot,
+            f64::from(child.width()),
+            f64::from(child.height()),
+        );
+        let node = snapshot.to_node().expect("a visible window renders");
+        let rect = graphene::Rect::new(0.0, 0.0, child.width() as f32, child.height() as f32);
+        let texture = window
+            .renderer()
+            .unwrap()
+            .render_texture(&node, Some(&rect));
+        texture
+            .save_to_png(directory.join(format!("{name}.png")))
+            .unwrap();
+    }
+
+    fn button_with_tooltip(widget: &gtk::Widget, tooltip: &str) -> Option<gtk::Button> {
+        if widget.tooltip_text().as_deref() == Some(tooltip) {
+            if let Ok(button) = widget.clone().downcast::<gtk::Button>() {
+                return Some(button);
+            }
+        }
+        let mut child = widget.first_child();
+        while let Some(widget) = child {
+            if let Some(button) = button_with_tooltip(&widget, tooltip) {
+                return Some(button);
+            }
+            child = widget.next_sibling();
+        }
+        None
+    }
+
+    fn check_volume_geometry(shell: &Rc<Shell>, bar: &PlayerBar, name: &str) {
+        let before = bar.root.compute_bounds(&shell.window).unwrap();
+        let speaker = button_with_tooltip(bar.root.upcast_ref(), "Volume (Ctrl+M to mute)")
+            .expect("volume remains discoverable");
+        speaker.emit_clicked();
+        settle();
+        let after = bar.root.compute_bounds(&shell.window).unwrap();
+        assert_eq!(before, after, "volume must not resize or move the player");
+        capture(&shell.window, name);
+        shell.escape();
+        settle();
+        assert!(!bar.close_volume(), "Escape already dismissed volume");
+        assert_eq!(shell.full_open.get(), name.starts_with("full"));
+    }
+
+    #[test]
+    #[ignore = "requires a display and isolated XDG directories; never signs in or plays audio"]
+    fn desktop_layout_keeps_controls_inside_the_window() {
+        gtk::init().unwrap();
+        let app = gtk::Application::builder()
+            .application_id("io.github.analogicgoose.Goosic.ParityTest")
+            .flags(gio::ApplicationFlags::NON_UNIQUE)
+            .build();
+        app.register(None::<&gio::Cancellable>).unwrap();
+        let remote = "https://i.ytimg.com/vi/parity-fixture/hqdefault.jpg";
+        let bytes: Vec<u8> = (0..256 * 256)
+            .flat_map(|index| {
+                let (x, y) = (index % 256, index / 256);
+                [
+                    ((x + y) / 2) as u8,
+                    (40 + x / 4) as u8,
+                    (170 - y / 3) as u8,
+                    255,
+                ]
+            })
+            .collect();
+        let texture = gdk::MemoryTexture::new(
+            256,
+            256,
+            gdk::MemoryFormat::R8g8b8a8,
+            &glib::Bytes::from_owned(bytes),
+            256 * 4,
+        );
+        let cache = glib::user_cache_dir().join("goosic/artwork");
+        std::fs::create_dir_all(&cache).unwrap();
+        texture
+            .save_to_png(cache.join(format!(
+                "{}.img",
+                goosic_shell_support::artwork::cache_key(remote)
+            )))
+            .unwrap();
+        let shell = Shell::start(&app);
+        assert!(
+            shell.client.is_none(),
+            "run with GOOSIC_SERVICE_PATH pointing at a missing fixture path"
+        );
+        let tracks: Rc<[Track]> = (0..12)
+            .map(|index| Track {
+                id: format!("fixture-{index}"),
+                video_id: format!("fixture-{index}"),
+                title: [
+                    "Midnight City",
+                    "Everything In Its Right Place",
+                    "Space Song",
+                    "The Less I Know The Better",
+                ][index % 4]
+                    .into(),
+                artist: ["M83", "Radiohead", "Beach House", "Tame Impala"][index % 4].into(),
+                subtitle: String::new(),
+                album: "A very long album title to exercise ellipsizing".into(),
+                artist_id: None,
+                album_id: None,
+                duration: "4:04".into(),
+                explicit: false,
+                thumbnail: Some(remote.into()),
+            })
+            .collect::<Vec<_>>()
+            .into();
+        {
+            let mut player = shell.player.borrow_mut();
+            player.queue = tracks.to_vec();
+            player.current = Some(tracks[0].clone());
+            player.duration = 244.0;
+            player.current_time = 62.0;
+            player.status = "Playback fixture".into();
+        }
+        shell.facts.borrow_mut().theme = Theme::Dark;
+        theme::apply(Theme::Dark);
+        theme::apply_window(&shell.window, Theme::Dark);
+        shell.refresh_player();
+        ui::set_rows(
+            &shell.rows,
+            vec![
+                PageRow::Header {
+                    title: "Home".into(),
+                    subtitle: "Music for your evening".into(),
+                },
+                PageRow::ShelfTitle("Listen again".into()),
+                PageRow::TrackShelf(tracks.clone()),
+                PageRow::ShelfTitle("Your favorites".into()),
+                PageRow::TrackShelf(tracks.clone()),
+            ],
+        );
+        shell.window.present();
+        settle();
+        capture(&shell.window, "home-wide");
+        assert!(
+            shell.sidebar.width() <= 280,
+            "a long status must not stretch the sidebar"
+        );
+        shell.toggle_queue();
+        settle();
+        capture(&shell.window, "queue-wide");
+        shell.toggle_queue();
+        shell.toggle_full_player();
+        settle();
+        capture(&shell.window, "full-cover");
+        assert!(shell.full_player.root.is_visible());
+        assert!(
+            shell.official.widget().is_visible(),
+            "the renderer stays mapped in full-player mode"
+        );
+        assert!(shell.content.is_visible());
+        check_volume_geometry(&shell, &shell.full_player.bar, "full-volume");
+        shell.toggle_queue();
+        settle();
+        capture(&shell.window, "full-queue-wide");
+        assert!(shell.queue_panel.root.is_mapped());
+        assert_ne!(
+            shell.queue_panel.root.parent(),
+            shell.side.first_child(),
+            "the same queue is mounted in the full player"
+        );
+        shell.window.set_default_size(480, 640);
+        settle();
+        capture(&shell.window, "full-queue-narrow");
+        shell.toggle_queue();
+        shell.window.set_default_size(1100, 760);
+        settle();
+        shell.lyrics.borrow_mut().visible = true;
+        shell.lyrics.borrow_mut().finish(
+            &tracks[0].video_id,
+            Some(&tracks[0].video_id),
+            Ok(ResponseEnvelope::success(
+                "lyrics-fixture",
+                goosic_protocol::ResponsePayload {
+                    lyrics: Some(goosic_protocol::LyricsDocument {
+                        source: "Fixture".into(),
+                        synced: true,
+                        truncated: false,
+                        lines: (0..8)
+                            .map(|index| goosic_protocol::LyricsLine {
+                                words: Vec::new(),
+                                at_ms: index * 20000,
+                                text: [
+                                    "First synchronized fixture line",
+                                    "A longer line wraps within the panel",
+                                    "Third synchronized fixture line",
+                                    "The active line follows the song position",
+                                ][index as usize % 4]
+                                    .into(),
+                            })
+                            .collect(),
+                    }),
+                    ..Default::default()
+                },
+            )),
+        );
+        shell.sync_side_panels();
+        settle();
+        shell.refresh_panels();
+        settle();
+        capture(&shell.window, "full-lyrics-wide");
+        shell.window.set_default_size(480, 640);
+        settle();
+        capture(&shell.window, "full-lyrics-narrow");
+        shell.close_full_player();
+        settle();
+        capture(&shell.window, "home-narrow");
+        let geometry = shell.bar.root.compute_bounds(&shell.window).unwrap();
+        assert!(geometry.x() >= 0.0);
+        assert!(
+            geometry.x() + geometry.width() <= shell.window.width() as f32 + 1.0,
+            "transport escaped the window: {geometry:?}, window {}",
+            shell.window.width()
+        );
+        assert!(
+            shell.window.width() <= 500,
+            "the narrow layout must not force a wide window"
+        );
+        check_volume_geometry(&shell, &shell.bar, "volume-narrow");
+        shell.lyrics.borrow_mut().visible = false;
+        shell.toggle_queue();
+        settle();
+        assert_eq!(shell.queue_panel.root.parent(), shell.side.first_child());
+        capture(&shell.window, "queue-narrow");
+        shell.toggle_queue();
+        shell.set_sleep_timer(15);
+        assert!(shell.sleep_deadline.get().is_some());
+        shell.set_sleep_timer(-1);
+        assert!(shell.sleep_deadline.get().is_none());
+        assert_eq!(shell.sleep_end_track.borrow().as_deref(), Some("fixture-0"));
+        shell.set_sleep_timer(0);
+        assert!(shell.sleep_end_track.borrow().is_none());
+        shell.search_focus();
+        settle();
+        capture(&shell.window, "search-narrow");
+        assert!(shell.search_bar.is_mapped());
+        shell.navigate(Route::Settings);
+        settle();
+        capture(&shell.window, "settings-narrow");
+        assert!(
+            shell.window.width() <= 500,
+            "settings must fit narrow windows"
+        );
+        shell.facts.borrow_mut().theme = Theme::Light;
+        theme::apply(Theme::Light);
+        theme::apply_window(&shell.window, Theme::Light);
+        settle();
+        capture(&shell.window, "settings-light-narrow");
+        shell.toggle_full_player();
+        settle();
+        capture(&shell.window, "full-from-light-narrow");
+        assert!(shell.window.has_css_class("goosic-immersive"));
+        shell.window.add_css_class("goosic-high-contrast");
+        shell.refresh_player();
+        settle();
+        capture(&shell.window, "full-high-contrast-narrow");
+        assert!(!shell.backdrop.widget.is_visible());
+        shell.window.destroy();
     }
 }

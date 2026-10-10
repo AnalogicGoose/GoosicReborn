@@ -1,11 +1,13 @@
 import Foundation
-import SwiftCrossUI
+import Combine
 
 enum GoosicRoute: String, CaseIterable, Hashable {
     case home
     case explore
     case search
     case library
+    /// What the signed-in account played recently, read in its own profile.
+    case history
     case charts
     case moodsAndGenres
     case newReleases
@@ -18,6 +20,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         case .explore: return "Explore"
         case .search: return "Search"
         case .library: return "Library"
+        case .history: return "History"
         case .charts: return "Charts"
         case .moodsAndGenres: return "Moods & genres"
         case .newReleases: return "New releases"
@@ -32,6 +35,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         case .explore: return "✦"
         case .search: return "⌕"
         case .library: return "▣"
+        case .history: return "↺"
         case .charts: return "▥"
         case .moodsAndGenres: return "♫"
         case .newReleases: return "✚"
@@ -67,7 +71,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         switch self {
         case .search, .home: return .primary
         case .explore, .charts, .moodsAndGenres, .newReleases: return .discover
-        case .library, .downloads: return .collection
+        case .library, .history, .downloads: return .collection
         case .settings: return .utility
         }
     }
@@ -81,7 +85,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         switch section {
         case .primary: ordered = [.search, .home]
         case .discover: ordered = [.explore, .charts, .moodsAndGenres, .newReleases]
-        case .collection: ordered = [.library, .downloads]
+        case .collection: ordered = [.library, .history, .downloads]
         case .utility: ordered = [.settings]
         }
         assert(
@@ -102,7 +106,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         case .charts: return "charts"
         case .moodsAndGenres: return "moodsAndGenres"
         case .newReleases: return "newReleases"
-        case .search, .library, .downloads, .settings: return nil
+        case .search, .library, .history, .downloads, .settings: return nil
         }
     }
 }
@@ -111,12 +115,15 @@ enum GoosicEntityReference: Hashable {
     case album(String)
     case artist(String)
     case playlist(String)
+    /// A mood or genre, opened with `catalog.category`.
+    case category(String)
 
     var kindLabel: String {
         switch self {
         case .album: return "Album"
         case .artist: return "Artist"
         case .playlist: return "Playlist"
+        case .category: return "Moods & genres"
         }
     }
 }
@@ -168,6 +175,12 @@ struct GoosicTrack: Identifiable, Hashable {
     let explicit: Bool
     /// Optional upstream thumbnail URL used by macOS Now Playing artwork.
     let thumbnail: String?
+    /// The playlist's own identifier for this row, when the account's reader supplied one.
+    /// Removing a row from a playlist needs it; a video id is ambiguous in a playlist holding
+    /// the same song twice.
+    let entryID: String?
+    /// A music video or episode rather than a song, which cards draw wide.
+    let isVideo: Bool
 
     init(
         id: String,
@@ -180,7 +193,9 @@ struct GoosicTrack: Identifiable, Hashable {
         duration: String,
         videoID: String,
         explicit: Bool,
-        thumbnail: String? = nil
+        thumbnail: String? = nil,
+        entryID: String? = nil,
+        isVideo: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -193,6 +208,8 @@ struct GoosicTrack: Identifiable, Hashable {
         self.videoID = videoID
         self.explicit = explicit
         self.thumbnail = thumbnail
+        self.entryID = entryID
+        self.isVideo = isVideo
     }
 
     /// One line under the title.
@@ -227,20 +244,33 @@ struct GoosicCard: Identifiable, Hashable {
     /// Upstream artwork URL. Fetched and cached by the shell, never rendered from the network
     /// directly, because `Image` loads its source during layout.
     let thumbnail: String?
+    /// What the row is, so an artist can be drawn round and a category as a tile.
+    let kind: GoosicCatalogKind
+    /// A category's stripe colour, `#RRGGBB`.
+    let color: String?
 
-    init(id: String, title: String, subtitle: String, action: GoosicCardAction?, thumbnail: String? = nil) {
+    init(
+        id: String, title: String, subtitle: String, action: GoosicCardAction?,
+        thumbnail: String? = nil, kind: GoosicCatalogKind = .unknown, color: String? = nil
+    ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.action = action
         self.thumbnail = thumbnail
+        self.kind = kind
+        self.color = color
     }
+
+    var isArtist: Bool { kind == .artist }
 }
 
 struct GoosicShelf: Identifiable, Hashable {
     let id: String
     let title: String
     let cards: [GoosicCard]
+    /// YouTube Music presents this shelf as song rows rather than artwork cards.
+    var isList: Bool = false
 }
 
 struct GoosicQueue: Hashable {
@@ -263,69 +293,130 @@ private struct GoosicRadioStation: Hashable {
 }
 
 @MainActor
-final class GoosicAppModel: SwiftCrossUI.ObservableObject {
+final class GoosicAppModel: Combine.ObservableObject {
     /// Test-only fixture state is selected at launch and never travels over the service wire.
     let usesDebugSidebarFixture: Bool
-    @SwiftCrossUI.Published var route: GoosicRoute = .home
+    @Combine.Published var route: GoosicRoute = .home
     /// Whether the user has chosen a screen since launch. Restoring the last route is startup
     /// state, and startup stops being true the moment somebody navigates.
     private var hasNavigatedSinceLaunch = false
-    @SwiftCrossUI.Published var detail: GoosicEntityReference?
-    @SwiftCrossUI.Published var query = ""
-    @SwiftCrossUI.Published var submittedQuery = ""
-    @SwiftCrossUI.Published var searchFilter: CatalogSearchFilter = .all
-    @SwiftCrossUI.Published var libraryTab = "Playlists"
-    @SwiftCrossUI.Published var status = "Service not connected"
-    @SwiftCrossUI.Published var serviceConnected = false
-    @SwiftCrossUI.Published var playbackState = GoosicPlaybackState(accountId: nil, owner: .none, generation: 0, sampleSequence: 0)
-    @SwiftCrossUI.Published var queue = GoosicQueue(tracks: [], currentIndex: 0)
-    @SwiftCrossUI.Published var currentTrack: GoosicTrack?
-    @SwiftCrossUI.Published var isPaused = true
-    @SwiftCrossUI.Published var queueVisible = false
+    @Combine.Published var detail: GoosicEntityReference?
+    @Combine.Published var query = ""
+    @Combine.Published var submittedQuery = ""
+    @Combine.Published var searchFilter: CatalogSearchFilter = .all
+    @Combine.Published var libraryTab = "Playlists"
+    @Combine.Published var status = "Service not connected"
+    @Combine.Published var serviceConnected = false
+    @Combine.Published var playbackState = GoosicPlaybackState(accountId: nil, owner: .none, generation: 0, sampleSequence: 0)
+    @Combine.Published var queue = GoosicQueue(tracks: [], currentIndex: 0) {
+        didSet {
+            if queue != oldValue {
+                queueRevision &+= 1
+                clearedQueue = nil
+            }
+        }
+    }
+    private var queueRevision: UInt64 = 0
+    private struct ClearedQueue {
+        let queue: GoosicQueue
+        let station: GoosicRadioStation?
+        let revision: UInt64
+        let radioRevision: UInt64
+        let deadline: TimeInterval
+    }
+    @Combine.Published private var clearedQueue: ClearedQueue?
+    @Combine.Published var currentTrack: GoosicTrack?
+    @Combine.Published var isPaused = true
+    @Combine.Published var queueVisible = false
     /// Confirmed by the player, never assumed from a request.
-    @SwiftCrossUI.Published private(set) var currentTime: Double = 0
-    @SwiftCrossUI.Published private(set) var duration: Double = 0
-    @SwiftCrossUI.Published private(set) var volume: Double = 1
-    @SwiftCrossUI.Published private(set) var isMuted = false
-    @SwiftCrossUI.Published private(set) var isAdvertisement = false
+    @Combine.Published private(set) var currentTime: Double = 0
+    @Combine.Published private(set) var duration: Double = 0
+    @Combine.Published private(set) var volume: Double = 1
+    @Combine.Published private(set) var isMuted = false
+    @Combine.Published private(set) var isAdvertisement = false
     /// System media controls stay empty until the active renderer confirms one valid sample.
-    @SwiftCrossUI.Published private(set) var hasConfirmedPlaybackSample = false
-    @SwiftCrossUI.Published private(set) var autoplay = true
-    @SwiftCrossUI.Published private(set) var shuffle = false
-    @SwiftCrossUI.Published private(set) var repeatMode: RepeatMode = .off
-    @SwiftCrossUI.Published private(set) var theme: GoosicTheme = .system
+    @Combine.Published private(set) var hasConfirmedPlaybackSample = false
+    @Combine.Published private(set) var autoplay = true
+    @Combine.Published private(set) var shuffle = false
+    @Combine.Published private(set) var repeatMode: RepeatMode = .off
+    @Combine.Published private(set) var theme: GoosicTheme = .system
     /// Draw the playing track's artwork, blurred, behind the content. Only macOS can draw it;
     /// elsewhere the choice is stored and has no effect.
-    @SwiftCrossUI.Published private(set) var artworkBackground = true
-    @SwiftCrossUI.Published var lyricsVisible = false
+    @Combine.Published private(set) var artworkBackground = true
+    /// Leave explicit tracks out of what is listed. Stored by Rust with the other listening
+    /// preferences, so every shell honours the same choice.
+    @Combine.Published private(set) var hideExplicit = false
+    /// Where Goosic opens: `home`, `library`, `liked`, or `last`.
+    @Combine.Published private(set) var startPage = "last"
+    /// Skip decorative motion, on top of the system's own setting.
+    @Combine.Published private(set) var reduceMotion = false
+    /// What this account has rated, by video id. The catalog does not say whether a song is
+    /// liked, so this is learned from Liked Music and from what the listener rates here. It shows
+    /// what YouTube Music accepted, never a click it has not confirmed.
+    @Combine.Published private(set) var ratings: [String: TrackRating] = [:]
+    /// Channels and playlists this session saw saved or followed, so their buttons read right.
+    @Combine.Published private(set) var subscriptions: [String: Bool] = [:]
+    @Combine.Published private(set) var savedPlaylists: [String: Bool] = [:]
+    /// Where the queue came from, for Up next and for a page's own Play button.
+    @Combine.Published private(set) var queueSource: QueueSource?
+    /// How the open list is sorted and what its find box holds. Views over the loaded rows
+    /// only; a new page starts in its own order, unfiltered.
+    @Combine.Published var trackSortOrder: TrackSortOrder = .custom
+    @Combine.Published var trackFindText = ""
+    /// The last few searches, newest first. Kept in the shell's own storage; never sent anywhere.
+    @Combine.Published private(set) var recentSearches: [String] = []
+    /// When the sleep timer pauses the music, if it is set to a length of time.
+    @Combine.Published private(set) var sleepTimerDeadline: Date?
+    /// The sleep timer pauses at the end of the song playing now.
+    @Combine.Published private(set) var sleepAtEndOfSong = false
+    private var sleepTimerToken: UInt64 = 0
+    /// Shows the technical side of what goes wrong: status lines, bridge notices, error codes.
+    /// Off, a listener sees one plain sentence; the log records everything either way.
+    @Combine.Published private(set) var debugMode = false
+    /// Show the playing song on the listener's Discord profile. A shell with no Discord bridge
+    /// keeps the choice and ignores it.
+    @Combine.Published private(set) var discordStatus = false
+    /// The active account's Google session has ended: its profile answers as a guest. The shell
+    /// says so and offers to sign in again, instead of showing guest pages under its name.
+    @Combine.Published private(set) var sessionExpired = false
+    /// A short message about something the listener just did, shown briefly and then gone.
+    @Combine.Published private(set) var notice: GoosicNotice?
+    private var noticeCounter: UInt64 = 0
+    /// Local storage for preferences about this program rather than about listening.
+    private let shellDefaults = UserDefaults.standard
+    /// The last copy of each page, on disk per account, so a page opens at once and refreshes
+    /// behind the listener.
+    private let pageStore = CatalogPageStore()
+    @Combine.Published var lyricsVisible = false
     /// The immersive full-screen player is showing. It displays lyrics, so it asks for them the
     /// way the lyrics panel does.
-    @SwiftCrossUI.Published private(set) var fullPlayerOpen = false
-    @SwiftCrossUI.Published private(set) var lyrics: GoosicLyrics?
-    @SwiftCrossUI.Published private(set) var lyricsStatus = "Nothing playing."
-    @SwiftCrossUI.Published private(set) var legacyImportAvailable = false
-    @SwiftCrossUI.Published private(set) var legacyImported = false
-    @SwiftCrossUI.Published private(set) var playbackTransition: PlaybackTransition = .idle
-    @SwiftCrossUI.Published private(set) var playbackTransitionToken: UInt64 = 0
+    @Combine.Published private(set) var fullPlayerOpen = false
+    @Combine.Published private(set) var lyrics: GoosicLyrics?
+    @Combine.Published private(set) var lyricsStatus = "Nothing playing."
+    @Combine.Published private(set) var legacyImportAvailable = false
+    @Combine.Published private(set) var legacyImported = false
+    @Combine.Published private(set) var playbackTransition: PlaybackTransition = .idle
+    @Combine.Published private(set) var playbackTransitionToken: UInt64 = 0
     /// Serializes account/profile operations with every playback selection and control action.
     /// This is set before renderer detachment begins, so no user action can claim a new lease
     /// while a login or account promotion is between quiesce and Rust confirmation.
-    @SwiftCrossUI.Published private(set) var accountOperationInProgress = false
-    @SwiftCrossUI.Published var playbackLabVideoID = ""
-    @SwiftCrossUI.Published private(set) var hostStatus = "No official video loaded."
-    @SwiftCrossUI.Published private(set) var hostDiagnostics = "No page loaded."
-    @SwiftCrossUI.Published private(set) var downloadedTracks: [GoosicDownloadedTrack] = []
-    @SwiftCrossUI.Published private(set) var accounts: [GoosicAccountSummary] = []
-    @SwiftCrossUI.Published private(set) var activeAccountId: String?
-    @SwiftCrossUI.Published private(set) var accountSnapshotEpoch: UInt64 = 0
-    @SwiftCrossUI.Published private(set) var downloadsLoading = false
+    @Combine.Published private(set) var accountOperationInProgress = false
+    @Combine.Published var playbackLabVideoID = ""
+    @Combine.Published private(set) var hostStatus = "No official video loaded."
+    @Combine.Published private(set) var hostDiagnostics = "No page loaded."
+    @Combine.Published private(set) var downloadedTracks: [GoosicDownloadedTrack] = []
+    @Combine.Published private(set) var accounts: [GoosicAccountSummary] = []
+    @Combine.Published private(set) var activeAccountId: String?
+    @Combine.Published private(set) var accountSnapshotEpoch: UInt64 = 0
+    @Combine.Published private(set) var downloadsLoading = false
+    @Combine.Published private(set) var downloadsFailure: String?
     /// Every catalog page this session has requested, keyed so a late response cannot land on
     /// the wrong screen.
-    @SwiftCrossUI.Published private(set) var pages: [CatalogKey: CatalogLoadState] = [:]
+    @Combine.Published private(set) var pages: [CatalogKey: CatalogLoadState] = [:]
     /// Which catalog answers may still be applied. See `CatalogRequestLedger`: a key says which
     /// screen an answer belongs to, and this says whether it is still that screen's answer.
     private var catalogRequests = CatalogRequestLedger()
-    @SwiftCrossUI.Published private(set) var continuations: [CatalogKey: CatalogContinuationState] = [:]
+    @Combine.Published private(set) var continuations: [CatalogKey: CatalogContinuationState] = [:]
 
     func continuationState(for key: CatalogKey) -> CatalogContinuationState {
         continuations[key] ?? .idle
@@ -340,15 +431,15 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     /// The playlists this account owns, for the "Add to playlist" destinations. Loaded on
     /// demand, because most sessions never open the menu.
-    @SwiftCrossUI.Published private(set) var userPlaylists: [PersonalPlaylistSummary] = []
-    @SwiftCrossUI.Published private(set) var userPlaylistsState: CatalogContinuationState = .idle
+    @Combine.Published private(set) var userPlaylists: [PersonalPlaylistSummary] = []
+    @Combine.Published private(set) var userPlaylistsState: CatalogContinuationState = .idle
     /// A change the account has been asked to make and has not yet confirmed. The menu closes
     /// immediately, so this is what lets a failure be reported after the fact.
-    @SwiftCrossUI.Published private(set) var libraryOperationInProgress = false
+    @Combine.Published private(set) var libraryOperationInProgress = false
 
     /// Pages being shown from cache whose refresh did not succeed. The page is still worth
     /// showing; the screen just should not imply it is current.
-    @SwiftCrossUI.Published private(set) var staleRefreshFailed: Set<CatalogKey> = []
+    @Combine.Published private(set) var staleRefreshFailed: Set<CatalogKey> = []
 
     private var client: GoosicServiceClient?
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
@@ -377,7 +468,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private var systemMediaControls: SystemMediaControls?
     private var accountLoginHost: AccountLoginHost?
     private var accountTransitionToken: UInt64 = 0
-    private let artwork = ArtworkCache()
+    let artwork = ArtworkCache()
     /// A radio request is outstanding. Guards against a burst of `ended` events each starting
     /// their own continuation.
     private var radioExtensionInFlight = false
@@ -390,13 +481,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// The track the loaded lyrics belong to, so a stale answer cannot land on a new song.
     private var lyricsVideoID: String?
     private var lyricsRequestInFlight = false
-    /// Playback bridges report twice a second. Remembering the last presentation state lets us
-    /// avoid publishing an identical status/control tree on every poll.
-    private var lastOfficialEventState: String?
-    private var lastOfficialEventWasAdvertisement: Bool?
     private var lastLocalEventState: String?
     /// Bumped when artwork arrives. Views read it so a late thumbnail re-renders its card.
-    @SwiftCrossUI.Published private(set) var artworkVersion: UInt64 = 0
+    @Combine.Published private(set) var artworkVersion: UInt64 = 0
+    private var lastPublishedArtwork: URL?
 
     var activeAccount: GoosicAccountSummary? {
         guard let activeAccountId else { return nil }
@@ -420,7 +508,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         localPlaybackHost = LocalPlaybackHost()
         personalCatalogHost = PersonalCatalogHost()
         artwork.onArtworkLoaded = { [weak self] in
-            self?.artworkVersion &+= 1
+            guard let self, let thumbnail = self.currentTrack?.thumbnail,
+                  let file = self.artwork.localFile(for: thumbnail),
+                  file != self.lastPublishedArtwork else { return }
+            self.lastPublishedArtwork = file
+            // Individual covers observe their cache. Only the playing track's backdrop and
+            // palette require an application-wide refresh.
+            self.artworkVersion &+= 1
         }
         officialPlaybackHost.onEvent = { [weak self] event in
             self?.receive(event)
@@ -433,9 +527,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         officialPlaybackHost.onStatus = { [weak self] message in
             self?.hostStatus = message
-            if self?.playbackState.owner == .officialWebView {
-                self?.status = message
-            }
         }
         localPlaybackHost.onEvent = { [weak self] event in
             self?.receive(event)
@@ -448,6 +539,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         systemMediaControls = SystemMediaControls(model: self)
         updateSystemMediaControls()
+        recentSearches = shellDefaults.stringArray(forKey: ShellDefaultsKey.recentSearches) ?? []
+        debugMode = shellDefaults.bool(forKey: ShellDefaultsKey.debugMode)
+        discordStatus = shellDefaults.bool(forKey: ShellDefaultsKey.discordStatus)
         if debugSidebarFixture { installDebugSidebarFixture() }
     }
 
@@ -473,6 +567,26 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             )
         }
         userPlaylistsState = .idle
+        if ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] == "quality" {
+            let tracks = (1...12).map { index in
+                GoosicTrack(id: "fixture-track-\(index)", title: "Fixture song \(index)",
+                    subtitle: "A long representative artist and album name", artist: "Fixture artist",
+                    artistID: nil, album: "Fixture album", albumID: nil, duration: "3:00",
+                    videoID: "fixture-video-\(index)", explicit: index == 3)
+            }
+            let key = CatalogKey.playlist("ui-quality")
+            pages[key] = .loaded(CatalogPageView(id: "ui-quality",
+                title: "A representative playlist with a long collection title",
+                subtitle: "Playlist • Fixture owner • 2026", shelves: [], tracks: tracks,
+                nextCursor: nil, allTracksID: nil, truncated: false))
+            detail = .playlist("ui-quality")
+            queue = GoosicQueue(tracks: Array(tracks.prefix(4)), currentIndex: 1)
+            currentTrack = tracks[1]
+            lyrics = GoosicLyrics(source: "fixture", synced: true,
+                lines: (0..<20).map { GoosicLyricsLine(atMs: Int64($0 * 5000), text: "Fixture lyric line \($0 + 1)") })
+            lyricsStatus = "Synced lyrics"
+            queueVisible = true
+        }
     }
 
     // MARK: - Navigation
@@ -492,6 +606,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     func show(_ entity: GoosicEntityReference) {
         hasNavigatedSinceLaunch = true
+        let entity = entity.normalized
+        if detail != entity {
+            trackSortOrder = .custom
+            trackFindText = ""
+        }
         detail = entity
         loadEntity(entity)
     }
@@ -503,7 +622,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// Whether a greeting is still in flight. Between creating the client and hearing back,
     /// `serviceConnected` is false and the reconnect control is showing, so without this a click
     /// would start a second child process while the first is still answering.
-    private var isConnecting = false
+    @Combine.Published private(set) var isConnecting = false
 
     /// Which connection attempt is current. A discarded client is not deallocated at once -- its
     /// queued request holds it -- so its reply can still arrive, and would otherwise either
@@ -569,11 +688,21 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             radioExtensionInFlight = false
             radioStation = nil
         }
+        let accountChanged = activeAccountId != snapshot.activeAccountId || initial
         accounts = snapshot.accounts
         activeAccountId = snapshot.activeAccountId
         accountSnapshotEpoch = snapshot.epoch
         let personalProfile = activeAccount.flatMap { UUID(uuidString: $0.webkitProfileId) }
         personalCatalogHost.bind(profileIdentifier: personalProfile)
+        if accountChanged {
+            sessionExpired = false
+            ratings.removeAll()
+            subscriptions.removeAll()
+            savedPlaylists.removeAll()
+            // Home read as the guest before the account was known is not this account's Home;
+            // dropping it lets the account's own last copy stand in while the fresh one loads.
+            if activeAccount != nil { pages.removeValue(forKey: .route(.home)) }
+        }
         pages = pages.filter { key, _ in
             if case .library = key { return false }
             return true
@@ -592,6 +721,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             continuations.removeValue(forKey: waiting)
             if case .loading = state(for: waiting) { pages[waiting] = .idle }
         }
+        if accountChanged, activeAccount != nil { learnLikedMusicAndWarmLibrary() }
         if activeAccount != nil {
             switch route {
             case .library:
@@ -661,7 +791,15 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         performAccountTransition(command: "accounts.activate", payload: GoosicRequestPayload(generation: playbackState.generation, accountId: id), target: id)
     }
 
+    /// Signs the active account out, as Windows does: Goosic forgets it, and its profile — its
+    /// sign-in, its cookies, its copies of pages — is cleared from this computer.
     func signOut() {
+        guard let id = activeAccountId else { return }
+        removeAccount(id)
+    }
+
+    /// Keeps every account but stops using one, so the catalog is browsed anonymously.
+    func browseAsGuest() {
         guard activeAccountId != nil else { return }
         guard canChangeAccount else { return }
         guard beginAccountOperation() else { return }
@@ -816,6 +954,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         snapshot: GoosicAccountsSnapshot? = nil
     ) {
         let priorProfile = activeAccount.flatMap { UUID(uuidString: $0.webkitProfileId) } ?? OfficialPlaybackProfile.guest.identifier
+        let removedProfile = removeId
+            .flatMap { id in accounts.first { $0.id == id } }
+            .flatMap { UUID(uuidString: $0.webkitProfileId) }
         prepareForAccountTransition(success: { [weak self] in
             guard let self else { return }
             let token = self.beginAccountTransition()
@@ -849,7 +990,15 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 self.finishAccountTransition(token)
                 self.finishAccountOperation()
                 self.status = target == nil ? "Signed out." : "Active account changed."
-                _ = removeId
+                // The copies of a profile's pages are its catalog metadata, and they go with it.
+                if let removeId { self.pageStore.removeScope(removeId) }
+                if let removedProfile {
+                    self.personalCatalogHost.clearProfile(removedProfile) {}
+                }
+                // A different account is a different Home; start there, as Windows does.
+                self.detail = nil
+                self.route = .home
+                self.loadRoute(.home, force: true)
             } failure: { [weak self] error in
                 guard let self, self.isCurrentAccountTransition(token) else { return }
                 self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: priorProfile))
@@ -977,6 +1126,19 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         if open { loadLyricsIfNeeded() }
     }
 
+    func installImportedLyrics(_ document: GoosicLyrics) {
+        guard let track = currentTrack, LyricsTiming.valid(document) else {
+            announce("Invalid lyrics timing. Check the line and word timestamps.", isError: true)
+            return
+        }
+        var imported = document
+        imported.source = "Imported"
+        lyrics = imported
+        lyricsVideoID = track.videoID
+        lyricsStatus = "Imported lyrics for this listening session."
+        announce("Imported lyrics")
+    }
+
     /// Fetches lyrics for the current track, unless they are already loaded for it.
     func loadLyricsIfNeeded() {
         guard lyricsVisible || fullPlayerOpen else { return }
@@ -1004,7 +1166,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             guard let self else { return }
             self.lyricsRequestInFlight = false
             // The track may have changed while this was in flight.
-            guard self.currentTrack?.videoID == requestedFor else { return }
+            guard self.currentTrack?.videoID == requestedFor, self.lyrics?.source != "Imported" else { return }
             guard let document = response.payload?.lyrics, !document.lines.isEmpty else {
                 self.lyricsStatus = "No lyrics were found for this track."
                 return
@@ -1016,7 +1178,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         } failure: { [weak self] error in
             guard let self else { return }
             self.lyricsRequestInFlight = false
-            guard self.currentTrack?.videoID == requestedFor else { return }
+            guard self.currentTrack?.videoID == requestedFor, self.lyrics?.source != "Imported" else { return }
             self.lyrics = nil
             let described = Self.describe(error)
             self.lyricsStatus = described.code == "lyricsNotFound"
@@ -1029,7 +1191,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     ///
     /// Returns `nil` for anything else, so a malformed value narrows the lyrics lookup with a
     /// wrong length rather than being guessed at.
-    static func durationSeconds(_ text: String) -> UInt32? {
+    nonisolated static func durationSeconds(_ text: String) -> UInt32? {
         let parts = text.split(separator: ":")
         guard (2...3).contains(parts.count) else { return nil }
         var total: UInt32 = 0
@@ -1073,6 +1235,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         repeatMode = RepeatMode(rawValue: settings.repeatMode) ?? .off
         setTheme(GoosicTheme.named(settings.theme), persist: false)
         artworkBackground = settings.artworkBackground ?? true
+        hideExplicit = settings.hideExplicit ?? false
+        startPage = settings.startPage ?? "last"
+        reduceMotion = settings.reduceMotion ?? false
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
@@ -1080,10 +1245,55 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         // already picked a screen in that time has said where they want to be more recently than
         // the stored preference did, and yanking them back to last session's route is the kind of
         // bug that reads as the app fighting the user.
-        if restoringRoute, !hasNavigatedSinceLaunch,
-           let restored = GoosicRoute(rawValue: settings.lastRoute) {
-            route = restored
+        if restoringRoute, !hasNavigatedSinceLaunch {
+            switch startPage {
+            case "home": route = .home
+            case "library": route = .library
+            case "liked":
+                // Liked Music is a page rather than a route; it opens over Library once the
+                // account is known, which is what makes it the account's.
+                route = .library
+                pendingStartPage = .likedMusic
+            default:
+                if let restored = GoosicRoute(rawValue: settings.lastRoute) { route = restored }
+            }
         }
+    }
+
+    /// Liked Music asked for as the start page, opened once there is an account to open it as.
+    private var pendingStartPage: GoosicEntityReference?
+
+    func setHideExplicit(_ enabled: Bool) {
+        guard enabled != hideExplicit else { return }
+        hideExplicit = enabled
+        savePreferences(GoosicPreferencesPatch(hideExplicit: enabled))
+    }
+
+    func setStartPage(_ page: String) {
+        guard page != startPage else { return }
+        startPage = page
+        savePreferences(GoosicPreferencesPatch(startPage: page))
+    }
+
+    func setReduceMotion(_ enabled: Bool) {
+        guard enabled != reduceMotion else { return }
+        reduceMotion = enabled
+        savePreferences(GoosicPreferencesPatch(reduceMotion: enabled))
+    }
+
+    func setDebugMode(_ enabled: Bool) {
+        debugMode = enabled
+        shellDefaults.set(enabled, forKey: ShellDefaultsKey.debugMode)
+    }
+
+    func setDiscordStatus(_ enabled: Bool) {
+        discordStatus = enabled
+        shellDefaults.set(enabled, forKey: ShellDefaultsKey.discordStatus)
+    }
+
+    /// The rows a list shows, which leaves explicit ones out when the listener asked for that.
+    func visible(_ tracks: [GoosicTrack]) -> [GoosicTrack] {
+        hideExplicit ? tracks.filter { !$0.explicit } : tracks
     }
 
     func setAutoplay(_ enabled: Bool) {
@@ -1094,7 +1304,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     /// Chooses an appearance, and stores it unless it came from storage in the first place.
     ///
-    /// Publishing `theme` is what applies it: the shell hands it to SwiftCrossUI as a preferred
+    /// Publishing `theme` is what applies it: the shell hands it to SwiftUI as a preferred
     /// colour scheme, which is the only thing the backend honours.
     func setTheme(_ theme: GoosicTheme, persist: Bool = true) {
         self.theme = theme
@@ -1204,6 +1414,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         merged.shuffle = update.shuffle ?? merged.shuffle
         merged.repeatMode = update.repeatMode ?? merged.repeatMode
         merged.artworkBackground = update.artworkBackground ?? merged.artworkBackground
+        merged.hideExplicit = update.hideExplicit ?? merged.hideExplicit
+        merged.startPage = update.startPage ?? merged.startPage
+        merged.reduceMotion = update.reduceMotion ?? merged.reduceMotion
         return merged
     }
 
@@ -1214,6 +1427,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Connect to the Rust service to read downloaded files."
             return
         }
+        guard !downloadsLoading else { return }
+        downloadsFailure = nil
         downloadsLoading = true
         send(command: "downloads.list") { [weak self] response in
             guard let self else { return }
@@ -1222,6 +1437,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         } failure: { [weak self] error in
             guard let self else { return }
             self.downloadsLoading = false
+            self.downloadsFailure = "Could not read imported files. Try again."
             self.status = "Could not read downloaded files: \(Self.describe(error).message)"
         }
     }
@@ -1233,6 +1449,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Connect to the Rust service before importing downloaded files."
             return
         }
+        guard !downloadsLoading else { return }
+        downloadsFailure = nil
         downloadsLoading = true
         status = "Reading finalized files from the previous Goosic…"
         send(command: "downloads.importLegacy") { [weak self] response in
@@ -1243,6 +1461,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         } failure: { [weak self] error in
             guard let self else { return }
             self.downloadsLoading = false
+            self.downloadsFailure = "Could not import previous Goosic files. Try again."
             self.status = "Could not import downloaded files: \(Self.describe(error).message)"
         }
     }
@@ -1262,8 +1481,12 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             loadLibrary(section: PersonalLibrarySection(rawValue: libraryTab) ?? .playlists, force: force)
             return
         }
-        if route == .home, activeAccount != nil {
+        if route == .home, activeAccount != nil, !sessionExpired {
             loadPersonalHome(force: force)
+            return
+        }
+        if route == .history {
+            loadPersonalRoute(.history, browseID: "FEmusic_history", force: force)
             return
         }
         guard let catalogRoute = route.catalogRoute else { return }
@@ -1300,7 +1523,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         // An artist page is public, and the anonymous reader already renders it with the shelf
         // structure the screen expects. Routing it through the account would trade a better
         // answer for a slower one.
-        case .artist:
+        case .artist, .category:
             return nil
         }
     }
@@ -1331,6 +1554,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             case .success(let page): unusable = (page.tracks?.isEmpty ?? true) && (page.shelves?.isEmpty ?? true)
             }
             if unusable {
+                if case .failure(let error) = result { self.noteSessionFailure(error) }
                 self.catalogRequests.retire(ticket, for: key)
                 self.loadCatalogForEntity(entity, force: true)
                 return
@@ -1351,6 +1575,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         case .album(let value): (command, id) = ("catalog.album", value)
         case .artist(let value): (command, id) = ("catalog.artist", value)
         case .playlist(let value): (command, id) = ("catalog.playlist", value)
+        case .category(let value): (command, id) = ("catalog.category", value)
         }
         loadCatalog(
             key: .entity(entity),
@@ -1368,6 +1593,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         submittedQuery = trimmed
+        rememberSearch(trimmed)
         loadCatalog(
             key: .search(query: trimmed, filter: searchFilter.protocolName),
             command: "catalog.search",
@@ -1409,19 +1635,27 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             loadEntity(.artist(id), force: force)
         case .playlist(let id):
             loadEntity(.playlist(id), force: force)
+        case .category(let id):
+            loadEntity(.category(id), force: force)
         case .library(let raw):
             loadLibrary(section: PersonalLibrarySection(rawValue: raw) ?? .playlists, force: force)
         }
     }
 
     func selectLibrarySection(_ section: PersonalLibrarySection) {
+        // The library's songs are Liked Music, and they open as that page rather than as a
+        // plainer copy of the same list.
+        if section == .songs {
+            show(.likedMusic)
+            return
+        }
         libraryTab = section.rawValue
         loadLibrary(section: section)
     }
 
     func loadLibrary(section: PersonalLibrarySection, force: Bool = false) {
         let key = section.key
-        guard activeAccount != nil else {
+        guard activeAccount != nil, !sessionExpired else {
             pages[key] = .idle
             return
         }
@@ -1496,8 +1730,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// State for the "New playlist" prompt. It lives on the model rather than in the menu that
     /// opens it because a context menu is gone by the time its action runs, and an alert owned by
     /// a view that no longer exists never appears.
-    @SwiftCrossUI.Published var isNamingNewPlaylist = false
-    @SwiftCrossUI.Published var newPlaylistName = ""
+    @Combine.Published var isNamingNewPlaylist = false
+    @Combine.Published var newPlaylistName = ""
     private var newPlaylistTrack: GoosicTrack?
 
     func beginNewPlaylist(for track: GoosicTrack?) {
@@ -1520,8 +1754,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
     /// The rename prompt, owned here for the same reason the create prompt is: the menu that
     /// opens it is gone by the time its action runs.
-    @SwiftCrossUI.Published var isRenamingPlaylist = false
-    @SwiftCrossUI.Published var renamedPlaylistName = ""
+    @Combine.Published var isRenamingPlaylist = false
+    @Combine.Published var renamedPlaylistName = ""
     private var renamingPlaylist: PersonalPlaylistSummary?
 
     func beginRenaming(_ playlist: PersonalPlaylistSummary) {
@@ -1543,7 +1777,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     }
 
     /// Deletion is confirmed rather than done, because upstream has no undo.
-    @SwiftCrossUI.Published var playlistPendingDeletion: PersonalPlaylistSummary?
+    @Combine.Published var playlistPendingDeletion: PersonalPlaylistSummary?
 
     func confirmDeletion() {
         guard let playlist = playlistPendingDeletion else { return }
@@ -1557,7 +1791,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// of the menu, and a playlist created in another client — or by this one a moment ago —
     /// missing from the list looks exactly like the playlist not existing.
     func loadUserPlaylists(force: Bool = false) {
-        guard activeAccount != nil else {
+        guard activeAccount != nil, !sessionExpired else {
             userPlaylists = []
             userPlaylistsState = .idle
             return
@@ -1566,12 +1800,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         if !force, !userPlaylists.isEmpty { return }
         userPlaylistsState = .loading
         personalCatalogHost.mutate(.listUserPlaylists) { [weak self] result in
-            guard let self else { return }
+            guard let self, !self.sessionExpired else { return }
             switch result {
             case .success(let answer):
                 self.userPlaylists = answer.playlists
                 self.userPlaylistsState = .idle
             case .failure(let error):
+                self.noteSessionFailure(error)
                 self.userPlaylistsState = .failed(error.localizedDescription)
             }
         }
@@ -1666,6 +1901,394 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
     }
 
+    // MARK: - Notices
+
+    /// Shows `text` briefly. Everything shown is also written to the diagnostics log.
+    func announce(_ text: String, isError: Bool = false) {
+        noticeCounter &+= 1
+        let id = noticeCounter
+        notice = GoosicNotice(id: id, text: text, isError: isError)
+        Diagnostics.note(.shell, isError ? "notice.error" : "notice", ["text": text])
+        DispatchQueue.main.asyncAfter(deadline: .now() + (isError ? 5 : 3)) { [weak self] in
+            guard let self, self.notice?.id == id else { return }
+            self.notice = nil
+        }
+    }
+
+    /// One plain sentence for the listener; the technical detail only in debug mode.
+    func announceFailure(_ sentence: String, detail: String) {
+        announce(debugMode ? "\(sentence): \(detail)" : "\(sentence).", isError: true)
+    }
+
+    func dismissNotice() { notice = nil }
+
+    // MARK: - Ratings, saving and following
+
+    func rating(of track: GoosicTrack?) -> TrackRating {
+        guard let track else { return .none }
+        return ratings[track.videoID] ?? .none
+    }
+
+    /// A guest's like would be stored nowhere, so rating needs an account and a song.
+    var canRateCurrentTrack: Bool { activeAccount != nil && currentTrack != nil }
+
+    var isCurrentTrackLiked: Bool { rating(of: currentTrack) == .liked }
+
+    /// Likes `track`, or clears the like when it is already liked.
+    func toggleLike(_ track: GoosicTrack) {
+        rate(track, rating(of: track) == .liked ? .none : .liked)
+    }
+
+    func toggleDislike(_ track: GoosicTrack) {
+        rate(track, rating(of: track) == .disliked ? .none : .disliked)
+    }
+
+    func toggleLikeCurrentTrack() {
+        guard let track = currentTrack else { return }
+        toggleLike(track)
+    }
+
+    /// Rates a track. The heart follows what YouTube Music accepted, not the click, so a refused
+    /// like does not stay lit.
+    func rate(_ track: GoosicTrack, _ rating: TrackRating) {
+        let message: String
+        switch rating {
+        case .liked: message = "Added \(track.title) to Liked Music"
+        case .disliked: message = "You won't be recommended \(track.title) as often"
+        case .none: message = "Removed \(track.title) from Liked Music"
+        }
+        apply(
+            .rateTrack(videoID: track.videoID, rating: rating),
+            describing: message,
+            failing: "Could not rate \(track.title)"
+        ) { [weak self] _ in
+            self?.ratings[track.videoID] = rating
+        }
+    }
+
+    /// Reads the first page of Liked Music at sign-in, so a song the account liked before this
+    /// session already shows its heart, then reads the library's main pages in the background
+    /// so even a first visit to them is instant.
+    private func learnLikedMusicAndWarmLibrary() {
+        let accountID = activeAccountId
+        let key = CatalogKey.entity(.likedMusic)
+        personalCatalogHost.loadBrowse(
+            browseID: PersonalBrowseID.playlist("LM"), title: "Liked Music", shape: .tracks
+        ) { [weak self] result in
+            guard let self, self.activeAccountId == accountID else { return }
+            if case .failure(let error) = result { self.noteSessionFailure(error) }
+            if case .success(let page) = result, !self.sessionExpired {
+                for item in page.tracks ?? [] {
+                    if let id = item.videoId, self.ratings[id] == nil { self.ratings[id] = .liked }
+                }
+                self.storePage(page, for: key)
+            }
+            if let pending = self.pendingStartPage {
+                self.pendingStartPage = nil
+                if self.detail == nil { self.show(pending) }
+            }
+            if !self.sessionExpired {
+                for section in PersonalLibrarySection.pickerSections {
+                    self.loadLibrary(section: section)
+                }
+            }
+        }
+    }
+
+    func isSubscribed(to channelID: String) -> Bool { subscriptions[channelID] ?? false }
+
+    /// Follows or leaves an artist's channel.
+    func setSubscribed(_ subscribed: Bool, to channelID: String, name: String) {
+        apply(
+            .followArtist(channelID: channelID, followed: subscribed),
+            describing: subscribed ? "Subscribed to \(name)" : "Unsubscribed from \(name)",
+            failing: "Could not change your subscription to \(name)"
+        ) { [weak self] _ in
+            self?.subscriptions[channelID] = subscribed
+        }
+    }
+
+    func isSaved(playlist id: String) -> Bool { savedPlaylists[Self.bareListID(id)] ?? false }
+
+    /// Saves a playlist someone else made to the library, or removes it.
+    func setSaved(_ saved: Bool, playlist id: String, title: String) {
+        let bare = Self.bareListID(id)
+        apply(
+            .savePlaylist(playlistID: bare, saved: saved),
+            describing: saved ? "Saved \(title) to your library" : "Removed \(title) from your library",
+            failing: "Could not change \(title) in your library"
+        ) { [weak self] _ in
+            self?.savedPlaylists[bare] = saved
+            self?.loadUserPlaylists(force: true)
+        }
+    }
+
+    static func bareListID(_ id: String) -> String {
+        id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
+    }
+
+    /// Takes a row out of a playlist this account owns. Liked Music is not edited that way: a
+    /// song leaves it by losing its like.
+    func remove(_ track: GoosicTrack, from entity: GoosicEntityReference) {
+        if entity.isLikedMusic {
+            rate(track, .none)
+            return
+        }
+        guard let playlist = ownedPlaylist(for: entity) else {
+            status = "Only your own playlists can be edited."
+            return
+        }
+        guard let entryID = track.entryID else {
+            status = "Open the playlist again before removing \(track.title)."
+            return
+        }
+        apply(
+            .removeFromPlaylist(playlistID: playlist.id, videoID: track.videoID, entryID: entryID),
+            describing: "Removed \(track.title) from \(playlist.title)",
+            failing: "Could not remove \(track.title) from \(playlist.title)"
+        )
+    }
+
+    /// Moves a row of an owned playlist one place up or down.
+    ///
+    /// Upstream moves one entry per request, placing it before a named entry. Moving a row up
+    /// puts it before the row above; moving it down puts the row below before it — the same
+    /// single request either way.
+    func move(_ track: GoosicTrack, in entity: GoosicEntityReference, up: Bool) {
+        guard let playlist = ownedPlaylist(for: entity),
+              case .loaded(let page) = state(for: .entity(entity)),
+              let index = page.tracks.firstIndex(where: { $0.entryID != nil && $0.entryID == track.entryID })
+        else {
+            announceFailure("Could not move \(track.title)", detail: "Open the playlist again first")
+            return
+        }
+        let neighbour = up ? index - 1 : index + 1
+        guard page.tracks.indices.contains(neighbour) else { return }
+        let (moved, before) = up ? (page.tracks[index], page.tracks[neighbour]) : (page.tracks[neighbour], page.tracks[index])
+        guard let movedID = moved.entryID, let beforeID = before.entryID else { return }
+        apply(
+            .movePlaylistItem(playlistID: playlist.id, entryID: movedID, beforeEntryID: beforeID),
+            describing: "Moved \(track.title) \(up ? "up" : "down")",
+            failing: "Could not move \(track.title)"
+        )
+    }
+
+    /// Whether the rows of `entity` can be reordered here: only a playlist this account owns.
+    func canReorder(_ entity: GoosicEntityReference?) -> Bool {
+        guard let entity, activeAccount != nil, !entity.isLikedMusic else { return false }
+        return ownedPlaylist(for: entity) != nil
+    }
+
+    /// The description prompt, owned here for the same reason the rename prompt is.
+    @Combine.Published var isEditingDescription = false
+    @Combine.Published var editedDescription = ""
+    private var describingPlaylist: PersonalPlaylistSummary?
+
+    func beginEditingDescription(_ playlist: PersonalPlaylistSummary, current: String) {
+        describingPlaylist = playlist
+        editedDescription = current
+        isEditingDescription = true
+    }
+
+    func confirmDescription() {
+        isEditingDescription = false
+        guard let playlist = describingPlaylist else { return }
+        describingPlaylist = nil
+        setPlaylistDescription(playlist, to: editedDescription.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    func cancelDescription() {
+        isEditingDescription = false
+        describingPlaylist = nil
+    }
+
+    /// Whether a row can be taken out of the list it is shown in.
+    func canRemove(from entity: GoosicEntityReference?) -> Bool {
+        guard let entity, activeAccount != nil else { return false }
+        return entity.isLikedMusic || ownedPlaylist(for: entity) != nil
+    }
+
+    // MARK: - Queue editing
+
+    /// Plays `track` straight after the current one.
+    func playNext(_ track: GoosicTrack) {
+        guard !queue.tracks.isEmpty, currentTrack != nil else {
+            launch(.ordered(track, [track]))
+            return
+        }
+        queue.tracks.insert(track, at: min(queue.currentIndex + 1, queue.tracks.count))
+        announce("\(track.title) plays next")
+    }
+
+    /// Adds `track` to the end of the queue.
+    func addToQueue(_ track: GoosicTrack) {
+        guard !queue.tracks.isEmpty, currentTrack != nil else {
+            launch(.ordered(track, [track]))
+            return
+        }
+        queue.tracks.append(track)
+        announce("Added \(track.title) to the queue")
+    }
+
+    /// Takes a row out of the queue. The playing song stays where it is; removing it would stop
+    /// the music, which is what Pause is for.
+    func removeFromQueue(at index: Int) {
+        guard queue.tracks.indices.contains(index), index != queue.currentIndex else { return }
+        queue.tracks.remove(at: index)
+        if index < queue.currentIndex { queue.currentIndex -= 1 }
+    }
+
+    /// Moves queued rows, keeping the playing song current wherever it lands.
+    func moveQueueItems(from source: IndexSet, to destination: Int) {
+        guard let rows = Self.moving(Array(queue.tracks.indices), from: source, to: destination) else { return }
+        let playing = queue.currentIndex
+        queue = GoosicQueue(
+            tracks: rows.map { queue.tracks[$0] },
+            currentIndex: rows.firstIndex(of: playing) ?? 0
+        )
+    }
+
+    var canClearUpcoming: Bool {
+        guard let retained = QueueEditing.retainedCount(count: queue.tracks.count,
+                                                       currentIndex: queue.currentIndex) else { return false }
+        return retained < queue.tracks.count && currentTrack != nil
+            && serviceConnected && playbackTransition == .idle && !accountOperationInProgress
+    }
+
+    var canUndoClear: Bool {
+        guard let clearedQueue else { return false }
+        return serviceConnected && playbackTransition == .idle && !accountOperationInProgress
+            && clearedQueue.radioRevision == radioRequestRevision
+            && QueueEditing.canUndo(expectedRevision: clearedQueue.revision, revision: queueRevision,
+                                    deadline: clearedQueue.deadline, now: ProcessInfo.processInfo.systemUptime)
+    }
+
+    func clearUpcoming() {
+        guard canClearUpcoming,
+              let retained = QueueEditing.retainedCount(count: queue.tracks.count,
+                                                       currentIndex: queue.currentIndex) else { return }
+        let original = queue
+        let station = radioStation
+        radioRequestRevision &+= 1
+        radioExtensionInFlight = false
+        // Mark the radio exhausted so a late fetch or autoplay cannot refill a deliberate clear.
+        if let current = queue.current {
+            radioStation = GoosicRadioStation(seedVideoID: current.videoID, continuation: nil,
+                                             accountID: activeAccountId)
+        }
+        queue.tracks = Array(queue.tracks.prefix(retained))
+        let revision = queueRevision
+        clearedQueue = ClearedQueue(queue: original, station: station, revision: revision,
+                                    radioRevision: radioRequestRevision, deadline: ProcessInfo.processInfo.systemUptime + QueueEditing.undoWindow)
+        announce("Cleared Up Next")
+        DispatchQueue.main.asyncAfter(deadline: .now() + QueueEditing.undoWindow) { [weak self] in
+            guard let self, self.clearedQueue?.revision == revision else { return }
+            self.clearedQueue = nil
+        }
+    }
+
+    func undoClearUpcoming() {
+        guard canUndoClear, let snapshot = clearedQueue else { return }
+        radioRequestRevision &+= 1
+        radioExtensionInFlight = false
+        queue = snapshot.queue
+        radioStation = snapshot.station
+        announce("Restored Up Next")
+    }
+
+    /// `items` with the ones at `source` moved to sit before `destination`, as a list's move
+    /// gesture reports it; `nil` when the indices do not describe `items`.
+    nonisolated static func moving<T>(_ items: [T], from source: IndexSet, to destination: Int) -> [T]? {
+        guard !source.isEmpty, source.allSatisfy(items.indices.contains),
+              (0...items.count).contains(destination) else { return nil }
+        let moved = source.map { items[$0] }
+        var rest = items.enumerated().filter { !source.contains($0.offset) }.map(\.element)
+        let insertAt = destination - source.filter { $0 < destination }.count
+        rest.insert(contentsOf: moved, at: insertAt)
+        return rest
+    }
+
+    /// What Up next says: where the queue came from, then how much is left.
+    var upNextText: String {
+        let remaining = max(queue.tracks.count - queue.currentIndex - 1, 0)
+        return PlayerText.upNext(
+            source: queueSource?.title, remaining: remaining, findingMore: radioExtensionInFlight
+        )
+    }
+
+    /// Whether the music playing now was queued by the page under `key`, so that page's Play
+    /// button pauses and resumes it rather than starting it over.
+    func isPlayingFrom(_ key: CatalogKey) -> Bool {
+        queueSource?.key == key && currentTrack != nil
+    }
+
+    // MARK: - Sleep timer
+
+    /// Sets the sleep timer, or turns it off with `nil`. It pauses rather than quits, so the
+    /// queue is where it was.
+    func setSleepTimer(_ choice: SleepTimerChoice?) {
+        sleepTimerToken &+= 1
+        sleepTimerDeadline = nil
+        sleepAtEndOfSong = false
+        switch choice {
+        case .none:
+            announce("Sleep timer off")
+        case .endOfSong:
+            sleepAtEndOfSong = true
+            announce("Music will stop at the end of this song")
+        case .minutes(let minutes):
+            let deadline = Date().addingTimeInterval(TimeInterval(minutes * 60))
+            sleepTimerDeadline = deadline
+            let token = sleepTimerToken
+            DispatchQueue.main.asyncAfter(deadline: .now() + TimeInterval(minutes * 60)) { [weak self] in
+                guard let self, self.sleepTimerToken == token else { return }
+                self.sleepTimerDeadline = nil
+                self.pauseForSleep()
+            }
+            announce("Music will stop in \(minutes) minutes")
+        }
+    }
+
+    var sleepTimerLabel: String {
+        PlayerText.sleepTimer(
+            remaining: sleepTimerDeadline.map { $0.timeIntervalSinceNow }, endOfSong: sleepAtEndOfSong
+        )
+    }
+
+    var sleepTimerActive: Bool { sleepTimerDeadline != nil || sleepAtEndOfSong }
+
+    /// `evenIfPaused` is for the end of a song, where YouTube Music's page may already have moved
+    /// on by itself while Goosic still believes the finished track is paused.
+    private func pauseForSleep(evenIfPaused: Bool = false) {
+        guard evenIfPaused || !isPaused else { return }
+        // A timer pause is intentional even when the renderer is near the natural end.
+        listenerPaused = true
+        if playbackState.owner == .localDownloadedFile {
+            localPlaybackHost.pause()
+        } else if officialPlaybackHost.loadedVideoID != nil {
+            officialPlaybackHost.pause()
+        }
+        status = "Sleep timer paused the music."
+    }
+
+    // MARK: - Recent searches
+
+    private func rememberSearch(_ query: String) {
+        recentSearches = RecentSearches.remember(recentSearches, query)
+        shellDefaults.set(recentSearches, forKey: ShellDefaultsKey.recentSearches)
+    }
+
+    func clearRecentSearches() {
+        recentSearches = []
+        shellDefaults.removeObject(forKey: ShellDefaultsKey.recentSearches)
+    }
+
+    /// Runs one of the recent searches.
+    func searchAgain(_ query: String) {
+        self.query = query
+        search()
+    }
+
     /// Runs a mutation and says what happened.
     ///
     /// Nothing here is applied optimistically. Upstream answers HTTP 200 for edits it refuses —
@@ -1680,7 +2303,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         failing failure: String,
         then finish: ((PersonalMutationResult) -> Void)? = nil
     ) {
-        guard activeAccount != nil else {
+        guard activeAccount != nil, !sessionExpired else {
             status = "Sign in to change your library."
             return
         }
@@ -1691,10 +2314,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             switch result {
             case .success(let answer):
                 self.status = success
+                self.announce(success)
                 if mutation.changesLibrary { self.invalidatePersonalLibrary() }
                 finish?(answer)
             case .failure(let error):
                 self.status = "\(failure): \(error.localizedDescription)"
+                if self.noteSessionFailure(error) { return }
+                self.announceFailure(failure, detail: error.localizedDescription)
             }
         }
     }
@@ -1770,6 +2396,104 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
     }
 
+    /// Records that the account's session has ended, when `error` says so.
+    @discardableResult
+    private func noteSessionFailure(_ error: Error) -> Bool {
+        guard PersonalSessionExpired.matches(error), activeAccount != nil else { return false }
+        if !sessionExpired {
+            let expiredScope = pageScope
+            sessionExpired = true
+            // Drop catalog presentation and pending replies, while playback keeps its Rust lease.
+            // Saved account pages must not masquerade as a current authenticated response.
+            pageStore.removeScope(expiredScope)
+            _ = catalogRequests.invalidateAll()
+            pages.removeAll()
+            pageCachedAt.removeAll()
+            continuations.removeAll()
+            staleRefreshFailed.removeAll()
+            userPlaylists = []
+            ratings.removeAll()
+            status = "Your YouTube Music session ended. Sign in again in Settings."
+            Diagnostics.note(.shell, "session-expired")
+            loadRoute(.home, force: true)
+        }
+        return true
+    }
+
+    /// Signs the active account in again, into its own profile, after its session ended. The
+    /// account keeps its id, its profile and its place; only its sign-in is renewed.
+    func signInAgain() {
+        guard let account = activeAccount,
+              let accountID = UUID(uuidString: account.id),
+              let profileID = UUID(uuidString: account.webkitProfileId) else { return }
+        guard canChangeAccount, beginAccountOperation() else { return }
+        prepareForAccountTransition(success: { [weak self] in
+            guard let self else { return }
+            let host = AccountLoginHost()
+            self.accountLoginHost = host
+            host.onCompleted = { [weak self] result, _ in
+                guard let self else { return }
+                self.accountLoginHost = nil
+                let upsert = GoosicAccountUpsert(
+                    id: account.id,
+                    webkitProfileId: account.webkitProfileId,
+                    displayName: result.summary.displayName,
+                    email: result.summary.email,
+                    channel: result.summary.channel,
+                    avatarUrl: result.summary.avatarUrl
+                )
+                self.send(command: "accounts.upsert", payload: GoosicRequestPayload(account: upsert)) { [weak self] response in
+                    guard let self else { return }
+                    if let snapshot = response.payload?.accounts { self.applyAccounts(snapshot) }
+                    self.finishSignInAgain(profileID)
+                    self.announce("Signed in again as \(result.summary.displayName)")
+                } failure: { [weak self] _ in
+                    // The cookies are renewed whether or not the name was saved.
+                    self?.finishSignInAgain(profileID)
+                }
+            }
+            host.onCancelled = { [weak self] in
+                guard let self else { return }
+                self.accountLoginHost = nil
+                self.officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: profileID))
+                self.finishAccountOperation()
+            }
+            host.start(reusing: accountID, profileId: profileID)
+        }, failure: { [weak self] message in
+            self?.finishAccountOperation()
+            self?.announceFailure("Could not start signing in again", detail: message)
+        })
+    }
+
+    private func finishSignInAgain(_ profileID: UUID) {
+        sessionExpired = false
+        officialPlaybackHost.bind(profile: OfficialPlaybackProfile(identifier: profileID))
+        personalCatalogHost.reload()
+        clearAccountScopedUI()
+        finishAccountOperation()
+        route = .home
+        loadRoute(.home, force: true)
+        loadUserPlaylists(force: true)
+        learnLikedMusicAndWarmLibrary()
+    }
+
+    /// A page only the account's own profile can read, such as History.
+    private func loadPersonalRoute(_ route: GoosicRoute, browseID: String, force: Bool) {
+        let key = CatalogKey.route(route)
+        guard activeAccount != nil, !sessionExpired else {
+            pages[key] = .failed(code: "signedOut", message: "Sign in to see your \(route.title.lowercased()).")
+            return
+        }
+        guard let start = beginLoad(key, force: force) else { return }
+        if !start.revalidating { pages[key] = .loading }
+        let ticket = catalogRequests.issue(for: key)
+        pageSources[key] = .personal(browseID: browseID, title: route.title, shape: .auto)
+        personalCatalogHost.loadBrowse(browseID: browseID, title: route.title, shape: .auto) { [weak self] result in
+            guard let self, self.catalogRequests.accepts(ticket, for: key) else { return }
+            self.applyPersonalPage(result, key: key, ticket: ticket, revalidating: start.revalidating)
+        }
+    }
+
     private func loadPersonalHome(force: Bool) {
         let key = CatalogKey.route(.home)
         guard let start = beginLoad(key, force: force) else { return }
@@ -1793,6 +2517,13 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     ///
     /// Returns `nil` when the cache is current and nothing needs to happen.
     private func beginLoad(_ key: CatalogKey, force: Bool) -> LoadStart? {
+        // A page never shown this session opens from its last copy, at once, and the answer
+        // replaces it behind the listener. Measured, a fresh read took from a fifth of a second
+        // to several; the copy takes none.
+        if case .idle = state(for: key), let stored = storedPage(for: key) {
+            pages[key] = .loaded(stored)
+            return LoadStart(revalidating: true)
+        }
         if force { return LoadStart(revalidating: false) }
         switch state(for: key) {
         case .loading:
@@ -1813,7 +2544,24 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     private func finishLoad(_ key: CatalogKey, page: CatalogPageView) {
         pageCachedAt[key] = Date()
         staleRefreshFailed.remove(key)
+        if key == .entity(.likedMusic) {
+            for track in page.tracks where ratings[track.videoID] == nil { ratings[track.videoID] = .liked }
+        }
+        // Replaced only if the answer differs, so a refresh that learned nothing does not
+        // rebuild a page the listener is reading.
+        if case .loaded(let current) = state(for: key), current == page { return }
         pages[key] = .loaded(page)
+    }
+
+    /// The scope a page's copy is kept under: the account that read it, or the guest.
+    private var pageScope: String { sessionExpired ? "guest" : activeAccountId ?? "guest" }
+
+    private func storedPage(for key: CatalogKey) -> CatalogPageView? {
+        pageStore.load(key, scope: pageScope)
+    }
+
+    private func storePage(_ wire: GoosicCatalogPage, for key: CatalogKey) {
+        pageStore.save(wire, for: key, scope: pageScope)
     }
 
     private func failLoad(_ key: CatalogKey, revalidating: Bool, code: String, message: String) {
@@ -1836,6 +2584,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     ) {
         switch result {
         case .success(let wire):
+            storePage(wire, for: key)
             Task { [weak self] in
                 let page = await Self.buildPage(wire)
                 // Re-checked after the hop: conversion runs off the main actor, and an account
@@ -1846,6 +2595,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             }
         case .failure(let error):
             catalogRequests.retire(ticket, for: key)
+            if noteSessionFailure(error) { return }
             failLoad(
                 key, revalidating: revalidating,
                 code: "personalCatalog", message: error.localizedDescription
@@ -1880,6 +2630,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 )
                 return
             }
+            self.storePage(wirePage, for: key)
             Task { [weak self] in
                 let page = await Self.buildPage(wirePage)
                 // Checked again after the hop: conversion is off the main actor, so an account
@@ -2046,7 +2797,12 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         savePreferences(GoosicPreferencesPatch(muted: isMuted))
     }
 
-    func play(_ track: GoosicTrack, in tracks: [GoosicTrack] = []) {
+    func play(
+        _ track: GoosicTrack,
+        in tracks: [GoosicTrack] = [],
+        queueIndex: Int? = nil,
+        source: QueueSource? = nil
+    ) {
         guard allowPlaybackInteraction() else { return }
         guard playbackTransition == .idle else {
             status = "Playback command pending; wait for Rust to finish before choosing another action."
@@ -2071,11 +2827,17 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
 
         if !tracks.isEmpty {
             queue = GoosicQueue(tracks: tracks, currentIndex: tracks.firstIndex(of: track) ?? 0)
+            queueSource = source
             // A deliberately chosen list is a fresh listening context, so its later autoplay
             // must not inherit recommendations from the previous station.
             radioExtensionInFlight = false
             radioStation = nil
             radioRequestRevision &+= 1
+        } else if let queueIndex, queue.tracks.indices.contains(queueIndex),
+                  queue.tracks[queueIndex] == track {
+            // By position rather than by value: a queue may hold the same song twice, and the
+            // one asked for is the one at this position.
+            queue.currentIndex = queueIndex
         } else {
             select(track)
         }
@@ -2260,7 +3022,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         if officialPlaybackHost.loadedVideoID != nil {
-            listenerPaused = !isPaused
             if isPaused {
                 playOfficialVideo()
             } else {
@@ -2296,7 +3057,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             return
         }
         guard let index = QueueNavigation.indexBefore(queue.currentIndex, count: queue.tracks.count, repeatMode: repeatMode) else { return }
-        play(queue.tracks[index])
+        play(queue.tracks[index], queueIndex: index)
     }
 
     func next() {
@@ -2312,7 +3073,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         }
         // A deliberate Next wraps even with repeat off; only the end of a track stops.
         guard let index = indexAfter(queue.currentIndex, wrapping: true) else { return }
-        play(queue.tracks[index])
+        play(queue.tracks[index], queueIndex: index)
     }
 
     func toggleQueue() {
@@ -2434,6 +3195,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Choose a track, or load a video ID in Settings, before pressing play."
             return
         }
+        listenerPaused = false
         officialPlaybackHost.play()
         status = "Play requested; waiting for a validated official-player event."
     }
@@ -2448,6 +3210,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Choose a track, or load a video ID in Settings, before pressing pause."
             return
         }
+        // The renderer can still deliver an older playing sample before confirming this pause.
+        // Only an explicit resume or a new track clears this intent.
+        listenerPaused = true
         officialPlaybackHost.pause()
         status = "Pause requested; waiting for a validated official-player event."
     }
@@ -2458,6 +3223,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             status = "Claim officialWebView through Rust before stopping it."
             return
         }
+        listenerPaused = true
         officialPlaybackHost.quiesce { [weak self] in
             guard let self else { return }
             self.isPaused = true
@@ -2528,8 +3294,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         listenerPaused = false
         adRecovery = AdPlaybackRecovery()
         isAdvertisement = false
-        lastOfficialEventState = nil
-        lastOfficialEventWasAdvertisement = nil
         lastLocalEventState = nil
         hasConfirmedPlaybackSample = false
         volumeAppliedForLoad = false
@@ -2595,8 +3359,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             presentationChanged = true
         }
         // A one-second visual cadence is smooth enough for a music progress bar and halves the
-        // number of whole-shell invalidations caused by WebKit's 500 ms observer.
-        if abs(currentTime - event.currentTime) >= 0.9 || event.state == "ended" {
+        // number of whole-shell invalidations caused by WebKit's 500 ms observer. A seek must
+        // always copy its confirmation before the pending position is cleared, even if paused.
+        if pendingSeek != nil || abs(currentTime - event.currentTime) >= 0.9 || event.state == "ended" {
             currentTime = event.currentTime
             presentationChanged = true
         }
@@ -2604,7 +3369,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             duration = event.duration
             presentationChanged = true
         }
-        if !event.isAdvertisement {
+        do {
             if volumeAppliedForLoad {
                 switch VolumeSync.reconcileOfficialRenderer(
                     reported: event.volume, preferred: volume, requested: requestedVolume
@@ -2628,7 +3393,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 }
             } else if abs(event.volume - volume) > 0.01 || event.isMuted != isMuted {
                 // A fresh content page starts at its own volume. Push the stored preference once,
-                // then follow what the player reports. Advertisements never enter this path.
+                // then follow what the player reports, including advertisement media elements.
                 volumeAppliedForLoad = true
                 requestedVolume = volume
                 requestedMuted = isMuted
@@ -2643,9 +3408,8 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
             pendingSeek = nil
         }
-        if event.state == "playing", !event.isAdvertisement {
-            listenerPaused = false
-        }
+        // A queued playing sample must not undo a listener's asynchronous pause request.
+        // Explicit resume and a new load clear this intent.
         if adRecovery.observe(advertisement: event.isAdvertisement, state: event.state, listenerPaused: listenerPaused) {
             officialPlaybackHost.play()
         }
@@ -2656,24 +3420,6 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         ) {
             endedVideoID = event.videoID
             advanceAfterEnd()
-        }
-        if lastOfficialEventState != event.state || lastOfficialEventWasAdvertisement != event.isAdvertisement {
-            let nextStatus: String
-            if event.isAdvertisement {
-                nextStatus = "Official host confirmed advertisement playback (informational marker; ads are not bypassed)."
-            } else if event.state == "playing" {
-                nextStatus = "Official host confirmed media playback for \(event.videoID)."
-            } else if event.state == "ended" {
-                nextStatus = "Official host reported the video ended."
-            } else {
-                nextStatus = "Official host reported \(event.state) for \(event.videoID)."
-            }
-            if status != nextStatus {
-                status = nextStatus
-                presentationChanged = true
-            }
-            lastOfficialEventState = event.state
-            lastOfficialEventWasAdvertisement = event.isAdvertisement
         }
         if presentationChanged { updateSystemMediaControls() }
         send(
@@ -2710,7 +3456,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         let nextPaused = event.state != "playing"
         if isPaused != nextPaused { isPaused = nextPaused; presentationChanged = true }
         if isAdvertisement { isAdvertisement = false; presentationChanged = true }
-        if abs(currentTime - event.currentTime) >= 0.9 || event.state == "ended" {
+        if pendingSeek != nil || abs(currentTime - event.currentTime) >= 0.9 || event.state == "ended" {
             currentTime = event.currentTime
             presentationChanged = true
         }
@@ -2722,6 +3468,11 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             volume = reported
             presentationChanged = true
             savePreferences(GoosicPreferencesPatch(volume: reported))
+        }
+        if let pending = pendingSeek,
+           abs(event.currentTime - pending.position) < 1.5
+            || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
+            pendingSeek = nil
         }
         if lastLocalEventState != event.state {
             let nextStatus = event.state == "ended"
@@ -2766,6 +3517,14 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
     /// Unlike `next()` this does not wrap: reaching the end of the queue stops, so a
     /// single-track queue cannot loop forever on its own `ended` event.
     private func advanceAfterEnd() {
+        // "End of this song" is honoured exactly where a natural end would otherwise advance.
+        if sleepAtEndOfSong {
+            sleepAtEndOfSong = false
+            sleepTimerToken &+= 1
+            pauseForSleep(evenIfPaused: true)
+            status = "Sleep timer stopped the music at the end of the song."
+            return
+        }
         guard autoplay else {
             status = "Track finished. Autoplay is off."
             return
@@ -2774,7 +3533,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
             extendWithRadio()
             return
         }
-        play(queue.tracks[nextIndex])
+        play(queue.tracks[nextIndex], queueIndex: nextIndex)
     }
 
     /// Continues past the end of the queue with the radio that follows the last track.
@@ -2826,8 +3585,9 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
                 self.status = "Queue finished. Radio had nothing new to continue with."
                 return
             }
+            let firstIndex = self.queue.tracks.count
             self.queue.tracks.append(contentsOf: tracks)
-            self.play(first)
+            self.play(first, queueIndex: firstIndex)
         }
     }
 
@@ -2836,10 +3596,10 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         launch(.station(track))
     }
 
-    func launch(_ intent: PlaybackLaunchIntent) {
+    func launch(_ intent: PlaybackLaunchIntent, source: QueueSource? = nil) {
         switch intent {
         case .ordered(let track, let tracks):
-            play(track, in: tracks)
+            play(track, in: tracks, source: source)
         case .station(let track):
             launchStation(track)
         }
@@ -2849,7 +3609,7 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         guard allowPlaybackInteraction(), playbackTransition == .idle,
               !isAdvertisement, playbackState.owner != .localDownloadedFile, client != nil else { return }
         // Start the selected song immediately, while recommendations load independently.
-        play(track, in: [track])
+        play(track, in: [track], source: .radio(track))
         radioExtensionInFlight = true
         let revision = radioRequestRevision
         let accountID = activeAccountId
@@ -2930,4 +3690,19 @@ final class GoosicAppModel: SwiftCrossUI.ObservableObject {
         hasConfirmedPlaybackSample = false
         updateSystemMediaControls()
     }
+}
+
+/// Keys for preferences about this program rather than about listening, which stay in the
+/// shell's own storage instead of Rust's shared store.
+enum ShellDefaultsKey {
+    static let recentSearches = "goosic.recentSearches"
+    static let debugMode = "goosic.debugMode"
+    static let discordStatus = "goosic.discordStatus"
+}
+
+/// A short message about something the listener just did.
+struct GoosicNotice: Equatable {
+    let id: UInt64
+    let text: String
+    let isError: Bool
 }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 using Goosic.Windows.ViewModels;
@@ -112,7 +113,14 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ShowFromTray()
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
+    private void ShowFromTray() => ShowForActivation();
+
+    /// <summary>Restores the existing listening window after a tray click or another launch.</summary>
+    internal void ShowForActivation()
     {
         AppWindow.Show();
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } presenter)
@@ -121,6 +129,7 @@ public sealed partial class MainWindow : Window
         }
 
         Activate();
+        _ = SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
     }
 
     /// <summary>Quits for real, from the tray menu; closing the window only hides it then.</summary>

@@ -269,10 +269,22 @@ pub struct LyricsQuery {
     pub duration_seconds: Option<u32>,
 }
 
+/// One timed lyric segment; text includes its original spacing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsWord {
+    pub at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_ms: Option<i64>,
+    pub text: String,
+}
+
 /// One lyric line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LyricsLine {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<LyricsWord>,
     /// Milliseconds into the track, or negative when the lyrics are not synced.
     pub at_ms: i64,
     pub text: String,

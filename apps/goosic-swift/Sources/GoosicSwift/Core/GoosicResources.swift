@@ -15,6 +15,10 @@ enum GoosicResources {
            let packaged = Bundle(url: resources.appendingPathComponent(bundleName)) {
             return packaged
         }
+        #if SWIFT_PACKAGE
         return Bundle.module
+        #else
+        return Bundle.main
+        #endif
     }()
 }

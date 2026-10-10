@@ -205,6 +205,9 @@ public sealed partial class MainWindow : Window
         Add(menu, "Full-screen player", "", () => SetFullPlayerOpen(true));
         Add(menu, "Start radio", "", async () => await PlayEntryAsync(Model.StartStation(track)));
         Add(menu, "Mini player", "", () => SetMiniPlayer(true));
+        Add(menu, "Lyrics", "\uE90A", () => OnToggleLyrics(this, new RoutedEventArgs()));
+        Add(menu, "Playing Next", "\uE8FD", () => OnToggleQueue(this, new RoutedEventArgs()));
+        Add(menu, Model.MuteLabel, Model.VolumeGlyph, () => OnToggleMuted(this, new RoutedEventArgs()));
         menu.Items.Add(BuildSleepTimerMenu());
         AddAccountTrackItems(menu, track.VideoId, track.Title);
         menu.Items.Add(new MenuFlyoutSeparator());
