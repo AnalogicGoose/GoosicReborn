@@ -1,5 +1,5 @@
 import Foundation
-import SwiftCrossUI
+import SwiftUI
 
 /// The appearance the shell renders in.
 enum GoosicTheme: String, CaseIterable, Equatable {
@@ -24,12 +24,7 @@ enum GoosicTheme: String, CaseIterable, Equatable {
         GoosicTheme(rawValue: raw.trimmingCharacters(in: .whitespaces).lowercased()) ?? .system
     }
 
-    /// The scheme to hand SwiftCrossUI, or `nil` to follow the system.
-    ///
-    /// Appearance goes through the toolkit rather than through AppKit directly: the backend sets
-    /// `window.appearance` (and each control's) from its own environment, so anything set on
-    /// `NSApplication` is overwritten on the next layout. Routing it here also means the choice
-    /// works on every backend rather than only on macOS.
+    /// The native SwiftUI scheme, or `nil` to follow the system.
     var colorScheme: ColorScheme? {
         switch self {
         case .system: return nil

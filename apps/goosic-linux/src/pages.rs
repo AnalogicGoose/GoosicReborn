@@ -45,6 +45,7 @@ pub struct ShellFacts {
     pub hide_explicit: bool,
     pub start_page: String,
     pub reduce_motion: bool,
+    pub artwork_background: bool,
     pub downloads: DownloadsState,
     /// A read or import of the downloaded files is in flight.
     pub downloads_busy: bool,
@@ -64,6 +65,7 @@ impl Default for ShellFacts {
             hide_explicit: false,
             start_page: "home".into(),
             reduce_motion: false,
+            artwork_background: true,
             downloads: DownloadsState::NotRead,
             downloads_busy: false,
         }
@@ -92,6 +94,8 @@ pub fn size_text(bytes: u64) -> String {
 /// One row of a screen, in the order it is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PageRow {
+    /// Scroll-content clearance for floating chrome, supplied by the native layout.
+    Clearance(i32),
     Back,
     Header {
         title: String,

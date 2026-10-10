@@ -144,8 +144,8 @@ costing a round trip through a colleague.
 
 Four jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
 portable by construction and there is no excuse for it to break anywhere. The Swift package
-builds and tests on macOS against AppKit, and on Linux through SwiftCrossUI as the reference the
-GTK shell is compared against until that shell ships. On a branch that contains
+builds and tests only on macOS against SwiftUI and AppKit. SwiftCrossUI and the Swift Linux
+reference CI job have been removed. On a branch that contains
 `apps/goosic-linux` — `platform/linux` and its feature branches — the Rust GTK shell builds,
 passes clippy and runs its tests in a Fedora container, because `ubuntu-latest` ships a GTK
 older than the 4.20 that shell requires. The Flatpak builder on the GNOME runtime takes that job

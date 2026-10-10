@@ -27,6 +27,7 @@ pub struct Actions {
     pub set_hide_explicit: Box<dyn Fn(bool)>,
     pub set_start_page: Box<dyn Fn(String)>,
     pub set_reduce_motion: Box<dyn Fn(bool)>,
+    pub set_artwork_background: Box<dyn Fn(bool)>,
     pub import_legacy: Box<dyn Fn()>,
     /// Fetches the next part of a page that continues.
     pub load_more: Box<dyn Fn()>,
@@ -45,6 +46,7 @@ pub struct Actions {
     pub unlike_track: Box<dyn Fn(String)>,
     pub add_to_playlist: Box<dyn Fn(String)>,
     pub can_edit_library: Box<dyn Fn() -> bool>,
+    pub queue_track: Box<dyn Fn(Track, bool)>,
     pub artwork: Rc<ArtworkCache>,
 }
 
@@ -95,6 +97,28 @@ pub fn page_list(actions: Rc<Actions>) -> (gtk::ScrolledWindow, gio::ListStore) 
     (scroller, store)
 }
 
+pub fn set_clearance(store: &gio::ListStore, top: i32, bottom: i32) {
+    if store.n_items() < 2 {
+        return;
+    }
+    for (position, height) in [(0, top), (store.n_items() - 1, bottom)] {
+        let Some(object) = store.item(position).and_downcast::<glib::BoxedAnyObject>() else {
+            continue;
+        };
+        let changed = match *object.borrow::<PageRow>() {
+            PageRow::Clearance(old) => old != height,
+            _ => false,
+        };
+        if changed {
+            store.splice(
+                position,
+                1,
+                &[glib::BoxedAnyObject::new(PageRow::Clearance(height))],
+            );
+        }
+    }
+}
+
 fn list_item(object: &glib::Object) -> &gtk::ListItem {
     object
         .downcast_ref::<gtk::ListItem>()
@@ -104,7 +128,20 @@ fn list_item(object: &glib::Object) -> &gtk::ListItem {
 /// Replaces what the list shows, in one change. Only the rows after the last unchanged one are
 /// replaced, so a page that grew at its end keeps its scroll position and the rows on screen keep
 /// their widgets.
-pub fn set_rows(store: &gio::ListStore, rows: Vec<PageRow>) {
+pub fn set_rows(store: &gio::ListStore, mut rows: Vec<PageRow>) {
+    fn clearance(store: &gio::ListStore, index: u32, fallback: i32) -> i32 {
+        store
+            .item(index)
+            .and_downcast::<glib::BoxedAnyObject>()
+            .map_or(fallback, |object| match *object.borrow::<PageRow>() {
+                PageRow::Clearance(height) => height,
+                _ => fallback,
+            })
+    }
+    let top = clearance(store, 0, 42);
+    let bottom = clearance(store, store.n_items().saturating_sub(1), 130);
+    rows.insert(0, PageRow::Clearance(top));
+    rows.push(PageRow::Clearance(bottom));
     let unchanged = (0..store.n_items())
         .zip(rows.iter())
         .take_while(|(position, row)| {
@@ -241,7 +278,11 @@ pub fn sidebar(
     let connection = dim("Connecting…");
     connection.add_css_class("goosic-account-connection");
     let status = dim("");
-    let account = plain("Browsing as guest");
+    status.set_wrap_mode(pango::WrapMode::WordChar);
+    status.set_lines(2);
+    status.set_ellipsize(pango::EllipsizeMode::End);
+    let account = single_line(plain("Browsing as guest"));
+    account.set_max_width_chars(18);
     account.add_css_class("goosic-account-name");
     let avatar = plain("G");
     avatar.add_css_class("goosic-account-avatar");
@@ -266,7 +307,12 @@ pub fn sidebar(
         .build();
     search.connect_activate(move |entry| on_search(entry.text().to_string()));
     root.append(&search);
-    root.append(&routes);
+    let navigation = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&routes)
+        .build();
+    root.append(&navigation);
     root.append(&account_button);
     root.append(&status);
     Sidebar {
@@ -326,7 +372,13 @@ pub fn search_bar(
     query.append(&search);
 
     let on_filter = Rc::new(on_filter);
-    let filters = row(6);
+    let filters = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .min_children_per_line(1)
+        .max_children_per_line(6)
+        .row_spacing(6)
+        .column_spacing(6)
+        .build();
     let mut first: Option<gtk::ToggleButton> = None;
     for filter in SearchFilter::ALL {
         let toggle = gtk::ToggleButton::with_label(filter_label(filter));
@@ -343,7 +395,7 @@ pub fn search_bar(
                 on_filter(filter);
             }
         });
-        filters.append(&toggle);
+        filters.insert(&toggle, -1);
     }
 
     let root = column(10);
@@ -368,6 +420,7 @@ fn filter_label(filter: SearchFilter) -> &'static str {
 
 fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
     match page_row {
+        PageRow::Clearance(height) => gtk::Box::builder().height_request(*height).build().upcast(),
         PageRow::Back => {
             let back = gtk::Button::builder()
                 .label("‹ Back")
@@ -573,13 +626,11 @@ fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk
     let outer = row(4);
     button.set_hexpand(true);
     outer.append(&button);
-    if (actions.can_edit_library)() {
-        outer.append(&track_menu(&track.video_id, actions));
-    }
+    outer.append(&track_menu(track, actions));
     outer
 }
 
-fn track_menu(video_id: &str, actions: &Rc<Actions>) -> gtk::MenuButton {
+fn track_menu(track: &Track, actions: &Rc<Actions>) -> gtk::MenuButton {
     let popover = gtk::Popover::new();
     let menu = column(4);
     menu.set_margin_start(8);
@@ -589,36 +640,51 @@ fn track_menu(video_id: &str, actions: &Rc<Actions>) -> gtk::MenuButton {
     let like = gtk::Button::with_label("Like song");
     let unlike = gtk::Button::with_label("Remove like");
     let add = gtk::Button::with_label("Add to playlist");
-    let id = video_id.to_owned();
+    let id = track.video_id.clone();
     let action = actions.clone();
     let close = popover.clone();
     like.connect_clicked(move |_| {
         close.popdown();
         (action.like_track)(id.clone());
     });
-    let id = video_id.to_owned();
+    let id = track.video_id.clone();
     let action = actions.clone();
     let close = popover.clone();
     unlike.connect_clicked(move |_| {
         close.popdown();
         (action.unlike_track)(id.clone());
     });
-    let id = video_id.to_owned();
+    let id = track.video_id.clone();
     let action = actions.clone();
     let close = popover.clone();
     add.connect_clicked(move |_| {
         close.popdown();
         (action.add_to_playlist)(id.clone());
     });
-    menu.append(&like);
-    menu.append(&unlike);
-    menu.append(&add);
+    for (label, next) in [("Play next", true), ("Add to queue", false)] {
+        let button = gtk::Button::with_label(label);
+        let (track, action, close) = (track.clone(), actions.clone(), popover.clone());
+        button.connect_clicked(move |_| {
+            close.popdown();
+            (action.queue_track)(track.clone(), next);
+        });
+        menu.append(&button);
+    }
+    if (actions.can_edit_library)() {
+        menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        menu.append(&like);
+        menu.append(&unlike);
+        menu.append(&add);
+    }
     popover.set_child(Some(&menu));
-    gtk::MenuButton::builder()
+    let button = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")
         .tooltip_text("Song actions")
+        .valign(gtk::Align::Center)
         .popover(&popover)
-        .build()
+        .build();
+    button.add_css_class("goosic-song-menu");
+    button
 }
 
 fn track_shelf(tracks: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::ScrolledWindow {
@@ -644,15 +710,13 @@ fn track_shelf(tracks: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::ScrolledWind
             button.add_css_class("flat");
             button.add_css_class("goosic-track-row");
             let (track, context, actions) = (track.clone(), tracks.clone(), actions.clone());
-            let video_id = track.video_id.clone();
+            let menu_track = track.clone();
             let menu_actions = actions.clone();
             button.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
             let item = row(4);
             button.set_hexpand(true);
             item.append(&button);
-            if (menu_actions.can_edit_library)() {
-                item.append(&track_menu(&video_id, &menu_actions));
-            }
+            item.append(&track_menu(&menu_track, &menu_actions));
             track_column.append(&item);
         }
         columns.append(&track_column);
@@ -775,6 +839,14 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
         themes.append(&toggle);
     }
     appearance.append(&themes);
+    let backdrop = gtk::CheckButton::with_label("Use the playing cover as the background");
+    backdrop.set_active(facts.artwork_background);
+    {
+        let actions = actions.clone();
+        backdrop
+            .connect_toggled(move |button| (actions.set_artwork_background)(button.is_active()));
+    }
+    appearance.append(&backdrop);
     page.append(&appearance);
 
     let content = settings_group("Content");
@@ -785,7 +857,7 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
         explicit.connect_toggled(move |button| (actions.set_hide_explicit)(button.is_active()));
     }
     content.append(&explicit);
-    let start = row(8);
+    let start = column(8);
     start.append(&plain("Start page"));
     let mut first_start: Option<gtk::ToggleButton> = None;
     for (value, label) in [
@@ -820,6 +892,29 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
     }
     motion.append(&reduce);
     page.append(&motion);
+    let shortcuts = gtk::Expander::builder().label("Keyboard shortcuts").build();
+    let keys = column(6);
+    for (key, action) in [
+        ("Space", "Play / pause, outside text fields and controls"),
+        ("Ctrl+Left / Right", "Previous / next song"),
+        ("Shift+Left / Right", "Seek backward / forward ten seconds"),
+        ("Ctrl+Up / Down", "Volume up / down"),
+        ("Ctrl+M", "Mute"),
+        ("Ctrl+S / Ctrl+R", "Shuffle / repeat"),
+        ("Ctrl+F", "Search"),
+        ("Ctrl+L", "Lyrics"),
+        ("Ctrl+Shift+Q", "Playing Next"),
+        ("Ctrl+B", "Sidebar"),
+        ("Ctrl+Shift+F / F11", "Full player / full screen"),
+        ("Esc", "Close full player or panels"),
+        ("Alt+Left", "Go back"),
+        ("Ctrl+,", "Settings"),
+        ("Ctrl+W / Ctrl+Q", "Close window / quit"),
+    ] {
+        keys.append(&dim(&format!("{key}  ·  {action}")));
+    }
+    shortcuts.set_child(Some(&keys));
+    page.append(&shortcuts);
 
     let accounts = settings_group("Account");
     accounts.append(&dim(if facts.accounts.is_empty() {

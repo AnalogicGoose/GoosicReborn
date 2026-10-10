@@ -539,12 +539,16 @@ public sealed class LyricLineViewModel : INotifyPropertyChanged
 {
     private bool _isCurrent;
 
-    internal LyricLineViewModel(string text, long atMilliseconds, bool synced)
+    internal LyricLineViewModel(string text, long atMilliseconds, bool synced, int index)
     {
         Text = text;
         AtMilliseconds = atMilliseconds;
         Synced = synced;
+        Index = index;
     }
+
+    /// <summary>The line's place in its document, which is what its distance from the sung line is measured in.</summary>
+    public int Index { get; }
 
     /// <summary>Whether the document follows the song; unsynced lines have no current line.</summary>
     public bool Synced { get; }
@@ -566,12 +570,8 @@ public sealed class LyricLineViewModel : INotifyPropertyChanged
 
             _isCurrent = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Emphasis)));
         }
     }
-
-    /// <summary>The current line at full strength, the rest receding, as the reference does.</summary>
-    public double Emphasis => !Synced || IsCurrent ? 1.0 : 0.45;
 }
 
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
@@ -820,15 +820,15 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         return true;
     }
 
-    /// <summary>Whether volume or mute may change now; they stay as they are during advertisements.</summary>
+    /// <summary>Volume and mute remain available during advertisements.</summary>
     internal bool CanAdjustSound()
     {
-        if (!IsAdvertisement)
+        if (!IsAccountBusy)
         {
             return true;
         }
 
-        ReportDetail("Volume and mute are unchanged during advertisements.");
+        ReportDetail("Volume and mute wait while the account changes.");
         return false;
     }
     public double Volume
@@ -851,6 +851,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         {
             if (Set(ref _isMuted, value))
             {
+                OnPropertyChanged(nameof(VolumePercent));
                 OnPropertyChanged(nameof(VolumeGlyph));
                 OnPropertyChanged(nameof(MuteLabel));
             }
@@ -858,7 +859,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     }
 
     /// <summary>The confirmed volume on the 0-100 scale the slider shows.</summary>
-    public double VolumePercent => Math.Round(Presentation.VolumeTaper.ToPosition(Volume) * 100);
+    public double VolumePercent => IsMuted ? 0 : Math.Round(Presentation.VolumeTaper.ToPosition(Volume) * 100);
 
     /// <summary>Segoe Fluent Icons: muted, low, medium or high.</summary>
     public string VolumeGlyph => IsMuted || Volume <= 0 ? "\uE74F"
@@ -900,8 +901,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     internal event Action? ConfirmedTrackChanged;
 
-    /// <summary>Raised with the index of the lyric line the music has reached.</summary>
+    /// <summary>
+    /// Raised with the index of the lyric line the music has reached, or -1 when it is back
+    /// before the first one.
+    /// </summary>
     internal event Action<int>? CurrentLyricChanged;
+
+    /// <summary>The line being sung, or -1 when there is none.</summary>
+    internal int CurrentLyricIndex => _currentLyric;
 
     /// <summary>
     /// Whether the page last confirmed that it is playing.
@@ -978,8 +985,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         if (index >= 0)
         {
             Lyrics[index].IsCurrent = true;
-            CurrentLyricChanged?.Invoke(index);
         }
+
+        CurrentLyricChanged?.Invoke(index);
     }
 
     internal bool ReportPlayback(BridgeEvent sample)
@@ -1013,7 +1021,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (sample.State == "playing" && !_endHandled)
             {
                 _endArmed = true;
-                _listenerPaused = false;
+                // A sample queued before Pause cannot clear the listener's intent.
+                // NoteListenerToggle and Point handle explicit resume and new tracks.
             }
 
             if (changed)
@@ -1182,7 +1191,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             foreach (var line in document.Lines)
             {
-                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds, document.Synced));
+                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds, document.Synced, Lyrics.Count));
             }
 
             _lyricsSynced = document.Synced;

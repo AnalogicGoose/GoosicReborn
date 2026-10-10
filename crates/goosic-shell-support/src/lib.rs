@@ -20,6 +20,7 @@
 //! | [`media`] | `SystemMediaPlayback.swift` | what the system media controls show and allow |
 //! | [`catalog`] | `Catalog.swift` | which rows are playable and how a page is shaped |
 //! | [`playback`] | `Models.swift` | what plays next, clamps, seek settling, preference saves |
+//! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
 //! | [`lyrics`] | `Models.swift` | which line is current |
 //! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
@@ -36,6 +37,7 @@ pub mod lyrics;
 pub mod media;
 pub mod navigation;
 pub mod playback;
+pub mod queue;
 pub mod response;
 mod text;
 

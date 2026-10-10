@@ -2,7 +2,7 @@
 
 ## Decision
 
-GoosicReborn will replace SwiftCrossUI with three native shells and retain one Rust backend. The macOS shell will use SwiftUI and AppKit, the Linux shell GTK 4 written in Rust, and the Windows shell WinUI 3 and WebView2. They are three renderers for one product, not three product forks. Every shell starts one private `goosic-service` child and speaks the existing versioned NDJSON protocol over inherited stdin and stdout.
+GoosicReborn has removed SwiftCrossUI in favor of three native shells and retains one Rust backend. The macOS shell uses SwiftUI and AppKit, the Linux shell GTK 4 written in Rust, and the Windows shell WinUI 3 and WebView2. They are three renderers for one product, not three product forks. Every shell starts one private `goosic-service` child and speaks the existing versioned NDJSON protocol over inherited stdin and stdout.
 
 This is not a rewrite of `goosic-core`, `goosic-service`, or the catalog, settings, downloads, lyrics, and accounts crates. Rust remains the playback authority: a shell may request a transition but Rust decides whether it is valid. The current lease, generation, monotonic sample, advertisement, anonymous-catalog, and credential-boundary invariants remain unchanged.
 
@@ -21,6 +21,11 @@ SwiftUI + AppKit     GTK 4 (gtk4-rs)      WinUI 3
 WebKit + AVFoundation WebKitGTK + GStreamer WebView2 + native
      └──── private, versioned NDJSON client ──┘
 ```
+
+The shared presentation contract is [UI_DESIGN.md](UI_DESIGN.md): composition, hierarchy,
+control meaning, responsive behavior and accessibility stay consistent while each operating
+system renders native widgets and materials. Its implementation-gap audit distinguishes the
+required design from current shell differences.
 
 The shared frontend contract is the protocol and conformance fixtures, not a view toolkit. `goosic-protocol` remains the Rust source of truth. Request, response, malformed-frame, timeout, owner-conflict, stale-generation, and non-monotonic-sample fixtures make a replacement shell implementable without treating Swift source as the specification.
 
@@ -42,11 +47,11 @@ Do not force UI state into Rust merely to remove Swift. Screens, focus, layout, 
 
 3. Complete the macOS SwiftUI shell. Replace remaining SwiftCrossUI-backed components and model observation while retaining the WebKit, AVFoundation, account, and media-control guarantees. Bundle the matching service inside the macOS application.
 
-   *In progress* on `feature/macos/native-swiftui-shell`, where the native macOS shell is being built inside `apps/goosic-swift`.
+   *Implemented.* `apps/goosic-swift` now contains only the native macOS shell, with Combine observation and native SwiftUI representables. Live Low Power Mode performance and packaged acceptance still need measurement.
 
 4. Build `apps/goosic-linux` beside the Swift shell. Start with catalog, search, queue, settings, and protocol transport. Then add WebKitGTK playback and account hosts, local audio, and media controls. The Swift Linux shell is only a temporary conformance reference and is deleted after GTK parity and packaging.
 
-   *Feature-complete, not packaged,* on `feature/linux/complete-shell`. [LINUX_SHELL.md](LINUX_SHELL.md) records the decisions: GTK 4 through `gtk4-rs` without libadwaita, so the shell follows each desktop's theme; its own Cargo workspace linking `goosic-shell-support`; the application ID `io.github.analogicgoose.Goosic`; a Flatpak on the GNOME runtime; and a process that keeps playing in the background, reachable from every desktop, when its window is closed. The shell browses and plays the catalog through WebKitGTK, plays downloaded files through GStreamer, signs accounts in, publishes MPRIS and a status icon, and keeps playing with its window closed, and each of those was checked on a live desktop. The Flatpak, the lease-proof test, a CI job and the macOS-only account features are what is left; that document's *What is left* lists every item and the branch it belongs on.
+   *Built, packaged acceptance pending.* The GTK app and its Flatpak now exist; [LINUX_SHELL.md](LINUX_SHELL.md) records the remaining live account and session checks. The Swift Linux reference has been deleted.
 
 5. Build `apps/goosic-windows` around WinUI 3, WebView2, Windows media controls, and local audio. Do not claim Windows support until it passes the same fixtures and platform-host security checks.
 
@@ -54,11 +59,11 @@ Do not force UI state into Rust merely to remove Swift. Screens, focus, layout, 
 
    The rules are not restated in C#. `goosic-shell-support-ffi` exposes them over a C ABI the shell reaches through P/Invoke, which is step two's "only when a real use proves it valuable" arriving: the injected page scripts and the bridge validators are security-sensitive generated JavaScript and the checks that decide whether to believe the page, and a third copy of those is exactly the failure [SHELL_CONTRACT.md](SHELL_CONTRACT.md) describes. What crosses the boundary stays narrow -- the scripts and the validators, never screens, focus or layout.
 
-   Windows support is not claimed. There is no playback, search, account profile or media control yet, and the fixtures have not been run against it.
+   The native Windows x64 app is released with official WebView2 playback, search, accounts and media controls. Local audio remains unavailable.
 
-6. Delete `apps/goosic-swift`, SwiftPM, `SCUI_DEFAULT_BACKEND`, and their CI caches only after all replacement shells pass conformance and package checks. Migrate every useful Swift test before deleting it.
+6. Remove the portable toolkit while keeping the native macOS Swift package.
 
-   *Waiting.* Because the native macOS shell is being built inside `apps/goosic-swift`, this step becomes the removal of SwiftCrossUI and of the Linux and Windows platform code rather than of the whole package; how the macOS shell is laid out afterwards belongs to step three. The Linux half goes first, when the GTK shell reaches parity and its Flatpak ships.
+   *Done.* SwiftCrossUI package dependencies, portable views, Linux Swift hosts, Windows stubs, C shims, backend-selection variables and the Swift Linux CI job have been removed. macOS builds through SwiftPM or its native Xcode projects. Toolkit removal does not establish live playback or performance acceptance on every platform; those gates remain explicit.
 
 ## Delivery, deployment, and CI
 
@@ -66,7 +71,7 @@ Keep one product release line and protocol policy, but publish independent platf
 
 A service or protocol change is coordinated: CI tests every supported shell against it, the compatibility manifest changes, and affected packages release together unless the protocol remains backward compatible. A shell fails clearly on an unsupported service version rather than guessing.
 
-The repository currently has CI but no packaging, signing, notarization, or publishing workflow. Add package jobs only after native packages exist: signed and notarized `.app`/DMG on macOS, a Flatpak on the GNOME runtime for Linux, and signed MSIX or installer on Windows. Release jobs consume one tagged revision and publish checksums, artifact revisions, bundled-service versions, and protocol ranges in a signed release manifest.
+The repository has CI and native packaging paths, including Windows release artifacts and Linux Flatpak. macOS signing and notarization still need a release gate: signed and notarized `.app`/DMG on macOS, a Flatpak on the GNOME runtime for Linux, and signed MSIX or installer on Windows. Release jobs consume one tagged revision and publish checksums, artifact revisions, bundled-service versions, and protocol ranges in a signed release manifest.
 
 CI becomes path-aware. Rust, protocol, fixture, release-manifest, and shared packaging changes run all supported shell suites. A change inside one native shell runs its platform suite. The Linux shell's suite builds inside the Flatpak builder on the GNOME runtime, because the hosted runners ship a GTK older than the one it requires. Windows stops being `continue-on-error` when it has a released shell. The content-tree passport may remain, but its seal must cover the exact selected job set.
 

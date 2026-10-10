@@ -172,6 +172,7 @@ mod tests {
     fn found(synced: bool, lines: usize) -> Result<ResponseEnvelope, TransportError> {
         let lines = (0..lines)
             .map(|index| LyricsLine {
+                words: Vec::new(),
                 at_ms: if synced { index as i64 * 5_000 } else { -1 },
                 text: format!("line {index}"),
             })

@@ -31,6 +31,55 @@ public class WindowLayoutTests
         Assert.False(WindowLayout.ClosesSidebarAfterNavigation(widthClass));
     }
 
+    [Theory]
+    [InlineData(539.9, true)]
+    [InlineData(540, false)]
+    [InlineData(740, false)]
+    public void ThePlayerTakesTwoRowsOnlyWhereOneWouldCrushTheTitle(double available, bool twoRows) =>
+        Assert.Equal(twoRows, WindowLayout.PlayerUsesTwoRows(available));
+
+    [Fact]
+    public void TheMinimumWindowStillFitsTheTwoRowPlayer()
+    {
+        var available = WindowLayout.MinimumWidth - 2 * WindowLayout.PlayerEdgeClearance;
+        Assert.True(WindowLayout.PlayerUsesTwoRows(available));
+        Assert.True(available >= WindowLayout.PlayerTwoRowMinimum);
+    }
+
+    [Fact]
+    public void ThePlayerSitsInTheMiddleOfThePageBesideTheSidebar()
+    {
+        var (left, width) = WindowLayout.PlayerPlacement(2000, 288, 0);
+        Assert.Equal(WindowLayout.PlayerMaximumWidth, width);
+        Assert.Equal((288 + 2000 - 740) / 2.0, left);
+    }
+
+    [Fact]
+    public void OpeningThePanelLeavesThePlayerAloneWhileItStillClearsIt()
+    {
+        var closed = WindowLayout.PlayerPlacement(2000, 288, 0);
+        var open = WindowLayout.PlayerPlacement(2000, 288, 368);
+        Assert.Equal(closed, open);
+    }
+
+    [Fact]
+    public void ThePlayerStepsAsideOnlyAsFarAsThePanelReaches()
+    {
+        var closed = WindowLayout.PlayerPlacement(1500, 288, 0);
+        var (left, width) = WindowLayout.PlayerPlacement(1500, 288, 368);
+        Assert.Equal(WindowLayout.PlayerMaximumWidth, width);
+        Assert.True(left < closed.Left);
+        Assert.Equal(1500 - 368 - WindowLayout.PlayerEdgeClearance, left + width);
+    }
+
+    [Fact]
+    public void ThePlayerNarrowsOnlyWhenThereIsNowhereLeftToStep()
+    {
+        var (left, width) = WindowLayout.PlayerPlacement(1250, 244, 348);
+        Assert.Equal(244 + WindowLayout.PlayerEdgeClearance, left);
+        Assert.Equal(1250 - 244 - 348 - 2 * WindowLayout.PlayerEdgeClearance, width);
+    }
+
     [Fact]
     public void NarrowPanelsNeverOverflowTheMinimumWindow()
     {

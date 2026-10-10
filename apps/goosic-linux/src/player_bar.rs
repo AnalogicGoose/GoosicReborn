@@ -22,7 +22,7 @@ use crate::playback::Player;
 /// seek per pixel.
 const SEEK_SETTLE: Duration = Duration::from_millis(200);
 
-const ARTWORK_SIZE: i32 = 42;
+const ARTWORK_SIZE: i32 = 34;
 
 /// What the bar can ask the shell to do.
 pub struct BarActions {
@@ -39,10 +39,18 @@ pub struct BarActions {
     pub stop: Box<dyn Fn()>,
     pub lyrics: Box<dyn Fn()>,
     pub queue: Box<dyn Fn()>,
+    pub expand: Box<dyn Fn()>,
+    /// 0 cancels; -1 stops at the end of the current song; positive values are minutes.
+    pub sleep: Box<dyn Fn(i32)>,
 }
 
 pub struct PlayerBar {
     pub root: gtk::Box,
+    main_row: gtk::Box,
+    bottom_row: gtk::Box,
+    transport: gtk::Box,
+    controls: gtk::Box,
+    stacked: Cell<bool>,
     artwork_cache: Rc<ArtworkCache>,
     artwork_slot: gtk::Box,
     /// The thumbnail the artwork shows, so it is replaced only when the track changes.
@@ -54,10 +62,13 @@ pub struct PlayerBar {
     play_pause: gtk::Button,
     next: gtk::Button,
     elapsed: gtk::Label,
+    always_show_times: Rc<Cell<bool>>,
     position: gtk::Scale,
     total: gtk::Label,
     mute: gtk::Button,
     volume: gtk::Scale,
+    volume_button: gtk::Button,
+    utility: gtk::Stack,
     shuffle: gtk::ToggleButton,
     repeat: gtk::Button,
     autoplay: gtk::ToggleButton,
@@ -72,8 +83,7 @@ pub struct PlayerBar {
 }
 
 impl PlayerBar {
-    pub fn new(actions: BarActions, artwork_cache: Rc<ArtworkCache>) -> PlayerBar {
-        let actions = Rc::new(actions);
+    pub fn new(actions: Rc<BarActions>, artwork_cache: Rc<ArtworkCache>) -> PlayerBar {
         let seeking = Rc::new(Cell::new(false));
         let updating = Rc::new(Cell::new(false));
 
@@ -146,7 +156,7 @@ impl PlayerBar {
 
         let volume = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 0.01);
         volume.set_draw_value(false);
-        volume.set_width_request(92);
+        volume.set_width_request(100);
         volume.add_css_class("goosic-volume");
         {
             let actions = actions.clone();
@@ -157,6 +167,7 @@ impl PlayerBar {
         }
 
         let elapsed = gtk::Label::new(Some("0:00"));
+        let always_show_times = Rc::new(Cell::new(false));
         elapsed.add_css_class("goosic-time");
         elapsed.set_visible(false);
         let total = gtk::Label::new(Some("--:--"));
@@ -195,7 +206,13 @@ impl PlayerBar {
         let playing = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         playing.set_hexpand(true);
         playing.set_valign(gtk::Align::Center);
-        playing.append(&artwork_slot);
+        let cover_button = gtk::Button::builder()
+            .child(&artwork_slot)
+            .tooltip_text("Open full player (Ctrl+Shift+F)")
+            .build();
+        cover_button.add_css_class("goosic-cover-button");
+        connect(&cover_button, &actions, |a| (a.expand)());
+        playing.append(&cover_button);
         playing.append(&metadata);
         playing.add_css_class("goosic-player-metadata");
 
@@ -207,6 +224,21 @@ impl PlayerBar {
         extra.append(&autoplay);
         extra.append(&radio);
         extra.append(&stop);
+        extra.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        extra.append(&gtk::Label::new(Some("Sleep timer")));
+        for (label, minutes) in [
+            ("15 minutes", 15),
+            ("30 minutes", 30),
+            ("45 minutes", 45),
+            ("60 minutes", 60),
+            ("End of this song", -1),
+            ("Turn off sleep timer", 0),
+        ] {
+            let button = gtk::Button::with_label(label);
+            let actions = actions.clone();
+            button.connect_clicked(move |_| (actions.sleep)(minutes));
+            extra.append(&button);
+        }
         let popover = gtk::Popover::new();
         popover.set_child(Some(&extra));
         let more = gtk::MenuButton::builder()
@@ -214,22 +246,81 @@ impl PlayerBar {
             .tooltip_text("More playback controls")
             .build();
         more.set_popover(Some(&popover));
+        for (label, method) in [("Lyrics", 0), ("Playing Next", 1)] {
+            let button = gtk::Button::with_label(label);
+            let actions = actions.clone();
+            button.connect_clicked(move |_| match method {
+                0 => (actions.lyrics)(),
+                1 => (actions.queue)(),
+                _ => (actions.mute)(),
+            });
+            extra.append(&button);
+        }
+        extra.append(&mute);
+        // Stack pages measure together. Opening Volume covers the utility icons without
+        // changing the transport or metadata geometry or creating a popover surface.
+        let utility = gtk::Stack::builder()
+            .hhomogeneous(true)
+            .vhomogeneous(true)
+            .build();
+        let panels = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+        panels.append(&lyrics);
+        panels.append(&queue);
+        let expand = icon_button(
+            "view-fullscreen-symbolic",
+            "Open full player (Ctrl+Shift+F)",
+        );
+        connect(&expand, &actions, |a| (a.expand)());
+        panels.append(&expand);
+        utility.add_named(&panels, Some("panels"));
+        utility.add_named(&volume, Some("volume"));
+        utility.set_visible_child_name("panels");
+        let volume_button = icon_button("audio-volume-high-symbolic", "Volume (Ctrl+M to mute)");
+        {
+            let utility = utility.clone();
+            volume_button.connect_clicked(move |_| {
+                let open = utility.visible_child_name().as_deref() == Some("volume");
+                utility.set_visible_child_name(if open { "panels" } else { "volume" });
+            });
+        }
         let controls = gtk::Box::new(gtk::Orientation::Horizontal, 2);
         controls.set_valign(gtk::Align::Center);
         controls.append(&more);
-        controls.append(&lyrics);
-        controls.append(&queue);
-        controls.append(&volume);
-        controls.append(&mute);
-
-        let root = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        controls.append(&utility);
+        controls.append(&volume_button);
+        let main_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        main_row.append(&transport);
+        main_row.append(&playing);
+        main_row.append(&controls);
+        let bottom_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        bottom_row.set_halign(gtk::Align::Center);
+        bottom_row.set_visible(false);
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 4);
         root.set_height_request(72);
-        root.append(&transport);
-        root.append(&playing);
-        root.append(&controls);
+        root.set_valign(gtk::Align::Center);
+        root.append(&main_row);
+        root.append(&bottom_row);
+        let hover = gtk::EventControllerMotion::new();
+        let (elapsed_hover, total_hover) = (elapsed.clone(), total.clone());
+        hover.connect_enter(move |_, _, _| {
+            elapsed_hover.set_visible(true);
+            total_hover.set_visible(true);
+        });
+        let (elapsed_hover, total_hover) = (elapsed.clone(), total.clone());
+        let keep_times = always_show_times.clone();
+        hover.connect_leave(move |_| {
+            elapsed_hover.set_visible(keep_times.get());
+            total_hover.set_visible(keep_times.get());
+        });
+        position.add_controller(hover);
 
         PlayerBar {
             root,
+            main_row,
+            bottom_row,
+            transport,
+            controls,
+            stacked: Cell::new(false),
             artwork_cache,
             artwork_slot,
             artwork_shown: RefCell::new(None),
@@ -240,10 +331,13 @@ impl PlayerBar {
             play_pause,
             next,
             elapsed,
+            always_show_times,
             position,
             total,
             mute,
             volume,
+            volume_button,
+            utility,
             shuffle,
             repeat,
             autoplay,
@@ -256,6 +350,43 @@ impl PlayerBar {
         }
     }
 
+    pub fn set_stacked(&self, stacked: bool) {
+        if self.stacked.replace(stacked) == stacked {
+            return;
+        }
+        if stacked {
+            self.main_row.remove(&self.transport);
+            self.main_row.remove(&self.controls);
+            self.bottom_row.append(&self.transport);
+            self.bottom_row.append(&self.controls);
+            self.root.add_css_class("goosic-player-stacked");
+        } else {
+            self.bottom_row.remove(&self.transport);
+            self.bottom_row.remove(&self.controls);
+            self.main_row.prepend(&self.transport);
+            self.main_row.append(&self.controls);
+            self.root.remove_css_class("goosic-player-stacked");
+        }
+        self.bottom_row.set_visible(stacked);
+    }
+
+    pub fn close_volume(&self) -> bool {
+        let open = self.utility.visible_child_name().as_deref() == Some("volume");
+        self.utility.set_visible_child_name("panels");
+        open
+    }
+
+    pub fn full_style(&self) {
+        self.always_show_times.set(true);
+        self.set_stacked(true);
+        self.root.add_css_class("goosic-full-transport");
+        if let Some(button) = self.artwork_slot.parent() {
+            button.set_visible(false);
+        }
+        self.elapsed.set_visible(true);
+        self.total.set_visible(true);
+    }
+
     /// Redraws the bar from the player's state.
     pub fn update(&self, player: &Player, official_loaded: bool) {
         self.updating.set(true);
@@ -266,6 +397,13 @@ impl PlayerBar {
         ));
         self.subtitle.set_label(&now_playing_subtitle(track));
         self.status.set_label(&player.status);
+        self.status.set_visible(
+            player.advertisement
+                || ["Could not", "unavailable", "failed", "refused"]
+                    .iter()
+                    .any(|word| player.status.contains(word)),
+        );
+        self.root.set_tooltip_text(Some(&player.status));
         self.show_artwork(track.and_then(|track| track.thumbnail.clone()));
 
         let idle = player.transition() == PlaybackTransition::Idle;
@@ -311,6 +449,11 @@ impl PlayerBar {
             "audio-volume-high-symbolic"
         });
         self.mute.set_sensitive(!player.advertisement);
+        self.volume_button.set_icon_name(if player.muted {
+            "audio-volume-muted-symbolic"
+        } else {
+            "audio-volume-high-symbolic"
+        });
 
         self.shuffle.set_active(player.shuffle);
         let (icon, tip) = match player.repeat {
