@@ -10,6 +10,15 @@ use goosic_shell_support::catalog::Track;
 use goosic_shell_support::media::MediaSnapshot;
 use goosic_shell_support::navigation::{PlaybackTransition, RepeatMode};
 use goosic_shell_support::playback::{clamp_volume, index_after, random_index, PendingSeek};
+use std::time::Instant;
+
+#[derive(Debug)]
+struct QueueUndo {
+    tracks: Vec<Track>,
+    index: usize,
+    revision: u64,
+    cleared_at: Instant,
+}
 
 /// The shell's playback state.
 #[derive(Debug)]
@@ -55,6 +64,8 @@ pub struct Player {
     pub status: String,
     sample_base: u64,
     last_sample_sent: u64,
+    queue_revision: u64,
+    undo: Option<QueueUndo>,
 }
 
 impl Default for Player {
@@ -98,6 +109,8 @@ impl Player {
             status: "Choose a track to begin.".to_owned(),
             sample_base: 0,
             last_sample_sent: 0,
+            queue_revision: 0,
+            undo: None,
         }
     }
 
@@ -132,6 +145,7 @@ impl Player {
     /// Forgets everything the previous track confirmed, so no position, end marker or volume
     /// decision is carried into the next one.
     pub fn begin_track(&mut self) {
+        self.queue_changed();
         self.paused = true;
         self.listener_paused = false;
         self.current_time = 0.0;
@@ -147,6 +161,7 @@ impl Player {
     /// Makes `tracks` the queue, positioned on `chosen`. A deliberately chosen list is a fresh
     /// listening context, so it may start its own radio when it runs out.
     pub fn set_queue(&mut self, tracks: Vec<Track>, chosen: &Track) {
+        self.queue_changed();
         self.index = tracks
             .iter()
             .position(|track| track.id == chosen.id)
@@ -158,6 +173,7 @@ impl Player {
 
     /// Moves the queue to `track`, putting it at the front when it is not already in it.
     pub fn select(&mut self, track: &Track) {
+        self.queue_changed();
         match self.queue.iter().position(|queued| queued.id == track.id) {
             Some(index) => self.index = index,
             None => {
@@ -174,6 +190,7 @@ impl Player {
             || lease.generation != self.lease.generation
             || lease.account_id != self.lease.account_id;
         if changed {
+            self.queue_changed();
             self.sample_base = 0;
             self.last_sample_sent = 0;
         }
@@ -225,6 +242,108 @@ impl Player {
 
     pub fn queued(&self) -> Option<&Track> {
         self.queue.get(self.index)
+    }
+
+    /// Removes a queue occurrence without interrupting its playing occurrence.
+    pub fn remove_queued(&mut self, index: usize) -> bool {
+        if index >= self.queue.len()
+            || (index == self.index
+                && self
+                    .current
+                    .as_ref()
+                    .is_some_and(|track| self.queue[index].id == track.id))
+        {
+            return false;
+        }
+        self.queue.remove(index);
+        self.queue_changed();
+        if index < self.index {
+            self.index -= 1;
+        }
+        self.index = self.index.min(self.queue.len().saturating_sub(1));
+        true
+    }
+
+    /// Moves one occurrence, keeping the cursor attached to the same occurrence even for duplicates.
+    pub fn move_queued(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.queue.len() || to >= self.queue.len() || from == to {
+            return false;
+        }
+        let track = self.queue.remove(from);
+        self.queue.insert(to, track);
+        self.queue_changed();
+        self.index = if self.index == from {
+            to
+        } else if from < self.index && to >= self.index {
+            self.index - 1
+        } else if from > self.index && to <= self.index {
+            self.index + 1
+        } else {
+            self.index
+        };
+        true
+    }
+
+    pub fn clear_upcoming(&mut self) {
+        let tracks = self.queue.clone();
+        let index = self.index;
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|track| self.queued().is_some_and(|q| q.id == track.id))
+        {
+            self.queue.truncate(self.index + 1);
+        } else {
+            self.queue.clear();
+            self.index = 0;
+        }
+        self.radio_cursor = None;
+        self.radio_seed = None;
+        if tracks.len() != self.queue.len() {
+            self.queue_changed();
+            self.undo = Some(QueueUndo {
+                tracks,
+                index,
+                revision: self.queue_revision,
+                cleared_at: Instant::now(),
+            });
+        }
+    }
+
+    pub fn clear_played(&mut self) {
+        let end = self.index.min(self.queue.len());
+        self.queue.drain(..end);
+        self.index = 0;
+        if end > 0 {
+            self.queue_changed();
+        }
+    }
+
+    pub fn queue_changed(&mut self) {
+        self.queue_revision += 1;
+        self.undo = None;
+    }
+
+    pub fn can_undo_clear(&self, now: Instant) -> bool {
+        self.undo.as_ref().is_some_and(|undo| {
+            goosic_shell_support::queue::can_undo(
+                undo.revision,
+                self.queue_revision,
+                goosic_shell_support::queue::UNDO_WINDOW_SECONDS,
+                now.saturating_duration_since(undo.cleared_at).as_secs_f64(),
+            )
+        })
+    }
+
+    pub fn undo_clear(&mut self, now: Instant) -> bool {
+        if !self.can_undo_clear(now) {
+            return false;
+        }
+        let undo = self.undo.take().expect("available undo has a snapshot");
+        self.queue = undo.tracks;
+        self.index = undo.index;
+        self.queue_changed();
+        true
     }
 
     /// Adopts stored preferences. Where the shell opens is navigation's business, not this.
@@ -293,6 +412,66 @@ mod tests {
         assert!(!player.holds(Owner::LocalDownloadedFile, 7));
         player.apply_lease(lease(Owner::None, 8));
         assert!(!player.holds(Owner::OfficialWebView, 8));
+    }
+
+    #[test]
+    fn editing_the_queue_keeps_the_playing_occurrence_and_its_position() {
+        let mut player = Player::new();
+        player.queue = vec![track("a"), track("b"), track("b"), track("c")];
+        player.index = 2;
+        player.current = Some(track("b"));
+        player.current_time = 42.0;
+        assert!(player.move_queued(2, 0));
+        assert_eq!(player.index, 0);
+        assert!(!player.remove_queued(0));
+        assert!(player.remove_queued(2));
+        assert_eq!(player.current_time, 42.0);
+        assert_eq!(player.queued(), player.current.as_ref());
+        assert!(player.move_queued(2, 0));
+        assert_eq!(player.index, 1);
+        player.clear_played();
+        assert_eq!(player.index, 0);
+        assert_eq!(player.queue.len(), 2);
+        player.clear_upcoming();
+        assert_eq!(player.queue, vec![track("b")]);
+    }
+
+    #[test]
+    fn invalid_queue_edits_leave_the_queue_untouched() {
+        let mut player = Player::new();
+        player.queue = vec![track("a"), track("b")];
+        let before = player.queue.clone();
+        assert!(!player.move_queued(0, 99));
+        assert!(!player.remove_queued(99));
+        assert_eq!(player.queue, before);
+        player.current = None;
+        player.clear_upcoming();
+        assert!(player.queue.is_empty());
+    }
+
+    #[test]
+    fn undo_clear_expires_and_cannot_restore_another_listening_context() {
+        let mut player = Player::new();
+        player.queue = vec![track("a"), track("b"), track("c")];
+        player.current = Some(track("a"));
+        player.current_time = 24.0;
+        player.clear_upcoming();
+        assert!(player.undo_clear(Instant::now()));
+        assert_eq!(player.queue.len(), 3);
+        assert_eq!(player.current_time, 24.0);
+        player.clear_upcoming();
+        assert!(!player.can_undo_clear(Instant::now() + std::time::Duration::from_secs(10)));
+        player.begin_track();
+        assert!(!player.undo_clear(Instant::now()));
+        player.queue.push(track("b"));
+        player.clear_upcoming();
+        player.move_queued(0, 0);
+        assert!(
+            player.can_undo_clear(Instant::now()),
+            "a refused no-op is not a revision"
+        );
+        player.queue_changed();
+        assert!(!player.can_undo_clear(Instant::now()));
     }
 
     #[test]

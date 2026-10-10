@@ -102,30 +102,6 @@ public sealed partial class MainWindow : Window
 
     // ---- Side panel -------------------------------------------------------------------------
 
-    /// <summary>Keeps the line being sung in the upper part of the lyrics panel.</summary>
-    private void FollowLyricOnScreen(int index)
-    {
-        if (FullPlayer.Visibility == Visibility.Visible
-            && FullPlayerLyricsItems.ContainerFromIndex(index) is FrameworkElement fullLine)
-        {
-            fullLine.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.36, AnimationDesired = true });
-        }
-
-        if (LyricsPanel.Visibility != Visibility.Visible)
-        {
-            return;
-        }
-
-        if (LyricsItems.ContainerFromIndex(index) is FrameworkElement line)
-        {
-            line.StartBringIntoView(new BringIntoViewOptions
-            {
-                VerticalAlignmentRatio = 0.35,
-                AnimationDesired = true,
-            });
-        }
-    }
-
     private readonly SidePanelState _sidePanel = new();
 
     private async void OnToggleLyrics(object sender, RoutedEventArgs e) =>
@@ -185,7 +161,13 @@ public sealed partial class MainWindow : Window
             QueueUndoBar.Visibility = Visibility.Collapsed;
         }
 
-        SidePanel.Visibility = _sidePanel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
+        var visibility = _sidePanel.IsOpen ? Visibility.Visible : Visibility.Collapsed;
+        if (SidePanel.Visibility != visibility)
+        {
+            SidePanel.Visibility = visibility;
+            GlidePlayerOnce();
+        }
+
         ApplyInsets();
     }
 }

@@ -114,12 +114,12 @@ of its widgets without taking its look.
 
 Two design rules follow. The window keeps the system's own titlebar rather than a GNOME-style
 header bar — drawn by the window manager on X11 and by GTK on Wayland, styled by the theme either
-way. The first-release layout follows the Windows shell's composition: a grouped 280-pixel
-sidebar and the Playing Next or Lyrics panel sit over the content, and a 72-pixel transport pill
+way. The first-release layout follows the Windows shell's composition: a grouped adaptive
+sidebar and the Playing Next or Lyrics panel sit over the content, and a compact transport pill
 floats at the bottom. Home presents song shelves as horizontally scrolling columns of four
-compact rows. GTK uses the Windows shell's light and dark neutral palettes with translucent
-fills; WinUI's acrylic blur is not available through ordinary GTK widgets. The product accent
-stays the same red on every desktop.
+compact rows. GTK uses neutral light and dark palettes with translucent fills and native controls;
+WinUI's acrylic blur is not available through ordinary GTK widgets. The shared pink accent is
+`#FF0552`. The adaptive and immersive behavior follows [UI_DESIGN.md](UI_DESIGN.md).
 
 ## How it talks to Rust
 
@@ -336,7 +336,11 @@ apps/goosic-linux/
         playback.rs        queue, lease and transport state, decided without GTK
         lyrics.rs          the lyrics panel's lookups and highlight, decided without GTK
         ui.rs              page rows, sidebar, search bar, settings screen
-        player_bar.rs      the now-playing bar
+        player_bar.rs      compact/full transport and the fixed-size volume layer
+        full_player.rs     expanded cover, lyrics and queue presentation
+        backdrop.rs        cropped artwork blur through GTK's render graph
+        layout.rs          tested window breakpoints and transport placement
+        shell_presentation.rs window layout, shortcuts and sleep-timer orchestration
         side_panels.rs     the queue and lyrics panels
         artwork.rs         anonymous libsoup fetches into the XDG cache, under the shared rules
         theme.rs           gtk-interface-color-scheme, which GTK 4.20 made the way to choose
@@ -421,12 +425,45 @@ product gaps below. Shared crate, protocol, Makefile and CI work lands on `devel
 After the Flatpak stopped mounting Goosic's own data directory read-only, a user completed a real
 sign-in in the sandbox. That has not yet been followed by a restart and authenticated reads there.
 
-The current Windows shell still has more product features. Its queue editing, full-window player,
-artwork-driven background and installer updates are not in Linux. The GTK shell now recreates the
-grouped sidebar, account row, horizontal shelves and floating player with native widgets. Its
-account reader adds personalized Home, the Library, likes, saves, and owned-playlist management.
-Linux also imports and plays finalized legacy downloads. This comparison is against
-`platform/windows` after the 0.2.3 release, not a claim that every action has been hand-tested.
+The parity work on `feature/linux/windows-parity` synchronizes the shared 0.2.7 backend and adds
+an adaptive GTK presentation following [UI_DESIGN.md](UI_DESIGN.md). Navigation becomes an overlay
+below 820 logical pixels; the transport stays within a 740-pixel capsule and wraps into two rows
+when needed, retaining Lyrics and Playing Next. Search floats above its results, with its native
+single-selection category group wrapping at narrow widths. Clearance is represented inside the
+virtualized scroll content, so both the first result and last actionable row remain reachable.
+The volume slider replaces the utility controls in a homogeneous native stack: opening it does
+not change the bar's size or move artwork and transport, and More still offers Lyrics, Queue and
+Mute. GTK's portal appearance signals update the palette without guessing from a theme name;
+contrast mode uses solid surfaces and suppresses the decorative artwork backdrop.
+
+The full-window player shares the compact player's callbacks and playback state. It shows a
+large rounded cover and transport beside lyrics or the editable queue on a wide window, and
+keeps controls below the auxiliary pane on a narrow one. Its dark treatment survives a light
+browser theme. Opening, closing and resizing never unmount the WebKitGTK playback host. The
+playing cover can also form a cropped, blurred browsing backdrop; GTK's render graph performs
+the blur, and the saved `artwork_background` setting now has an Appearance control and affects
+the browser. This is artwork blur, not a claim that GTK supplies WinUI acrylic compositor blur.
+
+Song menus offer Play next and Add to queue for guests as well as signed-in listeners. Queue
+rows have artwork, move and remove actions; the playing occurrence cannot be removed. Clear
+upcoming preserves the current entry and its history, invalidates a pending radio reply, and
+can be undone for ten seconds while the queue revision and listening context remain unchanged.
+Duplicate tracks retain their occurrence cursor when reordered or selected. Synced lyric lines
+request bounded seeks through the same shell method as the timeline. Manual wheel or keyboard
+exploration suspends following and reveals Resume lyrics; no timing is inferred from line text.
+The sleep timer pauses through the existing leased host after 15, 30, 45 or 60 minutes, or at the
+end of the chosen song, without advancing the queue or quitting.
+
+The native desktop fixture exercises the actual shell at 1100 and 480 pixels with synthetic
+artwork and text in isolated XDG directories. It never signs in or produces sound. Captures cover
+browsing, search, light/dark settings, volume, queue, expanded cover and lyrics presentations;
+geometry assertions keep the transport in the window and preserve its bounds when volume opens. Pure tests cover queue occurrence preservation, clear/undo expiry
+and window breakpoints. These checks establish rendering and offline behavior, not real account,
+audio, screen-reader or compositor acceptance. Windows still has a mini player and installer
+updates that GTK does not implement, and word-timed listening effects remain separate work. The offline Flatpak build and its service
+exchange tests pass on GNOME 50. Plasma's native GTK scrollbar sliders emit minimum-size warnings
+during desktop capture; a debugger trace places them in scrolled-window scrollbar measurement,
+not the transport slider. They do not fail the fixture or establish compositor acceptance.
 
 | What | Where it belongs | Why it is still open |
 | --- | --- | --- |
@@ -440,27 +477,41 @@ Linux also imports and plays finalized legacy downloads. This comparison is agai
 | NVIDIA hardware, and GNOME, Xfce and COSMIC sessions | a person | Every live check ran on Plasma with Intel graphics |
 | Account-scoped mutations with a real account | a person | Read-only Home, playlists, liked songs and the owned-playlist list passed a live native test; mutations are built but have not been exercised against that account |
 | Exact owned-playlist item edits | `platform/linux` | Rename, privacy and delete are present; removing or moving one entry needs its per-entry `setVideoId`, which the current catalog projection drops |
-| The playing track's artwork drawn, blurred, behind the content | `platform/linux` | The `artwork_background` preference is stored and ignored |
-| Full-window player, with cover, transport and lyrics | `platform/linux` | The Windows shell has one; GTK currently has only the compact player and side lyrics panel |
-| Adaptive sidebar and narrow-window layout | `platform/linux` | The GTK sidebar remains fixed-width; the first layout work sets a minimum window width |
+| Word-timed lyrics, listening effects and session-only timing import | `platform/linux`, after development is synchronized | The shared service accepts LRCLIB Lyricsfile; GTK rendering/import remain pending. See [the lyrics handoff](LYRICS_TIMING.md) |
+| Saved queues and a native mini player | `platform/linux` | Queue editing and the full player are present; queue persistence and a separate compact window are not |
 | Window and playlist context menus | `platform/linux` | Track actions and a checked owned-playlist manager are present; the native window menu is still pending |
-| Reordering the queue, saved queues, and keyboard shortcuts beyond Ctrl+Q and Ctrl+W | `platform/linux` | Not built; media keys work through MPRIS |
-| Artwork background preference | `platform/linux` | Hide explicit songs, start page and reduce motion controls are present; the playing artwork is still not drawn behind the content |
-| The Swift Linux sign-in, broken since its completion script became an async body | `development` | Its host still evaluates the script as an expression; it matters only while that build is kept as a reference |
 | The decoded WAV cache moved from data to cache, on every platform | `development` | Unchanged; see Where things are stored |
 | The `goosic-paths` crate from `rescue/native-mac-shell-and-paths` | `development` | Never merged, so path rules are still duplicated per crate |
 
-The credentialed Flatpak mutation/playback and renderer-level lease checks gate the first public Linux release. The product
-feature rows are parity work for later releases; keep the Swift Linux build as a reference until
-those release checks pass.
+The credentialed Flatpak mutation/playback and renderer-level lease checks still gate the first
+public Linux release. Offline rendering and successful packaging do not close those gates.
 
 A native build on a distribution whose GTK is older than 4.20, such as the current Ubuntu LTS, would
 not follow the system's dark mode. The Flatpak is the supported way to run the shell there.
 
-## When the Swift Linux build goes
+## Native presentation checks
 
-Once the GTK shell reaches parity and its Flatpak ships, the Linux half of the Swift package is
-deleted: `Platform/Linux`, the `CWebKitGTK`, `CGLib` and `CGStreamer` modules, the Linux Swift CI
-job, and the GTK backend setting in the Makefile. The macOS build of that package is untouched by
-it. Until then, the Swift Linux shell stays as the conformance reference the GTK shell is compared
-against.
+The offline desktop fixture is opt-in because it creates GTK windows. Run it with a deliberately
+missing service path and fresh XDG directories, rather than touching real account profiles:
+
+```sh
+GOOSIC_SERVICE_PATH=/tmp/goosic-no-service \
+XDG_CONFIG_HOME=/tmp/goosic-ui-config XDG_DATA_HOME=/tmp/goosic-ui-data \
+XDG_CACHE_HOME=/tmp/goosic-ui-cache GOOSIC_UI_CAPTURE_DIR=/tmp/goosic-ui-captures \
+cargo test --manifest-path apps/goosic-linux/Cargo.toml \
+    desktop_layout_keeps_controls_inside_the_window -- --ignored --test-threads=1
+```
+
+`Ctrl+Shift+F` opens or closes the full player, `F11` changes full-screen presentation, and
+`Escape` dismisses it or the current temporary layer. Search is `Ctrl+F`, Lyrics is `Ctrl+L`,
+Playing Next is `Ctrl+Shift+Q`, and the sidebar is `Ctrl+B`; `Ctrl+Q` retains its Linux meaning of
+Quit. Previous/Next are `Ctrl+Left/Right`, volume is `Ctrl+Up/Down`, seek is `Shift+Left/Right`,
+Mute is `Ctrl+M`, Shuffle is `Ctrl+S`, and Repeat is `Ctrl+R`. Space leaves text entry, buttons
+and scales to GTK. Settings contains the complete shortcut list.
+
+## Swift Linux retirement
+
+The shared 0.2.7 migration removed the Swift Linux shell, SwiftCrossUI, Linux C shims and the
+Swift Linux CI job. GTK is now Linux's native shell; the Rust protocol and conformance fixtures
+are its reference, while the native Swift package remains macOS-only. This retirement did not
+establish live Linux playback acceptance; the release checks above remain required.

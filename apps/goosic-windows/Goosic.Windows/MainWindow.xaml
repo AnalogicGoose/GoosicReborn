@@ -38,6 +38,8 @@
                 -->
                 <!-- No scroll anchoring: a page replaces its skeleton wholesale, and anchoring would
                      carry the old offset into the new content instead of starting at the top. -->
+                <!-- Holds the page and the shape it is faded through, and nothing else: see FadeMask. -->
+                <Grid x:Name="ContentMaskHost">
                 <ScrollViewer x:Name="ContentScroller" ViewChanged="OnContentViewChanged"
                               VerticalAnchorRatio="NaN">
                     <StackPanel x:Name="ContentStack" Spacing="22" Padding="314,56,34,128">
@@ -808,7 +810,23 @@
                                       AutomationProperties.Name="Loading more" />
                     </StackPanel>
                 </ScrollViewer>
-                <!-- Under the window buttons the page fades away rather than running into them. -->
+                <!--
+                    Under the window buttons the page thins out to nothing rather than running into
+                    them, and what shows instead is the window's own background, cover colours
+                    included. Transparent over the title bar's 52 pixels, opaque below.
+                -->
+                <Rectangle x:Name="ContentMask" Visibility="Collapsed" IsHitTestVisible="False"
+                           AutomationProperties.AccessibilityView="Raw">
+                    <Rectangle.Fill>
+                        <LinearGradientBrush MappingMode="Absolute" StartPoint="0,0" EndPoint="0,52">
+                            <GradientStop Color="#00000000" Offset="0" />
+                            <GradientStop Color="#FF000000" Offset="1" />
+                        </LinearGradientBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+                </Grid>
+                <!-- What does the same job where the page cannot be faded: a contrast theme, or
+                     effects turned off. It is a gradient of the background's own colour. -->
                 <Rectangle x:Name="TitleFade" Height="48" VerticalAlignment="Top" IsHitTestVisible="False"
                            Fill="{ThemeResource GoosicTitleFadeBrush}" />
 
@@ -833,15 +851,75 @@
                 </Border>
 
                 <!--
-                    The floating player. A pill of acrylic over the bottom of the content, so the
-                    shelves scroll under it and show through, as the macOS player does.
+                    The floating player. A compact capsule of acrylic over the bottom of the
+                    content, so the shelves scroll under it and show through. Its proportions are
+                    the macOS player's, recorded in docs/UI_DESIGN.md: 740 wide at most, the
+                    position line under the artwork and the title together, and a volume capsule
+                    that opens over the panel buttons without moving anything else.
                 -->
-                <Border x:Name="PlayerPill" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
-                        Height="72" MaxWidth="1200" Margin="304,0,24,14" CornerRadius="24"
+                <Border x:Name="PlayerPill" VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                        Height="64" Width="740" Margin="308,0,0,12" CornerRadius="28"
                         Background="{ThemeResource GoosicPillAcrylicBrush}"
-                        BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}"
-                        PointerEntered="OnPillPointerEntered" PointerExited="OnPillPointerExited">
-                    <Grid x:Name="PlayerGrid" Padding="14,0,16,0" ColumnSpacing="6">
+                        BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}">
+                    <Border.Resources>
+                        <!--
+                            The covered buttons leave before the capsule arrives, and it leaves
+                            before they return, so the two layers are never drawn through each
+                            other. More does not travel to its place beside the capsule, which
+                            would carry it across the heart: it fades out where it was and in
+                            where it is going. No animation names a starting value, so reversing
+                            one halfway carries on from where it had reached.
+                        -->
+                        <Storyboard x:Name="VolumeOpenStoryboard">
+                            <DoubleAnimation Storyboard.TargetName="PillLikeButton" Storyboard.TargetProperty="Opacity"
+                                             To="0" Duration="0:0:0.08" />
+                            <DoubleAnimation Storyboard.TargetName="LyricsButton" Storyboard.TargetProperty="Opacity"
+                                             To="0" Duration="0:0:0.08" />
+                            <DoubleAnimation Storyboard.TargetName="QueueButton" Storyboard.TargetProperty="Opacity"
+                                             To="0" Duration="0:0:0.08" />
+                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="PillMoreButton" Storyboard.TargetProperty="Opacity">
+                                <LinearDoubleKeyFrame KeyTime="0:0:0.08" Value="0" />
+                                <LinearDoubleKeyFrame KeyTime="0:0:0.24" Value="1" />
+                            </DoubleAnimationUsingKeyFrames>
+                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="PillMoreShift" Storyboard.TargetProperty="X">
+                                <DiscreteDoubleKeyFrame KeyTime="0:0:0.08" Value="-52" />
+                            </DoubleAnimationUsingKeyFrames>
+                            <DoubleAnimation Storyboard.TargetName="PlayerVolumeCapsule" Storyboard.TargetProperty="Opacity"
+                                             To="1" BeginTime="0:0:0.07" Duration="0:0:0.17">
+                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                            <DoubleAnimation Storyboard.TargetName="VolumeCapsuleScale" Storyboard.TargetProperty="ScaleX"
+                                             To="1" BeginTime="0:0:0.07" Duration="0:0:0.17">
+                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                            <DoubleAnimation Storyboard.TargetName="VolumeCapsuleScale" Storyboard.TargetProperty="ScaleY"
+                                             To="1" BeginTime="0:0:0.07" Duration="0:0:0.17">
+                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                        </Storyboard>
+                        <Storyboard x:Name="VolumeCloseStoryboard" Completed="OnVolumeCloseCompleted">
+                            <DoubleAnimation Storyboard.TargetName="PlayerVolumeCapsule" Storyboard.TargetProperty="Opacity"
+                                             To="0" Duration="0:0:0.1" />
+                            <DoubleAnimation Storyboard.TargetName="VolumeCapsuleScale" Storyboard.TargetProperty="ScaleX"
+                                             To="0.96" Duration="0:0:0.1" />
+                            <DoubleAnimation Storyboard.TargetName="VolumeCapsuleScale" Storyboard.TargetProperty="ScaleY"
+                                             To="0.96" Duration="0:0:0.1" />
+                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="PillMoreButton" Storyboard.TargetProperty="Opacity">
+                                <LinearDoubleKeyFrame KeyTime="0:0:0.09" Value="0" />
+                                <LinearDoubleKeyFrame KeyTime="0:0:0.24" Value="1" />
+                            </DoubleAnimationUsingKeyFrames>
+                            <DoubleAnimationUsingKeyFrames Storyboard.TargetName="PillMoreShift" Storyboard.TargetProperty="X">
+                                <DiscreteDoubleKeyFrame KeyTime="0:0:0.09" Value="0" />
+                            </DoubleAnimationUsingKeyFrames>
+                            <DoubleAnimation Storyboard.TargetName="PillLikeButton" Storyboard.TargetProperty="Opacity"
+                                             To="1" BeginTime="0:0:0.09" Duration="0:0:0.15" />
+                            <DoubleAnimation Storyboard.TargetName="LyricsButton" Storyboard.TargetProperty="Opacity"
+                                             To="1" BeginTime="0:0:0.09" Duration="0:0:0.15" />
+                            <DoubleAnimation Storyboard.TargetName="QueueButton" Storyboard.TargetProperty="Opacity"
+                                             To="1" BeginTime="0:0:0.09" Duration="0:0:0.15" />
+                        </Storyboard>
+                    </Border.Resources>
+                    <Grid x:Name="PlayerGrid" Padding="16,0,16,0" ColumnSpacing="18">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
@@ -855,24 +933,26 @@
                         <StackPanel x:Name="TransportControls" Grid.Column="0" Orientation="Horizontal"
                                     VerticalAlignment="Center" Spacing="2">
                             <ToggleButton x:Name="ShuffleButton" Style="{StaticResource PillToggleStyle}"
+                                          Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                           Content="&#xE8B1;" IsChecked="{x:Bind Model.IsShuffled, Mode=OneWay}"
                                           IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                           ToolTipService.ToolTip="{x:Bind Model.ShuffleLabel, Mode=OneWay}"
                                           AutomationProperties.Name="Shuffle" Click="OnShuffle" />
-                            <Button x:Name="PreviousButton" Style="{StaticResource PillGlyphStyle}" FontSize="18"
+                            <Button x:Name="PreviousButton" Style="{StaticResource PillGlyphStyle}"
                                     ToolTipService.ToolTip="Previous"
                                     IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}"
-                                    AutomationProperties.Name="Previous" Click="OnPrevious" ><Viewbox Width="18" Height="18"><PathIcon Width="24" Height="24" Data="M21,5.6 L12.6,12 L21,18.4 Z M12,5.6 L3.6,12 L12,18.4 Z" /></Viewbox></Button>
-                            <Button x:Name="PlayButton" Style="{StaticResource PillGlyphStyle}" FontSize="24" Width="46"
+                                    AutomationProperties.Name="Previous" Click="OnPrevious" ><Viewbox Width="17" Height="17"><PathIcon Width="24" Height="24" Data="M21,5.6 L12.6,12 L21,18.4 Z M12,5.6 L3.6,12 L12,18.4 Z" /></Viewbox></Button>
+                            <Button x:Name="PlayButton" Style="{StaticResource PillGlyphStyle}" Width="38"
                                     IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                     ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
                                     AutomationProperties.Name="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
-                                    Click="OnPlayPause" ><Grid><Viewbox Width="24" Height="24" Visibility="{x:Bind Model.PlayIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.5,4.6 C7.5,3.9 8.2,3.5 8.8,3.9 L19.6,11.2 C20.1,11.6 20.1,12.4 19.6,12.8 L8.8,20.1 C8.2,20.5 7.5,20.1 7.5,19.4 Z" /></Viewbox><Viewbox Width="24" Height="24" Visibility="{x:Bind Model.PauseIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.2,4 H8.8 A1.2,1.2 0 0 1 10,5.2 V18.8 A1.2,1.2 0 0 1 8.8,20 H7.2 A1.2,1.2 0 0 1 6,18.8 V5.2 A1.2,1.2 0 0 1 7.2,4 Z M15.2,4 H16.8 A1.2,1.2 0 0 1 18,5.2 V18.8 A1.2,1.2 0 0 1 16.8,20 H15.2 A1.2,1.2 0 0 1 14,18.8 V5.2 A1.2,1.2 0 0 1 15.2,4 Z" /></Viewbox></Grid></Button>
-                            <Button x:Name="NextButton" Style="{StaticResource PillGlyphStyle}" FontSize="18"
+                                    Click="OnPlayPause" ><Grid><Viewbox x:Name="PillPlayIcon" Width="22" Height="22" Visibility="{x:Bind Model.PlayIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.5,4.6 C7.5,3.9 8.2,3.5 8.8,3.9 L19.6,11.2 C20.1,11.6 20.1,12.4 19.6,12.8 L8.8,20.1 C8.2,20.5 7.5,20.1 7.5,19.4 Z" /></Viewbox><Viewbox x:Name="PillPauseIcon" Width="22" Height="22" Visibility="{x:Bind Model.PauseIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.2,4 H8.8 A1.2,1.2 0 0 1 10,5.2 V18.8 A1.2,1.2 0 0 1 8.8,20 H7.2 A1.2,1.2 0 0 1 6,18.8 V5.2 A1.2,1.2 0 0 1 7.2,4 Z M15.2,4 H16.8 A1.2,1.2 0 0 1 18,5.2 V18.8 A1.2,1.2 0 0 1 16.8,20 H15.2 A1.2,1.2 0 0 1 14,18.8 V5.2 A1.2,1.2 0 0 1 15.2,4 Z" /></Viewbox></Grid></Button>
+                            <Button x:Name="NextButton" Style="{StaticResource PillGlyphStyle}"
                                     ToolTipService.ToolTip="Next"
                                     IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}"
-                                    AutomationProperties.Name="Next" Click="OnNext" ><Viewbox Width="18" Height="18"><PathIcon Width="24" Height="24" Data="M3,5.6 L11.4,12 L3,18.4 Z M12,5.6 L20.4,12 L12,18.4 Z" /></Viewbox></Button>
+                                    AutomationProperties.Name="Next" Click="OnNext" ><Viewbox Width="17" Height="17"><PathIcon Width="24" Height="24" Data="M3,5.6 L11.4,12 L3,18.4 Z M12,5.6 L20.4,12 L12,18.4 Z" /></Viewbox></Button>
                             <ToggleButton x:Name="RepeatButton" Style="{StaticResource PillToggleStyle}"
+                                          Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                           Content="{x:Bind Model.RepeatGlyph, Mode=OneWay}"
                                           IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                           IsChecked="{x:Bind Model.IsRepeating, Mode=OneWay}"
@@ -880,137 +960,147 @@
                                           AutomationProperties.Name="Repeat" Click="OnRepeat" />
                         </StackPanel>
 
-                        <Grid x:Name="PlayerMetadata" Grid.Column="1" Margin="14,0,8,0" ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
+                        <!-- The artwork and the song, with the position line beneath both. -->
+                        <Grid x:Name="PlayerMetadata" Grid.Column="1" VerticalAlignment="Center" RowSpacing="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                            </Grid.RowDefinitions>
 
-                            <!-- The cover; pointing at it offers the full-screen player. -->
-                            <Button x:Name="PillCoverButton" Padding="0" BorderThickness="0" Background="Transparent"
-                                    Width="42" Height="42" CornerRadius="6" VerticalAlignment="Center"
-                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                    ToolTipService.ToolTip="Full-screen player" AutomationProperties.Name="Open full-screen player"
-                                    Click="OnOpenFullPlayer"
-                                    PointerEntered="OnCoverPointerEntered" PointerExited="OnCoverPointerExited">
-                                <Grid>
-                                    <Border Background="{ThemeResource GoosicRaisedStrongBrush}" CornerRadius="6">
-                                        <FontIcon Glyph="&#xE8D6;" FontSize="16" Opacity="0.6" />
-                                    </Border>
-                                    <Image x:Name="NowPlayingArtwork" Source="{x:Bind Model.NowPlayingArtwork, Mode=OneWay}"
-                                           Stretch="UniformToFill" />
-                                    <Border x:Name="PillCoverHover" Background="#99000000" CornerRadius="6" Opacity="0">
-                                        <FontIcon Glyph="&#xE740;" FontSize="16" Foreground="White" />
-                                    </Border>
-                                </Grid>
-                            </Button>
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
 
-                            <Grid Grid.Column="1" VerticalAlignment="Center">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <StackPanel Grid.Row="0" Spacing="0" DoubleTapped="OnNowPlayingDoubleTapped">
+                                <!-- The cover; pointing at it offers the full-screen player. -->
+                                <Button x:Name="PillCoverButton" Padding="0" BorderThickness="0" Background="Transparent"
+                                        Width="34" Height="34" CornerRadius="6" VerticalAlignment="Center"
+                                        IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                        ToolTipService.ToolTip="Full-screen player" AutomationProperties.Name="Open full-screen player"
+                                        Click="OnOpenFullPlayer"
+                                        PointerEntered="OnCoverPointerEntered" PointerExited="OnCoverPointerExited">
+                                    <Grid>
+                                        <Border Background="{ThemeResource GoosicRaisedStrongBrush}" CornerRadius="6">
+                                            <!-- A drawn note: the icon font's music glyphs all carry a ring around the note. -->
+                                            <Viewbox Width="16" Height="16" Opacity="0.6">
+                                                <PathIcon Width="24" Height="24"
+                                                          Data="M11,4 H17 V7 H13 V17 A3.5,3.5 0 1 1 11,14 Z" />
+                                            </Viewbox>
+                                        </Border>
+                                        <Image x:Name="NowPlayingArtwork" Source="{x:Bind Model.NowPlayingArtwork, Mode=OneWay}"
+                                               Stretch="UniformToFill" />
+                                        <Border x:Name="PillCoverHover" Background="#99000000" CornerRadius="6" Opacity="0">
+                                            <FontIcon Glyph="&#xE740;" FontSize="14" Foreground="White" />
+                                        </Border>
+                                    </Grid>
+                                </Button>
+
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0"
+                                            DoubleTapped="OnNowPlayingDoubleTapped">
                                     <TextBlock x:Name="NowPlayingTitle" Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}"
                                                FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                     <TextBlock x:Name="NowPlayingSubtitle" Text="{x:Bind Model.NowPlayingArtist, Mode=OneWay}"
                                                FontSize="12" Foreground="{ThemeResource GoosicSecondaryTextBrush}"
                                                TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                                <Grid Grid.Row="1" Margin="0,3,0,0" ColumnSpacing="8"
-                                      Visibility="{x:Bind Model.HasPlayback, Mode=OneWay}">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="PillElapsed" Grid.Column="0" Text="{x:Bind Model.PositionText, Mode=OneWay}"
-                                               FontSize="10" VerticalAlignment="Center" Visibility="Collapsed"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                                    <Grid x:Name="PlaybackProgress" Grid.Column="1" Height="12" Background="Transparent"
-                                          AutomationProperties.Name="Playback position"
-                                          AutomationProperties.HelpText="Click or drag to seek"
-                                          PointerPressed="OnProgressPressed" PointerMoved="OnProgressMoved"
-                                          PointerReleased="OnProgressReleased" PointerCaptureLost="OnProgressCaptureLost"
-                                          SizeChanged="OnProgressSizeChanged">
-                                        <Border x:Name="PillTrack" Height="3" CornerRadius="1.5" VerticalAlignment="Center"
-                                                Background="{ThemeResource GoosicRaisedStrongBrush}" />
-                                        <Border x:Name="PillFill" Height="3" CornerRadius="1.5" VerticalAlignment="Center"
-                                                HorizontalAlignment="Left" Width="0"
-                                                Background="{ThemeResource TextFillColorPrimaryBrush}" Opacity="0.85" />
-                                    </Grid>
-                                    <TextBlock x:Name="PillRemaining" Grid.Column="2" Text="{x:Bind Model.RemainingText, Mode=OneWay}"
-                                               FontSize="10" VerticalAlignment="Center" Visibility="Collapsed"
-                                               Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                            </Grid>
+
+                            <!--
+                                A hairline while listening. Pointing at it shortens it to make room
+                                for the times at either end and thickens it; nothing else moves.
+                            -->
+                            <Grid x:Name="PlaybackProgress" Grid.Row="1" Background="Transparent"
+                                  AutomationProperties.Name="Playback position"
+                                  AutomationProperties.HelpText="Click or drag to seek"
+                                  PointerEntered="OnProgressPointerEntered" PointerExited="OnProgressPointerExited"
+                                  PointerPressed="OnProgressPressed" PointerMoved="OnProgressMoved"
+                                  PointerReleased="OnProgressReleased" PointerCaptureLost="OnProgressCaptureLost"
+                                  SizeChanged="OnProgressSizeChanged">
+                                <TextBlock x:Name="PillElapsed" Text="{x:Bind Model.PositionText, Mode=OneWay}"
+                                           FontSize="10" LineHeight="12" LineStackingStrategy="BlockLineHeight"
+                                           HorizontalAlignment="Left" VerticalAlignment="Center"
+                                           Opacity="0" IsHitTestVisible="False"
+                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                <Grid x:Name="PillLine" Height="3" VerticalAlignment="Center" IsHitTestVisible="False">
+                                    <Border x:Name="PillTrack" CornerRadius="1.5"
+                                            Background="{ThemeResource GoosicRaisedStrongBrush}" />
+                                    <Border x:Name="PillFill" CornerRadius="1.5" HorizontalAlignment="Left" Width="0"
+                                            Background="{ThemeResource TextFillColorPrimaryBrush}" Opacity="0.7" />
                                 </Grid>
+                                <TextBlock x:Name="PillRemaining" Text="{x:Bind Model.RemainingText, Mode=OneWay}"
+                                           FontSize="10" LineHeight="12" LineStackingStrategy="BlockLineHeight"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center"
+                                           Opacity="0" IsHitTestVisible="False"
+                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                             </Grid>
                         </Grid>
 
-                        <StackPanel x:Name="PlayerUtilities" Grid.Column="2" Orientation="Horizontal"
-                                    VerticalAlignment="Center" Spacing="2">
-                            <!-- Like sits beside the song, as the heart does in Apple Music and Spotify: the
-                                 one thing people do to a song while it plays. -->
-                            <ToggleButton x:Name="PillLikeButton" Style="{StaticResource PillToggleStyle}"
-                                          Content="{x:Bind Model.LikeGlyph, Mode=OneWay}"
-                                          IsEnabled="{x:Bind Model.CanRateNowPlaying, Mode=OneWay}"
-                                          IsChecked="{x:Bind Model.IsNowPlayingLiked, Mode=OneWay}"
-                                          ToolTipService.ToolTip="{x:Bind Model.LikeLabel, Mode=OneWay}"
-                                          AutomationProperties.Name="{x:Bind Model.LikeLabel, Mode=OneWay}"
-                                          Click="OnLikeNowPlaying" />
-                            <Button x:Name="PillMoreButton" Style="{StaticResource PillGlyphStyle}" Content="&#xE712;"
-                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                    ToolTipService.ToolTip="More" AutomationProperties.Name="More options"
-                                    Click="OnNowPlayingMore" />
-                            <ToggleButton x:Name="LyricsButton" Style="{StaticResource PillToggleStyle}"
-                                          IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                          Content="&#xE90A;" ToolTipService.ToolTip="Lyrics"
-                                          AutomationProperties.Name="Lyrics"
-                                          Click="OnToggleLyrics" />
-                            <ToggleButton x:Name="QueueButton" Style="{StaticResource PillToggleStyle}"
-                                          IsEnabled="{x:Bind Model.HasQueue, Mode=OneWay}"
-                                          Content="&#xE8FD;" ToolTipService.ToolTip="Playing Next"
-                                          AutomationProperties.Name="Playing Next"
-                                          Click="OnToggleQueue" />
-                            <!-- Volume in reach, as in Apple Music and Spotify; the button's flyout stays for
-                                 the narrow layout, where this is hidden. -->
-                            <Slider x:Name="PillVolumeInline" Width="92" VerticalAlignment="Center" Margin="4,0,2,0"
-                                    Minimum="0" Maximum="100" StepFrequency="1" IsThumbToolTipEnabled="False"
-                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                    Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
-                                    ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume">
-                                <Slider.Resources>
-                                    <StaticResource x:Key="SliderTrackValueFill" ResourceKey="TextFillColorSecondaryBrush" />
-                                    <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
-                                    <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="TextFillColorPrimaryBrush" />
-                                    <StaticResource x:Key="SliderThumbBackground" ResourceKey="TextFillColorPrimaryBrush" />
-                                    <StaticResource x:Key="SliderThumbBackgroundPointerOver" ResourceKey="TextFillColorPrimaryBrush" />
-                                    <StaticResource x:Key="SliderThumbBackgroundPressed" ResourceKey="TextFillColorPrimaryBrush" />
-                                </Slider.Resources>
-                            </Slider>
-                            <Button x:Name="VolumeButton" Style="{StaticResource PillGlyphStyle}"
-                                    IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
-                                    Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}" ToolTipService.ToolTip="Volume"
-                                    AutomationProperties.Name="Volume">
-                                <Button.Flyout>
-                                    <Flyout Placement="Top" FlyoutPresenterStyle="{StaticResource VolumeFlyoutStyle}">
-                                        <StackPanel Width="44" Spacing="10" HorizontalAlignment="Center">
-                                            <TextBlock Text="{x:Bind Model.VolumePercent, Mode=OneWay}" FontSize="14"
-                                                       FontWeight="SemiBold" HorizontalAlignment="Center" />
-                                            <Slider x:Name="VolumeSlider" Orientation="Vertical" Height="170"
-                                                    Minimum="0" Maximum="100" StepFrequency="1"
-                                                    HorizontalAlignment="Center" IsThumbToolTipEnabled="False"
-                                                    Style="{StaticResource VolumeSliderStyle}"
-                                                    Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
-                                                    ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
-                                            <Button Style="{StaticResource PillGlyphStyle}" HorizontalAlignment="Center"
-                                                    Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
-                                                    ToolTipService.ToolTip="{x:Bind Model.MuteLabel, Mode=OneWay}"
-                                                    Click="OnToggleMuted" />
-                                        </StackPanel>
-                                    </Flyout>
-                                </Button.Flyout>
-                            </Button>
-                        </StackPanel>
+                        <Grid x:Name="PlayerUtilities" Grid.Column="2" VerticalAlignment="Center">
+                            <!--
+                                One speaker button, which never moves: it opens the capsule around
+                                itself and closes it again, so focus has nowhere to go astray. The
+                                buttons sit above the capsule to stay clickable, and before it in
+                                the tree so that Tab reaches the slider after the speaker.
+                            -->
+                            <StackPanel Orientation="Horizontal" Spacing="4" Canvas.ZIndex="1">
+                                <!-- Like sits beside the song, as the heart does in Apple Music and Spotify: the
+                                     one thing people do to a song while it plays. -->
+                                <ToggleButton x:Name="PillLikeButton" Style="{StaticResource PillToggleStyle}"
+                                              Content="{x:Bind Model.LikeGlyph, Mode=OneWay}"
+                                              IsEnabled="{x:Bind Model.CanRateNowPlaying, Mode=OneWay}"
+                                              IsChecked="{x:Bind Model.IsNowPlayingLiked, Mode=OneWay}"
+                                              ToolTipService.ToolTip="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                              AutomationProperties.Name="{x:Bind Model.LikeLabel, Mode=OneWay}"
+                                              Click="OnLikeNowPlaying" />
+                                <!-- More stays reachable while volume is open: it steps aside rather than hiding. -->
+                                <Button x:Name="PillMoreButton" Style="{StaticResource PillGlyphStyle}" Content="&#xE712;"
+                                        IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                        ToolTipService.ToolTip="More" AutomationProperties.Name="More options"
+                                        Click="OnNowPlayingMore">
+                                    <Button.RenderTransform>
+                                        <TranslateTransform x:Name="PillMoreShift" />
+                                    </Button.RenderTransform>
+                                </Button>
+                                <ToggleButton x:Name="LyricsButton" Style="{StaticResource PillToggleStyle}"
+                                              IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                              Content="&#xE90A;" ToolTipService.ToolTip="Lyrics"
+                                              AutomationProperties.Name="Lyrics" Click="OnToggleLyrics" />
+                                <ToggleButton x:Name="QueueButton" Style="{StaticResource PillToggleStyle}"
+                                              IsEnabled="{x:Bind Model.HasQueue, Mode=OneWay}"
+                                              Content="&#xE8FD;" ToolTipService.ToolTip="Playing Next"
+                                              AutomationProperties.Name="Playing Next" Click="OnToggleQueue" />
+                                <Button x:Name="VolumeButton" Style="{StaticResource PillGlyphStyle}"
+                                        IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                        Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
+                                        ToolTipService.ToolTip="Show volume controls"
+                                        AutomationProperties.Name="Show volume controls" Click="OnToggleVolume">
+                                    <Button.ContextFlyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="{x:Bind Model.MuteLabel, Mode=OneWay}" Click="OnToggleMuted" />
+                                        </MenuFlyout>
+                                    </Button.ContextFlyout>
+                                </Button>
+                            </StackPanel>
+                            <!-- An overlay with no layout footprint: it reaches 4 past the speaker, as on macOS. -->
+                            <Border x:Name="PlayerVolumeCapsule" Visibility="Collapsed" Opacity="0"
+                                    Width="156" Height="36" CornerRadius="18" Margin="0,0,-4,0"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    RenderTransformOrigin="1,0.5"
+                                    Background="{ThemeResource GoosicRaisedStrongBrush}"
+                                    BorderBrush="{ThemeResource GoosicPillBorderBrush}" BorderThickness="1">
+                                <Border.RenderTransform>
+                                    <ScaleTransform x:Name="VolumeCapsuleScale" ScaleX="0.96" ScaleY="0.96" />
+                                </Border.RenderTransform>
+                                <Slider x:Name="VolumeSlider" Minimum="0" Maximum="100" StepFrequency="1"
+                                        Width="100" MinWidth="0" Margin="11,0,0,0"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        IsThumbToolTipEnabled="False"
+                                        Style="{StaticResource VolumeSliderStyle}"
+                                        Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
+                                        ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
+                            </Border>
+                        </Grid>
                     </Grid>
                 </Border>
             </Grid>
@@ -1297,18 +1387,41 @@
                                     Click="OnRetryLyrics" />
                         </StackPanel>
 
-                        <ScrollViewer x:Name="LyricsScroller" Grid.Row="1" VerticalScrollBarVisibility="Hidden"
-                                      Visibility="{x:Bind Model.HasLyricLines, Mode=OneWay}">
-                            <ItemsControl x:Name="LyricsItems" ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:LyricLineViewModel">
-                                        <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" FontSize="20"
-                                                   FontWeight="SemiBold" Margin="0,0,0,16"
-                                                   Opacity="{x:Bind Emphasis, Mode=OneWay}" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+                        <!-- The lines and the shape they fade through at top and bottom; see FadeMask. -->
+                        <Grid x:Name="LyricsMaskHost" Grid.Row="1">
+                            <ScrollViewer x:Name="LyricsScroller" VerticalScrollBarVisibility="Hidden"
+                                          Visibility="{x:Bind Model.HasLyricLines, Mode=OneWay}">
+                                <ItemsControl x:Name="LyricsItems" Padding="0,72,0,200"
+                                              ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:LyricLineViewModel">
+                                            <!-- How strongly each line shows is for LyricsEffects to decide. -->
+                                            <Grid Background="Transparent" Margin="0,0,0,20">
+                                                <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" FontSize="22"
+                                                           FontWeight="Bold" HorizontalAlignment="Left"
+                                                           Loaded="OnPanelLyricLineLoaded"
+                                                           Unloaded="OnPanelLyricLineUnloaded" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <Rectangle x:Name="LyricsMask" Visibility="Collapsed" IsHitTestVisible="False"
+                                       AutomationProperties.AccessibilityView="Raw">
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                        <GradientStop Color="#00000000" Offset="0" />
+                                        <GradientStop Color="#FF000000" Offset="0.1" />
+                                        <GradientStop Color="#FF000000" Offset="0.86" />
+                                        <GradientStop Color="#00000000" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                        </Grid>
+                        <!-- Scrolling the lines stops them following the song; this starts it again. -->
+                        <Button x:Name="LyricsResume" Grid.Row="1" Visibility="Collapsed" Content="Resume lyrics"
+                                HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                                AutomationProperties.Name="Resume following the lyrics" Click="OnResumePanelLyrics" />
                     </Grid>
 
                     <!-- Queue: what is playing, then what plays next. Played tracks stay reachable through Previous. -->
@@ -1568,7 +1681,7 @@
                         <Button x:Name="FullPlayerPlayButton" Grid.Column="2" Style="{StaticResource FullPlayerGlyphStyle}"
                                 FontSize="36" Width="64" Height="64"
                                 AutomationProperties.Name="{x:Bind Model.PlayPauseLabel, Mode=OneWay}"
-                                ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}" Click="OnPlayPause" ><Grid><Viewbox Width="34" Height="34" Visibility="{x:Bind Model.PlayIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.5,4.6 C7.5,3.9 8.2,3.5 8.8,3.9 L19.6,11.2 C20.1,11.6 20.1,12.4 19.6,12.8 L8.8,20.1 C8.2,20.5 7.5,20.1 7.5,19.4 Z" /></Viewbox><Viewbox Width="34" Height="34" Visibility="{x:Bind Model.PauseIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.2,4 H8.8 A1.2,1.2 0 0 1 10,5.2 V18.8 A1.2,1.2 0 0 1 8.8,20 H7.2 A1.2,1.2 0 0 1 6,18.8 V5.2 A1.2,1.2 0 0 1 7.2,4 Z M15.2,4 H16.8 A1.2,1.2 0 0 1 18,5.2 V18.8 A1.2,1.2 0 0 1 16.8,20 H15.2 A1.2,1.2 0 0 1 14,18.8 V5.2 A1.2,1.2 0 0 1 15.2,4 Z" /></Viewbox></Grid></Button>
+                                ToolTipService.ToolTip="{x:Bind Model.PlayPauseLabel, Mode=OneWay}" Click="OnPlayPause" ><Grid><Viewbox x:Name="FullPlayIcon" Width="34" Height="34" Visibility="{x:Bind Model.PlayIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.5,4.6 C7.5,3.9 8.2,3.5 8.8,3.9 L19.6,11.2 C20.1,11.6 20.1,12.4 19.6,12.8 L8.8,20.1 C8.2,20.5 7.5,20.1 7.5,19.4 Z" /></Viewbox><Viewbox x:Name="FullPauseIcon" Width="34" Height="34" Visibility="{x:Bind Model.PauseIconVisibility, Mode=OneWay}"><PathIcon Width="24" Height="24" Data="M7.2,4 H8.8 A1.2,1.2 0 0 1 10,5.2 V18.8 A1.2,1.2 0 0 1 8.8,20 H7.2 A1.2,1.2 0 0 1 6,18.8 V5.2 A1.2,1.2 0 0 1 7.2,4 Z M15.2,4 H16.8 A1.2,1.2 0 0 1 18,5.2 V18.8 A1.2,1.2 0 0 1 16.8,20 H15.2 A1.2,1.2 0 0 1 14,18.8 V5.2 A1.2,1.2 0 0 1 15.2,4 Z" /></Viewbox></Grid></Button>
                         <Button Grid.Column="3" Style="{StaticResource FullPlayerGlyphStyle}"
                                 FontSize="24" ToolTipService.ToolTip="Next" AutomationProperties.Name="Next"
                                 IsEnabled="{x:Bind Model.CanSkip, Mode=OneWay}" Click="OnNext" ><Viewbox Width="26" Height="26"><PathIcon Width="24" Height="24" Data="M3,5.6 L11.4,12 L3,18.4 Z M12,5.6 L20.4,12 L12,18.4 Z" /></Viewbox></Button>
@@ -1580,29 +1693,51 @@
                     </Grid>
                 </StackPanel>
 
-                <Grid x:Name="FullPlayerLyrics" Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Stretch" MaxHeight="900">
+                <Grid x:Name="FullPlayerLyrics" Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Center">
                     <StackPanel VerticalAlignment="Center" Spacing="10" Opacity="0.7"
                                 Visibility="{x:Bind Model.HasNoLyrics, Mode=OneWay}">
                         <FontIcon Glyph="&#xE90A;" FontSize="30" HorizontalAlignment="Left" />
                         <TextBlock Text="{x:Bind Model.LyricsStatus, Mode=OneWay}" FontSize="22"
                                    FontWeight="SemiBold" TextWrapping="Wrap" />
                     </StackPanel>
-                    <ScrollViewer x:Name="FullPlayerLyricsScroller" VerticalScrollBarVisibility="Hidden">
-                        <ItemsControl x:Name="FullPlayerLyricsItems" Padding="0,240,0,240"
-                                      ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:LyricLineViewModel">
-                                    <Button Background="Transparent" BorderThickness="0" Padding="0,0,0,26"
-                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                            Tag="{x:Bind AtMilliseconds}" Click="OnLyricLineClicked"
-                                            ToolTipService.ToolTip="Play from this line">
-                                        <TextBlock Text="{x:Bind Text}" FontSize="32" FontWeight="Bold"
-                                                   TextWrapping="Wrap" Opacity="{x:Bind Emphasis, Mode=OneWay}" />
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <!-- The lines and the shape they fade through at top and bottom; see FadeMask. -->
+                    <Grid x:Name="FullPlayerLyricsMaskHost">
+                        <ScrollViewer x:Name="FullPlayerLyricsScroller" VerticalScrollBarVisibility="Hidden">
+                            <ItemsControl x:Name="FullPlayerLyricsItems" Padding="0,200,0,320"
+                                          ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:LyricLineViewModel">
+                                        <Button Style="{StaticResource LyricLineButtonStyle}"
+                                                Tag="{x:Bind AtMilliseconds}" Click="OnLyricLineClicked"
+                                                AutomationProperties.Name="{x:Bind Text}">
+                                            <!-- How strongly each line shows is for LyricsEffects to decide. -->
+                                            <Grid Background="Transparent">
+                                                <TextBlock Text="{x:Bind Text}" FontSize="30" FontWeight="Bold"
+                                                           TextWrapping="Wrap" HorizontalAlignment="Left"
+                                                           Loaded="OnFullLyricLineLoaded"
+                                                           Unloaded="OnFullLyricLineUnloaded" />
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <Rectangle x:Name="FullPlayerLyricsMask" Visibility="Collapsed" IsHitTestVisible="False"
+                                   AutomationProperties.AccessibilityView="Raw">
+                            <Rectangle.Fill>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <GradientStop Color="#00000000" Offset="0" />
+                                    <GradientStop Color="#FF000000" Offset="0.14" />
+                                    <GradientStop Color="#FF000000" Offset="0.84" />
+                                    <GradientStop Color="#00000000" Offset="1" />
+                                </LinearGradientBrush>
+                            </Rectangle.Fill>
+                        </Rectangle>
+                    </Grid>
+                    <!-- Scrolling the lines stops them following the song; this starts it again. -->
+                    <Button x:Name="FullPlayerLyricsResume" Visibility="Collapsed" Content="Resume lyrics"
+                            HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,12"
+                            AutomationProperties.Name="Resume following the lyrics" Click="OnResumeFullLyrics" />
                 </Grid>
             </Grid>
 
@@ -1625,7 +1760,7 @@
                                                     Style="{StaticResource VolumeSliderStyle}"
                                                     Value="{x:Bind Model.VolumePercent, Mode=OneWay}"
                                                     ValueChanged="OnVolumeChanged" AutomationProperties.Name="Volume" />
-                                            <Button Style="{StaticResource PillGlyphStyle}" HorizontalAlignment="Center"
+                                            <Button Style="{StaticResource PillGlyphStyle}" Width="44" Height="44" HorizontalAlignment="Center"
                                                     Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
                                                     ToolTipService.ToolTip="{x:Bind Model.MuteLabel, Mode=OneWay}"
                                                     Click="OnToggleMuted" />
