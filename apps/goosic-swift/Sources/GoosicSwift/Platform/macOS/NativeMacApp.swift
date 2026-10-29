@@ -33,6 +33,7 @@ struct GoosicMacApp: SwiftUI.App {
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     if !store.model.usesDebugSidebarFixture { store.model.connect() }
+                    NativeMacScrollBenchmark.startIfRequested()
                 }
         }
         .defaultSize(width: 1_280, height: 800)
@@ -234,7 +235,7 @@ final class NativeMacModelStore: Combine.ObservableObject {
 
     init() {
         model = GoosicAppModel(
-            debugSidebarFixture: ["sidebar", "quality"].contains(ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] ?? "")
+            debugSidebarFixture: ["sidebar", "quality", "perf"].contains(ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] ?? "")
         )
         observation = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
