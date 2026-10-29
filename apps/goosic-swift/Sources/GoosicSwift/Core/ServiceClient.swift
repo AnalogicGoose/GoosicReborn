@@ -124,6 +124,13 @@ final class GoosicServiceClient: @unchecked Sendable {
         }
         input = stdin.fileHandleForWriting
         output = stdout.fileHandleForReading
+        #if canImport(Darwin)
+        // A write to a child that has already exited would otherwise raise SIGPIPE and kill the
+        // whole app. With this the write throws EPIPE instead, failing only its request, and the
+        // read loop's end of file reports the loss. `close()` makes that race routine: it
+        // terminates the child while an earlier request may still be queued for writing.
+        _ = fcntl(input.fileDescriptor, F_SETNOSIGPIPE, 1)
+        #endif
         startReading()
     }
 

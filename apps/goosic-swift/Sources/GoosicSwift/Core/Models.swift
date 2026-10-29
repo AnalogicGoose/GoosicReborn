@@ -445,6 +445,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
     /// snaps back to the live position between a drag and the next bridge event.
     private var pendingSeek: (position: Double, requestedAt: Date)?
+    /// The downloaded file the local renderer was given, kept so Play can reclaim it after the
+    /// service is lost. Cleared by every track change.
+    private var downloadedTrackInPlay: GoosicDownloadedTrack?
     /// The video whose end has already advanced the queue, so the player's repeated `ended`
     /// polls cannot skip several tracks at once.
     private var endedVideoID: String?
@@ -2986,6 +2989,7 @@ final class GoosicAppModel: Combine.ObservableObject {
                 explicit: false
             )
             self.beginTrack()
+            self.downloadedTrackInPlay = track
             guard self.localPlaybackHost.play() else {
                 self.failLocalPlayback(token, message: "AVFoundation did not confirm local playback.")
                 return
@@ -3038,6 +3042,12 @@ final class GoosicAppModel: Combine.ObservableObject {
             } else {
                 localPlaybackHost.pause()
             }
+            return
+        }
+        // A downloaded file plays with an empty queue, so after a lost service it is the only
+        // record of what was playing; Play claims a fresh local lease for it.
+        if let track = downloadedTrackInPlay, playbackState.owner == .none {
+            playDownloaded(track)
             return
         }
         guard let track = queue.current ?? queue.tracks.first else {
@@ -3286,6 +3296,10 @@ final class GoosicAppModel: Combine.ObservableObject {
         )
         isPaused = true
         pendingSeek = nil
+        // The bridge that would report the advertisement's end is gone, and Play refuses while
+        // this flag is set, so leaving it would block playback until the app restarted.
+        isAdvertisement = false
+        adRecovery = AdPlaybackRecovery()
         hasConfirmedPlaybackSample = false
         updateSystemMediaControls()
         status = "\(error.localizedDescription) Playback stopped; reconnect to continue."
@@ -3311,6 +3325,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Clears everything the previous track confirmed, so no stale position or end marker is
     /// carried into the next one.
     private func beginTrack() {
+        downloadedTrackInPlay = nil
         // A new track invalidates the loaded lyrics; the next render asks for the right ones.
         lyrics = nil
         lyricsVideoID = nil
