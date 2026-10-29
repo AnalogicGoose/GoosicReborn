@@ -23,6 +23,17 @@ enum ServiceClientError: LocalizedError {
         case .responseTooLarge: return "The service response exceeded the frame limit."
         }
     }
+
+    /// Whether this failure means the service can no longer be talked to; the same rule as
+    /// `TransportError::invalidates_connection` in `goosic-shell-support`. A rejection is an
+    /// answer, and a timeout fails one request while the service keeps running; treating either
+    /// as a lost connection dropped Rust's authority over audio that was still playing.
+    static func invalidatesConnection(_ error: Error) -> Bool {
+        switch error as? ServiceClientError {
+        case .remote, .timedOut: return false
+        default: return true
+        }
+    }
 }
 
 /// Request/response coordinator for the Rust NDJSON authority.
@@ -120,6 +131,26 @@ final class GoosicServiceClient: @unchecked Sendable {
         invalidate(with: ServiceClientError.unavailable("goosic-service is no longer available."))
     }
 
+    /// Whether the child process is still alive. Tests use it to prove `close()` ends it.
+    var isServiceRunning: Bool { process.isRunning }
+
+    /// Ends the conversation on purpose. Call it before dropping the last reference.
+    ///
+    /// Dropping the reference alone is not enough: the read loop holds the client for as long as
+    /// the pipe is open, so `deinit` cannot run while the child is alive, and a discarded client
+    /// used to leave its service running beside the one that replaced it. The read handle is left
+    /// to the read loop, which sees end of file once the child exits; closing it from here would
+    /// pull the descriptor out from under a blocked read on another thread.
+    func close() {
+        let error = ServiceClientError.unavailable("goosic-service is no longer available.")
+        guard let outstanding = markInvalidated() else { return }
+        // Serialised with writes, so the handle cannot close under a write in progress. A child
+        // that ignores end of input is terminated rather than trusted to notice.
+        writeQueue.async { [self] in try? input.close() }
+        if process.isRunning { process.terminate() }
+        for completion in outstanding { finish(completion, .failure(error)) }
+    }
+
     func send(
         command: String,
         payload: GoosicRequestPayload = .init(),
@@ -182,6 +213,9 @@ final class GoosicServiceClient: @unchecked Sendable {
                     // the handle was closed underneath us.
                     let status = process.isRunning ? nil : process.terminationStatus
                     invalidate(with: status.map(ServiceClientError.processExited) ?? ServiceClientError.endOfFile)
+                    // After `close()` the stream is already invalidated, so the call above closed
+                    // nothing. This thread owns the read handle and is done with it either way.
+                    try? output.close()
                     return
                 }
                 lock.lock()
@@ -249,20 +283,24 @@ final class GoosicServiceClient: @unchecked Sendable {
     /// reader cannot race a later request or leave an orphan process, and give every outstanding
     /// request the same answer rather than leaving it waiting for a service that is gone.
     private func invalidate(with error: Error) {
-        lock.lock()
-        if invalidated {
-            lock.unlock()
-            return
-        }
-        invalidated = true
-        let outstanding = pending
-        pending.removeAll()
-        lock.unlock()
+        guard let outstanding = markInvalidated() else { return }
 
         try? input.close()
         try? output.close()
         if process.isRunning { process.terminate() }
-        for completion in outstanding.values { finish(completion, .failure(error)) }
+        for completion in outstanding { finish(completion, .failure(error)) }
+    }
+
+    /// Marks the stream unusable and takes every waiting request, or returns nil when an earlier
+    /// call already did, so each request is answered exactly once.
+    private func markInvalidated() -> [Completion]? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !invalidated else { return nil }
+        invalidated = true
+        let outstanding = Array(pending.values)
+        pending.removeAll()
+        return outstanding
     }
 
     private func finish(_ completion: @escaping Completion, _ result: Result<GoosicResponse, Error>) {

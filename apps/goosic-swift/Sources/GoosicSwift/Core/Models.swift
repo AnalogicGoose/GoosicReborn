@@ -636,7 +636,9 @@ final class GoosicAppModel: Combine.ObservableObject {
         // reconnect control visible, enabled, and dead. Drop it and start over instead.
         if client != nil {
             guard !serviceConnected, !isConnecting else { return }
-            // Releasing the reference runs the client's deinit, which tears the child process down.
+            // Closed explicitly: the client's read loop keeps it alive while the child runs, so
+            // dropping the reference alone would leave the old service running.
+            client?.close()
             client = nil
         }
         connectionEpoch &+= 1
@@ -3239,7 +3241,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             failure?(ServiceClientError.unavailable("goosic-service is not connected."))
             return
         }
-        client.send(command: command, payload: payload) { [weak self] result in
+        client.send(command: command, payload: payload) { [weak self, weak client] result in
             guard let self else { return }
             switch result {
             case .success(let response):
@@ -3249,18 +3251,44 @@ final class GoosicAppModel: Combine.ObservableObject {
                     self.apply(response)
                 }
             case .failure(let error):
-                if let clientError = error as? ServiceClientError, case .remote = clientError {
-                    // The service answered and rejected the request. The transport is healthy,
-                    // so a rejected search must not drop the connection.
-                    failure?(error)
-                } else {
-                    self.client = nil
-                    self.status = error.localizedDescription
-                    self.serviceConnected = false
-                    failure?(error)
+                // A rejection or a timeout fails this request only; the transport is healthy, so
+                // a rejected search or one slow catalog read must not drop the connection.
+                // A failure from a client that has already been replaced is about a process that
+                // is gone, and must not tear down the one that replaced it.
+                if ServiceClientError.invalidatesConnection(error), let client, client === self.client {
+                    self.serviceLost(error)
                 }
+                failure?(error)
             }
         }
+    }
+
+    /// The service is gone, and with it the lease that allowed a renderer to make sound.
+    ///
+    /// Leaving the renderer playing here would be audio no Rust authority has granted: samples
+    /// would have nowhere to go, and a reconnected service starts with no lease at all. So the
+    /// renderer is stopped and the shell's copy of the lease cleared. The track stays selected,
+    /// so Play claims a fresh lease from the next service.
+    private func serviceLost(_ error: Error) {
+        client?.close()
+        client = nil
+        serviceConnected = false
+        // Every in-flight transition belonged to the old service; none of its answers will come.
+        playbackTransitionToken &+= 1
+        playbackTransition = .idle
+        localPlaybackHost.stop()
+        // Invalidated first, so a sample the page sends while pausing is not forwarded.
+        officialPlaybackHost.invalidateExpectations()
+        officialPlaybackHost.quiesce {}
+        playbackState = GoosicPlaybackState(
+            accountId: playbackState.accountId, owner: .none,
+            generation: playbackState.generation, sampleSequence: 0
+        )
+        isPaused = true
+        pendingSeek = nil
+        hasConfirmedPlaybackSample = false
+        updateSystemMediaControls()
+        status = "\(error.localizedDescription) Playback stopped; reconnect to continue."
     }
 
     private func beginPlaybackTransition(_ transition: PlaybackTransition) -> UInt64 {

@@ -154,4 +154,45 @@ final class ServiceClientConcurrencyTests: XCTestCase {
         }
         wait(for: [stillWorking], timeout: 5)
     }
+
+    /// The model drops a client on reconnect. Its read loop keeps it alive while the child runs,
+    /// so without an explicit close the old service outlived its replacement.
+    func testClosingTheClientEndsTheServiceAndAnswersWaitingRequests() throws {
+        let client = try GoosicServiceClient(executablePath: try makeStubService(delay: 8))
+
+        let failed = expectation(description: "the waiting request is answered")
+        client.send(command: "slow.stalled") { result in
+            guard case .failure(ServiceClientError.unavailable) = result else {
+                return XCTFail("expected the closed client to fail the request, got \(result)")
+            }
+            failed.fulfill()
+        }
+        client.close()
+        wait(for: [failed], timeout: 2)
+
+        let deadline = Date().addingTimeInterval(5)
+        while client.isServiceRunning, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertFalse(client.isServiceRunning, "the service outlived the client that was closed")
+
+        let refused = expectation(description: "a later request is refused at once")
+        client.send(command: "state.get") { result in
+            if case .success = result { XCTFail("a closed client sent a request") }
+            refused.fulfill()
+        }
+        wait(for: [refused], timeout: 2)
+    }
+
+    /// Only a broken stream ends the connection. The model used to drop Rust's authority on any
+    /// failure but a rejection, so one slow catalog read stopped tracking audio that kept playing.
+    func testOnlyTransportFailuresEndTheConnection() {
+        let rejection = ServiceClientError.remote(GoosicError(code: "invalidRequest", message: "no"))
+        XCTAssertFalse(ServiceClientError.invalidatesConnection(rejection))
+        XCTAssertFalse(ServiceClientError.invalidatesConnection(ServiceClientError.timedOut))
+        XCTAssertTrue(ServiceClientError.invalidatesConnection(ServiceClientError.endOfFile))
+        XCTAssertTrue(ServiceClientError.invalidatesConnection(ServiceClientError.processExited(1)))
+        XCTAssertTrue(ServiceClientError.invalidatesConnection(ServiceClientError.invalidResponse))
+        XCTAssertTrue(ServiceClientError.invalidatesConnection(ServiceClientError.unavailable("gone")))
+    }
 }
