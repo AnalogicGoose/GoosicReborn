@@ -139,3 +139,36 @@ fn radio_continues_from_a_real_track() {
         "the seed track must not be queued again"
     );
 }
+
+#[test]
+#[ignore = "requires network access to music.youtube.com"]
+fn filtered_search_continues_with_more_rows_under_the_same_shelf() {
+    let catalog = Catalog::new();
+    for filter in ["songs", "videos"] {
+        let first = catalog.search("sofia", filter).expect("search succeeds");
+        let shelf = first.shelves.last().expect("a results shelf");
+        let cursor = first
+            .next_cursor
+            .as_deref()
+            .expect("a filtered tab has more rows");
+        let next = catalog
+            .search_continuation(cursor, &shelf.id, &shelf.title)
+            .expect("continuation succeeds");
+        println!(
+            "{filter}: {} rows, then {} more",
+            shelf.items.len(),
+            next.shelves[0].items.len()
+        );
+        assert_eq!(next.shelves.len(), 1);
+        assert_eq!(next.shelves[0].id, shelf.id);
+        assert!(!next.shelves[0].items.is_empty());
+        let first_ids: Vec<_> = shelf.items.iter().map(|item| &item.id).collect();
+        assert!(
+            next.shelves[0]
+                .items
+                .iter()
+                .any(|item| !first_ids.contains(&&item.id)),
+            "the continuation repeated the first page"
+        );
+    }
+}
