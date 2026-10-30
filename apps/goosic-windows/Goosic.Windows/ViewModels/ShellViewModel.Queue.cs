@@ -949,7 +949,7 @@ public sealed partial class ShellViewModel
                     var cards = ShelfColumns.Unseen(shown.Items.Select(card => card.Id), shelf.Items, item => item.Id)
                         .Select(item => new CardViewModel(item))
                         .ToList();
-                    Shelves[Shelves.Count - 1] = shown.Extended(cards);
+                    shown.Extend(cards);
                     foreach (var card in cards)
                     {
                         _ = card.LoadArtworkAsync(_artwork);
