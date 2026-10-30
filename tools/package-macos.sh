@@ -72,16 +72,23 @@ cp "$built/goosic-swift" "$app/Contents/MacOS/Goosic"
 ditto "$built/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 cp -R "$built/goosic-swift_GoosicSwift.bundle" "$app/Contents/Resources/"
 
-# The Finder and Dock icon. The artwork bundled for the shell is one square PNG, which `iconutil`
-# turns into the icon set macOS expects.
-iconset=$(mktemp -d)/Goosic.iconset
-mkdir -p "$iconset"
-artwork="apps/goosic-swift/Sources/GoosicSwift/Resources/AppIcons/Icon-iOS-Default-1024@1x.png"
-for size in 16 32 64 128 256 512; do
-    sips -z $size $size "$artwork" --out "$iconset/icon_${size}x${size}.png" >/dev/null
-    sips -z $((size * 2)) $((size * 2)) "$artwork" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
-done
-iconutil -c icns "$iconset" -o "$app/Contents/Resources/Goosic.icns"
+# The Finder and Dock icon. `Goosic.icon` is the Icon Composer document, with its layers, and
+# `actool` compiles it into Assets.car, from which macOS 26 and later render the Default, Dark,
+# Clear and Tinted appearances. The same call writes Goosic.icns, a flattened Default rendering
+# that earlier releases read through CFBundleIconFile. `actool` ships with Xcode 26 and later,
+# not with the Command Line Tools.
+xcrun --find actool >/dev/null 2>&1 || {
+    echo "actool not found: select Xcode 26 or later with xcode-select or DEVELOPER_DIR" >&2
+    exit 2
+}
+xcrun actool apps/goosic-swift/Goosic.icon --compile "$app/Contents/Resources" \
+    --platform macosx --minimum-deployment-target 14.0 --app-icon Goosic \
+    --output-partial-info-plist "$stage/icon-info.plist" \
+    --errors --warnings --output-format human-readable-text >/dev/null
+test -f "$app/Contents/Resources/Assets.car" && test -f "$app/Contents/Resources/Goosic.icns" || {
+    echo "actool did not produce the app icon" >&2
+    exit 1
+}
 
 cat >"$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -93,6 +100,7 @@ cat >"$app/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key><string>Goosic</string>
     <key>CFBundleIdentifier</key><string>io.github.analogicgoose.Goosic</string>
     <key>CFBundleIconFile</key><string>Goosic</string>
+    <key>CFBundleIconName</key><string>Goosic</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$bundle_version</string>
     <key>CFBundleVersion</key><string>$build_version</string>

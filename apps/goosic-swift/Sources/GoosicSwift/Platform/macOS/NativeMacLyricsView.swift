@@ -5,6 +5,8 @@ import SwiftUI
 /// Both listening presentations keep lyric navigation, readability and following in step.
 struct NativeMacLyricsView: View {
     @ObservedObject var store: NativeMacModelStore
+    /// The active line follows the position, which the model no longer publishes.
+    @ObservedObject var clock: PlaybackClock
     let immersive: Bool
     @Environment(\.goosicReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
