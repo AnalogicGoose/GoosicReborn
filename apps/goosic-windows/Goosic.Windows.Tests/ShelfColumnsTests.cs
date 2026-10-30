@@ -21,4 +21,18 @@ public sealed class ShelfColumnsTests
     [Fact]
     public void AColumnNeedsAtLeastOneRow() =>
         Assert.Throws<ArgumentOutOfRangeException>(() => ShelfColumns.Split(new[] { 1 }, 0));
+
+    [Fact]
+    public void ASearchContinuationExtendsTheShelfItContinues()
+    {
+        Assert.True(ShelfColumns.Continues("shelf-0", "Songs", "shelf-0", "Songs"));
+        // Browse continuations number their shelves from zero again.
+        Assert.False(ShelfColumns.Continues("shelf-0", "Quick picks", "shelf-0", "Listen again"));
+        Assert.False(ShelfColumns.Continues("", "Songs", "", "Songs"));
+    }
+
+    [Fact]
+    public void AContinuedShelfDoesNotRepeatARowAlreadyShown() =>
+        Assert.Equal(["c", "d"], ShelfColumns.Unseen<string>(["a", "b"], ["b", "c", "c", "d"], row => row));
 }
+
