@@ -128,6 +128,19 @@ is dropped rather than treated as corruption; tearing the service down for it is
 unanswered catalog read used to stop playback. Everything else — an undecodable line, a foreign
 protocol version, an oversized frame, end of file — means the stream is gone, and every request
 still waiting gets that same answer instead of waiting for a service that no longer exists.
+The Swift client mirrors the rule as `ServiceClientError.invalidatesConnection`.
+
+What a shell does with a lost connection is part of the same rule, because the lease went with
+the service. A renderer still playing after it would be audio no authority granted, and a
+reconnected service starts with no lease to match the shell's copy. So a shell that loses its
+service stops the renderer, clears its record of the lease, and keeps the track selected, so Play
+claims a fresh lease from the next service. The macOS shell used to drop the connection on a
+timeout as well, which meant one slow catalog read silenced Rust while the music carried on.
+
+Closing a client must end its child. The Rust client does so when it is dropped. The Swift
+client cannot rely on that: its read loop holds it for as long as the pipe is open, so `deinit`
+never runs while the child lives, and a reconnect used to leave the old service running beside
+the new one. It has an explicit `close()`, and the model calls it before letting a client go.
 
 Porting it also pinned a boundary that was a comment in one file: the newline counts towards
 the frame limit, so the largest accepted frame is one byte shorter than the maximum. That is
