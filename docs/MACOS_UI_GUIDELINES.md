@@ -51,10 +51,33 @@ viewport free of a permanent following switch. Manual exploration reveals sharp 
 an unobtrusive Resume lyrics action. Native lyric buttons remain keyboard-accessible; focused
 lines and increased-contrast mode remove the softening. Motion respects the system/app setting.
 
+## App icon
+
+The app icon is the Icon Composer document `apps/goosic-swift/Goosic.icon`: a glass play
+triangle over a blue gradient disc, on the system light fill. It is kept as layers rather than
+as pictures because macOS 26 renders the Default, Dark, Clear and Tinted appearances from those
+layers itself, following the icon style chosen in System Settings, and Tinted takes whatever
+tint the person picked. No set of flattened images could follow that choice. `actool` compiles
+the document into `Assets.car`, named by `CFBundleIconName`, and writes `Goosic.icns`, a
+flattened Default rendering that macOS 14 and 15 read through `CFBundleIconFile`; those releases
+have no icon appearances, so they show the light icon throughout, and `actool` gives that file
+sizes up to 256 pixels only, which those releases enlarge for their largest Finder views. Both
+the Xcode project and `tools/package-macos.sh` compile the same document, so there is one source
+for the artwork.
+
+The PNGs under `Resources/AppIcons` are exports of the same document in each appearance. Only
+the Default one is used, and only by `swift run`, which has no app bundle and therefore no
+compiled icon; the app sets it as the Dock image at launch. A bundle that carries
+`CFBundleIconName` must never set `applicationIconImage`, because a runtime image replaces the
+system's rendering and pins the Dock to one appearance. Change the artwork in Icon Composer and
+re-export the PNGs from it, so the two never describe different icons.
+
 ## Verification
 
 Use the shared acceptance matrix in UI_DESIGN.md. Also inspect native titlebar/toolbar behavior,
 light browser versus dark full-player chrome, Liquid Glass and older-material paths, and an open
-inspector at the smallest supported window. Do not treat a Swift build as a visual check. When
+inspector at the smallest supported window. Check the packaged app's icon in the Dock and Finder
+under each icon style in System Settings → Appearance (Default, Dark, Clear, Tinted), since only
+a bundle shows it; `swift run` does not. Do not treat a Swift build as a visual check. When
 the user is testing, report the build/test evidence and provide the rebuild instruction without
 launching unrelated live sessions for them.
