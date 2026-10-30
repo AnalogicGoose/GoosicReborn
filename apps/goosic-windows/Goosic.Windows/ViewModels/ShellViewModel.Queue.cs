@@ -110,6 +110,13 @@ public sealed partial class ShellViewModel
 
     public bool HasMore => !string.IsNullOrEmpty(_nextCursor);
 
+    /// <summary>
+    /// Whether the next part of the page lengthens a list that scrolls sideways, as a search's
+    /// songs do, rather than making the page taller. Such a page has to ask for more from the end
+    /// of that list: the page itself never grows, so its own end is always in view.
+    /// </summary>
+    internal bool MoreGoesSideways => PageKind == DetailKind.Search && Shelves.Count > 0 && Shelves[Shelves.Count - 1].IsList;
+
     /// <summary>The playlist holding every song when the page shows only its top few, as an artist does.</summary>
     internal string? AllTracksId
     {
@@ -943,6 +950,21 @@ public sealed partial class ShellViewModel
 
             foreach (var shelf in ListedShelves(page.Shelves))
             {
+                if (Shelves.Count > 0 && Shelves[Shelves.Count - 1] is var shown
+                    && ShelfColumns.Continues(shown.Id, shown.Heading, shelf.Id, shelf.Title))
+                {
+                    var cards = ShelfColumns.Unseen(shown.Items.Select(card => card.Id), shelf.Items, item => item.Id)
+                        .Select(item => new CardViewModel(item))
+                        .ToList();
+                    shown.Extend(cards);
+                    foreach (var card in cards)
+                    {
+                        _ = card.LoadArtworkAsync(_artwork);
+                    }
+
+                    continue;
+                }
+
                 var model = new ShelfViewModel(shelf);
                 Shelves.Add(model);
                 foreach (var card in model.Items)
