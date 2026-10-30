@@ -170,6 +170,30 @@ final class CatalogConversionTests: XCTestCase {
         XCTAssertNotEqual(merged.shelves[0].id, merged.shelves[1].id)
         XCTAssertEqual(merged.nextCursor, "page-3")
     }
+
+    func testASearchContinuationExtendsTheListItContinues() {
+        let first = CatalogPageView(wire: GoosicCatalogPage(
+            id: "search:sofia", title: "sofia", subtitle: nil,
+            shelves: [GoosicCatalogShelf(id: "shelf-0", title: "Songs", items: [
+                item(kind: .song, id: "a", title: "A"),
+                item(kind: .song, id: "b", title: "B")
+            ], layout: "list")], tracks: nil, thumbnail: nil, nextCursor: "songs-2", truncated: nil
+        ))
+        let second = CatalogPageView(wire: GoosicCatalogPage(
+            id: "continuation", title: "", subtitle: nil,
+            shelves: [GoosicCatalogShelf(id: "shelf-0", title: "Songs", items: [
+                item(kind: .song, id: "b", title: "B"),
+                item(kind: .song, id: "c", title: "C")
+            ], layout: "list")], tracks: nil, thumbnail: nil, nextCursor: nil, truncated: nil
+        ))
+        XCTAssertTrue(first.hasMore, "a list with a cursor is not presented as complete")
+        let merged = first.appending(second)
+        XCTAssertEqual(merged.shelves.count, 1, "the continued rows do not get a second heading")
+        XCTAssertEqual(merged.shelves[0].cards.map(\.id), ["a", "b", "c"])
+        XCTAssertTrue(merged.shelves[0].isList)
+        XCTAssertNil(merged.nextCursor)
+        XCTAssertFalse(merged.hasMore)
+    }
 }
 
 final class TrackPresentationTests: XCTestCase {
