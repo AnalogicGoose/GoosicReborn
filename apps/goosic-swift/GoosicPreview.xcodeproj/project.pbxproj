@@ -11,8 +11,10 @@
 		06A821293986816C2F454D1A /* VolumeSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412954585CB880E0F295C0C6 /* VolumeSync.swift */; };
 		10BEE8FFC38727E7E8879655 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 35D697164CD21C0FACDA74CC /* Sparkle */; };
 		17B5189BB006CDA3C3328310 /* SystemMediaPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF37E8EEDDCB945192D9764 /* SystemMediaPlayback.swift */; };
+		1EC7E296FB751DD774CD1404 /* Goosic.icon in Resources */ = {isa = PBXBuildFile; fileRef = D6D5C74388B9BB6191B7D8C7 /* Goosic.icon */; };
 		26A083D9C6EE4691585293ED /* ServiceLaunch+POSIX.swift in Sources */ = {isa = PBXBuildFile; fileRef = B284B2C1402F5B428EFDEDE4 /* ServiceLaunch+POSIX.swift */; };
 		2D429E3FF73BC0D8152A1C3C /* NativeMacFullPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A2E536988463250B9E694BE /* NativeMacFullPlayer.swift */; };
+		2FFBA9EA17041767458FBBF1 /* NativeMacLyricsImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD266573B7860EAA24F52207 /* NativeMacLyricsImport.swift */; };
 		317A89197D2185583104CF25 /* MaterialSurface+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4636564D4C8866F794B94B7F /* MaterialSurface+macOS.swift */; };
 		32CFAC6752F9FAF5F2900779 /* AccountLoginModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47F6ECB62EEEFB256FD75A9E /* AccountLoginModel.swift */; };
 		38333E09F1D0EF4252F5CCE8 /* MaterialSurfaceKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = B908005284170C185C4AD236 /* MaterialSurfaceKind.swift */; };
@@ -27,9 +29,11 @@
 		5313213945F81900264B1057 /* NavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07FF7ACDA590CAAD5DF47EF /* NavigationPolicy.swift */; };
 		53BFBB73F487D02CD4351373 /* CatalogRequestLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD150684AB7E7516A260556B /* CatalogRequestLedger.swift */; };
 		6518F5289D93BD7E985BB96C /* NowPlayingMesh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E69F4E15783EDC02E7A1B6A /* NowPlayingMesh.swift */; };
+		6897C3D9F8788BAF78918153 /* QueueEditing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E368DAB7B9655593EA1A4D66 /* QueueEditing.swift */; };
 		7B194E9D015B81ADEE36936D /* NativeMacCachedImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F2BB1CB3FE44B2D3F9AB62E /* NativeMacCachedImage.swift */; };
 		7F3D7A66C55B8899EEBCC80C /* CatalogPageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D12BA6859ABEA7035F66DF5 /* CatalogPageStore.swift */; };
 		802FEEB34A00A72DBADCDB78 /* Bundle+Preview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D185CC240AFCCF189AF8CB /* Bundle+Preview.swift */; };
+		875080AF519F7A9F2C506F04 /* PersonalCatalogFailure+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF4FFD2D593443050AEF8B67 /* PersonalCatalogFailure+macOS.swift */; };
 		88B9FD1372CB3D6D1BB989BD /* NativeMacCatalogSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8BBD6B7420DFDD79805F61A /* NativeMacCatalogSurface.swift */; };
 		9302441FEEE6599343CE44CB /* AccountLoginHost+Preview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2459F800E7751AAF777E7F31 /* AccountLoginHost+Preview.swift */; };
 		9376AAADD1C8BF443FF490F3 /* GoosicResources.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F22DC5F2989E4C49F310050 /* GoosicResources.swift */; };
@@ -37,12 +41,15 @@
 		994B8868959A5440965F8D51 /* PlatformPlaybackHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFB8A07C46EC20BA0E5BFB47 /* PlatformPlaybackHost.swift */; };
 		A37BBA3FD296EF3F98EF7BAC /* ServiceLaunch+Windows.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDA89DD935B34965F17648F1 /* ServiceLaunch+Windows.swift */; };
 		A8AE89CF059F9679CEB8A007 /* PersonalMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F82D0903BBAE544963A3531 /* PersonalMutation.swift */; };
+		AD49D9F66D2503980086E893 /* LyricsTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 641F6561619F153954365F4D /* LyricsTiming.swift */; };
 		B098B320D736B6EADFA077A9 /* PersonalBrowse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 732FA54736FAEE00217204A4 /* PersonalBrowse.swift */; };
 		B86AAF8B75E05BC58E9FC395 /* Catalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 149EFC3A6F110F81BDD4162D /* Catalog.swift */; };
 		B9E7B7DEBEC77549E0E7B017 /* NavigationFrame+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F08CF5591D24D44772CBAE /* NavigationFrame+macOS.swift */; };
 		BD0B830DBFDA1BE171FE650C /* ThemeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6834AEBB09B5D2508499BF5E /* ThemeHost.swift */; };
+		C112E3CFF8F825F8AFE6C7EE /* NativeMacLyricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE247DB3F394B3B85FE5B7E /* NativeMacLyricsView.swift */; };
 		C5CCD8CC2D27B1BC306BACAC /* NativeMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8673BF08E1EA93D8C6BC4FBD /* NativeMacApp.swift */; };
 		C7BAFAFE65DA2F4D5E725BBB /* OfficialPlaybackHost+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72DA55EC46450CF72351B4F9 /* OfficialPlaybackHost+macOS.swift */; };
+		C86936F71E588D9852CD5948 /* QueueNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4782379750E915B8FD951FB /* QueueNavigation.swift */; };
 		CC7FF97C8DADAD3BB67F605B /* OfficialPlaybackHost+Preview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 712AF5A38811B4DFF934E4DA /* OfficialPlaybackHost+Preview.swift */; };
 		CD7B7F22E50C33B8817238D2 /* SystemMediaControls+macOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E7BE7FFE1BC2F95ABECEC69 /* SystemMediaControls+macOS.swift */; };
 		CEF43DED8FD0A716834C35F1 /* OfficialSampleSequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C7A1C0E58CE64D1CE5BDD2B /* OfficialSampleSequence.swift */; };
@@ -81,6 +88,7 @@
 		498917FB52A627DD11037969 /* Protocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Protocol.swift; sourceTree = "<group>"; };
 		525641B15E6F5C1B8E3D5CB6 /* OfficialBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficialBridge.swift; sourceTree = "<group>"; };
 		5F82D0903BBAE544963A3531 /* PersonalMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalMutation.swift; sourceTree = "<group>"; };
+		641F6561619F153954365F4D /* LyricsTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LyricsTiming.swift; sourceTree = "<group>"; };
 		6834AEBB09B5D2508499BF5E /* ThemeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeHost.swift; sourceTree = "<group>"; };
 		6F2BB1CB3FE44B2D3F9AB62E /* NativeMacCachedImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMacCachedImage.swift; sourceTree = "<group>"; };
 		712AF5A38811B4DFF934E4DA /* OfficialPlaybackHost+Preview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "OfficialPlaybackHost+Preview.swift"; sourceTree = "<group>"; };
@@ -98,16 +106,22 @@
 		A3D185CC240AFCCF189AF8CB /* Bundle+Preview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Bundle+Preview.swift"; sourceTree = "<group>"; };
 		A728FD57937EE39AC1961CE1 /* MediaTransportRequest+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MediaTransportRequest+macOS.swift"; sourceTree = "<group>"; };
 		AD150684AB7E7516A260556B /* CatalogRequestLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRequestLedger.swift; sourceTree = "<group>"; };
+		AF4FFD2D593443050AEF8B67 /* PersonalCatalogFailure+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PersonalCatalogFailure+macOS.swift"; sourceTree = "<group>"; };
 		B07FF7ACDA590CAAD5DF47EF /* NavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationPolicy.swift; sourceTree = "<group>"; };
 		B284B2C1402F5B428EFDEDE4 /* ServiceLaunch+POSIX.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ServiceLaunch+POSIX.swift"; sourceTree = "<group>"; };
+		B4782379750E915B8FD951FB /* QueueNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueNavigation.swift; sourceTree = "<group>"; };
 		B8BBD6B7420DFDD79805F61A /* NativeMacCatalogSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMacCatalogSurface.swift; sourceTree = "<group>"; };
 		B908005284170C185C4AD236 /* MaterialSurfaceKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MaterialSurfaceKind.swift; sourceTree = "<group>"; };
 		BA6FBD63CFD66F748FCE6F4D /* PersonalCatalogHost+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PersonalCatalogHost+macOS.swift"; sourceTree = "<group>"; };
 		CFB8A07C46EC20BA0E5BFB47 /* PlatformPlaybackHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformPlaybackHost.swift; sourceTree = "<group>"; };
+		D6D5C74388B9BB6191B7D8C7 /* Goosic.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = Goosic.icon; sourceTree = "<group>"; };
 		D91A0285E9A024BE15F07CCE /* CatalogFreshness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogFreshness.swift; sourceTree = "<group>"; };
+		DD266573B7860EAA24F52207 /* NativeMacLyricsImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMacLyricsImport.swift; sourceTree = "<group>"; };
 		DDA89DD935B34965F17648F1 /* ServiceLaunch+Windows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ServiceLaunch+Windows.swift"; sourceTree = "<group>"; };
+		E368DAB7B9655593EA1A4D66 /* QueueEditing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueEditing.swift; sourceTree = "<group>"; };
 		E4D6019D8C5C2DFEB3864549 /* AccountLoginHost+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountLoginHost+macOS.swift"; sourceTree = "<group>"; };
 		E7F08CF5591D24D44772CBAE /* NavigationFrame+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NavigationFrame+macOS.swift"; sourceTree = "<group>"; };
+		ECE247DB3F394B3B85FE5B7E /* NativeMacLyricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeMacLyricsView.swift; sourceTree = "<group>"; };
 		ED7566943BA68452DEB4EA70 /* DiscordPresence+macOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DiscordPresence+macOS.swift"; sourceTree = "<group>"; };
 		F2B0394BB3E199CAB57CFA64 /* ArtworkCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -138,10 +152,13 @@
 				6F2BB1CB3FE44B2D3F9AB62E /* NativeMacCachedImage.swift */,
 				B8BBD6B7420DFDD79805F61A /* NativeMacCatalogSurface.swift */,
 				0A2E536988463250B9E694BE /* NativeMacFullPlayer.swift */,
+				DD266573B7860EAA24F52207 /* NativeMacLyricsImport.swift */,
+				ECE247DB3F394B3B85FE5B7E /* NativeMacLyricsView.swift */,
 				9B4CF58E31C37E868FBC20B5 /* NativeMacUpdater+macOS.swift */,
 				E7F08CF5591D24D44772CBAE /* NavigationFrame+macOS.swift */,
 				72DA55EC46450CF72351B4F9 /* OfficialPlaybackHost+macOS.swift */,
 				712AF5A38811B4DFF934E4DA /* OfficialPlaybackHost+Preview.swift */,
+				AF4FFD2D593443050AEF8B67 /* PersonalCatalogFailure+macOS.swift */,
 				BA6FBD63CFD66F748FCE6F4D /* PersonalCatalogHost+macOS.swift */,
 				8EA82F98064E2E61B71B52B9 /* PersonalCatalogHost+Preview.swift */,
 				9E7BE7FFE1BC2F95ABECEC69 /* SystemMediaControls+macOS.swift */,
@@ -188,6 +205,7 @@
 				1F22DC5F2989E4C49F310050 /* GoosicResources.swift */,
 				0EE54031BAC25D0AEF35A236 /* ListRules.swift */,
 				2B8B624F550535350CC9C035 /* LocalPlaybackEvent.swift */,
+				641F6561619F153954365F4D /* LyricsTiming.swift */,
 				B908005284170C185C4AD236 /* MaterialSurfaceKind.swift */,
 				795A689163E3FE4200AAE21D /* Models.swift */,
 				B07FF7ACDA590CAAD5DF47EF /* NavigationPolicy.swift */,
@@ -200,6 +218,8 @@
 				CFB8A07C46EC20BA0E5BFB47 /* PlatformPlaybackHost.swift */,
 				72EC5F27585D2F00A06ED46B /* PlaybackLaunchIntent.swift */,
 				498917FB52A627DD11037969 /* Protocol.swift */,
+				E368DAB7B9655593EA1A4D66 /* QueueEditing.swift */,
+				B4782379750E915B8FD951FB /* QueueNavigation.swift */,
 				A217249737ECDFDD41426498 /* ServiceClient.swift */,
 				2B36CBFFC15AC256B9708A07 /* ServiceFrameReader.swift */,
 				3CF37E8EEDDCB945192D9764 /* SystemMediaPlayback.swift */,
@@ -213,6 +233,7 @@
 		9430F75AF4F5E9F734BB96D6 = {
 			isa = PBXGroup;
 			children = (
+				D6D5C74388B9BB6191B7D8C7 /* Goosic.icon */,
 				0D8CD99FA5DFB5B1DAF2E9D4 /* PreviewSupport */,
 				E8ED5F2FA910133C6A0A0BBA /* Sources */,
 				B49CCDA7E7BB72EB38157A60 /* Products */,
@@ -260,6 +281,7 @@
 			buildConfigurationList = C19021A1564E277E2ADAA7A7 /* Build configuration list for PBXNativeTarget "GoosicPreview" */;
 			buildPhases = (
 				D6D6A650364D1DF713A29C58 /* Sources */,
+				B80715D8B5B7415282F5A225 /* Resources */,
 				084923612C5BE1AB0013FB60 /* Frameworks */,
 			);
 			buildRules = (
@@ -307,6 +329,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		B80715D8B5B7415282F5A225 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1EC7E296FB751DD774CD1404 /* Goosic.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		D6D6A650364D1DF713A29C58 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -328,6 +361,7 @@
 				E15CC5734C95FAE4D8AF3463 /* ListRules.swift in Sources */,
 				F2D523875E26FDEF07F66196 /* LocalPlaybackEvent.swift in Sources */,
 				D594F14E40FB26675EF31585 /* LocalPlaybackHost+macOS.swift in Sources */,
+				AD49D9F66D2503980086E893 /* LyricsTiming.swift in Sources */,
 				317A89197D2185583104CF25 /* MaterialSurface+macOS.swift in Sources */,
 				38333E09F1D0EF4252F5CCE8 /* MaterialSurfaceKind.swift in Sources */,
 				4D3C5168D7FAC5097816B1F1 /* MediaTransportRequest+macOS.swift in Sources */,
@@ -336,6 +370,8 @@
 				7B194E9D015B81ADEE36936D /* NativeMacCachedImage.swift in Sources */,
 				88B9FD1372CB3D6D1BB989BD /* NativeMacCatalogSurface.swift in Sources */,
 				2D429E3FF73BC0D8152A1C3C /* NativeMacFullPlayer.swift in Sources */,
+				2FFBA9EA17041767458FBBF1 /* NativeMacLyricsImport.swift in Sources */,
+				C112E3CFF8F825F8AFE6C7EE /* NativeMacLyricsView.swift in Sources */,
 				E6A5EDDCF11023F5C2501F3C /* NativeMacUpdater+macOS.swift in Sources */,
 				B9E7B7DEBEC77549E0E7B017 /* NavigationFrame+macOS.swift in Sources */,
 				5313213945F81900264B1057 /* NavigationPolicy.swift in Sources */,
@@ -346,12 +382,15 @@
 				CEF43DED8FD0A716834C35F1 /* OfficialSampleSequence.swift in Sources */,
 				CF73CFE4277688F07F744F96 /* OfficialVolumeBootstrap.swift in Sources */,
 				B098B320D736B6EADFA077A9 /* PersonalBrowse.swift in Sources */,
+				875080AF519F7A9F2C506F04 /* PersonalCatalogFailure+macOS.swift in Sources */,
 				E750455A00AA59408DBEACA0 /* PersonalCatalogHost+Preview.swift in Sources */,
 				006168076BA38D39CEDB760B /* PersonalCatalogHost+macOS.swift in Sources */,
 				A8AE89CF059F9679CEB8A007 /* PersonalMutation.swift in Sources */,
 				994B8868959A5440965F8D51 /* PlatformPlaybackHost.swift in Sources */,
 				38598432A925237D279924B4 /* PlaybackLaunchIntent.swift in Sources */,
 				EC6FD94771037A9982134040 /* Protocol.swift in Sources */,
+				6897C3D9F8788BAF78918153 /* QueueEditing.swift in Sources */,
+				C86936F71E588D9852CD5948 /* QueueNavigation.swift in Sources */,
 				E9ECF698AA4E632B9514B47A /* ServiceClient.swift in Sources */,
 				412E8CD38830988A3336665F /* ServiceFrameReader.swift in Sources */,
 				26A083D9C6EE4691585293ED /* ServiceLaunch+POSIX.swift in Sources */,
@@ -426,7 +465,7 @@
 		2C4BD2A410A64E1D12B47C62 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = Goosic;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -445,7 +484,7 @@
 		55164A7A100BF3CFB04D83DC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = Goosic;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_DEBUG_DYLIB = YES;
 				GENERATE_INFOPLIST_FILE = YES;
