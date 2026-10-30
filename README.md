@@ -128,7 +128,7 @@ Windows builds and packages the native WinUI application through the PowerShell 
 `apps/goosic-windows`; the obsolete Swift Windows scripts have been removed. See
 [the Windows notes](apps/goosic-windows/HANDOFF.md) for commands and prerequisites.
 
-The shell connects to the service on launch, so Home loads without any manual step. The sidebar button remains the way back if a transport failure drops the child process.
+The shell connects to the service on launch, so Home loads without any manual step. The sidebar button remains the way back if a transport failure drops the child process; playback stops when that happens, because the lease went with the service, and Play resumes the selected track once it reconnects.
 
 ### The GTK shell on Linux
 
