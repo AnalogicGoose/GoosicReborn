@@ -471,6 +471,8 @@ public sealed class ShelfViewModel
 {
     internal ShelfViewModel(CatalogShelf shelf, bool grid = false)
     {
+        Id = shelf.Id;
+        Heading = shelf.Title;
         IsGrid = grid;
         Title = grid ? "" : shelf.Title;
         Items = new ObservableCollection<CardViewModel>(shelf.Items.Select(item => new CardViewModel(item)));
@@ -482,9 +484,15 @@ public sealed class ShelfViewModel
         IsList = !grid && shelf.Layout == "list";
         IsCategoryGrid = Items.Count > 0 && Items.All(item => item.IsCategory);
         Columns = IsList
-            ? ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)).ToList()
+            ? new ObservableCollection<ShelfColumnViewModel>(ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)))
             : [];
     }
+
+    /// <summary>The service's id for the shelf, which a continuation names to extend it.</summary>
+    internal string Id { get; }
+
+    /// <summary>The shelf's title as the service sent it, even where a grid hides it.</summary>
+    internal string Heading { get; }
 
     public string Title { get; }
     public ObservableCollection<CardViewModel> Items { get; }
@@ -514,6 +522,37 @@ public sealed class ShelfViewModel
     }
 
     /// <summary>
+    /// Adds the rest of a list the service continued to the end of this shelf, in place: replacing
+    /// the shelf would rebuild its carousel and send a listener browsing sideways back to the start.
+    /// Only the last column can be short, so it is the only one cut again.
+    /// </summary>
+    internal void Extend(IReadOnlyList<CardViewModel> cards)
+    {
+        var start = Items.Count;
+        foreach (var card in cards)
+        {
+            card.Context = Items;
+            Items.Add(card);
+        }
+
+        if (!IsList || cards.Count == 0)
+        {
+            return;
+        }
+
+        if (Columns.Count > 0 && Columns[^1].Rows.Count < ShelfColumns.RowsPerColumn)
+        {
+            start -= Columns[^1].Rows.Count;
+            Columns.RemoveAt(Columns.Count - 1);
+        }
+
+        foreach (var rows in ShelfColumns.Split(Items.Skip(start).ToList(), ShelfColumns.RowsPerColumn))
+        {
+            Columns.Add(new ShelfColumnViewModel(rows));
+        }
+    }
+
+    /// <summary>
     /// Moods & genres: every button at once in a wrapping grid, as YouTube Music and Apple Music
     /// lay out their genres, rather than twenty-seven tiles in a sideways row.
     /// </summary>
@@ -523,7 +562,7 @@ public sealed class ShelfViewModel
     public bool Scrolls => !IsCategoryGrid && !IsGrid;
 
     /// <summary>The same cards as <see cref="Items"/>, in columns of four for a list shelf.</summary>
-    public IReadOnlyList<ShelfColumnViewModel> Columns { get; }
+    public ObservableCollection<ShelfColumnViewModel> Columns { get; }
 }
 
 /// <summary>One column of a list shelf.</summary>

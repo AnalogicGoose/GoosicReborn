@@ -137,6 +137,7 @@ public sealed partial class MainWindow : Window
             FitCarousel(carousel, LeftInset + ContentGutter, RightInset + ContentGutter);
             carousel.ViewChanged += OnCarouselViewChanged;
             UpdateCarouselButtons(carousel);
+            _ = LoadMoreIfCarouselNearEndAsync(carousel);
         }
     }
 
@@ -154,6 +155,21 @@ public sealed partial class MainWindow : Window
         if (sender is ScrollViewer carousel)
         {
             UpdateCarouselButtons(carousel);
+            _ = LoadMoreIfCarouselNearEndAsync(carousel);
+        }
+    }
+
+    /// <summary>
+    /// Asks for the rest of a list that grows sideways once the listener nears its end, the way
+    /// a page asks when its own end comes into view. The Songs and Videos tabs, the only lists that
+    /// continue this way, hold that one shelf.
+    /// </summary>
+    private async Task LoadMoreIfCarouselNearEndAsync(ScrollViewer carousel)
+    {
+        if (Model.HasMore && Model.MoreGoesSideways
+            && carousel.HorizontalOffset > carousel.ScrollableWidth - 900)
+        {
+            await Model.LoadMoreAsync();
         }
     }
 
