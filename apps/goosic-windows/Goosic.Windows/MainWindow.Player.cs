@@ -120,7 +120,8 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task LoadMoreIfNearEndAsync()
     {
-        if (Model.HasMore && ContentScroller.VerticalOffset > ContentScroller.ScrollableHeight - 900)
+        if (Model.HasMore && !Model.MoreGoesSideways
+            && ContentScroller.VerticalOffset > ContentScroller.ScrollableHeight - 900)
         {
             await Model.LoadMoreAsync();
         }

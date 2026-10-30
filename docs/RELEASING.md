@@ -13,7 +13,7 @@ The native shells are now integrated on development; releases no longer tag a pl
 
 Merge the coherent platform changes into development, run the required tests, and deploy
 by merging development into main. Tag that deployment commit with a numeric version such as
-`v0.2.7` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
+`v0.2.8` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
 builds the Windows installer and portable ZIP and the universal macOS app, verifies the Mac
 bundle signature and architectures, and attaches both checksum files to a draft release.
 
@@ -27,7 +27,10 @@ The two halves are built by scripts that also work locally, which is how they ar
 
 - `sh tools/package-macos.sh [version]` — builds `Goosic.app` for Apple silicon and Intel in one
   binary, with the service in `Contents/MacOS` beside the shell and the resource bundle in
-  `Contents/Resources`, then zips it.
+  `Contents/Resources`, then zips it. It compiles the app icon from `apps/goosic-swift/Goosic.icon`
+  with `actool`, which comes with Xcode 26 or later and not with the Command Line Tools, so select
+  that Xcode first. The bundle carries `Assets.car`, from which macOS 26 draws the Dark, Clear and
+  Tinted icons, and `Goosic.icns` for earlier releases.
 - `.\apps\goosic-windows\package.ps1 [-Version …]` — publishes the WinUI shell with .NET and the
   Windows App SDK inside the folder, puts the release service and the rules library beside the
   executable, and zips it. The folder needs nothing installed: WebView2 is part of Windows.

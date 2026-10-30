@@ -331,23 +331,22 @@ A platform without blur still has a floating capsule; a platform without SF Symb
 Play/Pause in the same role. Never reintroduce SwiftCrossUI or a shared view runtime to obtain
 parity. Shared rules belong in Rust/protocol contracts, and each native shell renders them.
 
-The audit below is static source review, plus the user's supplied macOS screenshots and
-corrections. It is not a live Windows/Linux visual test or a claim that the latest macOS changes
-have passed the user's visual acceptance. Linux source was read from origin/platform/linux at
-fc0a31e because that app is absent in this checkout. Mac and Windows were read from this working
-copy; some macOS presentation changes remain uncommitted.
+The audit combines static source review, the user's macOS screenshots and corrections, and
+synthetic GTK desktop captures from the October 9 parity branch. Earlier Linux observations
+came from origin/platform/linux at fc0a31e. Captures establish fixture rendering, not live
+Windows/Linux playback or the user's visual acceptance; macOS acceptance remains separate.
 
 | Area | Evidence and present difference | Required parity work |
 | --- | --- | --- |
 | Floating composition | Mac overlay search/player; Windows layered content/player; GTK Overlay shell | Preserve scrolling beneath chrome and initial content clearance in every shell |
-| Search control | Mac segmented Picker; Windows independent filter buttons; GTK grouped toggles in a search block | Give all shells the same floating pill/selector composition and native single-selection semantics |
-| Volume | Mac corrected player overlay; Windows opens a slider capsule around one fixed speaker button, with speaker/Escape dismissal and the wheel over the speaker; GTK inline volume Scale | Keep the bar geometry fixed; Windows assistive-technology acceptance remains pending; adopt the overlay on GTK |
-| Player bar | Mac 740-wide capsule; Windows now the same width, with a Like button the Mac bar does not have, and it stays in place beside an opening panel until the panel would reach it; GTK differs | Decide whether Like belongs in the bar on every platform; align GTK |
-| Lyrics | Mac blur, dimming and scale by distance with word-by-word fill; Windows the same without the word fill, having no word timings; GTK plain list | Carry word timings to Windows; adopt the treatment on GTK |
-| Accent | Mac components imply #FF0552; Windows palette and GTK CSS use #F53150 | Align the brand token while preserving native/contrast selection exceptions |
+| Search control | Mac segmented Picker; Windows independent filter buttons; GTK parity branch has floating grouped native toggles | Give all shells the same floating pill/selector composition and native single-selection semantics |
+| Volume | Mac corrected overlay; Windows fixed speaker capsule; GTK parity branch uses a homogeneous stack to cover utility icons while More and the speaker remain reachable | Keep geometry fixed; verify native assistive-technology behavior |
+| Player bar | Mac 740-wide capsule; Windows now the same width, with a Like button the Mac bar does not have, and it stays in place beside an opening panel until the panel would reach it; GTK parity branch has the same capsule width and native controls | Decide whether Like belongs in the bar on every platform; verify GTK text scaling |
+| Lyrics | Mac blur, dimming and scale by distance with word-by-word fill; Windows the same without the word fill, having no word timings; GTK parity branch emphasizes synced lines with manual-follow suspension and line seeking | Carry word timings to Windows; adopt contextual effects and word rendering on GTK |
+| Accent | Mac uses #FF0552; GTK parity branch adopts that token; Windows #F53150 remains a gap | Align Windows while preserving native/contrast selection exceptions |
 | Density | Mac standard art 158; Windows palette card token 196; GTK artwork/card sizing differs | Compare at equivalent scaling and align perceived density to the current reference |
-| Navigation/inspector | Mac native split navigation and 320-point inspector; Windows adaptive columns/overlays; GTK 280-wide navigation overlays | Keep control access and content hierarchy at each platform's narrow and wide sizes |
-| Full/mini presentation | Mac immersive dark player/mini; Windows full-player sources present | Inspect each platform's capabilities and gaps; do not assume screenshot parity from source presence |
+| Navigation/inspector | Mac native split regions; Windows adaptive columns/overlays; GTK parity branch adapts navigation and panels down to a 480-pixel window | Preserve native hit areas and verify text scaling and desktop contrast |
+| Full/mini presentation | Mac and Windows immersive players; GTK parity branch has an expanded dark cover/lyrics/queue surface with inspected synthetic captures | GTK mini player and live presentation acceptance remain pending |
 | Accessibility/material | Windows has explicit HighContrast brushes; Mac reduced-motion/material paths; GTK native/theme paths | Verify actual keyboard, contrast, transparency and scaling behavior on each desktop |
 
 Primary source map: macOS NativeMacApp.swift, NativeMacCatalogSurface.swift,
@@ -393,3 +392,11 @@ player volume and a return route, connected theme preferences, recoverable login
 revision-bound queue clear/undo. These are implementation changes, not proof of live visual
 acceptance. The native macOS acceptance matrix remains required; Windows and GTK adaptations
 must retain the same behavior where their implementation still differs.
+
+The October 9 Linux parity pass is implemented on `feature/linux/windows-parity`, synchronized
+with the shared 0.2.7 trunk. Native GTK captures with synthetic content cover expanded cover,
+lyrics and queue, responsive browsing and light/dark presentation. Queue editing/undo and
+breakpoints have offline tests. Search clearance lives inside the virtualized content, and
+volume opens without changing the bar's bounds. These checks do not establish live audio,
+account mutation, screen-reader, word-timing or mini-player acceptance; [LINUX_SHELL.md](LINUX_SHELL.md)
+records remaining work and the reproducible desktop fixture.

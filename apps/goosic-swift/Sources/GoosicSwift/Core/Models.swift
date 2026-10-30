@@ -328,8 +328,13 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published var currentTrack: GoosicTrack?
     @Combine.Published var isPaused = true
     @Combine.Published var queueVisible = false
-    /// Confirmed by the player, never assumed from a request.
-    @Combine.Published private(set) var currentTime: Double = 0
+    /// Confirmed by the player, never assumed from a request. Published by `clock` rather than
+    /// by the model, so a position tick redraws only the views that show time.
+    let clock = PlaybackClock()
+    private(set) var currentTime: Double {
+        get { clock.position }
+        set { clock.position = newValue }
+    }
     @Combine.Published private(set) var duration: Double = 0
     @Combine.Published private(set) var volume: Double = 1
     @Combine.Published private(set) var isMuted = false
@@ -445,6 +450,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
     /// snaps back to the live position between a drag and the next bridge event.
     private var pendingSeek: (position: Double, requestedAt: Date)?
+    /// The downloaded file the local renderer was given, kept so Play can reclaim it after the
+    /// service is lost. Cleared by every track change.
+    private var downloadedTrackInPlay: GoosicDownloadedTrack?
     /// The video whose end has already advanced the queue, so the player's repeated `ended`
     /// polls cannot skip several tracks at once.
     private var endedVideoID: String?
@@ -587,6 +595,70 @@ final class GoosicAppModel: Combine.ObservableObject {
             lyricsStatus = "Synced lyrics"
             queueVisible = true
         }
+        if ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] == "perf" {
+            installPerformanceFixture()
+        }
+    }
+
+    /// Pages as large as a real account's, and a clock that publishes the way the official
+    /// player's samples do, so scrolling can be measured the same way before and after a change.
+    /// Artwork URLs are fixed, so a seeded artwork cache makes the covers real images too.
+    private func installPerformanceFixture() {
+        func track(_ index: Int, prefix: String) -> GoosicTrack {
+            // Every tenth row repeats an earlier song, as a playlist holding it twice does.
+            let song = index % 10 == 9 ? index - 7 : index
+            return GoosicTrack(id: "perf-\(prefix)-\(song)", title: "Performance song \(song)",
+                subtitle: "Song • Fixture artist \(song % 40) • Fixture album \(song % 90)",
+                artist: "Fixture artist \(song % 40)", artistID: "perf-artist-\(song % 40)",
+                album: "Fixture album \(song % 90)", albumID: "perf-album-\(song % 90)",
+                duration: "\(2 + song % 4):\(String(format: "%02d", song % 60))",
+                videoID: "perf-\(prefix)-\(song)", explicit: song % 7 == 0,
+                thumbnail: "https://i.ytimg.com/vi/goosic-perf-\(song % 600)/hqdefault.jpg")
+        }
+        let playlist = (0..<1_500).map { track($0, prefix: "list") }
+        let key = CatalogKey.playlist("perf-playlist")
+        pages[key] = .loaded(CatalogPageView(id: "perf-playlist", title: "Performance playlist",
+            subtitle: "Playlist • Fixture owner • 2026", shelves: [], tracks: playlist,
+            nextCursor: nil, allTracksID: nil, truncated: false))
+        let shelves = (0..<12).map { shelf -> GoosicShelf in
+            let cards = (0..<24).map { index -> GoosicCard in
+                let item = track(shelf * 24 + index, prefix: "home")
+                if shelf == 0 {
+                    return GoosicCard(id: item.id, title: item.title, subtitle: item.artist,
+                        action: .play(item), thumbnail: item.thumbnail, kind: .song)
+                }
+                return GoosicCard(id: "perf-card-\(shelf)-\(index)", title: "Fixture mix \(shelf)-\(index)",
+                    subtitle: "Playlist • Fixture owner", action: .show(.playlist("perf-playlist")),
+                    thumbnail: item.thumbnail, kind: shelf % 4 == 3 ? .artist : .playlist)
+            }
+            return GoosicShelf(id: "perf-shelf-\(shelf)", title: "Fixture shelf \(shelf)", cards: cards,
+                isList: shelf == 0)
+        }
+        pages[.route(.home)] = .loaded(CatalogPageView(id: "perf-home", title: "", subtitle: "",
+            shelves: shelves, tracks: [], nextCursor: nil, allTracksID: nil, truncated: false))
+        route = .home
+        if ProcessInfo.processInfo.environment["GOOSIC_PERF_PAGE"] == "playlist" {
+            detail = .playlist("perf-playlist")
+        }
+        let queued = (0..<500).map { track($0, prefix: "queue") }
+        queue = GoosicQueue(tracks: queued, currentIndex: 3)
+        currentTrack = queued[3]
+        isPaused = false
+        duration = 240
+        queueVisible = ProcessInfo.processInfo.environment["GOOSIC_PERF_PAGE"] == "queue"
+        // The official player reports every 500 ms and the model publishes the position once
+        // its displayed second changes, exactly as `receive(_: OfficialPlaybackEvent)` does.
+        var position = 0.0
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                position = position >= 240 ? 0 : position + 0.5
+                if abs(self.currentTime - position) >= 0.9 {
+                    self.currentTime = position
+                    self.updateSystemMediaControls()
+                }
+            }
+        }
     }
 
     // MARK: - Navigation
@@ -636,7 +708,9 @@ final class GoosicAppModel: Combine.ObservableObject {
         // reconnect control visible, enabled, and dead. Drop it and start over instead.
         if client != nil {
             guard !serviceConnected, !isConnecting else { return }
-            // Releasing the reference runs the client's deinit, which tears the child process down.
+            // Closed explicitly: the client's read loop keeps it alive while the child runs, so
+            // dropping the reference alone would leave the old service running.
+            client?.close()
             client = nil
         }
         connectionEpoch &+= 1
@@ -2984,6 +3058,7 @@ final class GoosicAppModel: Combine.ObservableObject {
                 explicit: false
             )
             self.beginTrack()
+            self.downloadedTrackInPlay = track
             guard self.localPlaybackHost.play() else {
                 self.failLocalPlayback(token, message: "AVFoundation did not confirm local playback.")
                 return
@@ -3036,6 +3111,12 @@ final class GoosicAppModel: Combine.ObservableObject {
             } else {
                 localPlaybackHost.pause()
             }
+            return
+        }
+        // A downloaded file plays with an empty queue, so after a lost service it is the only
+        // record of what was playing; Play claims a fresh local lease for it.
+        if let track = downloadedTrackInPlay, playbackState.owner == .none {
+            playDownloaded(track)
             return
         }
         guard let track = queue.current ?? queue.tracks.first else {
@@ -3239,7 +3320,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             failure?(ServiceClientError.unavailable("goosic-service is not connected."))
             return
         }
-        client.send(command: command, payload: payload) { [weak self] result in
+        client.send(command: command, payload: payload) { [weak self, weak client] result in
             guard let self else { return }
             switch result {
             case .success(let response):
@@ -3249,18 +3330,48 @@ final class GoosicAppModel: Combine.ObservableObject {
                     self.apply(response)
                 }
             case .failure(let error):
-                if let clientError = error as? ServiceClientError, case .remote = clientError {
-                    // The service answered and rejected the request. The transport is healthy,
-                    // so a rejected search must not drop the connection.
-                    failure?(error)
-                } else {
-                    self.client = nil
-                    self.status = error.localizedDescription
-                    self.serviceConnected = false
-                    failure?(error)
+                // A rejection or a timeout fails this request only; the transport is healthy, so
+                // a rejected search or one slow catalog read must not drop the connection.
+                // A failure from a client that has already been replaced is about a process that
+                // is gone, and must not tear down the one that replaced it.
+                if ServiceClientError.invalidatesConnection(error), let client, client === self.client {
+                    self.serviceLost(error)
                 }
+                failure?(error)
             }
         }
+    }
+
+    /// The service is gone, and with it the lease that allowed a renderer to make sound.
+    ///
+    /// Leaving the renderer playing here would be audio no Rust authority has granted: samples
+    /// would have nowhere to go, and a reconnected service starts with no lease at all. So the
+    /// renderer is stopped and the shell's copy of the lease cleared. The track stays selected,
+    /// so Play claims a fresh lease from the next service.
+    private func serviceLost(_ error: Error) {
+        client?.close()
+        client = nil
+        serviceConnected = false
+        // Every in-flight transition belonged to the old service; none of its answers will come.
+        playbackTransitionToken &+= 1
+        playbackTransition = .idle
+        localPlaybackHost.stop()
+        // Invalidated first, so a sample the page sends while pausing is not forwarded.
+        officialPlaybackHost.invalidateExpectations()
+        officialPlaybackHost.quiesce {}
+        playbackState = GoosicPlaybackState(
+            accountId: playbackState.accountId, owner: .none,
+            generation: playbackState.generation, sampleSequence: 0
+        )
+        isPaused = true
+        pendingSeek = nil
+        // The bridge that would report the advertisement's end is gone, and Play refuses while
+        // this flag is set, so leaving it would block playback until the app restarted.
+        isAdvertisement = false
+        adRecovery = AdPlaybackRecovery()
+        hasConfirmedPlaybackSample = false
+        updateSystemMediaControls()
+        status = "\(error.localizedDescription) Playback stopped; reconnect to continue."
     }
 
     private func beginPlaybackTransition(_ transition: PlaybackTransition) -> UInt64 {
@@ -3283,6 +3394,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Clears everything the previous track confirmed, so no stale position or end marker is
     /// carried into the next one.
     private func beginTrack() {
+        downloadedTrackInPlay = nil
         // A new track invalidates the loaded lyrics; the next render asks for the right ones.
         lyrics = nil
         lyricsVideoID = nil

@@ -204,6 +204,42 @@ impl PageView {
         self.shelves.is_empty() && self.tracks.is_empty()
     }
 
+    /// The page with the next part of it after its own rows, as a screen shows it once loaded.
+    ///
+    /// A filtered search continues one list: its next rows come back as the shelf already shown,
+    /// same id and same title, and belong at the end of it rather than under a second heading.
+    /// Both must match, because browse continuations number their shelves from zero again and
+    /// can reuse an id for a shelf that is not the same one; such a shelf is kept, under an id
+    /// made unique by a suffix. The cursor is not part of the view, so the caller keeps the
+    /// continuation's own.
+    pub fn appending(&self, continuation: &PageView) -> PageView {
+        let mut seen: HashSet<String> = self.shelves.iter().map(|shelf| shelf.id.clone()).collect();
+        let mut shelves = self.shelves.clone();
+        for shelf in &continuation.shelves {
+            if let Some(last) = shelves.last_mut() {
+                if last.id == shelf.id && last.title == shelf.title {
+                    let cards = std::mem::take(&mut last.cards);
+                    let more = shelf.cards.iter().cloned();
+                    last.cards = Shelf::uniqued(cards.into_iter().chain(more).collect());
+                    continue;
+                }
+            }
+            let mut candidate = shelf.clone();
+            let mut suffix = 2;
+            while !seen.insert(candidate.id.clone()) {
+                candidate.id = format!("{}-{suffix}", shelf.id);
+                suffix += 1;
+            }
+            shelves.push(candidate);
+        }
+        PageView {
+            shelves,
+            tracks: self.tracks.iter().chain(&continuation.tracks).cloned().collect(),
+            truncated: self.truncated || continuation.truncated,
+            ..self.clone()
+        }
+    }
+
     /// Every playable row on the page, in display order, for queueing.
     pub fn playable_tracks(&self) -> Vec<Track> {
         self.tracks
@@ -292,6 +328,42 @@ mod tests {
             explicit: false,
             thumbnail: None,
         }
+    }
+
+    fn page(id: &str, shelf_id: &str, title: &str, items: Vec<CatalogItem>) -> PageView {
+        PageView::from_wire(&CatalogPage {
+            id: id.into(),
+            title: String::new(),
+            shelves: vec![CatalogShelf {
+                id: shelf_id.into(),
+                title: title.into(),
+                items,
+                layout: Default::default(),
+            }],
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn continuation_pages_append_their_own_shelves() {
+        let album = |id: &str| item(CatalogItemKind::Album, id, id, None);
+        let first = page("home", "shelf", "First", vec![album("a")]);
+        let second = page("continuation", "shelf", "Second", vec![album("b")]);
+        let merged = first.appending(&second);
+        let titles: Vec<&str> = merged.shelves.iter().map(|shelf| shelf.title.as_str()).collect();
+        assert_eq!(titles, ["First", "Second"]);
+        assert_ne!(merged.shelves[0].id, merged.shelves[1].id);
+    }
+
+    #[test]
+    fn a_search_continuation_extends_the_list_it_continues() {
+        let song = |id: &str| item(CatalogItemKind::Song, id, id, Some(id));
+        let first = page("search:sofia", "shelf-0", "Songs", vec![song("a"), song("b")]);
+        let second = page("continuation", "shelf-0", "Songs", vec![song("b"), song("c")]);
+        let merged = first.appending(&second);
+        assert_eq!(merged.shelves.len(), 1, "the continued rows do not get a second heading");
+        let ids: Vec<&str> = merged.shelves[0].cards.iter().map(|card| card.id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
     }
 
     #[test]
