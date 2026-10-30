@@ -328,8 +328,13 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published var currentTrack: GoosicTrack?
     @Combine.Published var isPaused = true
     @Combine.Published var queueVisible = false
-    /// Confirmed by the player, never assumed from a request.
-    @Combine.Published private(set) var currentTime: Double = 0
+    /// Confirmed by the player, never assumed from a request. Published by `clock` rather than
+    /// by the model, so a position tick redraws only the views that show time.
+    let clock = PlaybackClock()
+    private(set) var currentTime: Double {
+        get { clock.position }
+        set { clock.position = newValue }
+    }
     @Combine.Published private(set) var duration: Double = 0
     @Combine.Published private(set) var volume: Double = 1
     @Combine.Published private(set) var isMuted = false
