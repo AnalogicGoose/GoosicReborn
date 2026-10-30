@@ -1,0 +1,20 @@
+name: Icon check (temporary)
+on:
+    push:
+        branches: [ci/icon-check]
+jobs:
+    icon:
+        runs-on: macos-latest
+        steps:
+            - uses: actions/checkout@v4
+            - run: ls -d /Applications/Xcode*.app
+            - name: actool with each Xcode
+              run: |
+                  for x in /Applications/Xcode*.app; do
+                      echo "=== $x"
+                      out=$(mktemp -d)
+                      DEVELOPER_DIR="$x/Contents/Developer" xcrun actool "$PWD/apps/goosic-swift/Goosic.icon" --compile "$out" \
+                          --platform macosx --minimum-deployment-target 14.0 --app-icon Goosic \
+                          --output-partial-info-plist "$out/p.plist" --errors --warnings --output-format human-readable-text 2>&1 | head -20
+                      ls "$out"
+                  done
