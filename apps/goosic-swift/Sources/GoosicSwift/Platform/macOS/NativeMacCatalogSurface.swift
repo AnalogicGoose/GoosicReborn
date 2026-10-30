@@ -41,6 +41,7 @@ struct NativeMacCatalogPage: SwiftUI.View {
             .padding(.bottom, playerClearance)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .modifier(NativeMacScrollActivity())
         // The page fades under the title bar, so a scrolled title never runs into the window's
         // buttons.
         .mask(
@@ -731,7 +732,6 @@ private struct NativeMacTrackList: SwiftUI.View {
     /// Album tracks are numbered rather than shown with the same cover on every row.
     var numbered = false
 
-    @SwiftUI.State private var hovered: Int?
     @SwiftUI.State private var selected: String?
     @SwiftUI.FocusState private var focusedRow: String?
 
@@ -739,7 +739,7 @@ private struct NativeMacTrackList: SwiftUI.View {
         SwiftUI.ScrollViewReader { reader in
             SwiftUI.LazyVStack(spacing: 0) {
             SwiftUI.ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                row(track, index: index).id(track.id)
+                NativeMacHoverRow { hovered in row(track, index: index, isHovered: hovered) }.id(track.id)
                 if index < tracks.count - 1 {
                     SwiftUI.Divider().padding(.leading, numbered ? 72 : 90).opacity(0.6)
                 }
@@ -759,9 +759,8 @@ private struct NativeMacTrackList: SwiftUI.View {
         model.launch(.ordered(track, tracks), source: source)
     }
 
-    private func row(_ track: GoosicTrack, index: Int) -> some SwiftUI.View {
+    private func row(_ track: GoosicTrack, index: Int, isHovered: Bool) -> some SwiftUI.View {
         let playing = model.currentTrack?.videoID == track.videoID
-        let isHovered = hovered == index
         let liked = model.rating(of: track) == .liked
         return SwiftUI.HStack(spacing: 12) {
             // The gutter: a liked song's heart, or on hover the way to like it.
@@ -840,9 +839,6 @@ private struct NativeMacTrackList: SwiftUI.View {
                 .fill(SwiftUI.Color.primary.opacity(selected == track.id ? 0.1 : (isHovered ? 0.05 : 0)))
         )
         .contentShape(Rectangle())
-        .onHover { inside in
-            if inside { hovered = index } else if hovered == index { hovered = nil }
-        }
         .onTapGesture(count: 2) { play(track) }
         .onTapGesture { selected = track.id; focusedRow = track.id }
         .focusable()
@@ -930,8 +926,72 @@ private struct NativeMacTrackList: SwiftUI.View {
     }
 }
 
+/// A row that keeps whether the pointer is over it to itself, and holds it still while its page
+/// scrolls.
+///
+/// A resting pointer hovers each row that slides under it, which during a scroll is every row
+/// in turn. Held by the list, one hovered index redrew the list and every row on screen each
+/// time; held per row, each change still cost most of a frame, and a 1,500-song playlist
+/// scrolled under the pointer missed more than half its frames. Hover shows controls for
+/// the row under a still pointer, so while the page moves the row lets go, and the row the
+/// pointer rests on when it stops takes it up.
+private struct NativeMacHoverRow<Content: SwiftUI.View>: SwiftUI.View {
+    @SwiftUI.Environment(\.nativeMacScrolling) private var scrolling
+    @SwiftUI.State private var hovered = false
+    /// Where the pointer is, kept outside SwiftUI's state so that following it costs nothing.
+    @SwiftUI.State private var pointer = NativeMacPointerInside()
+    @SwiftUI.ViewBuilder let content: (Bool) -> Content
+
+    var body: some SwiftUI.View {
+        content(hovered)
+            .onHover { inside in
+                pointer.inside = inside
+                if !scrolling, hovered != inside { hovered = inside }
+            }
+            .onChange(of: scrolling) { _, now in
+                let next = !now && pointer.inside
+                if hovered != next { hovered = next }
+            }
+    }
+}
+
+private final class NativeMacPointerInside {
+    var inside = false
+}
+
+/// Tells the rows of a page whether it is scrolling. macOS 14 cannot say, and its rows follow
+/// the pointer throughout, as before.
+private struct NativeMacScrollActivity: SwiftUI.ViewModifier {
+    @SwiftUI.State private var scrolling = false
+
+    func body(content: Content) -> some SwiftUI.View {
+        if #available(macOS 15.0, *) {
+            content
+                .onScrollPhaseChange { _, phase in
+                    if scrolling != phase.isScrolling { scrolling = phase.isScrolling }
+                }
+                .environment(\.nativeMacScrolling, scrolling)
+        } else {
+            content
+        }
+    }
+}
+
+private struct NativeMacScrollingKey: SwiftUI.EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension SwiftUI.EnvironmentValues {
+    /// The page around this view is being scrolled, by the listener or by its momentum.
+    var nativeMacScrolling: Bool {
+        get { self[NativeMacScrollingKey.self] }
+        set { self[NativeMacScrollingKey.self] = newValue }
+    }
+}
+
 private struct NativeMacCatalogCard: SwiftUI.View {
     @SwiftUI.Environment(\.goosicReduceMotion) private var reduceMotion
+    @SwiftUI.Environment(\.nativeMacScrolling) private var scrolling
     @SwiftUI.State private var hovering = false
     let card: GoosicCard
     let model: GoosicAppModel
@@ -992,7 +1052,9 @@ private struct NativeMacCatalogCard: SwiftUI.View {
                 SwiftUI.EmptyView()
             }
         }
-        .onHover { hovering = $0 }
+        // As with track rows, a card does not follow a pointer the page is sliding beneath it.
+        .onHover { inside in if !scrolling, hovering != inside { hovering = inside } }
+        .onChange(of: scrolling) { _, now in if now, hovering { hovering = false } }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: hovering)
         .help(card.title)
         .accessibilityElement(children: .combine)

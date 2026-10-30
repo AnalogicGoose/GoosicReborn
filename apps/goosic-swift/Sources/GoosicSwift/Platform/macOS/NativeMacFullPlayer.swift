@@ -155,6 +155,8 @@ private struct NativeMacFullPlayerCover: View {
 /// closing this never interrupts playback.
 struct NativeMacFullPlayer: View {
     @ObservedObject var store: NativeMacModelStore
+    /// The timeline's position, observed here because the model no longer publishes it.
+    @ObservedObject var clock: PlaybackClock
     /// The mini player: the same layout in a small always-on-top window. Lyrics and the
     /// fill-the-screen controls step aside while it is small and come back as they were.
     var compact = false
@@ -564,7 +566,7 @@ struct NativeMacFullPlayer: View {
     // MARK: - Lyrics
 
     private var lyricsColumn: some View {
-        NativeMacLyricsView(store: store, immersive: true)
+        NativeMacLyricsView(store: store, clock: clock, immersive: true)
     }
 
 }
