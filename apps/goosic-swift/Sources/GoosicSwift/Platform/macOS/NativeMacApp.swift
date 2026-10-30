@@ -185,13 +185,17 @@ private struct NativeMacFloatingWindow: NSViewRepresentable {
 }
 
 #if !GOOSIC_UI_TEST_HOST
-/// Installs the supplied Goosic artwork for both `swift run` and packaged macOS launches.
-/// SwiftPM executables do not have an Xcode asset catalog, so the icon must be loaded from the
-/// target resource bundle explicitly. The complete appearance set stays bundled for future
-/// packaging; the default artwork is the stable macOS Dock/application icon for now.
+/// Installs the supplied Goosic artwork for `swift run` launches, which have no app bundle and
+/// therefore no compiled icon. A packaged or Xcode-built app carries `Goosic.icon` compiled into
+/// its asset catalog, named by `CFBundleIconName`, and macOS renders that in the Default, Dark,
+/// Clear and Tinted appearances itself. Setting `applicationIconImage` there would pin the Dock
+/// to one static PNG and defeat every other appearance, so it is left alone.
 @MainActor
 private enum NativeMacApplicationIcon {
     static func install() {
+        guard Bundle.main.object(forInfoDictionaryKey: "CFBundleIconName") == nil else {
+            return
+        }
         guard let url = GoosicResources.bundle.url(
             forResource: "Icon-iOS-Default-1024@1x", withExtension: "png", subdirectory: "AppIcons"
         ), let image = NSImage(contentsOf: url) else {
