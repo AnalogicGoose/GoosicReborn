@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Goosic.Windows.Presentation;
 
@@ -29,5 +30,24 @@ public static class ShelfColumns
         }
 
         return columns;
+    }
+
+    /// <summary>
+    /// Whether a shelf that arrived with the next part of a page continues the last one shown.
+    /// </summary>
+    /// <remarks>
+    /// A filtered search continues one list: its next rows come back under the shelf already on
+    /// screen, same id and same title, and belong at the end of it rather than under a second
+    /// heading. Both must match, because browse continuations number their shelves from zero
+    /// again and can reuse an id for a shelf that is not the same one.
+    /// </remarks>
+    public static bool Continues(string shownId, string shownTitle, string id, string title) =>
+        shownId.Length > 0 && shownId == id && shownTitle == title;
+
+    /// <summary>The arriving items whose ids are not already shown, each once, in the order they came.</summary>
+    public static IReadOnlyList<T> Unseen<T>(IEnumerable<string> shown, IEnumerable<T> arriving, Func<T, string> id)
+    {
+        var seen = new HashSet<string>(shown);
+        return arriving.Where(item => seen.Add(id(item))).ToList();
     }
 }
