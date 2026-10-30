@@ -143,6 +143,62 @@ impl Rest {
     }
 }
 
+/// Marks a cursor for the rows after a filtered search page.
+const SEARCH_PREFIX: &str = "goosic-search\u{1f}";
+
+/// Where the rest of a filtered search is: upstream's own cursor, and the shelf it extends.
+///
+/// Upstream continues a search through the `search` endpoint, not `browse`, and answers with rows
+/// that carry no heading of their own. Both facts have to survive the round trip through the
+/// shell, so the cursor carries them; the service still keeps no state. The shelf's id and title
+/// travel so the continued rows come back as the same shelf and a shell can extend it, rather
+/// than draw a second "Songs" under the first.
+#[derive(Debug, PartialEq)]
+struct SearchRest {
+    shelf_id: String,
+    title: String,
+    upstream: String,
+}
+
+impl SearchRest {
+    fn encode(&self) -> String {
+        format!(
+            "{SEARCH_PREFIX}{}\u{1f}{}\u{1f}{}",
+            self.shelf_id, self.title, self.upstream
+        )
+    }
+
+    fn decode(cursor: &str) -> Option<SearchRest> {
+        let mut parts = cursor.strip_prefix(SEARCH_PREFIX)?.splitn(3, '\u{1f}');
+        let shelf_id = parts.next()?.to_owned();
+        let title = parts.next()?.to_owned();
+        let upstream = parts.next().filter(|value| !value.is_empty())?.to_owned();
+        Some(SearchRest {
+            shelf_id,
+            title,
+            upstream,
+        })
+    }
+}
+
+/// Points a search page's cursor at the shelf the next rows extend: its last one.
+fn search_rest(mut page: CatalogPage) -> CatalogPage {
+    let Some(upstream) = page.next_cursor.take() else {
+        return page;
+    };
+    if let Some(shelf) = page.shelves.last() {
+        page.next_cursor = Some(
+            SearchRest {
+                shelf_id: shelf.id.clone(),
+                title: shelf.title.clone(),
+                upstream,
+            }
+            .encode(),
+        );
+    }
+    page
+}
+
 /// Keeps the shelves from `offset` that fit in one frame, and points the cursor at the rest.
 fn page_shelves(mut page: CatalogPage, command: &str, id: &str, offset: usize) -> CatalogPage {
     let upstream = page.next_cursor.take();
@@ -224,7 +280,7 @@ pub fn handle(
         "catalog.search" => {
             let query = payload.query.as_deref().unwrap_or_default();
             let filter = payload.filter.as_deref().unwrap_or("all");
-            respond(id, catalog.search(query, filter))
+            respond(id, catalog.search(query, filter).map(search_rest))
         }
         "catalog.browse" => {
             let route = match catalog_id(payload, request_id) {
@@ -240,6 +296,19 @@ pub fn handle(
             )
         }
         "catalog.continue" => match continuation(payload, request_id) {
+            Ok(cursor) if cursor.starts_with(SEARCH_PREFIX) => match SearchRest::decode(&cursor) {
+                Some(rest) => respond(
+                    id,
+                    catalog
+                        .search_continuation(&rest.upstream, &rest.shelf_id, &rest.title)
+                        .map(search_rest),
+                ),
+                None => failure(
+                    id,
+                    "invalidRequest",
+                    "catalog.continue received a malformed search cursor".into(),
+                ),
+            },
             Ok(cursor) => match Rest::decode(&cursor) {
                 Some(rest) => {
                     let page = if rest.command == "catalog.category" {
@@ -473,6 +542,68 @@ mod tests {
     fn search_rejects_an_empty_query_without_network_access() {
         let catalog = Catalog::new();
         let response = handle(&catalog, "catalog.search", "1", &RequestPayload::default()).unwrap();
+        assert!(!response.ok);
+        assert_eq!(response.error.unwrap().code, "invalidRequest");
+    }
+
+    fn search_page(cursor: Option<&str>) -> CatalogPage {
+        CatalogPage {
+            id: "search:sofia".into(),
+            title: "sofia".into(),
+            shelves: vec![CatalogShelf {
+                id: "shelf-0".into(),
+                title: "Songs".into(),
+                items: (0..3).map(track).collect(),
+                layout: Default::default(),
+            }],
+            next_cursor: cursor.map(str::to_owned),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_search_cursor_names_the_shelf_its_rows_extend() {
+        let page = search_rest(search_page(Some("upstream-token")));
+        let cursor = page.next_cursor.expect("the page keeps a cursor");
+        assert_eq!(
+            SearchRest::decode(&cursor),
+            Some(SearchRest {
+                shelf_id: "shelf-0".into(),
+                title: "Songs".into(),
+                upstream: "upstream-token".into(),
+            })
+        );
+        assert_eq!(
+            Rest::decode(&cursor),
+            None,
+            "a search cursor is not a shelf cursor"
+        );
+    }
+
+    #[test]
+    fn a_search_page_without_more_rows_says_so() {
+        assert_eq!(search_rest(search_page(None)).next_cursor, None);
+    }
+
+    #[test]
+    fn a_search_cursor_without_an_upstream_token_is_not_a_cursor() {
+        let cursor = SearchRest {
+            shelf_id: "shelf-0".into(),
+            title: "Songs".into(),
+            upstream: String::new(),
+        }
+        .encode();
+        assert_eq!(SearchRest::decode(&cursor), None);
+    }
+
+    #[test]
+    fn a_malformed_search_cursor_is_refused_without_network_access() {
+        let catalog = Catalog::new();
+        let payload = RequestPayload {
+            continuation: Some(format!("{SEARCH_PREFIX}shelf-0")),
+            ..Default::default()
+        };
+        let response = handle(&catalog, "catalog.continue", "1", &payload).unwrap();
         assert!(!response.ok);
         assert_eq!(response.error.unwrap().code, "invalidRequest");
     }
