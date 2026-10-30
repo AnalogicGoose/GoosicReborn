@@ -543,6 +543,12 @@ private struct NativeMacRootView: SwiftUI.View {
             if model.artworkBackground {
                 NativeMacArtworkBackdrop(file: model.artworkFile(for: model.currentTrack?.thumbnail))
                     .modifier(NativeMacBackgroundExtension())
+                    // The backdrop ignores the safe area itself, but the extension effect treats
+                    // the toolbar and sidebar bands as regions to synthesize, and on current macOS
+                    // fills them flat dark: a black bar under the toolbar and a grey sidebar with no
+                    // artwork in its glass. Filling them with the backdrop itself keeps the cover
+                    // there.
+                    .ignoresSafeArea()
                     .transition(.opacity)
             }
         ZStack(alignment: .bottom) {
