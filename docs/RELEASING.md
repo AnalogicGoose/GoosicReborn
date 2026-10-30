@@ -30,7 +30,10 @@ The two halves are built by scripts that also work locally, which is how they ar
   `Contents/Resources`, then zips it. It compiles the app icon from `apps/goosic-swift/Goosic.icon`
   with `actool`, which comes with Xcode 26 or later and not with the Command Line Tools, so select
   that Xcode first. The bundle carries `Assets.car`, from which macOS 26 draws the Dark, Clear and
-  Tinted icons, and `Goosic.icns` for earlier releases.
+  Tinted icons, and `Goosic.icns` for earlier releases. Not every Xcode 26 compiles that icon:
+  on GitHub's runners `actool` from 26.4 through 26.6 throws on it ("Could not open Goosic.icon")
+  while 26.0 to 26.3 and Xcode 27 succeed, so the release workflow pins Xcode 26.3 rather than
+  taking the latest stable one. Try a newer Xcode against the icon before moving the pin.
 - `.\apps\goosic-windows\package.ps1 [-Version …]` — publishes the WinUI shell with .NET and the
   Windows App SDK inside the folder, puts the release service and the rules library beside the
   executable, and zips it. The folder needs nothing installed: WebView2 is part of Windows.
