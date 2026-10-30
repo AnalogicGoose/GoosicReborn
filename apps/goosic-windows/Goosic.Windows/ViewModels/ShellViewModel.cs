@@ -470,27 +470,21 @@ public sealed class TrackViewModel : INotifyPropertyChanged, ISortableTrack
 public sealed class ShelfViewModel
 {
     internal ShelfViewModel(CatalogShelf shelf, bool grid = false)
-        : this(shelf.Id, shelf.Title, shelf.Layout, grid, shelf.Items.Select(item => new CardViewModel(item)))
     {
-    }
-
-    private ShelfViewModel(string id, string heading, string? layout, bool grid, IEnumerable<CardViewModel> cards)
-    {
-        Id = id;
-        Heading = heading;
-        Layout = layout;
+        Id = shelf.Id;
+        Heading = shelf.Title;
         IsGrid = grid;
-        Title = grid ? "" : heading;
-        Items = new ObservableCollection<CardViewModel>(cards);
+        Title = grid ? "" : shelf.Title;
+        Items = new ObservableCollection<CardViewModel>(shelf.Items.Select(item => new CardViewModel(item)));
         foreach (var item in Items)
         {
             item.Context = Items;
         }
 
-        IsList = !grid && layout == "list";
+        IsList = !grid && shelf.Layout == "list";
         IsCategoryGrid = Items.Count > 0 && Items.All(item => item.IsCategory);
         Columns = IsList
-            ? ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)).ToList()
+            ? new ObservableCollection<ShelfColumnViewModel>(ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)))
             : [];
     }
 
@@ -499,8 +493,6 @@ public sealed class ShelfViewModel
 
     /// <summary>The shelf's title as the service sent it, even where a grid hides it.</summary>
     internal string Heading { get; }
-
-    private string? Layout { get; }
 
     public string Title { get; }
     public ObservableCollection<CardViewModel> Items { get; }
@@ -530,12 +522,35 @@ public sealed class ShelfViewModel
     }
 
     /// <summary>
-    /// This shelf with <paramref name="cards"/> after its own, as a new shelf: a list shelf's
-    /// columns are cut once, so they have to be cut again rather than appended to. The cards
-    /// already shown are kept, with the artwork they have loaded.
+    /// Adds the rest of a list the service continued to the end of this shelf, in place: replacing
+    /// the shelf would rebuild its carousel and send a listener browsing sideways back to the start.
+    /// Only the last column can be short, so it is the only one cut again.
     /// </summary>
-    internal ShelfViewModel Extended(IEnumerable<CardViewModel> cards) =>
-        new(Id, Heading, Layout, IsGrid, Items.Concat(cards));
+    internal void Extend(IReadOnlyList<CardViewModel> cards)
+    {
+        var start = Items.Count;
+        foreach (var card in cards)
+        {
+            card.Context = Items;
+            Items.Add(card);
+        }
+
+        if (!IsList || cards.Count == 0)
+        {
+            return;
+        }
+
+        if (Columns.Count > 0 && Columns[^1].Rows.Count < ShelfColumns.RowsPerColumn)
+        {
+            start -= Columns[^1].Rows.Count;
+            Columns.RemoveAt(Columns.Count - 1);
+        }
+
+        foreach (var rows in ShelfColumns.Split(Items.Skip(start).ToList(), ShelfColumns.RowsPerColumn))
+        {
+            Columns.Add(new ShelfColumnViewModel(rows));
+        }
+    }
 
     /// <summary>
     /// Moods & genres: every button at once in a wrapping grid, as YouTube Music and Apple Music
@@ -547,7 +562,7 @@ public sealed class ShelfViewModel
     public bool Scrolls => !IsCategoryGrid && !IsGrid;
 
     /// <summary>The same cards as <see cref="Items"/>, in columns of four for a list shelf.</summary>
-    public IReadOnlyList<ShelfColumnViewModel> Columns { get; }
+    public ObservableCollection<ShelfColumnViewModel> Columns { get; }
 }
 
 /// <summary>One column of a list shelf.</summary>
