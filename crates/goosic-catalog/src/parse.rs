@@ -497,6 +497,9 @@ fn top_result(card: &Value) -> Vec<CatalogItem> {
 /// Explicit `musicShelfRenderer` titles are preferred; the modern flat "all" response has none,
 /// so rows are then grouped by kind under stable titles. A top result, when there is one, comes
 /// first, and the rows inside it are not repeated in the groups below.
+///
+/// A filtered tab ends its one shelf with a cursor for the rows after it, which is kept; whether
+/// a tab is continued is the caller's decision, since only some tabs read as one growing list.
 pub fn search_page(query: &str, response: &Value) -> CatalogPage {
     let mut shelves: Vec<CatalogShelf> = Vec::new();
     let cards = json::collect(response, "musicCardShelfRenderer");
@@ -553,9 +556,37 @@ pub fn search_page(query: &str, response: &Value) -> CatalogPage {
         shelves,
         tracks: Vec::new(),
         thumbnail: None,
-        next_cursor: None,
+        next_cursor: continuation_token(response),
         truncated: false,
         all_tracks_id: None,
+    }
+}
+
+/// Builds the rows after a filtered search tab's first page.
+///
+/// Upstream answers with a bare `musicShelfContinuation`: rows and the next cursor, but no title,
+/// because they belong to the shelf already shown. The caller says which shelf that is, so the
+/// rows land under it rather than under a second heading of their own.
+pub fn search_continuation_page(shelf_id: &str, title: &str, response: &Value) -> CatalogPage {
+    let items: Vec<CatalogItem> = json::collect(response, "musicResponsiveListItemRenderer")
+        .into_iter()
+        .filter_map(responsive_item)
+        .collect();
+    let shelves = if items.is_empty() {
+        Vec::new()
+    } else {
+        vec![CatalogShelf {
+            id: shelf_id.to_owned(),
+            title: title.to_owned(),
+            items,
+            layout: ShelfLayout::List,
+        }]
+    };
+    CatalogPage {
+        id: "continuation".to_owned(),
+        shelves,
+        next_cursor: continuation_token(response),
+        ..Default::default()
     }
 }
 
@@ -1110,6 +1141,47 @@ mod tests {
         let page = search_page("signal", &response);
         assert_eq!(page.shelves.len(), 1);
         assert_eq!(page.shelves[0].title, "Top result");
+    }
+
+    #[test]
+    fn a_filtered_search_keeps_the_cursor_its_shelf_ends_with() {
+        let response = json!({"contents": {"tabbedSearchResultsRenderer": {"tabs": [{"tabRenderer": {
+            "content": {"sectionListRenderer": {"contents": [{"musicShelfRenderer": {
+                "title": {"runs": [{"text": "Songs"}]},
+                "contents": [{"musicResponsiveListItemRenderer": song_row()}],
+                "continuations": [{"nextContinuationData": {"continuation": "songs-page-two"}}]
+            }}]}}
+        }}]}}});
+        let page = search_page("signal", &response);
+        assert_eq!(page.shelves[0].title, "Songs");
+        assert_eq!(page.next_cursor.as_deref(), Some("songs-page-two"));
+    }
+
+    #[test]
+    fn a_search_continuation_extends_the_shelf_it_was_asked_for() {
+        let response = json!({
+            "continuationContents": {"musicShelfContinuation": {
+                "contents": [{"musicResponsiveListItemRenderer": song_row()}],
+                "continuations": [{"nextContinuationData": {"continuation": "songs-page-three"}}]
+            }},
+            "header": {"musicHeaderRenderer": {"header": {"chipCloudRenderer": {"chips": []}}}}
+        });
+        let page = search_continuation_page("shelf-0", "Songs", &response);
+        assert_eq!(page.shelves.len(), 1);
+        assert_eq!(page.shelves[0].id, "shelf-0");
+        assert_eq!(page.shelves[0].title, "Songs");
+        assert_eq!(page.shelves[0].layout, ShelfLayout::List);
+        assert_eq!(page.shelves[0].items[0].id, "abcdefghijk");
+        assert_eq!(page.next_cursor.as_deref(), Some("songs-page-three"));
+    }
+
+    #[test]
+    fn the_last_search_continuation_has_no_cursor() {
+        let response = json!({"continuationContents": {"musicShelfContinuation": {
+            "contents": [{"musicResponsiveListItemRenderer": song_row()}]
+        }}});
+        let page = search_continuation_page("shelf-0", "Songs", &response);
+        assert_eq!(page.next_cursor, None);
     }
 
     #[test]
