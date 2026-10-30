@@ -196,6 +196,19 @@ extension CatalogPageView {
         var seen = Set(shelves.map(\.id))
         var mergedShelves = shelves
         for shelf in continuation.shelves {
+            // A filtered search continues one list: its next rows come back as the shelf already
+            // shown, same id and same title, and belong at the end of it rather than under a
+            // second heading. Both must match, because browse continuations number their shelves
+            // from zero again and can reuse an id for a shelf that is not the same one.
+            if let last = mergedShelves.last, last.id == shelf.id, last.title == shelf.title {
+                mergedShelves[mergedShelves.count - 1] = GoosicShelf(
+                    id: last.id,
+                    title: last.title,
+                    cards: GoosicShelf.uniqued(last.cards + shelf.cards),
+                    isList: last.isList
+                )
+                continue
+            }
             var candidate = shelf
             var suffix = 2
             while !seen.insert(candidate.id).inserted {
