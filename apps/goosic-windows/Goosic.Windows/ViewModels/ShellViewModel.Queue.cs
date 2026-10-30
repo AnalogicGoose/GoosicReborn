@@ -110,6 +110,13 @@ public sealed partial class ShellViewModel
 
     public bool HasMore => !string.IsNullOrEmpty(_nextCursor);
 
+    /// <summary>
+    /// Whether the next part of the page lengthens a list that scrolls sideways, as a search's
+    /// songs do, rather than making the page taller. Such a page has to ask for more from the end
+    /// of that list: the page itself never grows, so its own end is always in view.
+    /// </summary>
+    internal bool MoreGoesSideways => PageKind == DetailKind.Search && Shelves.Count > 0 && Shelves[Shelves.Count - 1].IsList;
+
     /// <summary>The playlist holding every song when the page shows only its top few, as an artist does.</summary>
     internal string? AllTracksId
     {
