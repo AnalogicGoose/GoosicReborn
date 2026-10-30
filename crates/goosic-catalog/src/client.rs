@@ -145,6 +145,18 @@ impl InnertubeClient {
         self.post("search", body)
     }
 
+    /// A search cursor goes back to `search`: `browse` does not know it and answers with an
+    /// unrelated page rather than an error.
+    pub fn search_continuation(&self, continuation: &str) -> Result<Value, CatalogError> {
+        let continuation = continuation.trim();
+        if continuation.is_empty() {
+            return Err(CatalogError::InvalidRequest(
+                "search continuation is empty".into(),
+            ));
+        }
+        self.post("search", json!({"continuation": continuation}))
+    }
+
     pub fn browse(&self, browse_id: &str) -> Result<Value, CatalogError> {
         if browse_id.trim().is_empty() {
             return Err(CatalogError::InvalidRequest("browse id is empty".into()));
@@ -242,6 +254,13 @@ mod tests {
     fn empty_query_is_rejected_before_any_network_call() {
         let client = InnertubeClient::new();
         let error = client.search("   ", "all").unwrap_err();
+        assert!(matches!(error, CatalogError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn search_continuation_requires_a_token_before_any_network_call() {
+        let client = InnertubeClient::new();
+        let error = client.search_continuation("  ").unwrap_err();
         assert!(matches!(error, CatalogError::InvalidRequest(_)));
     }
 
