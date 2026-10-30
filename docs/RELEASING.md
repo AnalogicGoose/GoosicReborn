@@ -19,8 +19,16 @@ bundle signature and architectures, and attaches both checksum files to a draft 
 
 Inspect the downloads and their hashes before publishing the draft. Publication makes the
 Windows updater offer the version. The macOS download remains an alpha until native acceptance
-is complete. Updating its Sparkle feed separately requires the existing private signing key;
-without it, publish the manual download and leave the signed feed unchanged. Never replace the
+is complete.
+
+Publishing does not reach a Mac. Every installed copy reads `updates/macos-alpha.xml` from
+`development`, and CI cannot sign that feed, so a release is not finished until someone on the
+release Mac has run Sparkle's `sign_update` on the published ZIP, added an item with a higher
+`sparkle:version` to the top of the feed, and landed it on `development`. Skipping this looks like
+nothing at all: the feed stayed at 0.2.4 through later releases, and every Mac went on reporting
+0.2.4 as the newest version, even one already running something newer. Because the feed is read live, the
+correction reaches copies already installed without anyone reinstalling. Without the private
+signing key, publish the manual download and leave the signed feed unchanged. Never replace the
 key merely to make CI able to sign.
 
 The two halves are built by scripts that also work locally, which is how they are debugged:
