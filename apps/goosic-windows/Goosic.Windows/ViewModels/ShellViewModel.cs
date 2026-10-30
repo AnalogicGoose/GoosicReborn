@@ -470,21 +470,37 @@ public sealed class TrackViewModel : INotifyPropertyChanged, ISortableTrack
 public sealed class ShelfViewModel
 {
     internal ShelfViewModel(CatalogShelf shelf, bool grid = false)
+        : this(shelf.Id, shelf.Title, shelf.Layout, grid, shelf.Items.Select(item => new CardViewModel(item)))
     {
+    }
+
+    private ShelfViewModel(string id, string heading, string? layout, bool grid, IEnumerable<CardViewModel> cards)
+    {
+        Id = id;
+        Heading = heading;
+        Layout = layout;
         IsGrid = grid;
-        Title = grid ? "" : shelf.Title;
-        Items = new ObservableCollection<CardViewModel>(shelf.Items.Select(item => new CardViewModel(item)));
+        Title = grid ? "" : heading;
+        Items = new ObservableCollection<CardViewModel>(cards);
         foreach (var item in Items)
         {
             item.Context = Items;
         }
 
-        IsList = !grid && shelf.Layout == "list";
+        IsList = !grid && layout == "list";
         IsCategoryGrid = Items.Count > 0 && Items.All(item => item.IsCategory);
         Columns = IsList
             ? ShelfColumns.Split(Items, ShelfColumns.RowsPerColumn).Select(rows => new ShelfColumnViewModel(rows)).ToList()
             : [];
     }
+
+    /// <summary>The service's id for the shelf, which a continuation names to extend it.</summary>
+    internal string Id { get; }
+
+    /// <summary>The shelf's title as the service sent it, even where a grid hides it.</summary>
+    internal string Heading { get; }
+
+    private string? Layout { get; }
 
     public string Title { get; }
     public ObservableCollection<CardViewModel> Items { get; }
@@ -512,6 +528,14 @@ public sealed class ShelfViewModel
             Items.Add(new CardViewModel(item) { Context = Items });
         }
     }
+
+    /// <summary>
+    /// This shelf with <paramref name="cards"/> after its own, as a new shelf: a list shelf's
+    /// columns are cut once, so they have to be cut again rather than appended to. The cards
+    /// already shown are kept, with the artwork they have loaded.
+    /// </summary>
+    internal ShelfViewModel Extended(IEnumerable<CardViewModel> cards) =>
+        new(Id, Heading, Layout, IsGrid, Items.Concat(cards));
 
     /// <summary>
     /// Moods & genres: every button at once in a wrapping grid, as YouTube Music and Apple Music
