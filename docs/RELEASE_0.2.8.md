@@ -11,10 +11,9 @@ the end of the list comes into view, added to the list already shown rather than
 "Songs" heading. The Albums, Artists and Playlists tabs, and the All tab, are unchanged; each is
 short enough to show its end, and All links to a tab per kind.
 
-On Windows a search's song rows are a shelf of columns that scrolls sideways, so the page does
-not grow taller as rows arrive; more are fetched when the page itself is scrolled to its end.
-The Windows change was built and tested on a Windows runner and has not yet been tried in the
-running app.
+On Windows a search's song rows are a shelf of columns that scrolls sideways, so more arrive as
+that shelf nears its sideways end, and the shelf keeps its place while they do. The Windows
+change was built and tested on a Windows runner and has not yet been tried in the running app.
 
 ## macOS: smoother scrolling
 
