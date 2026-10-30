@@ -328,8 +328,13 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published var currentTrack: GoosicTrack?
     @Combine.Published var isPaused = true
     @Combine.Published var queueVisible = false
-    /// Confirmed by the player, never assumed from a request.
-    @Combine.Published private(set) var currentTime: Double = 0
+    /// Confirmed by the player, never assumed from a request. Published by `clock` rather than
+    /// by the model, so a position tick redraws only the views that show time.
+    let clock = PlaybackClock()
+    private(set) var currentTime: Double {
+        get { clock.position }
+        set { clock.position = newValue }
+    }
     @Combine.Published private(set) var duration: Double = 0
     @Combine.Published private(set) var volume: Double = 1
     @Combine.Published private(set) var isMuted = false
@@ -586,6 +591,70 @@ final class GoosicAppModel: Combine.ObservableObject {
                 lines: (0..<20).map { GoosicLyricsLine(atMs: Int64($0 * 5000), text: "Fixture lyric line \($0 + 1)") })
             lyricsStatus = "Synced lyrics"
             queueVisible = true
+        }
+        if ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] == "perf" {
+            installPerformanceFixture()
+        }
+    }
+
+    /// Pages as large as a real account's, and a clock that publishes the way the official
+    /// player's samples do, so scrolling can be measured the same way before and after a change.
+    /// Artwork URLs are fixed, so a seeded artwork cache makes the covers real images too.
+    private func installPerformanceFixture() {
+        func track(_ index: Int, prefix: String) -> GoosicTrack {
+            // Every tenth row repeats an earlier song, as a playlist holding it twice does.
+            let song = index % 10 == 9 ? index - 7 : index
+            return GoosicTrack(id: "perf-\(prefix)-\(song)", title: "Performance song \(song)",
+                subtitle: "Song • Fixture artist \(song % 40) • Fixture album \(song % 90)",
+                artist: "Fixture artist \(song % 40)", artistID: "perf-artist-\(song % 40)",
+                album: "Fixture album \(song % 90)", albumID: "perf-album-\(song % 90)",
+                duration: "\(2 + song % 4):\(String(format: "%02d", song % 60))",
+                videoID: "perf-\(prefix)-\(song)", explicit: song % 7 == 0,
+                thumbnail: "https://i.ytimg.com/vi/goosic-perf-\(song % 600)/hqdefault.jpg")
+        }
+        let playlist = (0..<1_500).map { track($0, prefix: "list") }
+        let key = CatalogKey.playlist("perf-playlist")
+        pages[key] = .loaded(CatalogPageView(id: "perf-playlist", title: "Performance playlist",
+            subtitle: "Playlist • Fixture owner • 2026", shelves: [], tracks: playlist,
+            nextCursor: nil, allTracksID: nil, truncated: false))
+        let shelves = (0..<12).map { shelf -> GoosicShelf in
+            let cards = (0..<24).map { index -> GoosicCard in
+                let item = track(shelf * 24 + index, prefix: "home")
+                if shelf == 0 {
+                    return GoosicCard(id: item.id, title: item.title, subtitle: item.artist,
+                        action: .play(item), thumbnail: item.thumbnail, kind: .song)
+                }
+                return GoosicCard(id: "perf-card-\(shelf)-\(index)", title: "Fixture mix \(shelf)-\(index)",
+                    subtitle: "Playlist • Fixture owner", action: .show(.playlist("perf-playlist")),
+                    thumbnail: item.thumbnail, kind: shelf % 4 == 3 ? .artist : .playlist)
+            }
+            return GoosicShelf(id: "perf-shelf-\(shelf)", title: "Fixture shelf \(shelf)", cards: cards,
+                isList: shelf == 0)
+        }
+        pages[.route(.home)] = .loaded(CatalogPageView(id: "perf-home", title: "", subtitle: "",
+            shelves: shelves, tracks: [], nextCursor: nil, allTracksID: nil, truncated: false))
+        route = .home
+        if ProcessInfo.processInfo.environment["GOOSIC_PERF_PAGE"] == "playlist" {
+            detail = .playlist("perf-playlist")
+        }
+        let queued = (0..<500).map { track($0, prefix: "queue") }
+        queue = GoosicQueue(tracks: queued, currentIndex: 3)
+        currentTrack = queued[3]
+        isPaused = false
+        duration = 240
+        queueVisible = ProcessInfo.processInfo.environment["GOOSIC_PERF_PAGE"] == "queue"
+        // The official player reports every 500 ms and the model publishes the position once
+        // its displayed second changes, exactly as `receive(_: OfficialPlaybackEvent)` does.
+        var position = 0.0
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                position = position >= 240 ? 0 : position + 0.5
+                if abs(self.currentTime - position) >= 0.9 {
+                    self.currentTime = position
+                    self.updateSystemMediaControls()
+                }
+            }
         }
     }
 

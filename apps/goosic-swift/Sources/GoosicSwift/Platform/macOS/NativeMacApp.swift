@@ -33,6 +33,7 @@ struct GoosicMacApp: SwiftUI.App {
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     if !store.model.usesDebugSidebarFixture { store.model.connect() }
+                    NativeMacScrollBenchmark.startIfRequested()
                 }
         }
         .defaultSize(width: 1_280, height: 800)
@@ -142,7 +143,7 @@ struct NativeMacMiniPlayer: SwiftUI.View {
     var body: some SwiftUI.View {
         SwiftUI.Group {
             if store.model.currentTrack != nil {
-                NativeMacFullPlayer(store: store, compact: true)
+                NativeMacFullPlayer(store: store, clock: store.model.clock, compact: true)
             } else {
                 SwiftUI.ContentUnavailableView(
                     "Nothing playing", systemImage: "music.note",
@@ -234,7 +235,7 @@ final class NativeMacModelStore: Combine.ObservableObject {
 
     init() {
         model = GoosicAppModel(
-            debugSidebarFixture: ["sidebar", "quality"].contains(ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] ?? "")
+            debugSidebarFixture: ["sidebar", "quality", "perf"].contains(ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] ?? "")
         )
         observation = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
@@ -322,7 +323,7 @@ private struct NativeMacRootView: SwiftUI.View {
             // Above everything, but the layers beneath stay mounted: the official playback
             // surface in particular must outlive opening and closing this.
             if model.fullPlayerOpen && model.currentTrack != nil {
-                NativeMacFullPlayer(store: store)
+                NativeMacFullPlayer(store: store, clock: model.clock)
                     // Scaling a view that ignores the safe area briefly exposes the content
                     // underneath around the title bar. Music keeps the surface full-size and
                     // cross-fades it instead, so the transition cannot look clipped.
@@ -548,7 +549,7 @@ private struct NativeMacRootView: SwiftUI.View {
             detailContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            NativeMacPlayerBar(store: store)
+            NativeMacPlayerBar(store: store, clock: model.clock)
                 .background {
                     GeometryReader { proxy in
                         Color.clear.preference(key: NativeMacPlayerHeight.self, value: proxy.size.height)
@@ -1189,6 +1190,8 @@ private struct NativeMacSidebarArtwork: SwiftUI.View {
 /// Every control is a plain glyph on the glass; volume expands into a small inner capsule.
 private struct NativeMacPlayerBar: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
+    /// The timeline's position, observed here because the model no longer publishes it.
+    @ObservedObject var clock: PlaybackClock
     @SwiftUI.Environment(\.goosicReduceMotion) private var reduceMotion
     @SwiftUI.State private var scrubPosition: Double = 0
     @SwiftUI.State private var isScrubbing = false
@@ -2126,7 +2129,7 @@ private struct NativeMacNowPlayingInspector: SwiftUI.View {
 
 private struct NativeMacLyricsPanel: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
-    var body: some SwiftUI.View { NativeMacLyricsView(store: store, immersive: false) }
+    var body: some SwiftUI.View { NativeMacLyricsView(store: store, clock: store.model.clock, immersive: false) }
 }
 
 private struct NativeMacPanelArtwork: SwiftUI.View {
