@@ -57,6 +57,5 @@ contains Goosic.app; move it to Applications. It is signed ad hoc without Develo
 notarization. After the first launch attempt, use System Settings → Privacy & Security →
 Open Anyway if macOS blocks it. SHA256SUMS-macos.txt covers the archive.
 
-The Windows updater offers this stable release. macOS requires a manual download: its
-existing signed alpha feed remains unchanged because the private signing key is held on the
-release Mac and is unavailable to GitHub Actions. No replacement key is generated.
+The Windows updater offers this stable release, and the macOS app's built-in updater offers this
+build to earlier Mac alphas through its signed feed.
