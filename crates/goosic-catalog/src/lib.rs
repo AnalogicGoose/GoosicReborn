@@ -11,8 +11,8 @@ mod parse;
 pub use client::{search_params, InnertubeClient};
 pub use parse::{
     artist_page, browse_continuation_page, browse_page, browse_shelves, continuation_token,
-    navigation_button_item, queue_item, radio_page, search_page, split_category_id,
-    track_list_page,
+    navigation_button_item, queue_item, radio_page, search_continuation_page, search_page,
+    split_category_id, track_list_page,
 };
 
 use goosic_protocol::CatalogPage;
@@ -81,6 +81,16 @@ pub fn playlist_browse_id(id: &str) -> String {
     }
 }
 
+/// Whether a search tab continues past its first page.
+///
+/// Songs and Videos are one long list of rows on YouTube Music, read top to bottom and continued
+/// as the listener reaches the end. The other tabs are a row of cards and the All tab is a summary
+/// of each kind with its own tab to see more, so neither is continued: a page of cards that is
+/// always short enough to show its end would otherwise fetch page after page on its own.
+pub fn search_continues(filter: &str) -> bool {
+    matches!(filter, "songs" | "videos")
+}
+
 /// Live catalog reads. Held by the service for its process lifetime.
 pub struct Catalog {
     client: InnertubeClient,
@@ -101,7 +111,25 @@ impl Catalog {
 
     pub fn search(&self, query: &str, filter: &str) -> Result<CatalogPage, CatalogError> {
         let response = self.client.search(query, filter)?;
-        let page = parse::search_page(query, &response);
+        let mut page = parse::search_page(query, &response);
+        if page.shelves.is_empty() {
+            return Err(CatalogError::Empty);
+        }
+        if !search_continues(filter) {
+            page.next_cursor = None;
+        }
+        Ok(page)
+    }
+
+    /// The rows after a filtered search page, filed under the shelf they extend.
+    pub fn search_continuation(
+        &self,
+        cursor: &str,
+        shelf_id: &str,
+        title: &str,
+    ) -> Result<CatalogPage, CatalogError> {
+        let response = self.client.search_continuation(cursor)?;
+        let page = parse::search_continuation_page(shelf_id, title, &response);
         if page.shelves.is_empty() {
             return Err(CatalogError::Empty);
         }
@@ -212,6 +240,15 @@ mod tests {
         assert_eq!(browse_id_for_route("charts"), Some(CHARTS_BROWSE_ID));
         assert_eq!(browse_id_for_route("moodsAndGenres"), Some(MOODS_BROWSE_ID));
         assert_eq!(browse_id_for_route("search"), None);
+    }
+
+    #[test]
+    fn only_the_tabs_that_are_lists_of_rows_continue() {
+        assert!(search_continues("songs"));
+        assert!(search_continues("videos"));
+        for filter in ["all", "", "albums", "artists", "playlists"] {
+            assert!(!search_continues(filter), "{filter} should not continue");
+        }
         assert_eq!(browse_id_for_route("library"), None);
     }
 
