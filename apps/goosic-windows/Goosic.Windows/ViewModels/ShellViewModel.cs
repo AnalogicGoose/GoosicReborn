@@ -1724,6 +1724,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         var requestVersion = ++_pageRequestVersion;
+        _searchRequestVersion = requestVersion;
         ClearPageArtwork();
 
         Remember(string.Join(KeySeparator, "search", trimmed, filter), remember);

@@ -221,7 +221,7 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenSearchAsync()
     {
-        Model.CancelPendingNavigation();
+        Model.CancelPendingNavigationExceptSearch();
         UpdateRecentSearches();
         var alreadyOpen = Model.IsSearchPage;
         var navigation = Model.OpenSearchPageAsync();

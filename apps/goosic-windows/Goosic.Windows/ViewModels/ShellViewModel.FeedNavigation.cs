@@ -14,6 +14,18 @@ public sealed partial class ShellViewModel
 
     internal int NavigationRevision => _pageRequestVersion;
     internal void CancelPendingNavigation() => ++_pageRequestVersion;
+
+    /// <summary>
+    /// Cancels a navigation in flight unless it is the search being refocused, so returning to
+    /// Search drops a late Home or Library answer but never the query that is still loading.
+    /// </summary>
+    internal void CancelPendingNavigationExceptSearch()
+    {
+        if (_pageRequestVersion != _searchRequestVersion)
+        {
+            ++_pageRequestVersion;
+        }
+    }
     private sealed record PreparedFeed(CatalogPage? Page, Exception? Error,
         (string BrowseId, string Title, string Shape)? PersonalSource);
 

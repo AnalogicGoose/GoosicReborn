@@ -9,6 +9,8 @@ public sealed partial class ShellViewModel
     private string _searchQuery = "";
     private string _searchText = "";
     private string _searchFilter = "all";
+    /// <summary>The page request a submitted search is waiting on; -1 when none has been sent.</summary>
+    private int _searchRequestVersion = -1;
 
     /// <summary>The editable draft survives navigation separately from the submitted query.</summary>
     public string SearchText
