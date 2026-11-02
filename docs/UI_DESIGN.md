@@ -353,9 +353,12 @@ and system/app reduced motion and Efficiency mode disable added transitions.
 The 08:00 reference is reviewed separately, frame by frame: 25 frames at 30 fps over 0.83
 seconds. Its page entrance keeps the heading and content geometry fixed. Content becomes
 visible at about 0.37 seconds and settles over roughly 0.17–0.20 seconds. The Windows page
-entrance therefore uses a short content fade with a stationary heading, without horizontal
-or vertical translation. Artwork arrival in that clip is not an instruction to add artwork
-effects. Other motion is reviewed one interaction at a time rather than inferred from this clip.
+entrance must follow the user's clarification: individual song rows and cards settle into
+place as they arrive; there is no whole-page fade. The heading stays stationary. One persistent
+pink sidebar indicator travels to the selected destination instead of separate lines fading
+out and in. Skeletons appear only while the page has no content, including during cached or
+partial refreshes; they must not remain above already loaded shelves. Artwork arrival is not
+an instruction to add artwork effects. Other motion is reviewed one interaction at a time.
 
 Every icon action has a meaningful accessible name, suitable native hit target and keyboard
 path. Single-selection controls expose their selection; disabled actions reflect actual
