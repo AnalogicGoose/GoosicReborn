@@ -131,8 +131,8 @@ sidebar. Compact navigation keeps named, keyboard-reachable icons with tooltips.
 shortcuts mirror the expanded destinations in the same order: Home; Explore, Charts, Moods &
 genres, New releases; Liked Music, Artists, Albums, History, Downloads; All Playlists; Settings.
 Search stays above Home. These are individual icon actions with matching glyphs, names and
-tooltips, rather than aggregate Discover or Library buttons. Group spacing preserves the
-hierarchy without adding text to the rail. New playlist remains available as a named plus icon
+tooltips, rather than aggregate Discover or Library buttons. Collapsed icons use uniform spacing
+without the expanded sidebar's section-heading gaps. New playlist remains available as a named plus icon
 when signed in. The destinations scroll at short heights while account identity stays anchored
 at the bottom. Every shortcut navigates directly without asking for the same choice again.
 Only the menu action expands navigation, starting at its top. Selecting the current destination
@@ -224,6 +224,7 @@ browse destinations give the empty-query page useful content without fake recomm
 
 Windows uses a restrained rounded rectangle with an 8-logical-pixel corner radius for the
 search field, following the user's Windows-specific correction; macOS retains its capsule.
+Placeholder and entered text are vertically centered with the leading glyph and submit action.
 The Windows landing page follows the macOS composition: no extra Search title or explanatory
 subtitle above discovery; a centered field with a leading search glyph and explicit submit
 action; a visible horizontal native single-selection category list; then recent-query cards
