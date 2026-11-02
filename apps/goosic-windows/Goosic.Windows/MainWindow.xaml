@@ -899,6 +899,29 @@
                                             AutomationProperties.Name="Search music" VerticalAlignment="Center">
                                 <AutoSuggestBox.TextBoxStyle>
                                     <Style TargetType="TextBox" BasedOn="{StaticResource AutoSuggestBoxTextBoxStyle}">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="TextBox">
+                                                    <Grid Background="Transparent" MinHeight="40">
+                                                        <ScrollViewer x:Name="ContentElement" Margin="4,0,28,0" VerticalAlignment="Center"
+                                                                      HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" />
+                                                        <ContentControl x:Name="PlaceholderTextContentPresenter" Content="{TemplateBinding PlaceholderText}" IsTabStop="False" VerticalContentAlignment="Center"
+                                                                   Margin="4,0,28,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                                        <Button x:Name="DeleteButton" Content="&#xE711;" FontFamily="Segoe Fluent Icons"
+                                                                FontSize="12" Width="28" Height="28" Padding="0" Background="Transparent" BorderThickness="0"
+                                                                HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed" AutomationProperties.Name="Clear search" />
+                                                        <VisualStateManager.VisualStateGroups>
+                                                            <VisualStateGroup x:Name="CommonStates"><VisualState x:Name="Normal" /><VisualState x:Name="PointerOver" /><VisualState x:Name="Focused" /><VisualState x:Name="Disabled" /></VisualStateGroup>
+                                                            <VisualStateGroup x:Name="ButtonStates">
+                                                                <VisualState x:Name="ButtonVisible"><VisualState.Setters><Setter Target="DeleteButton.Visibility" Value="Visible" /></VisualState.Setters></VisualState>
+                                                                <VisualState x:Name="ButtonCollapsed"><VisualState.Setters><Setter Target="DeleteButton.Visibility" Value="Collapsed" /></VisualState.Setters></VisualState>
+                                                            </VisualStateGroup>
+                                                        </VisualStateManager.VisualStateGroups>
+                                                    </Grid>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
                                         <Setter Property="VerticalContentAlignment" Value="Center" />
                                         <Setter Property="Padding" Value="4,0" />
                                         <Setter Property="MinHeight" Value="40" />
@@ -922,6 +945,18 @@
                         <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem">
                             <Setter Property="Padding" Value="18,7" /><Setter Property="CornerRadius" Value="6" />
                             <Setter Property="HorizontalContentAlignment" Value="Center" />
+                            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+                                <Border x:Name="Segment" CornerRadius="6" Background="Transparent" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <VisualStateManager.VisualStateGroups>
+                                        <VisualStateGroup x:Name="SelectionStates">
+                                            <VisualState x:Name="Unselected" />
+                                            <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="Segment.Background" Value="{ThemeResource GoosicSidebarSelectedBrush}" /></VisualState.Setters></VisualState>
+                                            <VisualState x:Name="SelectedUnfocused"><VisualState.Setters><Setter Target="Segment.Background" Value="{ThemeResource GoosicSidebarSelectedBrush}" /></VisualState.Setters></VisualState>
+                                        </VisualStateGroup>
+                                    </VisualStateManager.VisualStateGroups>
+                                </Border>
+                            </ControlTemplate></Setter.Value></Setter>
                         </Style></ListBox.ItemContainerStyle>
                     </ListBox>
                 </StackPanel>
