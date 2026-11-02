@@ -55,8 +55,10 @@ impl Track {
     /// descriptor with the parts the row already shows elsewhere removed, so a row does not read
     /// "Song • 5:21" next to its own "5:21" column.
     pub fn secondary_text(&self) -> String {
-        let known: Vec<&str> =
-            [self.artist.as_str(), self.album.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
+        let known: Vec<&str> = [self.artist.as_str(), self.album.as_str()]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
         if !known.is_empty() {
             return known.join(" · ");
         }
@@ -96,7 +98,9 @@ impl Card {
             CatalogItemKind::Song | CatalogItemKind::Video => {
                 Track::from_catalog(item).map(|track| CardAction::Play(Box::new(track)))
             }
-            CatalogItemKind::Album => Some(CardAction::Show(EntityReference::Album(item.id.clone()))),
+            CatalogItemKind::Album => {
+                Some(CardAction::Show(EntityReference::Album(item.id.clone())))
+            }
             CatalogItemKind::Artist => {
                 Some(CardAction::Show(EntityReference::Artist(item.id.clone())))
             }
@@ -149,7 +153,10 @@ impl Shelf {
     /// twice, and duplicate ids render unpredictably in every toolkit's list.
     pub fn uniqued(cards: Vec<Card>) -> Vec<Card> {
         let mut seen = HashSet::new();
-        cards.into_iter().filter(|card| seen.insert(card.id.clone())).collect()
+        cards
+            .into_iter()
+            .filter(|card| seen.insert(card.id.clone()))
+            .collect()
     }
 }
 
@@ -234,7 +241,12 @@ impl PageView {
         }
         PageView {
             shelves,
-            tracks: self.tracks.iter().chain(&continuation.tracks).cloned().collect(),
+            tracks: self
+                .tracks
+                .iter()
+                .chain(&continuation.tracks)
+                .cloned()
+                .collect(),
             truncated: self.truncated || continuation.truncated,
             ..self.clone()
         }
@@ -245,7 +257,11 @@ impl PageView {
         self.tracks
             .iter()
             .cloned()
-            .chain(self.shelves.iter().flat_map(|shelf| shelf.cards.iter().filter_map(Card::track).cloned()))
+            .chain(
+                self.shelves
+                    .iter()
+                    .flat_map(|shelf| shelf.cards.iter().filter_map(Card::track).cloned()),
+            )
             .collect()
     }
 }
@@ -259,7 +275,10 @@ pub fn detail_subtitle(kind_label: &str, page_subtitle: &str) -> String {
     if trimmed.is_empty() {
         return kind_label.to_owned();
     }
-    if trimmed.to_lowercase().starts_with(&kind_label.to_lowercase()) {
+    if trimmed
+        .to_lowercase()
+        .starts_with(&kind_label.to_lowercase())
+    {
         return trimmed.to_owned();
     }
     format!("{kind_label} · {trimmed}")
@@ -288,7 +307,10 @@ pub fn failure_text(code: &str, message: &str, subject: &str) -> FailureText {
         "offline" => ("Service not connected", message.to_owned()),
         _ => ("Could not load", message.to_owned()),
     };
-    FailureText { title: title.to_owned(), detail }
+    FailureText {
+        title: title.to_owned(),
+        detail,
+    }
 }
 
 #[cfg(test)]
@@ -350,7 +372,11 @@ mod tests {
         let first = page("home", "shelf", "First", vec![album("a")]);
         let second = page("continuation", "shelf", "Second", vec![album("b")]);
         let merged = first.appending(&second);
-        let titles: Vec<&str> = merged.shelves.iter().map(|shelf| shelf.title.as_str()).collect();
+        let titles: Vec<&str> = merged
+            .shelves
+            .iter()
+            .map(|shelf| shelf.title.as_str())
+            .collect();
         assert_eq!(titles, ["First", "Second"]);
         assert_ne!(merged.shelves[0].id, merged.shelves[1].id);
     }
@@ -358,23 +384,55 @@ mod tests {
     #[test]
     fn a_search_continuation_extends_the_list_it_continues() {
         let song = |id: &str| item(CatalogItemKind::Song, id, id, Some(id));
-        let first = page("search:sofia", "shelf-0", "Songs", vec![song("a"), song("b")]);
-        let second = page("continuation", "shelf-0", "Songs", vec![song("b"), song("c")]);
+        let first = page(
+            "search:sofia",
+            "shelf-0",
+            "Songs",
+            vec![song("a"), song("b")],
+        );
+        let second = page(
+            "continuation",
+            "shelf-0",
+            "Songs",
+            vec![song("b"), song("c")],
+        );
         let merged = first.appending(&second);
-        assert_eq!(merged.shelves.len(), 1, "the continued rows do not get a second heading");
-        let ids: Vec<&str> = merged.shelves[0].cards.iter().map(|card| card.id.as_str()).collect();
+        assert_eq!(
+            merged.shelves.len(),
+            1,
+            "the continued rows do not get a second heading"
+        );
+        let ids: Vec<&str> = merged.shelves[0]
+            .cards
+            .iter()
+            .map(|card| card.id.as_str())
+            .collect();
         assert_eq!(ids, ["a", "b", "c"]);
     }
 
     #[test]
     fn only_rows_with_a_video_id_become_tracks() {
-        assert!(Track::from_catalog(&item(CatalogItemKind::Song, "abc", "Afterglow", Some("abc"))).is_some());
-        assert!(Track::from_catalog(&item(CatalogItemKind::Album, "MPRE1", "Night Windows", None)).is_none());
+        assert!(Track::from_catalog(&item(
+            CatalogItemKind::Song,
+            "abc",
+            "Afterglow",
+            Some("abc")
+        ))
+        .is_some());
+        assert!(Track::from_catalog(&item(
+            CatalogItemKind::Album,
+            "MPRE1",
+            "Night Windows",
+            None
+        ))
+        .is_none());
     }
 
     #[test]
     fn an_empty_video_id_is_not_treated_as_playable() {
-        assert!(Track::from_catalog(&item(CatalogItemKind::Song, "x", "Ghost", Some(""))).is_none());
+        assert!(
+            Track::from_catalog(&item(CatalogItemKind::Song, "x", "Ghost", Some(""))).is_none()
+        );
     }
 
     #[test]
@@ -410,7 +468,12 @@ mod tests {
 
     #[test]
     fn a_song_card_carries_its_playable_track() {
-        let card = Card::from_catalog(&item(CatalogItemKind::Song, "abc", "Afterglow", Some("abc")));
+        let card = Card::from_catalog(&item(
+            CatalogItemKind::Song,
+            "abc",
+            "Afterglow",
+            Some("abc"),
+        ));
         match card.action {
             Some(CardAction::Play(track)) => assert_eq!(track.video_id, "abc"),
             other => panic!("a song card should be playable, got {other:?}"),
@@ -442,7 +505,11 @@ mod tests {
         let view = PageView::from_wire(&page);
         assert_eq!(view.shelves.len(), 2);
         assert_ne!(view.shelves[0].id, view.shelves[1].id);
-        assert_eq!(view.shelves[0].cards.len(), 1, "duplicate card ids collapse to the first");
+        assert_eq!(
+            view.shelves[0].cards.len(),
+            1,
+            "duplicate card ids collapse to the first"
+        );
     }
 
     #[test]
@@ -515,8 +582,11 @@ mod tests {
             tracks: vec![item(CatalogItemKind::Song, "a", "A", Some("a"))],
             ..Default::default()
         };
-        let ids: Vec<String> =
-            PageView::from_wire(&page).playable_tracks().into_iter().map(|t| t.id).collect();
+        let ids: Vec<String> = PageView::from_wire(&page)
+            .playable_tracks()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
         assert_eq!(ids, ["a", "b"]);
     }
 
@@ -532,15 +602,27 @@ mod tests {
         let page = PageView::from_wire(&serde_json::from_str(wire).unwrap());
         assert_eq!(page.id, "radio:JhulBGMA7G4");
         assert!(page.shelves.is_empty());
-        let ids: Vec<String> = page.playable_tracks().into_iter().map(|t| t.video_id).collect();
+        let ids: Vec<String> = page
+            .playable_tracks()
+            .into_iter()
+            .map(|t| t.video_id)
+            .collect();
         assert_eq!(ids, ["qXI87eMP-bs", "mllzzUjMezU"]);
-        assert_eq!(page.tracks[0].thumbnail.as_deref(), Some("https://yt3.googleusercontent.com/a"));
-        assert_eq!(page.tracks[1].thumbnail, None, "artwork is optional on a queue row");
+        assert_eq!(
+            page.tracks[0].thumbnail.as_deref(),
+            Some("https://yt3.googleusercontent.com/a")
+        );
+        assert_eq!(
+            page.tracks[1].thumbnail, None,
+            "artwork is optional on a queue row"
+        );
     }
 
     #[test]
     fn a_radio_page_that_came_back_empty_is_nothing_to_play() {
-        let page = PageView::from_wire(&serde_json::from_str(r#"{"id":"radio:x","title":"Radio"}"#).unwrap());
+        let page = PageView::from_wire(
+            &serde_json::from_str(r#"{"id":"radio:x","title":"Radio"}"#).unwrap(),
+        );
         assert!(page.is_empty());
         assert!(page.playable_tracks().is_empty());
     }
@@ -565,18 +647,30 @@ mod tests {
 
     #[test]
     fn unrecognized_descriptor_parts_survive() {
-        assert_eq!(track("Song • 993K plays", "", "", "5:21").secondary_text(), "993K plays");
+        assert_eq!(
+            track("Song • 993K plays", "", "", "5:21").secondary_text(),
+            "993K plays"
+        );
     }
 
     #[test]
     fn the_kind_is_not_repeated_when_upstream_already_leads_with_it() {
-        assert_eq!(detail_subtitle("Playlist", "Playlist • 2026"), "Playlist • 2026");
-        assert_eq!(detail_subtitle("Album", "album • Signal Fires"), "album • Signal Fires");
+        assert_eq!(
+            detail_subtitle("Playlist", "Playlist • 2026"),
+            "Playlist • 2026"
+        );
+        assert_eq!(
+            detail_subtitle("Album", "album • Signal Fires"),
+            "album • Signal Fires"
+        );
     }
 
     #[test]
     fn the_kind_is_added_when_upstream_omits_it() {
-        assert_eq!(detail_subtitle("Album", "Signal Fires"), "Album · Signal Fires");
+        assert_eq!(
+            detail_subtitle("Album", "Signal Fires"),
+            "Album · Signal Fires"
+        );
     }
 
     #[test]
@@ -587,7 +681,10 @@ mod tests {
     #[test]
     fn failure_text_explains_known_service_codes() {
         assert_eq!(failure_text("catalogEmpty", "", "“x”").title, "No results");
-        assert_eq!(failure_text("catalogUnavailable", "", "home").title, "Catalog unreachable");
+        assert_eq!(
+            failure_text("catalogUnavailable", "", "home").title,
+            "Catalog unreachable"
+        );
         assert_eq!(failure_text("somethingNew", "boom", "home").detail, "boom");
     }
 }
