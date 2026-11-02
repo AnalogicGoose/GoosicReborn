@@ -241,7 +241,7 @@ final class NativeMacModelStore: Combine.ObservableObject {
 
     init() {
         model = GoosicAppModel(
-            debugSidebarFixture: ["sidebar", "quality", "perf"].contains(ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] ?? "")
+            debugSidebarFixture: ["sidebar", "quality", "perf", "artist"].contains(ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] ?? "")
         )
         observation = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
@@ -1884,6 +1884,11 @@ private struct NativeMacEntityView: SwiftUI.View {
 
     private var model: GoosicAppModel { store.model }
 
+    private var isArtist: Bool {
+        if case .artist = entity { return true }
+        return false
+    }
+
     // Back, Share and More live in the window toolbar, as in Music; the page is only content.
     var body: some SwiftUI.View {
         NativeMacCatalogPage(
@@ -1893,7 +1898,8 @@ private struct NativeMacEntityView: SwiftUI.View {
             state: model.state(for: .entity(entity)),
             model: model
         )
-        .padding(.top, 20)
+        // An artist's hero starts at the window's top edge, under the toolbar, as in Music.
+        .padding(.top, isArtist ? 0 : 20)
         .onAppear { model.loadUserPlaylists() }
     }
 }
@@ -1927,6 +1933,16 @@ private struct NativeMacPageMenu: SwiftUI.View {
             }
             if let page = model.state(for: .entity(entity)).page, let first = page.tracks.first {
                 SwiftUI.Divider()
+                if case .artist = entity {
+                    SwiftUI.Button("Shuffle", systemImage: "shuffle") {
+                        if !model.shuffle { model.toggleShuffle() }
+                        if let pick = page.tracks.randomElement() {
+                            model.launch(.ordered(pick, page.tracks), source: QueueSource(
+                                title: page.title, key: .entity(entity)
+                            ))
+                        }
+                    }
+                }
                 SwiftUI.Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
                     for track in page.tracks.reversed() { model.playNext(track) }
                 }
