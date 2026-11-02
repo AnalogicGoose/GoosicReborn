@@ -344,7 +344,10 @@ mod tests {
             })
             .collect();
         for handle in handles {
-            let legacy = handle.join().expect("no thread panicked").expect("read succeeds");
+            let legacy = handle
+                .join()
+                .expect("no thread panicked")
+                .expect("read succeeds");
             assert_eq!(legacy.string("ytm-theme"), Some("dark"));
         }
     }

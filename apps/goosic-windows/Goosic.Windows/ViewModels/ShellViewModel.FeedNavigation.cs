@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 
 namespace Goosic.Windows.ViewModels;
@@ -13,7 +14,28 @@ public sealed partial class ShellViewModel
     private static readonly TimeSpan SlowNavigationDelay = TimeSpan.FromMilliseconds(350);
 
     internal int NavigationRevision => _pageRequestVersion;
-    internal void CancelPendingNavigation() => ++_pageRequestVersion;
+
+    /// <summary>The request that made the page on screen current and may still be filling it.</summary>
+    private int _currentPageRequestVersion = -1;
+
+    /// <summary>
+    /// Settles choosing the destination already on screen, cancelling a later navigation when the
+    /// page is kept. Returns false when the destination has to load again.
+    /// </summary>
+    internal bool KeepCurrentPageOnReselect()
+    {
+        switch (FeedNavigationCommitRules.Reselect(PageClearedForPendingNavigation, IsPageLoading,
+                    _pageRequestVersion, _currentPageRequestVersion))
+        {
+            case ReselectOutcome.Reload:
+                return false;
+            case ReselectOutcome.CancelPending:
+                ++_pageRequestVersion;
+                break;
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Cancels a navigation in flight unless it is the search being refocused, so returning to

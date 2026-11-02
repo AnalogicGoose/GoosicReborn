@@ -850,13 +850,52 @@ fn header_text(response: &Value) -> (String, String) {
     (String::new(), String::new())
 }
 
+/// The artist an album page's header names, read from its linked byline.
+fn header_artist(response: &Value) -> Option<(String, String)> {
+    ["musicResponsiveHeaderRenderer", "musicDetailHeaderRenderer"]
+        .iter()
+        .filter_map(|key| json::first(response, key))
+        .find_map(|header| {
+            let bylines: Vec<&Value> = ["straplineTextOne", "subtitle"]
+                .iter()
+                .filter_map(|field| header.get(*field))
+                .collect();
+            references(&bylines).artist
+        })
+}
+
+/// Fills a row's missing artist or album from the page it was listed on.
+///
+/// An album's rows leave out what the header already says: the album itself always, and the
+/// artist whenever every song is by the album's artist. A song taken from such a page into the
+/// queue would otherwise have nowhere to go from the player's Go to Artist and Go to Album.
+fn inherit(row: &mut CatalogItem, artist: Option<&(String, String)>, album: Option<(&str, &str)>) {
+    if let (None, Some((name, id))) = (&row.artist_id, artist) {
+        row.artist.get_or_insert_with(|| name.clone());
+        row.artist_id = Some(id.clone());
+    }
+    if let (None, Some((name, id))) = (&row.album_id, album) {
+        row.album.get_or_insert_with(|| name.to_owned());
+        row.album_id = Some(id.to_owned());
+    }
+}
+
 /// Builds an ordered track list page for an album or playlist.
 pub fn track_list_page(id: &str, response: &Value) -> CatalogPage {
     let (title, subtitle) = header_text(response);
+    // Only an album's header speaks for its rows; a playlist's byline is its owner, not the
+    // artist of every song on it.
+    let is_album = id.starts_with("MPRE");
+    let artist = is_album.then(|| header_artist(response)).flatten();
+    let album = (is_album && !title.is_empty()).then_some((title.as_str(), id));
     let tracks: Vec<CatalogItem> = json::collect(response, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(responsive_item)
         .filter(|item| item.video_id.is_some())
+        .map(|mut item| {
+            inherit(&mut item, artist.as_ref(), album);
+            item
+        })
         .collect();
     CatalogPage {
         id: id.to_owned(),
@@ -878,10 +917,15 @@ pub fn track_list_page(id: &str, response: &Value) -> CatalogPage {
 /// Builds an artist page: its header, its top tracks, and its carousels.
 pub fn artist_page(id: &str, response: &Value) -> CatalogPage {
     let (title, subtitle) = header_text(response);
+    let artist = (!title.is_empty()).then(|| (title.clone(), id.to_owned()));
     let tracks: Vec<CatalogItem> = json::collect(response, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(responsive_item)
         .filter(|item| item.video_id.is_some())
+        .map(|mut item| {
+            inherit(&mut item, artist.as_ref(), None);
+            item
+        })
         .collect();
     CatalogPage {
         id: id.to_owned(),
@@ -1439,6 +1483,71 @@ mod tests {
         assert_eq!(page.subtitle, "Signal Fires");
         assert_eq!(page.tracks.len(), 1);
         assert_eq!(page.tracks[0].video_id.as_deref(), Some("abcdefghijk"));
+    }
+
+    fn bare_row(title: &str, video_id: &str) -> Value {
+        json!({"flexColumns": [
+            flex(json!({"runs": [{
+                "text": title,
+                "navigationEndpoint": {"watchEndpoint": {"videoId": video_id}}
+            }]})),
+            flex(json!({"runs": [{"text": "1.2M plays"}]}))
+        ]})
+    }
+
+    fn header_with_artist() -> Value {
+        json!({"musicResponsiveHeaderRenderer": {
+            "title": {"runs": [{"text": "Night Windows"}]},
+            "straplineTextOne": {"runs": [{
+                "text": "Signal Fires",
+                "navigationEndpoint": {"browseEndpoint": {
+                    "browseId": "UCartist",
+                    "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}
+                    }
+                }}
+            }]}
+        }})
+    }
+
+    #[test]
+    fn an_albums_songs_lead_to_its_artist_and_back_to_the_album() {
+        let response = json!({
+            "header": header_with_artist(),
+            "contents": [{"musicResponsiveListItemRenderer": bare_row("Afterglow", "abcdefghijk")}]
+        });
+        let page = track_list_page("MPREalbum", &response);
+        let track = &page.tracks[0];
+        assert_eq!(track.artist.as_deref(), Some("Signal Fires"));
+        assert_eq!(track.artist_id.as_deref(), Some("UCartist"));
+        assert_eq!(track.album.as_deref(), Some("Night Windows"));
+        assert_eq!(track.album_id.as_deref(), Some("MPREalbum"));
+    }
+
+    #[test]
+    fn a_playlists_owner_is_not_taken_for_the_artist_of_its_songs() {
+        let response = json!({
+            "header": header_with_artist(),
+            "contents": [{"musicResponsiveListItemRenderer": bare_row("Afterglow", "abcdefghijk")}]
+        });
+        let page = track_list_page("VLPLplaylist", &response);
+        assert_eq!(page.tracks[0].artist_id, None);
+        assert_eq!(page.tracks[0].album_id, None);
+    }
+
+    #[test]
+    fn an_artists_top_songs_without_a_byline_link_lead_back_to_the_artist() {
+        let response = json!({
+            "header": {"musicImmersiveHeaderRenderer": {"title": {"runs": [{"text": "Signal Fires"}]}}},
+            "contents": [
+                {"musicResponsiveListItemRenderer": bare_row("Afterglow", "abcdefghijk")},
+                {"musicResponsiveListItemRenderer": song_row()}
+            ]
+        });
+        let page = artist_page("UCartist", &response);
+        assert_eq!(page.tracks[0].artist_id.as_deref(), Some("UCartist"));
+        assert_eq!(page.tracks[0].artist.as_deref(), Some("Signal Fires"));
+        assert_eq!(page.tracks[1].album_id.as_deref(), Some("MPREalbum"));
     }
 
     #[test]

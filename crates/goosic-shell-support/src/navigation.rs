@@ -50,7 +50,9 @@ impl Route {
     }
 
     pub fn from_raw(raw: &str) -> Option<Route> {
-        Route::ALL.into_iter().find(|route| route.raw_value() == raw)
+        Route::ALL
+            .into_iter()
+            .find(|route| route.raw_value() == raw)
     }
 
     /// The `catalog.browse` route name, for routes backed by a live catalog surface.
@@ -180,7 +182,9 @@ impl RepeatMode {
     }
 
     pub fn from_raw(raw: &str) -> Option<RepeatMode> {
-        RepeatMode::ALL.into_iter().find(|mode| mode.raw_value() == raw)
+        RepeatMode::ALL
+            .into_iter()
+            .find(|mode| mode.raw_value() == raw)
     }
 }
 
@@ -236,7 +240,10 @@ mod tests {
     #[test]
     fn only_catalog_backed_routes_resolve_to_a_browse_route() {
         assert_eq!(Route::Home.catalog_route(), Some("home"));
-        assert_eq!(Route::MoodsAndGenres.catalog_route(), Some("moodsAndGenres"));
+        assert_eq!(
+            Route::MoodsAndGenres.catalog_route(),
+            Some("moodsAndGenres")
+        );
         assert_eq!(Route::Search.catalog_route(), None);
         assert_eq!(Route::Library.catalog_route(), None);
         assert_eq!(Route::Downloads.catalog_route(), None);
@@ -262,15 +269,27 @@ mod tests {
     #[test]
     fn entity_keys_are_distinct_per_kind() {
         let album = CatalogKey::entity(&EntityReference::Album("x".into()));
-        assert_ne!(album, CatalogKey::entity(&EntityReference::Artist("x".into())));
-        assert_ne!(album, CatalogKey::entity(&EntityReference::Playlist("x".into())));
+        assert_ne!(
+            album,
+            CatalogKey::entity(&EntityReference::Artist("x".into()))
+        );
+        assert_ne!(
+            album,
+            CatalogKey::entity(&EntityReference::Playlist("x".into()))
+        );
     }
 
     #[test]
     fn search_keys_separate_filters() {
         assert_ne!(
-            CatalogKey::Search { query: "a".into(), filter: SearchFilter::All },
-            CatalogKey::Search { query: "a".into(), filter: SearchFilter::Songs }
+            CatalogKey::Search {
+                query: "a".into(),
+                filter: SearchFilter::All
+            },
+            CatalogKey::Search {
+                query: "a".into(),
+                filter: SearchFilter::Songs
+            }
         );
     }
 

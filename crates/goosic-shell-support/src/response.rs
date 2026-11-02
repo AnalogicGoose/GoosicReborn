@@ -38,7 +38,10 @@ pub fn into_result(response: ResponseEnvelope) -> Result<ResponseEnvelope, Trans
         code: "serviceFailure".to_owned(),
         message: "unknown service error".to_owned(),
     });
-    Err(TransportError::Remote { code: error.code, message: error.message })
+    Err(TransportError::Remote {
+        code: error.code,
+        message: error.message,
+    })
 }
 
 #[cfg(test)]
@@ -127,7 +130,10 @@ mod tests {
             r#""error":{"code":"ownerConflict","message":"another owner holds the lease"}}"#
         );
         let error = decode_response(wire.as_bytes()).expect_err("wrong version");
-        assert!(matches!(error, TransportError::ProtocolVersionMismatch { .. }));
+        assert!(matches!(
+            error,
+            TransportError::ProtocolVersionMismatch { .. }
+        ));
     }
 
     /// Request ids are the client's business, not the decoder's: a response to a question asked
