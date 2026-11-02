@@ -60,6 +60,10 @@ public sealed partial class MainWindow : Window
 
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
+        if (Model.IsSettingsPage)
+        {
+            PlayPageEntrance();
+        }
     }
 
     /// <summary>Marks the sidebar item for the page on screen, as the macOS sidebar selects its row.</summary>
@@ -347,7 +351,19 @@ public sealed partial class MainWindow : Window
     private async Task GoBackAsync()
     {
         DismissOverlaySidebar();
-        await Model.GoBackAsync();
+        _pageNavigationDirection = -1;
+        try
+        {
+            await Model.GoBackAsync();
+            if (Model.IsSettingsPage || Model.ShowsSearchLanding)
+            {
+                PlayPageEntrance();
+            }
+        }
+        finally
+        {
+            _pageNavigationDirection = 1;
+        }
         HighlightNavigation(Model.CurrentSidebarDestination);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
