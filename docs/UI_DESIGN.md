@@ -138,8 +138,11 @@ column, with the full name accessible. Collapsing navigation changes presentatio
 the route, query, account, queue, playback position and mounted renderer.
 
 Windows adapts this with WinUI buttons, Fluent glyphs and theme-aware Acrylic, a 64-logical-pixel
-rail and an expanded panel of about 280 pixels. At narrow widths the expanded panel overlays
-the canvas and returns to the rail after navigation; the rail still reserves enough content
+rail and an expanded panel of about 280 pixels. The rail is the default on every launch. The
+expanded panel opens only through an explicit menu or group action, overlays the canvas at
+every window width, and returns to the rail after a destination is chosen, an outside click,
+or Escape. Expansion is temporary and is not restored with window placement. Content and the
+player keep their rail-layout positions while the panel is open. The rail reserves enough content
 space to keep the player's essential actions reachable. Goosic's Discover and Library groups
 retain their actual destinations, and account playlists and creation remain accessible through
 the expanded panel. The reference does not add Apple Music destinations or replace the current
@@ -207,6 +210,9 @@ The search field is a centered pill containing a search icon, query, clear actio
 and a submit action. Enter submits; clear returns to discovery/recent-query state. Existing
 recent queries are real stored queries, not invented song results. Recently searched cards and
 browse destinations give the empty-query page useful content without fake recommendations.
+
+Windows uses a restrained rounded rectangle with an 8-logical-pixel corner radius for the
+search field, following the user's Windows-specific correction; macOS retains its capsule.
 
 All, Songs, Albums, Artists, Playlists and Videos form one native single-selection category
 control. Selected state must be visible and accessible. macOS uses its native segmented picker;
