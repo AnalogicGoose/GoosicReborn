@@ -638,6 +638,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private string _currentRoute = "route" + KeySeparator + "home";
     private readonly Stack<string> _routeHistory = new();
     private int _pageRequestVersion;
+    private int _pageContentRevision;
 
     internal ShellViewModel(GoosicServiceClient client)
     {
@@ -1340,7 +1341,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     internal event Action<string>? OpeningRouteChosen;
 
     /// <summary>Loads one browse surface.</summary>
-    internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true)
+    internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true, string? librarySection = null)
     {
         if (route == "search")
         {
@@ -1349,6 +1350,15 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         var requestVersion = ++_pageRequestVersion;
+        var scope = CacheScope;
+        PreparedFeed? prepared = null;
+        if (route is not ("settings" or "downloads"))
+        {
+            prepared = await PrepareFeedAsync(route, librarySection).ConfigureAwait(true);
+            if (!FeedNavigationCommitRules.CanCommit(requestVersion, _pageRequestVersion, scope, CacheScope, IsAccountBusy)) return;
+        }
+
+        if (librarySection is not null) _librarySection = librarySection;
         ClearPageArtwork();
         if (route == "settings")
         {
@@ -1409,6 +1419,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         SetPageTruncated(false);
         var entry = RouteEntry.All.FirstOrDefault(candidate => candidate.Route == route);
         PageTitle = entry?.Title ?? route;
+        PageSubtitle = "";
         // Home is shelves under the title bar, with no heading of its own, as on macOS.
         ShowPageHeader = route != "home";
         Shelves.Clear();
@@ -1418,65 +1429,32 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         ForgetPersonalPage();
         Status = "";
         PageState = PageState.Loading;
-        if (await TryLoadPersonalRouteAsync(route).ConfigureAwait(true))
+        if (prepared is null)
         {
+            await TryLoadPersonalRouteAsync(route).ConfigureAwait(true);
             return;
         }
 
-        var cacheKey = "route:" + route;
-        var cached = _pages.Get(CatalogCacheScope, cacheKey);
-        if (cached is not null)
+        if (prepared.Error is { } preparedError)
         {
-            ShowRoutePage(cached);
+            PageState = FailureState(preparedError, PageTitle);
+            return;
         }
 
-        try
+        if (prepared.Page is not { } page) return;
+        if (prepared.PersonalSource is { } source)
         {
-            // `catalog.browse` reads the surface from `catalogId`, and uses `query` as the title
-            // it echoes back on the page.
-            var payload = new JsonObject
-            {
-                ["catalogId"] = route,
-                ["query"] = PageTitle,
-            };
-            var answer = await _client.RequestAsync("catalog.browse", payload).ConfigureAwait(true);
-            if (requestVersion != _pageRequestVersion)
-            {
-                return;
-            }
-            var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
-            if (page is null)
-            {
-                if (cached is null)
-                {
-                    PageState = PageState.Failure(PageFailure.Other, null, PageTitle, NetworkAvailable());
-                }
-
-                return;
-            }
-
-            if (_pages.Put(CatalogCacheScope, cacheKey, page with { NextCursor = null }) || cached is null)
-            {
-                if (cached is not null)
-                {
-                    Tracks.Clear();
-                    Shelves.Clear();
-                }
-
-                ShowRoutePage(page);
-            }
-            else
-            {
-                NextCursor = page.NextCursor;
-            }
+            _personalSource = source;
+            IsLibraryPage = route == "library";
+            PageTitle = source.Title;
+            PageSubtitle = AccountName;
+            _pages.Put(scope, PersonalCacheKey(source), page with { NextCursor = null });
+            ShowPersonalPage(page, source);
         }
-        catch (Exception error) when (requestVersion == _pageRequestVersion && cached is null)
+        else
         {
-            PageState = FailureState(error, PageTitle);
-        }
-        catch (Exception error)
-        {
-            Describe(error);
+            _pages.Put(CatalogCacheScope, "route:" + route, page with { NextCursor = null });
+            ShowRoutePage(page);
         }
     }
 
@@ -1548,6 +1526,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// <summary>Records the page being left, then makes <paramref name="key"/> current.</summary>
     private void Remember(string key, bool remember)
     {
+        ++_pageContentRevision;
         if (remember && !string.Equals(key, _currentRoute, StringComparison.Ordinal))
         {
             _routeHistory.Push(_currentRoute);

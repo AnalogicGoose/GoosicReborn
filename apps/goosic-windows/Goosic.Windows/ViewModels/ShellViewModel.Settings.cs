@@ -125,8 +125,7 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        _librarySection = browseId;
-        await LoadRouteAsync("library").ConfigureAwait(true);
+        await LoadRouteAsync("library", librarySection: browseId).ConfigureAwait(true);
     }
 
     public bool HasNoLyrics => Lyrics.Count == 0;

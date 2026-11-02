@@ -45,18 +45,17 @@ public sealed partial class MainWindow : Window
         DismissOverlaySidebar();
         if (Model.CurrentSidebarDestination == tag || tag == "library" && Model.IsLibraryPage)
         {
+            Model.CancelPendingNavigation();
             HighlightNavigation(Model.CurrentSidebarDestination);
             return;
         }
 
-        if (tag.StartsWith("library:", StringComparison.Ordinal))
-        {
-            await Model.OpenLibrarySectionAsync(tag["library:".Length..]);
-        }
-        else
-        {
-            await Model.LoadRouteAsync(tag);
-        }
+        var loading = tag.StartsWith("library:", StringComparison.Ordinal)
+            ? Model.OpenLibrarySectionAsync(tag["library:".Length..])
+            : Model.LoadRouteAsync(tag);
+        var revision = Model.NavigationRevision;
+        await loading;
+        if (revision != Model.NavigationRevision) return;
 
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
@@ -222,6 +221,7 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenSearchAsync()
     {
+        Model.CancelPendingNavigation();
         UpdateRecentSearches();
         var alreadyOpen = Model.IsSearchPage;
         var navigation = Model.OpenSearchPageAsync();
