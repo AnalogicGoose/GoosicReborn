@@ -41,7 +41,6 @@ public sealed partial class MainWindow
         _uiSettings.AnimationsEnabled && !Model.ReduceMotion && !ShellPreferences.EfficiencyMode;
 
     private bool _motionAttached;
-    private float _pageNavigationDirection = 1;
 
     private void ApplyNavigationFeedback(bool enabled)
     {
@@ -134,6 +133,12 @@ public sealed partial class MainWindow
         if (!enabled)
         {
             _sidebarRevealClip?.StopAnimation("RightInset");
+            foreach (var child in ContentStack.Children)
+            {
+                var childVisual = ElementCompositionPreview.GetElementVisual(child);
+                childVisual.StopAnimation("Opacity");
+                childVisual.Opacity = (float)child.Opacity;
+            }
         }
         AttachShowHide(Sidebar, new Vector3(-20, 0, 0));
         AttachShowHide(SidePanel, new Vector3(28, 0, 0));
@@ -349,18 +354,27 @@ public sealed partial class MainWindow
         ElementCompositionPreview.SetImplicitHideAnimation(element, hide);
     }
 
-    /// <summary>Brings a freshly loaded page up from slightly below, so a new page reads as arriving.</summary>
+    /// <summary>The reference reveals content in place while the page heading stays stationary.</summary>
     private void PlayPageEntrance()
     {
-        if (_compositor is null || !AnimationsEnabled)
+        if (_compositor is null) return;
+        var page = ElementCompositionPreview.GetElementVisual(ContentStack);
+        page.StopAnimation("Opacity");
+        page.StopAnimation("Translation");
+        page.Opacity = 1;
+        page.Properties.InsertVector3("Translation", Vector3.Zero);
+        // The first child is the page heading. Never animate it or change layout for this fade.
+        foreach (var child in ContentStack.Children.Skip(1))
         {
-            return;
+            var visual = ElementCompositionPreview.GetElementVisual(child);
+            visual.StopAnimation("Opacity");
+            visual.Opacity = (float)child.Opacity;
+            if (AnimationsEnabled && child.Visibility == Visibility.Visible)
+            {
+                visual.StartAnimation("Opacity", Scalar("Opacity", 0, (float)child.Opacity,
+                    TimeSpan.FromMilliseconds(180), _easeOut!));
+            }
         }
-
-        ElementCompositionPreview.SetIsTranslationEnabled(ContentStack, true);
-        var visual = ElementCompositionPreview.GetElementVisual(ContentStack);
-        visual.StartAnimation("Opacity", Scalar("Opacity", 0, 1, ShowDuration, _easeOut!));
-        visual.StartAnimation("Translation", Vector("Translation", new Vector3(18 * _pageNavigationDirection, 0, 0), Vector3.Zero, ShowDuration, _easeOut!));
     }
 
     private ScalarKeyFrameAnimation Scalar(string target, float from, float to, TimeSpan duration, CompositionEasingFunction easing)

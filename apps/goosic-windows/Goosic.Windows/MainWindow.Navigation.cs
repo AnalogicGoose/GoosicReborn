@@ -351,18 +351,10 @@ public sealed partial class MainWindow : Window
     private async Task GoBackAsync()
     {
         DismissOverlaySidebar();
-        _pageNavigationDirection = -1;
-        try
+        await Model.GoBackAsync();
+        if (Model.IsSettingsPage || Model.ShowsSearchLanding)
         {
-            await Model.GoBackAsync();
-            if (Model.IsSettingsPage || Model.ShowsSearchLanding)
-            {
-                PlayPageEntrance();
-            }
-        }
-        finally
-        {
-            _pageNavigationDirection = 1;
+            PlayPageEntrance();
         }
         HighlightNavigation(Model.CurrentSidebarDestination);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
