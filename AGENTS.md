@@ -203,6 +203,23 @@ job, and it only removes branches whose commits already live in their parent.
   just what it is. Match that.
 - **Commit messages** state what changed and why it had to change, in the imperative. No
   co-authorship, attribution, or session trailers.
+- **Release notes read like an Apple product page.** This applies to `docs/RELEASE_<version>.md`
+  and the GitHub release built from it, not to commits. Open with the version as a headline and
+  a one-line tagline that sums up the release. Give each change its own section: a short
+  headline, a one-line tagline that says what it means for the person using Goosic, then a
+  short, confident paragraph on what changed and why. Lead with the outcome, keep sentences
+  short, and leave internals out of the taglines. Every claim must be true and checkable;
+  the style is presentation, not hype, so never promise more than the release does, and say
+  plainly what still needs a live check. The downloads and installation section stays factual.
+
+  ```
+  ## macOS: the full player slides up
+
+  Now playing, front and center.
+
+  The full player now slides up from the bottom edge as one piece, as Music's does, instead
+  of fading and scaling, which cut off the top of the window and stuttered.
+  ```
 - **Rust** is edition 2021, `max_width = 100` (`rustfmt.toml`). Tests live beside the code
   they cover; live network tests are `#[ignore]`d.
 - **Swift is built in the Swift 6 language mode.** Concurrency errors are errors, not warnings.
@@ -228,3 +245,27 @@ platform differences must be recorded there. Shared documentation belongs on dev
 native implementation follows the platform branch rules above. Respect system and app motion,
 transparency and contrast settings. Compilation and tests do not establish visual acceptance;
 report actual inspection and leave live testing to the user when requested.
+
+## 8. Check the other platforms before you hand work back
+
+Goosic is one product on three systems, and the shells keep their own copies of many rules:
+Windows in `apps/goosic-windows/Goosic.Windows/Presentation`, macOS in
+`apps/goosic-swift/Sources/GoosicSwift/Core`, Linux through `goosic-shell-support`. A fix made in
+one copy reaches no other on its own. That is how Windows gained an audio-taper volume slider
+while the Mac kept a linear one. So every change a person can see or hear ends with a parity
+check, whichever platform it started on.
+
+1. **Find the same behavior in the other shells.** Read their code; do not assume. The paths
+   in section 4 say where each shell keeps it.
+2. **Decide for each one:** it already behaves this way; it needs this change; or it does not
+   apply, because the change exists only to satisfy one operating system's API. A Settings
+   window is a macOS convention, and Windows keeps a Settings page, so that one does not apply.
+   Say which, and why.
+3. **When another shell needs it,** a rule (a curve, an order, a limit, a validation, a timing)
+   belongs in `goosic-shell-support` on `development`, and each shell's copy changes to match in
+   the same release. Presentation is native, so open an issue labelled `parity` for each shell
+   that needs it. Name the files to change and what done looks like, and link it from the pull
+   request. When the user asks for both platforms at once, make the second change on that
+   platform's own branch rather than the first platform's.
+4. **Record the answer** in the pull request's Parity section. "Does not apply" is a fine
+   answer; leaving it blank is not.

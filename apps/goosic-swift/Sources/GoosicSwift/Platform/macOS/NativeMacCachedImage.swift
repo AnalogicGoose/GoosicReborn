@@ -40,9 +40,11 @@ private struct NativeMacObservedImage<Content: View>: View {
 
     var body: some View {
         let key = cache.localFile(for: url).map { NativeMacImageKey(file: $0, pixels: maxPixels) }
-        content(rendered.flatMap { value in
-            value.key == key ? Image(decorative: value.image, scale: 1) : nil
-        })
+        // A decoded image is available now, so a view that has just appeared draws it on its first
+        // frame rather than a placeholder that is replaced partway through a transition.
+        let image = rendered.flatMap { $0.key == key ? $0.image : nil }
+            ?? key.flatMap(NativeMacDecodedImages.cached)
+        content(image.map { Image(decorative: $0, scale: 1) })
         .onChange(of: url, initial: true) { _, value in cache.prioritize(value) }
         .task(id: key, priority: .userInitiated) {
             rendered = nil
@@ -71,6 +73,10 @@ private enum NativeMacDecodedImages {
         return value
     }()
     private static var pending: [NativeMacImageKey: Task<CGImage?, Never>] = [:]
+
+    static func cached(_ key: NativeMacImageKey) -> CGImage? {
+        cache.object(forKey: key.cacheKey)
+    }
 
     static func image(for key: NativeMacImageKey) async -> CGImage? {
         if let image = cache.object(forKey: key.cacheKey) { return image }

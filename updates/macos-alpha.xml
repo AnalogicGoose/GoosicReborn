@@ -3,6 +3,15 @@
     <channel>
         <title>Goosic</title>
         <item>
+            <title>0.2.8 macOS alpha</title>
+            <pubDate>Fri, 30 Oct 2026 18:45:03 +0000</pubDate>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>0.2.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/AnalogicGoose/GoosicReborn/releases/tag/v0.2.8</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/AnalogicGoose/GoosicReborn/releases/download/v0.2.8/Goosic-0.2.8-macos-universal.zip" length="20557600" type="application/octet-stream" sparkle:edSignature="9wXQ3rp0YqL72yyDkZxkqBawBPG0rpPel3D17D3AHrNBFGY0XRGxekXY9NOB7Z46Qk+Ml3PZ1KyoEEtdJveSAg==" />
+        </item>
+        <item>
             <title>0.2.4 macOS alpha 1</title>
             <pubDate>Thu, 01 Oct 2026 01:14:24 +0000</pubDate>
             <sparkle:version>2</sparkle:version>
