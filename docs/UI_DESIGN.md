@@ -113,11 +113,12 @@ compact arrangement; opening a temporary control must not select a different arr
 
 ## Navigation and account placement
 
-The leading navigation presents Search and Home first, followed by Discover, Library,
-Playlists and Goosic groups. Discover contains Explore, Charts, Moods & genres and New releases.
+The leading navigation presents Search and Home first, followed by Discover, Library and
+Playlists groups. Discover contains Explore, Charts, Moods & genres and New releases.
 Library exposes Liked Music, Artists, Albums, History and Downloads. Playlists contains All
-Playlists and account playlist entries with their artwork. Settings belongs to Goosic. Account
-identity and account actions anchor the bottom of navigation.
+Playlists and account playlist entries with their artwork. Settings is not a navigation row:
+it opens from the account menu and from the platform's own settings command. Account identity
+and account actions anchor the bottom of navigation.
 
 Selection uses a restrained rounded row highlight and readable emphasis. Distinguish selected
 navigation from hover and keyboard focus. The navigation list may scroll while its account
@@ -268,7 +269,14 @@ presentation changes must not accidentally stop or restart playback.
 
 ## Settings, feedback and loading
 
-Settings use readable groups with a title/icon, label, concise explanation and native control.
+Settings live in their own window or dialog, apart from the main window, so changing one never
+takes the user away from what is playing. Changes apply as they are made and are saved by the
+shared model, so there is no Cancel or OK behind which an edit could be lost. On macOS this is
+the standard Settings window, reached with ⌘, and from the account menu: a toolbar of tabs
+(General, Playback, Accounts, Advanced) over right-aligned group labels with checkboxes and
+pop-up menus, as Music's is, with Goosic's accent on the checkmarks only.
+
+Settings use readable groups with a label, concise explanation and native control.
 Organize by connection/updates, playback, appearance or startup behavior, integrations,
 advanced diagnostics and accounts as appropriate to actual capability. Do not distribute a
 platform-only setting to another shell as a dead control. Shared settings such as autoplay,
