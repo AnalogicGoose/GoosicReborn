@@ -274,6 +274,15 @@ clicks or create duplicate accessibility targets. Restore the original visible c
 Mute remains available through More, a context menu and accessible actions. Volume value is
 synchronized across main, full, mini and system-facing presentations.
 
+Every volume slider follows the same audio taper: the gain is the cube of the slider's position,
+the rule `volume_gain` in `goosic-shell-support` states. Loudness is heard logarithmically, so a
+slider that moved the gain in a straight line was already far too loud half way up. The player
+and the saved preference hold the gain; the slider, its spoken percentage and keyboard or wheel
+steps work in positions, which is what lets a saved volume open at the same place on every
+platform. A drag stays smooth under the pointer: the knob follows the hand, the player hears it
+at a bounded rate, and the player's own report of its volume never pulls the knob back while it
+is held.
+
 ## Lyrics, queue, full player and mini player
 
 Lyrics and Up Next are secondary listening panes. In the normal shell, the toggles identify

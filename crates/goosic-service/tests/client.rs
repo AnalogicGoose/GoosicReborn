@@ -15,16 +15,27 @@ fn a_shell_can_hold_a_conversation_with_the_real_service() {
         .spawn()
         .expect("the service binary should start");
 
-    let hello = client.request("hello", RequestPayload::default()).expect("hello failed");
+    let hello = client
+        .request("hello", RequestPayload::default())
+        .expect("hello failed");
     assert_eq!(
-        hello.payload.as_ref().and_then(|payload| payload.message.as_deref()),
+        hello
+            .payload
+            .as_ref()
+            .and_then(|payload| payload.message.as_deref()),
         Some("goosic-service ready")
     );
 
     // The starting generation is not always zero: restoring a saved account moves it. A shell
     // reads it rather than assuming it, and so does this test.
-    let state = client.request("state.get", RequestPayload::default()).expect("state.get failed");
-    let generation = state.payload.and_then(|payload| payload.state).expect("no state").generation;
+    let state = client
+        .request("state.get", RequestPayload::default())
+        .expect("state.get failed");
+    let generation = state
+        .payload
+        .and_then(|payload| payload.state)
+        .expect("no state")
+        .generation;
 
     let claimed = client
         .request(
@@ -36,7 +47,10 @@ fn a_shell_can_hold_a_conversation_with_the_real_service() {
             },
         )
         .expect("claim failed");
-    let leased = claimed.payload.and_then(|payload| payload.generation).expect("no generation");
+    let leased = claimed
+        .payload
+        .and_then(|payload| payload.generation)
+        .expect("no generation");
     assert_eq!(leased, generation + 1, "a claim moves the generation");
 
     // A stale sample is the authority answering, and the conversation carries on after it.
