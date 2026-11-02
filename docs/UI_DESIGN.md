@@ -125,7 +125,12 @@ account avatar anchored at the bottom in both arrangements. Expanded navigation 
 labels, destination names and account status. Compact navigation keeps named, keyboard-reachable
 icons with tooltips; opening a group or Search can expand the panel to expose its existing
 destinations. Use a rounded selection fill and a short leading accent marker, with focus and
-hover distinct from selection. Collapsing navigation changes presentation only: it preserves
+hover distinct from selection. Compact icons keep the same restrained visual size as expanded
+navigation icons, within full-size hit targets. Align icon centers, brand artwork and the
+account avatar on one leading axis; hide label spacing along with its text so neither the
+avatar nor the brand artwork is clipped. Keep the first navigation row at the same vertical
+position when the search field becomes an icon. Long labels truncate inside their available
+column, with the full name accessible. Collapsing navigation changes presentation only: it preserves
 the route, query, account, queue, playback position and mounted renderer.
 
 Windows adapts this with WinUI buttons, Fluent glyphs and theme-aware Acrylic, a 64-logical-pixel
