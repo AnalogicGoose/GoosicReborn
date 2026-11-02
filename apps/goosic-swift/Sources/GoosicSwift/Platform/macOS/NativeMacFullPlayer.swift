@@ -23,6 +23,10 @@ import SwiftUI
 
 /// Reads a cached cover into the small bitmap `NowPlayingMesh.palette` samples.
 enum NowPlayingPaletteLoader {
+    /// Survives the player closing, so reopening it fades in the finished background. Sampling
+    /// again meant the field first appeared partway through the fade, the costliest moment for it.
+    @MainActor static var last: (file: URL, palette: [MeshSample])?
+
     static func palette(at file: URL) -> [MeshSample]? {
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
@@ -53,14 +57,22 @@ enum NowPlayingPaletteLoader {
 /// Each cell is a radial blob rather than a filled square: overlapping blobs with a transparent
 /// falloff fuse into one fluid field once blurred, where squares would read as a mosaic. The
 /// field is oversized by 30% on every side so the drift never reveals an edge.
+///
+/// Nothing in a field this blurred needs full resolution, so it is drawn at a fraction of its size
+/// and scaled up. At full size it held the GPU near 57% and well over 100 MB for a large window,
+/// which is what made the player's opening fade stutter; this takes 27% and looks the same.
 struct NowPlayingMeshBackground: View {
+    private static let rasterDivisor: CGFloat = 8
+
     let palette: [MeshSample]
+    /// Held still while the player slides, so the move only repositions a finished image.
+    var still = false
     @Environment(\.goosicReduceMotion) private var reduceMotion
 
     var body: some View {
         let cells = NowPlayingMesh.cells(for: palette)
         GeometryReader { proxy in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || still)) { timeline in
                 field(cells: cells, size: proxy.size, time: timeline.date.timeIntervalSinceReferenceDate)
             }
         }
@@ -75,9 +87,10 @@ struct NowPlayingMeshBackground: View {
     private func field(cells: [MeshCell], size: CGSize, time: Double) -> some View {
         let side = NowPlayingMesh.gridSide
         let fieldSize = CGSize(width: size.width * 1.6, height: size.height * 1.6)
-        let slot = CGSize(width: fieldSize.width / CGFloat(side), height: fieldSize.height / CGFloat(side))
+        let raster = CGSize(width: fieldSize.width / Self.rasterDivisor, height: fieldSize.height / Self.rasterDivisor)
+        let slot = CGSize(width: raster.width / CGFloat(side), height: raster.height / CGFloat(side))
         let drift = reduceMotion ? NowPlayingMesh.restingDrift : NowPlayingMesh.drift(at: time)
-        let blur = min(max(size.width * 0.09, 110), 160)
+        let blur = min(max(size.width * 0.09, 110), 160) / Self.rasterDivisor
 
         return ZStack(alignment: .topLeading) {
             ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
@@ -92,10 +105,15 @@ struct NowPlayingMeshBackground: View {
                     )
             }
         }
-        .frame(width: fieldSize.width, height: fieldSize.height, alignment: .topLeading)
+        .frame(width: raster.width, height: raster.height, alignment: .topLeading)
         .drawingGroup()
         .blur(radius: blur)
         .saturation(1.08)
+        // Rasterised with room for the blur's spread, or the scale would redo the blur at full size.
+        .padding(blur * 2)
+        .drawingGroup()
+        .padding(-blur * 2)
+        .scaleEffect(Self.rasterDivisor)
         .scaleEffect(drift.scale)
         .rotationEffect(.degrees(drift.degrees))
         .offset(x: drift.dx * fieldSize.width, y: drift.dy * fieldSize.height)
@@ -163,7 +181,8 @@ struct NativeMacFullPlayer: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.goosicReduceMotion) private var reduceMotion
-    @SwiftUI.State private var palette: [MeshSample]?
+    @SwiftUI.State private var palette: [MeshSample]? = NowPlayingPaletteLoader.last?.palette
+    @SwiftUI.State private var surfaceSettled = false
     /// What the right-hand column shows: lyrics, the queue, or nothing, switched by the glass
     /// capsule at the bottom right as in Music.
     @SwiftUI.State private var rightPane: RightPane = .lyrics
@@ -264,13 +283,22 @@ struct NativeMacFullPlayer: View {
         }
         .ignoresSafeArea()
         .environment(\.colorScheme, .dark)
+        .task {
+            try? await Task.sleep(for: .seconds(0.45))
+            surfaceSettled = true
+        }
         .task(id: paletteFile) {
             guard let file = paletteFile else { return }
+            if let last = NowPlayingPaletteLoader.last, last.file == file {
+                palette = last.palette
+                return
+            }
             let sampled = await Task.detached(priority: .userInitiated) {
                 NowPlayingPaletteLoader.palette(at: file)
             }.value
             guard !Task.isCancelled else { return }
             palette = sampled
+            if let sampled { NowPlayingPaletteLoader.last = (file, sampled) }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: rightPane)
         .onChange(of: model.currentTrack?.id) { _, _ in isScrubbing = false }
@@ -323,7 +351,7 @@ struct NativeMacFullPlayer: View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
             if let palette {
-                NowPlayingMeshBackground(palette: palette)
+                NowPlayingMeshBackground(palette: palette, still: !surfaceSettled || !model.fullPlayerOpen && !compact)
                     .id(palette)
                     .transition(.opacity)
             }
