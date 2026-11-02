@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use goosic_protocol::{CatalogItem, CatalogItemKind, CatalogPage};
+use goosic_protocol::{ArtistHeader, CatalogItem, CatalogItemKind, CatalogPage};
 
 use crate::navigation::EntityReference;
 use crate::text::trim_spaces;
@@ -172,6 +172,8 @@ pub struct PageView {
     pub all_tracks_id: Option<String>,
     /// The service clamped this page to fit one protocol frame. A screen must say so.
     pub truncated: bool,
+    /// An artist page's header: its banner or portrait and the facts shown under the name.
+    pub artist: Option<ArtistHeader>,
 }
 
 impl PageView {
@@ -204,6 +206,7 @@ impl PageView {
             tracks: page.tracks.iter().filter_map(Track::from_catalog).collect(),
             all_tracks_id: page.all_tracks_id.clone().filter(|id| !id.is_empty()),
             truncated: page.truncated,
+            artist: page.artist.clone(),
         }
     }
 
@@ -248,6 +251,7 @@ impl PageView {
                 .cloned()
                 .collect(),
             truncated: self.truncated || continuation.truncated,
+            artist: self.artist.clone().or_else(|| continuation.artist.clone()),
             ..self.clone()
         }
     }
@@ -364,6 +368,24 @@ mod tests {
             }],
             ..Default::default()
         })
+    }
+
+    #[test]
+    fn an_artist_header_survives_the_page_view_and_its_continuation() {
+        let header = ArtistHeader {
+            banner: Some("https://lh3.googleusercontent.com/banner=w2880-h1200".into()),
+            audience: Some("28.9M monthly audience".into()),
+            ..Default::default()
+        };
+        let artist = PageView::from_wire(&CatalogPage {
+            id: "UCartist".into(),
+            title: "Omar Courtz".into(),
+            artist: Some(header.clone()),
+            ..Default::default()
+        });
+        assert_eq!(artist.artist.as_ref(), Some(&header));
+        let more = page("continuation", "shelf", "More", vec![]);
+        assert_eq!(artist.appending(&more).artist, Some(header));
     }
 
     #[test]

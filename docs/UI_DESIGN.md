@@ -222,6 +222,30 @@ belong to collection browsing and must not silently change the playback queue. S
 remain honest about partial data, including a '+' where completeness is unknown. Continuation
 pages append with their real cursor rather than presenting the first page as the whole list.
 
+An artist page opens with a hero, in the manner of an Apple Music artist page. The artist's
+banner fills the content area edge to edge, under the floating toolbar, cropped to fill rather
+than stretched and anchored near its top, where faces are. Its height follows the window's
+width within a floor and a ceiling, so a narrow window keeps the name and actions on screen and
+a wide one does not become all picture. A scrim darkens the picture's lower part enough for
+white text, and the page beneath takes the picture's own colour, sampled from it, before fading
+into the ordinary page background over the first section; the artist's colour belongs to the
+page, not only to the rectangle the picture occupies. The name is centred near the hero's foot
+in a large bold weight, with upstream's audience line under it when there is one. Under those
+sit three round buttons: About (the description and subscriber count) to the left, a larger
+primary Play in the middle that plays the top songs in order, and Subscribe to the right, filled
+when the account follows the artist and shown only with an account. Share and More sit at the
+hero's top trailing corner; More holds Shuffle, Mix and Copy Link. Top songs and the shelves
+follow as on any page.
+
+The banner and every fact come from the artist header the catalog reads, the `artist` field of
+an artist page, and from nowhere else. When the header has a square portrait and no banner, the
+hero shows the portrait as a large circle over a soft field of its own colours instead, as the
+previous Goosic did; with no picture at all the hero is the field of the accent colour, never a
+song's cover or a video still. Missing audience, description or subscriber count leave their
+place empty rather than being estimated. Reduced transparency replaces the scrim with an opaque
+band, reduced motion removes the colour fade's animation, and increased contrast strengthens the
+scrim; the name and the three buttons stay readable over any picture.
+
 Owned-playlist operations expose create, rename, description, privacy, remove/reorder songs,
 add to playlist and deletion according to actual capability and account state. Destructive,
 unrecoverable deletion is confirmed. Reversible queue edits can offer Undo. An unimplemented

@@ -89,6 +89,8 @@ struct CatalogPageView: Hashable {
     /// The page's own cover. A playlist and Liked Music carry one; without it the hero falls
     /// back to the first song's art.
     var thumbnail: String? = nil
+    /// An artist page's header: its banner or portrait and the facts shown under the name.
+    var artist: GoosicArtistHeader? = nil
     /// A disk copy omitted its upstream cursor and still needs a fresh continuation.
     var cachedPartial = false
 
@@ -188,7 +190,8 @@ extension CatalogPageView {
             nextCursor: page.nextCursor,
             allTracksID: page.allTracksId.flatMap { $0.isEmpty ? nil : $0 },
             truncated: page.truncated ?? false,
-            thumbnail: page.thumbnail
+            thumbnail: page.thumbnail,
+            artist: page.artist
         )
     }
 
@@ -231,7 +234,8 @@ extension CatalogPageView {
             nextCursor: continuation.nextCursor,
             allTracksID: allTracksID,
             truncated: truncated || continuation.truncated,
-            thumbnail: thumbnail ?? continuation.thumbnail
+            thumbnail: thumbnail ?? continuation.thumbnail,
+            artist: artist ?? continuation.artist
         )
     }
 }
