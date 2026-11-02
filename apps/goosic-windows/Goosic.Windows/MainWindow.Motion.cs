@@ -14,7 +14,7 @@ namespace Goosic.Windows;
 /// </summary>
 /// <remarks>
 /// Every animation here is a composition animation on the element's visual: it runs on the
-/// compositor thread, touches only opacity and translation, and never causes a layout pass, so it
+/// compositor thread, touches only opacity, translation and clipping, and never causes a layout pass, so it
 /// costs nothing on the UI thread and keeps running smoothly while a page is loading. Showing and
 /// hiding stay plain <c>Visibility</c> changes in the rest of the window; the implicit show and
 /// hide animations attached here are what turn those into motion. When Windows' "Animation effects"
@@ -38,6 +38,28 @@ public sealed partial class MainWindow
         _uiSettings.AnimationsEnabled && !Model.ReduceMotion && !ShellPreferences.EfficiencyMode;
 
     private bool _motionAttached;
+    private bool _motionConfigured;
+
+    private InsetClip? _sidebarRevealClip;
+
+    private void AnimateSidebarExpansion(double previousWidth, bool expanded)
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(Sidebar);
+        _sidebarRevealClip?.StopAnimation("RightInset");
+        visual.Clip = null;
+        _sidebarRevealClip = null;
+        if (!expanded || previousWidth <= 0 || _compositor is null || !AnimationsEnabled)
+        {
+            return;
+        }
+
+        // Reveal the fully laid-out panel; labels and icons never scale or reflow each frame.
+        _sidebarRevealClip = _compositor.CreateInsetClip();
+        visual.Clip = _sidebarRevealClip;
+        _sidebarRevealClip.StartAnimation("RightInset", Scalar("RightInset",
+            (float)Math.Max(0, Sidebar.Width - previousWidth), 0,
+            TimeSpan.FromMilliseconds(200), _easeOut!));
+    }
 
     private void WireMotion()
     {
@@ -69,12 +91,24 @@ public sealed partial class MainWindow
     private void ApplyMotion()
     {
         var enabled = AnimationsEnabled;
-        if (enabled == _motionAttached)
+        if (_motionConfigured && enabled == _motionAttached)
         {
             return;
         }
 
         _motionAttached = enabled;
+        _motionConfigured = true;
+        AccountFlyout.AreOpenCloseAnimationsEnabled = enabled;
+        UpdateSidebarIndicator(immediate: !enabled);
+        if (!enabled)
+        {
+            _sidebarRevealClip?.StopAnimation("RightInset");
+            foreach (var item in _catalogArrivals.ToArray())
+            {
+                OnCatalogItemUnloaded(item, new RoutedEventArgs());
+            }
+
+        }
         AttachShowHide(Sidebar, new Vector3(-20, 0, 0));
         AttachShowHide(SidePanel, new Vector3(28, 0, 0));
         AttachShowHide(QueuePanel, new Vector3(0, 10, 0));
@@ -287,20 +321,6 @@ public sealed partial class MainWindow
 
         ElementCompositionPreview.SetImplicitShowAnimation(element, show);
         ElementCompositionPreview.SetImplicitHideAnimation(element, hide);
-    }
-
-    /// <summary>Brings a freshly loaded page up from slightly below, so a new page reads as arriving.</summary>
-    private void PlayPageEntrance()
-    {
-        if (_compositor is null || !AnimationsEnabled)
-        {
-            return;
-        }
-
-        ElementCompositionPreview.SetIsTranslationEnabled(ContentStack, true);
-        var visual = ElementCompositionPreview.GetElementVisual(ContentStack);
-        visual.StartAnimation("Opacity", Scalar("Opacity", 0, 1, ShowDuration, _easeOut!));
-        visual.StartAnimation("Translation", Vector("Translation", new Vector3(0, 14, 0), Vector3.Zero, ShowDuration, _easeOut!));
     }
 
     private ScalarKeyFrameAnimation Scalar(string target, float from, float to, TimeSpan duration, CompositionEasingFunction easing)

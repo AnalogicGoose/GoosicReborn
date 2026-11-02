@@ -238,7 +238,7 @@ public sealed partial class ShellViewModel
         OnPropertyChanged(nameof(SubscribeGlyph));
     }
 
-    private void ForgetPersonalPage()
+    private void ForgetPersonalPage(bool keepSearchPage = false)
     {
         // Leaving the page ends editing; its rows are about to be replaced anyway.
         EndPlaylistEdit();
@@ -247,7 +247,10 @@ public sealed partial class ShellViewModel
         _pageArtistId = null;
         IsLibraryPage = false;
         IsSettingsPage = false;
-        IsSearchPage = false;
+        if (!keepSearchPage)
+        {
+            IsSearchPage = false;
+        }
         PageActionsChanged();
     }
 
@@ -523,21 +526,29 @@ public sealed partial class ShellViewModel
     // ---- Personal pages -------------------------------------------------------------------
 
     /// <summary>Loads Home, the library, liked music or history from the account, when that is what was asked for.</summary>
-    private async Task<bool> TryLoadPersonalRouteAsync(string route)
+    private (string BrowseId, string Title, string Shape)? PersonalRouteSource(string route, string? librarySection = null)
     {
-        (string BrowseId, string Title, string Shape)? source = route switch
+        var sectionId = librarySection ?? _librarySection;
+        var section = LibrarySections.FirstOrDefault(s => s.BrowseId == sectionId);
+        return route switch
         {
             "home" when IsSignedIn => ("FEmusic_home", "Home", "shelves"),
-            "library" => (_librarySection, "Library", LibrarySections.FirstOrDefault(s => s.BrowseId == _librarySection)?.Shape ?? "shelves"),
+            "library" => (sectionId, section?.Title ?? "Library", section?.Shape ?? "shelves"),
             "liked" => ("VLLM", "Liked Music", "tracks"),
             "history" => ("FEmusic_history", "History", "auto"),
             _ => null,
         };
+    }
+
+    private async Task<bool> TryLoadPersonalRouteAsync(string route)
+    {
+        var source = PersonalRouteSource(route);
         if (source is null)
         {
             return false;
         }
 
+        PageTitle = source.Value.Title;
         if (!IsSignedIn || Personal is null)
         {
             PageSubtitle = "Sign in to see this";
@@ -554,8 +565,7 @@ public sealed partial class ShellViewModel
     /// <summary>Shows another library section in place.</summary>
     internal async Task ShowLibrarySectionAsync(LibrarySection section)
     {
-        _librarySection = section.BrowseId;
-        await LoadRouteAsync("library", rememberCurrentRoute: false).ConfigureAwait(true);
+        await LoadRouteAsync("library", rememberCurrentRoute: false, librarySection: section.BrowseId).ConfigureAwait(true);
     }
 
     /// <summary>
@@ -766,8 +776,9 @@ public sealed partial class ShellViewModel
             return false;
         }
 
+        var contentRevision = _pageContentRevision;
         var page = await Personal.BrowseAsync(source.BrowseId, source.Title, cursor, source.Shape).ConfigureAwait(true);
-        if (_personalSource == source && _nextCursor == cursor)
+        if (_personalSource == source && _nextCursor == cursor && contentRevision == _pageContentRevision)
         {
             Fill(page);
         }

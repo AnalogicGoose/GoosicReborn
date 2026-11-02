@@ -9,7 +9,7 @@
     xmlns:mux="using:Microsoft.UI.Xaml.Controls">
 
     <!--
-        The layout follows the macOS shell: a sidebar that is always there unless it is hidden,
+        The layout follows the shared shell: navigation switches between a rail and a full panel,
         content that runs to the window's edges, and the player as a floating pill over the bottom
         of the content rather than a bar that takes a row of its own. The window's backdrop is
         Mica, and the playing cover's colours sit behind everything when Album Art Background is on.
@@ -67,20 +67,6 @@
                             <TextBlock Text="{x:Bind Model.PageMeta, Mode=OneWay}" TextWrapping="Wrap" MaxLines="2"
                                        TextTrimming="CharacterEllipsis"
                                        FontSize="14" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                            <ItemsControl Margin="0,12,0,0" ItemsSource="{x:Bind Model.SearchFilterChoices}"
-                                          Visibility="{x:Bind Model.IsSearchPage, Mode=OneWay}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" Spacing="8" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:SearchFilterChoice">
-                                        <Button Content="{x:Bind Title}" Tag="{x:Bind Filter}" CornerRadius="8" Padding="12,5"
-                                                Click="OnSearchFilter" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
                             <ItemsControl Margin="0,12,0,0" ItemsSource="{x:Bind Model.LibrarySections}"
                                           Visibility="{x:Bind Model.IsLibraryPage, Mode=OneWay}">
                                 <ItemsControl.ItemsPanel>
@@ -168,6 +154,73 @@
                             </StackPanel>
                             </StackPanel>
                         </Grid>
+
+                        <StackPanel Spacing="28" Visibility="{x:Bind Model.ShowsSearchLanding, Mode=OneWay}">
+                            <StackPanel x:Name="RecentSearchSection" Spacing="14" Visibility="Collapsed">
+                                <Grid>
+                                    <TextBlock Text="Recently searched" Loaded="OnCatalogSectionLoaded" Unloaded="OnCatalogItemUnloaded" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" AutomationProperties.HeadingLevel="Level2" />
+                                    <Button Content="Clear" Click="OnClearRecentSearches" HorizontalAlignment="Right" Background="Transparent" BorderThickness="0"
+                                            Foreground="{ThemeResource GoosicNavigationAccentBrush}" AutomationProperties.Name="Clear recent searches" />
+                                </Grid>
+                                <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="RecentSearchItems">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="16" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Tag="{Binding}" Click="OnRecentSearch" Width="240" Height="80" Padding="16" CornerRadius="12"
+                                                        HorizontalContentAlignment="Stretch" Background="{ThemeResource GoosicRaisedBrush}" BorderThickness="0"
+                                                        AutomationProperties.Name="{Binding}" ToolTipService.ToolTip="{Binding}">
+                                                    <Grid ColumnSpacing="12">
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                        <FontIcon Glyph="&#xE81C;" FontSize="22" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                    </Grid>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </StackPanel>
+                            <StackPanel Spacing="16">
+                                <TextBlock Text="Browse categories" Loaded="OnCatalogSectionLoaded" Unloaded="OnCatalogItemUnloaded" FontSize="20" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level2" />
+                                <Grid x:Name="BrowseCategoryGrid" ColumnSpacing="18" RowSpacing="18" HorizontalAlignment="Left" MaxWidth="1000">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <Button Style="{StaticResource SearchBrowseCardStyle}" Grid.Column="0" Tag="explore" Click="OnNavigate" Height="150" Padding="18" CornerRadius="12"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" BorderThickness="0"
+                                            Background="{ThemeResource GoosicSearchExploreBrush}" Foreground="{ThemeResource GoosicSearchCardTextBrush}" AutomationProperties.Name="Explore">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE774;" FontSize="64" Opacity="0.28" HorizontalAlignment="Right" VerticalAlignment="Top" AutomationProperties.AccessibilityView="Raw" />
+                                            <TextBlock Text="Explore" FontSize="20" FontWeight="Bold" VerticalAlignment="Bottom" TextWrapping="Wrap" />
+                                        </Grid>
+                                    </Button>
+                                    <Button Style="{StaticResource SearchBrowseCardStyle}" Grid.Column="1" Tag="charts" Click="OnNavigate" Height="150" Padding="18" CornerRadius="12"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" BorderThickness="0"
+                                            Background="{ThemeResource GoosicSearchChartsBrush}" Foreground="{ThemeResource GoosicSearchCardTextBrush}" AutomationProperties.Name="Charts">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE9D2;" FontSize="64" Opacity="0.28" HorizontalAlignment="Right" VerticalAlignment="Top" AutomationProperties.AccessibilityView="Raw" />
+                                            <TextBlock Text="Charts" FontSize="20" FontWeight="Bold" VerticalAlignment="Bottom" TextWrapping="Wrap" />
+                                        </Grid>
+                                    </Button>
+                                    <Button Style="{StaticResource SearchBrowseCardStyle}" Grid.Column="2" Tag="moodsAndGenres" Click="OnNavigate" Height="150" Padding="18" CornerRadius="12"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" BorderThickness="0"
+                                            Background="{ThemeResource GoosicSearchMoodsBrush}" Foreground="{ThemeResource GoosicSearchCardTextBrush}" AutomationProperties.Name="Moods &amp; genres">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE8D6;" FontSize="64" Opacity="0.28" HorizontalAlignment="Right" VerticalAlignment="Top" AutomationProperties.AccessibilityView="Raw" />
+                                            <TextBlock Text="Moods &amp; genres" FontSize="20" FontWeight="Bold" VerticalAlignment="Bottom" TextWrapping="Wrap" />
+                                        </Grid>
+                                    </Button>
+                                    <Button Style="{StaticResource SearchBrowseCardStyle}" Grid.Column="3" Tag="newReleases" Click="OnNavigate" Height="150" Padding="18" CornerRadius="12"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" BorderThickness="0"
+                                            Background="{ThemeResource GoosicSearchReleasesBrush}" Foreground="{ThemeResource GoosicSearchCardTextBrush}" AutomationProperties.Name="New releases">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE734;" FontSize="64" Opacity="0.28" HorizontalAlignment="Right" VerticalAlignment="Top" AutomationProperties.AccessibilityView="Raw" />
+                                            <TextBlock Text="New releases" FontSize="20" FontWeight="Bold" VerticalAlignment="Bottom" TextWrapping="Wrap" />
+                                        </Grid>
+                                    </Button>
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
 
                         <!-- Settings, grouped the way iOS Settings is: a small heading, then a rounded list of
                              rows, each an icon tile, a name with one line of explanation, and its control. -->
@@ -383,7 +436,7 @@
 
                         <!-- Loading: the shape of a page rather than a sentence about one. -->
                         <StackPanel x:Name="PageSkeleton" Spacing="26" Opacity="0.9"
-                                    Visibility="{x:Bind Model.IsPageLoading, Mode=OneWay}"
+                                    Visibility="{x:Bind Model.ShowPageSkeleton, Mode=OneWay}"
                                     AutomationProperties.Name="Loading" AutomationProperties.LiveSetting="Polite">
                             <StackPanel Spacing="12">
                                 <Border Width="220" Height="18" CornerRadius="6" HorizontalAlignment="Left" Margin="0,15,0,15"
@@ -534,7 +587,7 @@
                                          context menu key opens the same menu, so keyboard users lose nothing. -->
                                     <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
                                             AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
-                                            Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
+                                            Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
                                             PointerEntered="OnTrackRowPointerEntered" PointerExited="OnTrackRowPointerExited"
                                             Opacity="{x:Bind RowOpacity, Mode=OneWay}"
                                             Visibility="{x:Bind FilterVisibility, Mode=OneWay}"
@@ -607,7 +660,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{x:Bind Title}" FontSize="20" FontWeight="SemiBold"
+                                            <TextBlock Text="{x:Bind Title}" FontSize="20" FontWeight="SemiBold" Loaded="OnCatalogSectionLoaded" Unloaded="OnCatalogItemUnloaded"
                                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                        ToolTipService.ToolTip="{x:Bind Title}" />
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
@@ -639,7 +692,7 @@
                                                     <DataTemplate x:DataType="vm:CardViewModel">
                                                       <Button Style="{StaticResource CardButtonStyle}"
                                                               Padding="8" Margin="-8,0,14,0"
-                                                              Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                              Tag="{x:Bind ActivationTag}" Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnCardActivated"
                                                               AutomationProperties.Name="{x:Bind AccessibleName}"
                                                               ContextRequested="OnItemContextRequested">
                                                         <!-- A video's card is 16:9 at the same height, as YouTube Music draws it. -->
@@ -688,7 +741,7 @@
                                                 <DataTemplate x:DataType="vm:CardViewModel">
                                                     <Button Style="{StaticResource CardButtonStyle}" Padding="0"
                                                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                            Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                            Tag="{x:Bind ActivationTag}" Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnCardActivated"
                                                             AutomationProperties.Name="{x:Bind AccessibleName}"
                                                             ContextRequested="OnItemContextRequested">
                                                         <StackPanel Spacing="4">
@@ -722,7 +775,7 @@
                                             </ItemsRepeater.Layout>
                                             <ItemsRepeater.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:CardViewModel">
-                                                    <Button Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                    <Button Tag="{x:Bind ActivationTag}" Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnCardActivated"
                                                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                                             HorizontalContentAlignment="Stretch" Padding="0"
                                                             CornerRadius="8" BorderThickness="0"
@@ -768,7 +821,7 @@
                                                                     <Button Style="{StaticResource CardButtonStyle}"
                                                                             HorizontalAlignment="Stretch" Padding="8,2" Margin="-8,0,0,0"
                                                                             HorizontalContentAlignment="Stretch"
-                                                                            Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                                            Tag="{x:Bind ActivationTag}" Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnCardActivated"
                                                                             AutomationProperties.Name="{x:Bind AccessibleName}"
                                                                             ContextRequested="OnItemContextRequested">
                                                                         <Grid Height="56" ColumnSpacing="12" Padding="0,4">
@@ -829,6 +882,84 @@
                      effects turned off. It is a gradient of the background's own colour. -->
                 <Rectangle x:Name="TitleFade" Height="48" VerticalAlignment="Top" IsHitTestVisible="False"
                            Fill="{ThemeResource GoosicTitleFadeBrush}" />
+
+                <!-- Search controls float above the full-height results viewport. -->
+                <StackPanel x:Name="SearchChrome" VerticalAlignment="Top" Margin="314,56,34,0"
+                            Spacing="16" SizeChanged="OnSearchChromeSizeChanged"
+                            Visibility="{x:Bind Model.IsSearchPage, Mode=OneWay}">
+                    <Border MaxWidth="620" HorizontalAlignment="Stretch" CornerRadius="8" Background="{ThemeResource GoosicPillAcrylicBrush}"
+                            BorderBrush="{ThemeResource GoosicPillBorderBrush}" BorderThickness="1" Padding="12,2,8,2">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <FontIcon Glyph="&#xE721;" FontSize="16" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                            <AutoSuggestBox x:Name="SearchQuery" Grid.Column="1" PlaceholderText="Search music" MinHeight="40" CornerRadius="6"
+                                            Background="Transparent" BorderThickness="0"
+                                            Text="{x:Bind Model.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            QuerySubmitted="OnSearchSubmitted" TextChanged="OnSearchTextChanged" GotFocus="OnSearchGotFocus"
+                                            AutomationProperties.Name="Search music" VerticalAlignment="Center">
+                                <AutoSuggestBox.TextBoxStyle>
+                                    <Style TargetType="TextBox" BasedOn="{StaticResource AutoSuggestBoxTextBoxStyle}">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="TextBox">
+                                                    <Grid Background="Transparent" MinHeight="40">
+                                                        <ScrollViewer x:Name="ContentElement" Margin="4,0,28,0" VerticalAlignment="Center"
+                                                                      HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled" />
+                                                        <ContentControl x:Name="PlaceholderTextContentPresenter" Content="{TemplateBinding PlaceholderText}" IsTabStop="False" VerticalContentAlignment="Center"
+                                                                   Margin="4,0,28,0" VerticalAlignment="Center" IsHitTestVisible="False"
+                                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                                        <Button x:Name="DeleteButton" Content="&#xE711;" FontFamily="Segoe Fluent Icons"
+                                                                FontSize="12" Width="28" Height="28" Padding="0" Background="Transparent" BorderThickness="0"
+                                                                HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed" AutomationProperties.Name="Clear search" />
+                                                        <VisualStateManager.VisualStateGroups>
+                                                            <VisualStateGroup x:Name="CommonStates"><VisualState x:Name="Normal" /><VisualState x:Name="PointerOver" /><VisualState x:Name="Focused" /><VisualState x:Name="Disabled" /></VisualStateGroup>
+                                                            <VisualStateGroup x:Name="ButtonStates">
+                                                                <VisualState x:Name="ButtonVisible"><VisualState.Setters><Setter Target="DeleteButton.Visibility" Value="Visible" /></VisualState.Setters></VisualState>
+                                                                <VisualState x:Name="ButtonCollapsed"><VisualState.Setters><Setter Target="DeleteButton.Visibility" Value="Collapsed" /></VisualState.Setters></VisualState>
+                                                            </VisualStateGroup>
+                                                        </VisualStateManager.VisualStateGroups>
+                                                    </Grid>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Setter Property="VerticalContentAlignment" Value="Center" />
+                                        <Setter Property="Padding" Value="4,0" />
+                                        <Setter Property="MinHeight" Value="40" />
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="BorderThickness" Value="0" />
+                                    </Style>
+                                </AutoSuggestBox.TextBoxStyle>
+                            </AutoSuggestBox>
+                            <Button Grid.Column="2" Content="Search" Click="OnSearchSubmitButton" Background="Transparent" BorderThickness="0"
+                                    Foreground="{ThemeResource GoosicNavigationAccentBrush}" IsEnabled="{x:Bind Model.CanSubmitSearch, Mode=OneWay}" />
+                        </Grid>
+                    </Border>
+                    <ListBox x:Name="SearchCategory" MaxWidth="620" HorizontalAlignment="Center" Padding="2" CornerRadius="8" BorderThickness="0"
+                             Background="{ThemeResource GoosicPillAcrylicBrush}" SelectionMode="Single"
+                             ScrollViewer.HorizontalScrollBarVisibility="Hidden" ScrollViewer.HorizontalScrollMode="Enabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled"
+                             ItemsSource="{x:Bind Model.SearchFilterChoices}" DisplayMemberPath="Title"
+                             SelectedValuePath="Filter" SelectedValue="{x:Bind Model.SearchFilter, Mode=OneWay}"
+                             SelectionChanged="OnSearchCategoryChanged" AutomationProperties.Name="Search category">
+                        <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListBox.ItemsPanel>
+                        <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="18,7" /><Setter Property="CornerRadius" Value="6" />
+                            <Setter Property="HorizontalContentAlignment" Value="Center" />
+                            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+                                <Border x:Name="Segment" CornerRadius="6" Background="Transparent" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <VisualStateManager.VisualStateGroups>
+                                        <VisualStateGroup x:Name="SelectionStates">
+                                            <VisualState x:Name="Unselected" />
+                                            <VisualState x:Name="Selected"><VisualState.Setters><Setter Target="Segment.Background" Value="{ThemeResource GoosicSidebarSelectedBrush}" /></VisualState.Setters></VisualState>
+                                            <VisualState x:Name="SelectedUnfocused"><VisualState.Setters><Setter Target="Segment.Background" Value="{ThemeResource GoosicSidebarSelectedBrush}" /></VisualState.Setters></VisualState>
+                                        </VisualStateGroup>
+                                    </VisualStateManager.VisualStateGroups>
+                                </Border>
+                            </ControlTemplate></Setter.Value></Setter>
+                        </Style></ListBox.ItemContainerStyle>
+                    </ListBox>
+                </StackPanel>
 
                 <!-- What the last action did, above the player; it clears itself. -->
                 <Border x:Name="ToastHost" VerticalAlignment="Bottom" HorizontalAlignment="Center"
@@ -1106,149 +1237,255 @@
             </Grid>
 
             <!-- ============================== Sidebar ============================== -->
+            <!-- Consume the dismissing click so covered music controls cannot activate. -->
+            <Border x:Name="SidebarDismissLayer" Background="Transparent" Visibility="Collapsed"
+                    Tapped="OnDismissSidebar" AutomationProperties.AccessibilityView="Raw" />
             <Border x:Name="Sidebar" HorizontalAlignment="Left" Width="280" Margin="8"
                     CornerRadius="14" Background="{ThemeResource GoosicSidebarAcrylicBrush}"
                     BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}">
-                <Grid Padding="10,48,10,10" RowSpacing="8">
+                <Grid x:Name="SidebarLayout" Padding="7,8,7,8" RowSpacing="4">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
+                    <Border x:Name="SidebarSelectionIndicator" Grid.RowSpan="5" Width="3" Height="16" CornerRadius="2"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Background="{ThemeResource GoosicNavigationAccentBrush}"
+                            Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw" Canvas.ZIndex="10" />
 
-                    <AutoSuggestBox x:Name="SidebarSearch" Grid.Row="0" PlaceholderText="Search"
-                                    QueryIcon="Find" QuerySubmitted="OnSearchSubmitted"
-                                    TextChanged="OnSearchTextChanged" GotFocus="OnSearchGotFocus" Margin="2,0,2,4" />
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
+                    <Grid Height="36" Margin="11,0,11,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="26" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Image Width="26" Height="26" Source="ms-appx:///Assets/Goosic.png"
+                               AutomationProperties.AccessibilityView="Raw" />
+                        <TextBlock x:Name="SidebarBrandName" Grid.Column="1" Text="Goosic" FontSize="18" Margin="9,0,0,0"
+                                   FontWeight="Normal" VerticalAlignment="Center" />
+                    </Grid>
+                    <Button x:Name="SidebarToggle" Grid.Row="1" Style="{StaticResource SidebarGlyphStyle}"
+                            Content="&#xE700;" HorizontalAlignment="Left" Width="48" Height="44" FontSize="16"
+                            ToolTipService.ToolTip="Collapse sidebar (Ctrl+B)"
+                            AutomationProperties.Name="Collapse sidebar" Click="OnToggleSidebar" />
+                    <ToggleButton x:Name="SidebarSearchButton" Grid.Row="2" Style="{StaticResource SidebarRailItemStyle}"
+                                  Tag="search" Margin="0,0,0,4" Visibility="Collapsed"
+                                  ToolTipService.ToolTip="Search (Ctrl+F)" AutomationProperties.Name="Search" Click="OnNavigate">
+                        <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE721;" />
+                    </ToggleButton>
+                    <ToggleButton x:Name="SidebarSearchTab" Grid.Row="2" Style="{StaticResource SidebarNavigationStyle}"
+                                  Tag="search" Margin="0,0,0,4" ToolTipService.ToolTip="Search (Ctrl+F)"
+                                  AutomationProperties.Name="Search" Click="OnNavigate">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE721;" />
+                            <TextBlock Grid.Column="1" Text="Search" TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                    </ToggleButton>
+
+                    <ScrollViewer x:Name="SidebarNavigation" ViewChanged="OnSidebarNavigationScrolled" Grid.Row="3" VerticalScrollBarVisibility="Auto">
                         <StackPanel x:Name="SidebarItems" Spacing="1">
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="home" Click="OnNavigate" AutomationProperties.Name="Home">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="home" Click="OnNavigate" AutomationProperties.Name="Home" ToolTipService.ToolTip="Home">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE80F;" />
-                                    <TextBlock Text="Home" />
-                                </StackPanel>
-                            </Button>
+                                    <TextBlock Grid.Column="1" Text="Home" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
 
                             <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Discover" />
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="explore" Click="OnNavigate" AutomationProperties.Name="Explore">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="explore" Click="OnNavigate" AutomationProperties.Name="Explore" ToolTipService.ToolTip="Explore">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE774;" />
-                                    <TextBlock Text="Explore" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="charts" Click="OnNavigate" AutomationProperties.Name="Charts">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Grid.Column="1" Text="Explore" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="charts" Click="OnNavigate" AutomationProperties.Name="Charts" ToolTipService.ToolTip="Charts">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE9D2;" />
-                                    <TextBlock Text="Charts" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="moodsAndGenres" Click="OnNavigate" AutomationProperties.Name="Moods &amp; genres">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Grid.Column="1" Text="Charts" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="moodsAndGenres" Click="OnNavigate" AutomationProperties.Name="Moods &amp; genres" ToolTipService.ToolTip="Moods &amp; genres">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE8D6;" />
-                                    <TextBlock Text="Moods &amp; genres" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="newReleases" Click="OnNavigate" AutomationProperties.Name="New releases">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Grid.Column="1" Text="Moods &amp; genres" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="newReleases" Click="OnNavigate" AutomationProperties.Name="New releases" ToolTipService.ToolTip="New releases">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE734;" />
-                                    <TextBlock Text="New releases" />
-                                </StackPanel>
-                            </Button>
+                                    <TextBlock Grid.Column="1" Text="New releases" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
 
                             <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Library" />
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="liked" Click="OnNavigate" AutomationProperties.Name="Liked Music">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="liked" Click="OnNavigate" AutomationProperties.Name="Liked Music" ToolTipService.ToolTip="Liked Music">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xEB51;" />
-                                    <TextBlock Text="Liked Music" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_library_corpus_track_artists" Click="OnNavigate" AutomationProperties.Name="Artists">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Grid.Column="1" Text="Liked Music" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="library:FEmusic_library_corpus_track_artists" Click="OnNavigate" AutomationProperties.Name="Artists" ToolTipService.ToolTip="Artists">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE77B;" />
-                                    <TextBlock Text="Artists" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_liked_albums" Click="OnNavigate" AutomationProperties.Name="Albums">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Grid.Column="1" Text="Artists" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="library:FEmusic_liked_albums" Click="OnNavigate" AutomationProperties.Name="Albums" ToolTipService.ToolTip="Albums">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE93C;" />
-                                    <TextBlock Text="Albums" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="history" Click="OnNavigate" AutomationProperties.Name="History">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Grid.Column="1" Text="Albums" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="history" Click="OnNavigate" AutomationProperties.Name="History" ToolTipService.ToolTip="History">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE81C;" />
-                                    <TextBlock Text="History" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="downloads" Click="OnNavigate" AutomationProperties.Name="Downloads">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <TextBlock Grid.Column="1" Text="History" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="downloads" Click="OnNavigate" AutomationProperties.Name="Downloads" ToolTipService.ToolTip="Downloads">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE896;" />
-                                    <TextBlock Text="Downloads" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="settings" Click="OnNavigate" AutomationProperties.Name="Settings">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE713;" />
-                                    <TextBlock Text="Settings" />
-                                </StackPanel>
-                            </Button>
+                                    <TextBlock Grid.Column="1" Text="Downloads" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
 
                             <Grid Margin="0,0,4,0">
                                 <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Playlists" />
                                 <Button Style="{StaticResource SidebarGlyphStyle}" HorizontalAlignment="Right"
                                         VerticalAlignment="Bottom" Content="&#xE710;" ToolTipService.ToolTip="New playlist"
+                                        AutomationProperties.Name="New playlist"
                                         Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnNewPlaylist" />
                             </Grid>
-                            <Button Style="{StaticResource SidebarItemStyle}" Tag="library:FEmusic_liked_playlists" Click="OnNavigate" AutomationProperties.Name="All Playlists">
-                                <StackPanel Orientation="Horizontal" Spacing="12">
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="library:FEmusic_liked_playlists" Click="OnNavigate" AutomationProperties.Name="All Playlists" ToolTipService.ToolTip="All Playlists">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xF0E2;" />
-                                    <TextBlock Text="All Playlists" />
-                                </StackPanel>
-                            </Button>
-                            <ItemsControl ItemsSource="{x:Bind Model.UserPlaylists, Mode=OneWay}">
+                                    <TextBlock Grid.Column="1" Text="All Playlists" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
+                            <ItemsControl x:Name="SidebarPlaylists" ItemsSource="{x:Bind Model.UserPlaylists, Mode=OneWay}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:PlaylistSummaryViewModel">
-                                        <Button Style="{StaticResource SidebarItemStyle}" Padding="8,5"
-                                                Tag="{x:Bind ActivationTag}" Click="OnSidebarPlaylist"
+                                        <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Padding="12,8"
+                                                Tag="{x:Bind ActivationTag}" Click="OnSidebarPlaylist" Loaded="OnSidebarPlaylistLoaded"
                                                 AutomationProperties.Name="{x:Bind Title}"
                                                 ToolTipService.ToolTip="{x:Bind Title}">
-                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <Grid ColumnSpacing="10">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="24" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
                                                 <Border Width="24" Height="24" CornerRadius="4"
                                                         Background="{ThemeResource GoosicRaisedStrongBrush}">
                                                     <Image Source="{x:Bind Artwork, Mode=OneWay}" Stretch="UniformToFill" />
                                                 </Border>
-                                                <TextBlock Text="{x:Bind Title}" VerticalAlignment="Center"
-                                                           TextTrimming="CharacterEllipsis" MaxWidth="200" />
-                                            </StackPanel>
-                                        </Button>
+                                                <TextBlock Grid.Column="1" Text="{x:Bind Title}" VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </Grid>
+                                        </ToggleButton>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Goosic" />
+                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="settings" Click="OnNavigate" AutomationProperties.Name="Settings" ToolTipService.ToolTip="Settings">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE713;" />
+                                    <TextBlock Grid.Column="1" Text="Settings" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ToggleButton>
                         </StackPanel>
                     </ScrollViewer>
 
-                    <Grid Grid.Row="2" ColumnSpacing="4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
+                    <ScrollViewer x:Name="SidebarRail" ViewChanged="OnSidebarNavigationScrolled" Grid.Row="3" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden"
+                                  HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+                        <StackPanel x:Name="SidebarRailItems" Spacing="0">
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="home" Click="OnNavigate"
+                                          AutomationProperties.Name="Home" ToolTipService.ToolTip="Home">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE80F;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="explore" Click="OnNavigate"
+                                          AutomationProperties.Name="Explore" ToolTipService.ToolTip="Explore">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE774;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="charts" Click="OnNavigate"
+                                          AutomationProperties.Name="Charts" ToolTipService.ToolTip="Charts">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE9D2;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="moodsAndGenres" Click="OnNavigate"
+                                          AutomationProperties.Name="Moods &amp; genres" ToolTipService.ToolTip="Moods &amp; genres">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE8D6;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="newReleases" Click="OnNavigate"
+                                          AutomationProperties.Name="New releases" ToolTipService.ToolTip="New releases">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE734;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="liked" Click="OnNavigate"
+                                          AutomationProperties.Name="Liked Music" ToolTipService.ToolTip="Liked Music">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xEB51;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="library:FEmusic_library_corpus_track_artists" Click="OnNavigate"
+                                          AutomationProperties.Name="Artists" ToolTipService.ToolTip="Artists">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE77B;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="library:FEmusic_liked_albums" Click="OnNavigate"
+                                          AutomationProperties.Name="Albums" ToolTipService.ToolTip="Albums">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE93C;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="history" Click="OnNavigate"
+                                          AutomationProperties.Name="History" ToolTipService.ToolTip="History">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE81C;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="downloads" Click="OnNavigate"
+                                          AutomationProperties.Name="Downloads" ToolTipService.ToolTip="Downloads">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE896;" />
+                            </ToggleButton>
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="library:FEmusic_liked_playlists" Click="OnNavigate"
+                                          AutomationProperties.Name="All Playlists" ToolTipService.ToolTip="All Playlists">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xF0E2;" />
+                            </ToggleButton>
+                            <Button Style="{StaticResource SidebarGlyphStyle}" Width="48" Content="&#xE710;"
+                                    AutomationProperties.Name="New playlist" ToolTipService.ToolTip="New playlist"
+                                    Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnNewPlaylist" />
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="settings" Click="OnNavigate"
+                                          AutomationProperties.Name="Settings" ToolTipService.ToolTip="Settings">
+                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE713;" />
+                            </ToggleButton>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <Grid Grid.Row="4" Margin="0,8,0,0">
                         <Button x:Name="AccountButton" Style="{StaticResource SidebarItemStyle}" Click="OnAccount"
+                                Padding="8" MinWidth="0" MinHeight="48" HorizontalContentAlignment="Stretch"
                                 IsEnabled="{x:Bind Model.IsAccountIdle, Mode=OneWay}"
                                 AutomationProperties.Name="{x:Bind Model.AccountName, Mode=OneWay}"
                                 ToolTipService.ToolTip="{x:Bind Model.AccountName, Mode=OneWay}">
-                            <Grid ColumnSpacing="10">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Border Width="36" Height="36" CornerRadius="18" Background="{StaticResource GoosicAccentBrush}">
+                                <Border Width="32" Height="32" CornerRadius="16" Background="{ThemeResource GoosicNavigationAccentBrush}">
                                     <Grid>
                                         <TextBlock Text="{x:Bind Model.AccountInitials, Mode=OneWay}" Foreground="White"
                                                    FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         <Image Source="{x:Bind Model.AccountArtwork, Mode=OneWay}" Stretch="UniformToFill" />
                                     </Grid>
                                 </Border>
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <StackPanel x:Name="AccountDetails" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center">
                                     <TextBlock Text="{x:Bind Model.AccountName, Mode=OneWay}" FontWeight="SemiBold"
                                                TextTrimming="CharacterEllipsis" />
                                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -1557,10 +1794,6 @@
         -->
         <Border x:Name="TitleBarStrip" Height="46" VerticalAlignment="Top" Margin="60,0,0,0"
                 Background="Transparent" />
-        <Button x:Name="SidebarToggle" Style="{StaticResource SidebarToggleStyle}" Content="&#xE8A0;"
-                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="18,14,0,0"
-                ToolTipService.ToolTip="Show or hide the sidebar (Ctrl+B)"
-                AutomationProperties.Name="Show or hide sidebar" Click="OnToggleSidebar" />
         <Button x:Name="BackButton" Style="{StaticResource SidebarToggleStyle}" Content="&#xE72B;"
                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="58,14,0,0"
                 Visibility="Collapsed" ToolTipService.ToolTip="Back (Alt+←)"

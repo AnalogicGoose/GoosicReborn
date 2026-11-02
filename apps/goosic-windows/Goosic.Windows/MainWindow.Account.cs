@@ -56,9 +56,7 @@ public sealed partial class MainWindow : Window
         AccountFlyout.Hide();
         if (sender is Button { Tag: string route })
         {
-            DismissOverlaySidebar();
-            await Model.LoadRouteAsync(route);
-            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+            await NavigateAsync(route);
         }
     }
 
@@ -82,7 +80,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnSidebarPlaylist(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string tag } && tag.Split(ShellViewModel.KeySeparator) is { Length: 3 } parts)
+        if (sender is FrameworkElement { Tag: string tag } && tag.Split(ShellViewModel.KeySeparator) is { Length: 3 } parts)
         {
             DismissOverlaySidebar();
             await OpenAsync(parts[0], parts[1], parts[2]);
@@ -91,6 +89,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnNewPlaylist(object sender, RoutedEventArgs e)
     {
+        DismissOverlaySidebar();
         await NewPlaylistAsync(null);
     }
 
