@@ -113,11 +113,52 @@ compact arrangement; opening a temporary control must not select a different arr
 
 ## Navigation and account placement
 
-The leading navigation presents Search and Home first, followed by Discover, Library,
-Playlists and Goosic groups. Discover contains Explore, Charts, Moods & genres and New releases.
+The leading navigation presents Search and Home first, followed by Discover, Library and
+Playlists groups. Discover contains Explore, Charts, Moods & genres and New releases.
 Library exposes Liked Music, Artists, Albums, History and Downloads. Playlists contains All
-Playlists and account playlist entries with their artwork. Settings belongs to Goosic. Account
-identity and account actions anchor the bottom of navigation.
+Playlists and account playlist entries with their artwork. Settings is not a navigation row:
+it opens from the account menu and from the platform's own settings command. Account identity
+and account actions anchor the bottom of navigation.
+
+The November 2, 2026 sidebar reference adds a compact icon rail and an expanded navigation
+panel. Keep the Goosic identity at the top, a menu action below it, Search before Home, and the
+account avatar anchored at the bottom in both arrangements. Expanded navigation shows group
+labels, destination names and account status. The Goosic name uses regular font weight. Search
+is a navigation tab with a magnifying-glass icon and an expanded label, matching macOS; its
+query field belongs to the main Search page rather than the sidebar. Selecting Search or using
+the search shortcut opens that page and focuses its floating field, preserving the query and
+category when returning. The compact Search icon opens the same page without expanding the
+sidebar. Compact navigation keeps named, keyboard-reachable icons with tooltips. Windows rail
+shortcuts mirror the expanded destinations in the same order: Home; Explore, Charts, Moods &
+genres, New releases; Liked Music, Artists, Albums, History, Downloads; All Playlists; Settings.
+Search stays above Home. These are individual icon actions with matching glyphs, names and
+tooltips, rather than aggregate Discover or Library buttons. Collapsed icons use uniform spacing
+without the expanded sidebar's section-heading gaps. New playlist remains available as a named plus icon
+when signed in. The destinations scroll at short heights while account identity stays anchored
+at the bottom. Every shortcut navigates directly without asking for the same choice again.
+Only the menu action expands navigation, starting at its top. Selecting the current destination
+closes the panel without reloading it. Use a rounded selection fill and a short leading accent marker, with focus and
+hover distinct from selection. Compact icons keep the same restrained visual size as expanded
+navigation icons, within full-size hit targets. Align icon centers, brand artwork and the
+account avatar on one leading axis; hide label spacing along with its text so neither the
+avatar nor the brand artwork is clipped. Keep Search and Home at the same vertical positions
+when navigation collapses to icons. Long labels truncate inside their available
+column, with the full name accessible. Collapsing navigation changes presentation only: it preserves
+the route, query, account, queue, playback position and mounted renderer.
+
+Windows adapts this with WinUI buttons, Fluent glyphs and theme-aware Acrylic, a 64-logical-pixel
+rail and an expanded panel of about 280 pixels. The rail is the default on every launch. The
+expanded panel opens only through the explicit menu action, overlays the canvas at
+every window width, and returns to the rail after a destination is chosen, an outside click,
+or Escape. Expansion is temporary and is not restored with window placement. Content and the
+player keep their rail-layout positions while the panel is open. The rail reserves enough content
+space to keep the player's essential actions reachable. Goosic's Discover and Library groups
+retain their actual destinations, and account playlists and creation remain accessible through
+the expanded panel. The reference does not add Apple Music destinations or replace the current
+floating search and player treatment. Both sidebar states share the same theme-aware Acrylic
+and solid accessibility fallback. Expansion uses a brief compositor reveal without stretching
+icons or moving the page/player; system Reduce Motion, app Reduce Motion and Efficiency mode
+disable it. Adoption on macOS and GTK remains pending.
 
 Selection uses a restrained rounded row highlight and readable emphasis. Distinguish selected
 navigation from hover and keyboard focus. The navigation list may scroll while its account
@@ -181,6 +222,18 @@ The search field is a centered pill containing a search icon, query, clear actio
 and a submit action. Enter submits; clear returns to discovery/recent-query state. Existing
 recent queries are real stored queries, not invented song results. Recently searched cards and
 browse destinations give the empty-query page useful content without fake recommendations.
+
+Windows uses a restrained rounded rectangle with an 8-logical-pixel corner radius for the
+search field, following the user's Windows-specific correction; macOS retains its capsule.
+Placeholder and entered text are vertically centered with the leading glyph and submit action.
+The Windows landing page follows the macOS composition: no extra Search title or explanatory
+subtitle above discovery; a centered field with a leading search glyph and explicit submit
+action; a visible horizontal native single-selection category list; then recent-query cards
+and colored browse cards. Recent queries use roughly 240-by-80 cards with a history glyph,
+two-line titles and a Clear action in the section heading. Browse cards are about 150 high,
+with a restrained color gradient, a large decorative native glyph and a bottom-leading title.
+Explore is blue, Charts orange, Moods & genres purple and New releases pink. Their grid adapts
+to available space without turning into window-wide strips. Contrast themes use system brushes.
 
 All, Songs, Albums, Artists, Playlists and Videos form one native single-selection category
 control. Selected state must be visible and accessible. macOS uses its native segmented picker;
@@ -268,7 +321,14 @@ presentation changes must not accidentally stop or restart playback.
 
 ## Settings, feedback and loading
 
-Settings use readable groups with a title/icon, label, concise explanation and native control.
+Settings live in their own window or dialog, apart from the main window, so changing one never
+takes the user away from what is playing. Changes apply as they are made and are saved by the
+shared model, so there is no Cancel or OK behind which an edit could be lost. On macOS this is
+the standard Settings window, reached with ⌘, and from the account menu: a toolbar of tabs
+(General, Playback, Accounts, Advanced) over right-aligned group labels with checkboxes and
+pop-up menus, as Music's is, with Goosic's accent on the checkmarks only.
+
+Settings use readable groups with a label, concise explanation and native control.
 Organize by connection/updates, playback, appearance or startup behavior, integrations,
 advanced diagnostics and accounts as appropriate to actual capability. Do not distribute a
 platform-only setting to another shell as a dead control. Shared settings such as autoplay,
@@ -291,6 +351,32 @@ use saved content to imply a successful refresh.
 
 ## Accessibility, motion and performance
 
+The November 2 Apple Music video is a motion reference for page fades,
+sidebar hover/selection feedback and native account-menu opening
+and closing. Adapt those effects to existing Goosic destinations and controls; the clip does
+not request new settings pages, Apple account actions or a different player placement. Added
+motion excludes album artwork. Navigation and selection remain usable while effects run,
+and system/app reduced motion and Efficiency mode disable added transitions.
+
+The 03:15:05 recording is the corrected motion authority, inspected as 71 uncropped frames at
+30 fps. The selected sidebar indicator stretches toward the destination, then its trailing
+edge catches up and contracts; it is not a fixed-height line translating between tabs. The
+observed transition occupies about 0.47–0.80 seconds. The page title remains stationary while
+section headings and individual content items rise and become visible, with smaller starting
+offsets for headings than for cards and rows. The content entrance occupies roughly
+0.80–1.03 seconds. Windows uses about 22 logical pixels for section headings and 44 for items,
+with a 240 ms decelerating arrival, driven by actual view arrival rather than a delayed page-wide
+fade or fabricated loading sequence. Rapid selection changes retarget the same indicator.
+Skeletons appear only while the page has no content, including during cached or partial
+refreshes; they must not remain above already loaded shelves. Independent artwork arrival
+effects remain excluded. Reduced motion uses immediate final geometry and full opacity.
+
+Feed navigation prepares the destination before replacing the current canvas. Commit one
+complete response and run the arrival once; do not first animate cached shelves and then
+clear/recreate them when a refresh completes. The current feed remains usable while fetching.
+Newer navigation or an account change invalidates an earlier pending response. Failures have
+an honest destination error/retry state instead of replaying the entrance or leaving a skeleton.
+
 Every icon action has a meaningful accessible name, suitable native hit target and keyboard
 path. Single-selection controls expose their selection; disabled actions reflect actual
 availability. Focus is distinct from selection, visible but restrained, and dismissible where
@@ -305,8 +391,9 @@ state transition on other systems. Other player controls share press/state feedb
 current macOS control transitions are about 180–280 ms; native timing can adapt. Apply the most
 restrictive request from system Reduce Motion and the app preference. Efficiency modes may
 suppress decorative motion too. Do not animate layout on playback ticks or resize the whole
-page for a small glyph transition. Full-player presentation fades rather than exposing clipped
-window edges during scaling.
+page for a small glyph transition. The full player slides up from the bottom edge as one
+surface, artwork included, as Music's does, rather than fading or scaling, which exposed clipped
+window edges; with reduced motion it appears without the slide.
 
 Fetch, artwork decoding, palette sampling and blur must not block the UI thread. Use bounded
 work queues, cached/downsampled artwork and targeted view invalidation. Avoid a whole-shell
