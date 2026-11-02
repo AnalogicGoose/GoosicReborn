@@ -53,7 +53,9 @@ pub fn is_allowed(url: &str) -> bool {
 /// from it cannot climb out of the cache directory whatever the URL contained.
 pub fn cache_key(remote: &str) -> String {
     fn fnv1a(bytes: impl Iterator<Item = u8>, seed: u64) -> u64 {
-        bytes.fold(seed, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3))
+        bytes.fold(seed, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
+        })
     }
     let bytes = remote.as_bytes();
     let low = fnv1a(bytes.iter().copied(), 0xcbf2_9ce4_8422_2325);
@@ -71,7 +73,10 @@ mod tests {
         assert!(is_allowed("https://lh3.googleusercontent.com/abc"));
         assert!(is_allowed("https://i.ytimg.com/vi/abc/hq.jpg"));
         assert!(is_allowed("https://yt3.ggpht.com/abc"));
-        assert!(is_allowed("https://googleusercontent.com/art.jpg"), "the bare domain itself");
+        assert!(
+            is_allowed("https://googleusercontent.com/art.jpg"),
+            "the bare domain itself"
+        );
         assert!(is_allowed(
             "https://www.gstatic.com/youtube/media/ytm/images/pbg/liked-music-@576.png"
         ));
@@ -95,7 +100,9 @@ mod tests {
     fn suffix_lookalikes_do_not_slip_through() {
         assert!(!is_allowed("https://evilgoogleusercontent.com/art.jpg"));
         assert!(!is_allowed("https://notytimg.com/art.jpg"));
-        assert!(!is_allowed("https://googleusercontent.com.evil.test/art.jpg"));
+        assert!(!is_allowed(
+            "https://googleusercontent.com.evil.test/art.jpg"
+        ));
     }
 
     #[test]

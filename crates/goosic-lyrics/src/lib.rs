@@ -9,8 +9,8 @@
 //! Like the catalog, this crate answers a read-only question and can never affect playback
 //! ownership.
 
-pub mod parse;
 mod lyricsfile;
+pub mod parse;
 
 use std::sync::Mutex;
 use std::time::Duration;
@@ -115,16 +115,34 @@ fn falls_back_to_search(error: &LyricsError) -> bool {
 /// Search used to accept only synced results, so a song LRCLIB held as plain text was reported
 /// as having no lyrics at all.
 fn best_search_result(records: Vec<LrclibRecord>) -> Option<LrclibRecord> {
-    records.into_iter().filter_map(|record| {
-        let document = LyricsClient::document_ref(&record)?;
-        let rank = if document.lines.iter().any(|line| !line.words.is_empty()) { 3 }
-            else if document.synced { 2 }
-            else if !record.instrumental && document.lines.first().is_some_and(|line| line.text != "♪ Instrumental") { 1 }
-            else { 0 };
-        Some((rank, record))
-    }).fold(None, |best: Option<(u8, LrclibRecord)>, candidate| {
-        if best.as_ref().is_none_or(|(rank, _)| candidate.0 > *rank) { Some(candidate) } else { best }
-    }).map(|(_, record)| record)
+    records
+        .into_iter()
+        .filter_map(|record| {
+            let document = LyricsClient::document_ref(&record)?;
+            let rank = if document.lines.iter().any(|line| !line.words.is_empty()) {
+                3
+            } else if document.synced {
+                2
+            } else if !record.instrumental
+                && document
+                    .lines
+                    .first()
+                    .is_some_and(|line| line.text != "♪ Instrumental")
+            {
+                1
+            } else {
+                0
+            };
+            Some((rank, record))
+        })
+        .fold(None, |best: Option<(u8, LrclibRecord)>, candidate| {
+            if best.as_ref().is_none_or(|(rank, _)| candidate.0 > *rank) {
+                Some(candidate)
+            } else {
+                best
+            }
+        })
+        .map(|(_, record)| record)
 }
 
 /// Live lyrics lookups. Held by the service for its process lifetime.
@@ -172,7 +190,8 @@ impl LyricsClient {
             ));
         }
         let key = Self::cache_key(query);
-        if let Some((cached_key, document)) = self.cached.lock().ok().and_then(|slot| slot.clone()) {
+        if let Some((cached_key, document)) = self.cached.lock().ok().and_then(|slot| slot.clone())
+        {
             if cached_key == key {
                 return Ok(document);
             }
@@ -273,7 +292,9 @@ impl LyricsClient {
 
     fn document_ref(record: &LrclibRecord) -> Option<LyricsDocument> {
         if let Some(source) = record.lyricsfile.as_deref() {
-            if let Some(document) = lyricsfile::parse(source) { return Some(document); }
+            if let Some(document) = lyricsfile::parse(source) {
+                return Some(document);
+            }
         }
         if record.instrumental {
             return Some(LyricsDocument {
@@ -308,10 +329,15 @@ impl LyricsClient {
         let original = lines.len();
         // Reserve space for the response envelope below every native client's 256 KiB limit.
         let mut bytes = 128;
-        let retained = lines.iter().take(MAX_LINES_ON_THE_WIRE).take_while(|line| {
-            bytes += serde_json::to_vec(line).map_or(usize::MAX / 2, |encoded| encoded.len() + 1);
-            bytes <= 200 * 1024
-        }).count();
+        let retained = lines
+            .iter()
+            .take(MAX_LINES_ON_THE_WIRE)
+            .take_while(|line| {
+                bytes +=
+                    serde_json::to_vec(line).map_or(usize::MAX / 2, |encoded| encoded.len() + 1);
+                bytes <= 200 * 1024
+            })
+            .count();
         let truncated = retained < original;
         lines.truncate(retained);
         LyricsDocument {
@@ -437,12 +463,18 @@ mod tests {
 
     #[test]
     fn lyricsfile_precedes_legacy_fields_and_search_prefers_real_words() {
-        let rich = || LrclibRecord { lyricsfile: Some(lyricsfile::tests::WORDS.into()),
-            synced_lyrics: Some("[00:01.00]Legacy".into()), plain_lyrics: None, instrumental: false };
+        let rich = || LrclibRecord {
+            lyricsfile: Some(lyricsfile::tests::WORDS.into()),
+            synced_lyrics: Some("[00:01.00]Legacy".into()),
+            plain_lyrics: None,
+            instrumental: false,
+        };
         let document = LyricsClient::document(rich()).unwrap();
         assert_eq!(document.lines[0].text, "Hello world");
         assert!(!document.lines[0].words.is_empty());
-        let chosen = best_search_result(vec![record(Some("[00:01.00]Legacy"), None, false), rich()]).unwrap();
+        let chosen =
+            best_search_result(vec![record(Some("[00:01.00]Legacy"), None, false), rich()])
+                .unwrap();
         assert!(chosen.lyricsfile.is_some());
     }
 
@@ -450,7 +482,10 @@ mod tests {
     fn broken_lyricsfile_uses_legacy_fallback_without_poisoning_search() {
         let mut broken = record(Some("[00:01.00]Legacy"), Some("Plain"), false);
         broken.lyricsfile = Some("version: '2.0'".into());
-        assert_eq!(LyricsClient::document_ref(&broken).unwrap().lines[0].text, "Legacy");
+        assert_eq!(
+            LyricsClient::document_ref(&broken).unwrap().lines[0].text,
+            "Legacy"
+        );
         let mut empty = record(None, None, false);
         empty.lyricsfile = Some("invalid: yaml".into());
         assert!(best_search_result(vec![empty, broken]).is_some());
@@ -458,11 +493,18 @@ mod tests {
 
     #[test]
     fn word_rich_documents_fit_the_native_frame_limit_and_report_truncation() {
-        let mut line = lyricsfile::parse(lyricsfile::tests::WORDS).unwrap().lines.remove(0);
+        let mut line = lyricsfile::parse(lyricsfile::tests::WORDS)
+            .unwrap()
+            .lines
+            .remove(0);
         line.text = "x".repeat(512);
-        line.words = (0..128).map(|index| goosic_protocol::LyricsWord {
-            at_ms: index * 1000, end_ms: Some(index * 1000 + 900), text: "xxxx".into()
-        }).collect();
+        line.words = (0..128)
+            .map(|index| goosic_protocol::LyricsWord {
+                at_ms: index * 1000,
+                end_ms: Some(index * 1000 + 900),
+                text: "xxxx".into(),
+            })
+            .collect();
         let document = LyricsClient::clamp(vec![line; 900], true);
         assert!(document.truncated);
         assert!(serde_json::to_vec(&document).unwrap().len() < 201 * 1024);
