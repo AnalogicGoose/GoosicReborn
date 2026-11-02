@@ -29,9 +29,16 @@ public sealed partial class ShellViewModel
     private sealed record PreparedFeed(CatalogPage? Page, Exception? Error,
         (string BrowseId, string Title, string Shape)? PersonalSource);
 
+    /// <summary>
+    /// The page on screen was cleared for a navigation that has not committed yet. Until one does,
+    /// the current destination's content is gone, so choosing it again must reload it.
+    /// </summary>
+    internal bool PageClearedForPendingNavigation { get; private set; }
+
     /// <summary>Replaces the old page with the destination's loading state while its answer is late.</summary>
     private void ShowNavigationPending(string route)
     {
+        PageClearedForPendingNavigation = true;
         ClearPageArtwork();
         Shelves.Clear();
         Tracks.Clear();
