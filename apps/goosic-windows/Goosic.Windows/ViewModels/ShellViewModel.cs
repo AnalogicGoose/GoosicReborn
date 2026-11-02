@@ -1549,6 +1549,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private void Remember(string key, bool remember)
     {
         ++_pageContentRevision;
+        PageClearedForPendingNavigation = false;
         if (remember && !string.Equals(key, _currentRoute, StringComparison.Ordinal))
         {
             _routeHistory.Push(_currentRoute);
