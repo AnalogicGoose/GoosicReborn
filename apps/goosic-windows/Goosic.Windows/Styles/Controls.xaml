@@ -164,9 +164,6 @@
                                           HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
                                           VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
                                           Foreground="{TemplateBinding Foreground}" />
-                        <Border x:Name="SelectionMarker" Width="3" Height="20" CornerRadius="2"
-                                HorizontalAlignment="Left" VerticalAlignment="Center"
-                                Background="{ThemeResource GoosicNavigationAccentBrush}" Opacity="0" />
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
                                 <VisualState x:Name="Normal" />

@@ -60,10 +60,6 @@ public sealed partial class MainWindow : Window
 
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
-        if (Model.IsSettingsPage)
-        {
-            PlayPageEntrance();
-        }
     }
 
     /// <summary>Marks the sidebar item for the page on screen, as the macOS sidebar selects its row.</summary>
@@ -132,13 +128,11 @@ public sealed partial class MainWindow : Window
         }
         else if (args.PropertyName == nameof(ShellViewModel.IsPageLoading) && Model.IsPageLoading)
         {
-            _catalogArrivalIndex = 0;
             ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         }
         else if (args.PropertyName == nameof(ShellViewModel.IsPageLoading))
         {
             HighlightNavigation(Model.CurrentSidebarDestination);
-            PlayPageEntrance();
         }
     }
 
@@ -354,10 +348,6 @@ public sealed partial class MainWindow : Window
     {
         DismissOverlaySidebar();
         await Model.GoBackAsync();
-        if (Model.IsSettingsPage || Model.ShowsSearchLanding)
-        {
-            PlayPageEntrance();
-        }
         HighlightNavigation(Model.CurrentSidebarDestination);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();

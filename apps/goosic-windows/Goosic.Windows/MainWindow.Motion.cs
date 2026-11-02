@@ -6,9 +6,6 @@ using Goosic.Windows.ViewModels;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Hosting;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Media;
 
 namespace Goosic.Windows;
 
@@ -41,36 +38,8 @@ public sealed partial class MainWindow
         _uiSettings.AnimationsEnabled && !Model.ReduceMotion && !ShellPreferences.EfficiencyMode;
 
     private bool _motionAttached;
+    private bool _motionConfigured;
 
-    private void ApplyNavigationFeedback(bool enabled)
-    {
-        var controls = SidebarItems.Children.OfType<ToggleButton>()
-            .Concat(SidebarRailItems.Children.OfType<ToggleButton>())
-            .Concat([SidebarSearchTab, SidebarSearchButton]);
-        foreach (var control in controls)
-        {
-            control.ApplyTemplate();
-            if (VisualTreeHelper.GetChildrenCount(control) == 0
-                || VisualTreeHelper.GetChild(control, 0) is not FrameworkElement root)
-            {
-                continue;
-            }
-
-            foreach (var group in VisualStateManager.GetVisualStateGroups(root))
-            {
-                group.Transitions.Clear();
-                if (enabled)
-                {
-                    group.Transitions.Add(new VisualTransition
-                    {
-                        GeneratedDuration = new Duration(TimeSpan.FromMilliseconds(120)),
-                    });
-                }
-            }
-        }
-
-        AccountFlyout.AreOpenCloseAnimationsEnabled = enabled;
-    }
     private InsetClip? _sidebarRevealClip;
 
     private void AnimateSidebarExpansion(double previousWidth, bool expanded)
@@ -100,7 +69,6 @@ public sealed partial class MainWindow
         _easeIn = _compositor.CreateCubicBezierEasingFunction(new Vector2(0.7f, 0f), new Vector2(1f, 0.5f));
         WirePlayerPressFeedback();
         ApplyMotion();
-        RootGrid.Loaded += (_, _) => ApplyNavigationFeedback(AnimationsEnabled);
         if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041))
         {
             _uiSettings.AnimationsEnabledChanged += (_, _) => DispatcherQueue.TryEnqueue(ApplyMotion);
@@ -123,27 +91,23 @@ public sealed partial class MainWindow
     private void ApplyMotion()
     {
         var enabled = AnimationsEnabled;
-        if (enabled == _motionAttached)
+        if (_motionConfigured && enabled == _motionAttached)
         {
             return;
         }
 
         _motionAttached = enabled;
-        ApplyNavigationFeedback(enabled);
+        _motionConfigured = true;
+        AccountFlyout.AreOpenCloseAnimationsEnabled = enabled;
+        UpdateSidebarIndicator(immediate: !enabled);
         if (!enabled)
         {
             _sidebarRevealClip?.StopAnimation("RightInset");
-            SidebarSelectionIndicator.TranslationTransition = null;
             foreach (var item in _catalogArrivals.ToArray())
             {
                 OnCatalogItemUnloaded(item, new RoutedEventArgs());
             }
-            foreach (var child in ContentStack.Children)
-            {
-                var childVisual = ElementCompositionPreview.GetElementVisual(child);
-                childVisual.StopAnimation("Opacity");
-                childVisual.Opacity = (float)child.Opacity;
-            }
+
         }
         AttachShowHide(Sidebar, new Vector3(-20, 0, 0));
         AttachShowHide(SidePanel, new Vector3(28, 0, 0));
@@ -357,18 +321,6 @@ public sealed partial class MainWindow
 
         ElementCompositionPreview.SetImplicitShowAnimation(element, show);
         ElementCompositionPreview.SetImplicitHideAnimation(element, hide);
-    }
-
-    /// <summary>The reference reveals content in place while the page heading stays stationary.</summary>
-    private void PlayPageEntrance()
-    {
-        if (_compositor is null) return;
-        ElementCompositionPreview.SetIsTranslationEnabled(ContentStack, true);
-        var page = ElementCompositionPreview.GetElementVisual(ContentStack);
-        page.StopAnimation("Opacity");
-        page.StopAnimation("Translation");
-        page.Opacity = 1;
-        page.Properties.InsertVector3("Translation", Vector3.Zero);
     }
 
     private ScalarKeyFrameAnimation Scalar(string target, float from, float to, TimeSpan duration, CompositionEasingFunction easing)
