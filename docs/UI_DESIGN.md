@@ -350,15 +350,18 @@ not request new settings pages, Apple account actions or a different player plac
 motion excludes album artwork. Navigation and selection remain usable while effects run,
 and system/app reduced motion and Efficiency mode disable added transitions.
 
-The 08:00 reference is reviewed separately, frame by frame: 25 frames at 30 fps over 0.83
-seconds. Its page entrance keeps the heading and content geometry fixed. Content becomes
-visible at about 0.37 seconds and settles over roughly 0.17–0.20 seconds. The Windows page
-entrance must follow the user's clarification: individual song rows and cards settle into
-place as they arrive; there is no whole-page fade. The heading stays stationary. One persistent
-pink sidebar indicator travels to the selected destination instead of separate lines fading
-out and in. Skeletons appear only while the page has no content, including during cached or
-partial refreshes; they must not remain above already loaded shelves. Artwork arrival is not
-an instruction to add artwork effects. Other motion is reviewed one interaction at a time.
+The 03:15:05 recording is the corrected motion authority, inspected as 71 uncropped frames at
+30 fps. The selected sidebar indicator stretches toward the destination, then its trailing
+edge catches up and contracts; it is not a fixed-height line translating between tabs. The
+observed transition occupies about 0.47–0.80 seconds. The page title remains stationary while
+section headings and individual content items rise and become visible, with smaller starting
+offsets for headings than for cards and rows. The content entrance occupies roughly
+0.80–1.03 seconds. Windows uses about 22 logical pixels for section headings and 44 for items,
+with a 240 ms decelerating arrival, driven by actual view arrival rather than a delayed page-wide
+fade or fabricated loading sequence. Rapid selection changes retarget the same indicator.
+Skeletons appear only while the page has no content, including during cached or partial
+refreshes; they must not remain above already loaded shelves. Independent artwork arrival
+effects remain excluded. Reduced motion uses immediate final geometry and full opacity.
 
 Every icon action has a meaningful accessible name, suitable native hit target and keyboard
 path. Single-selection controls expose their selection; disabled actions reflect actual
