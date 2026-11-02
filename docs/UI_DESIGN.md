@@ -128,8 +128,13 @@ query field belongs to the main Search page rather than the sidebar. Selecting S
 the search shortcut opens that page and focuses its floating field, preserving the query and
 category when returning. The compact Search icon opens the same page without expanding the
 sidebar. Compact navigation keeps named, keyboard-reachable icons with tooltips. Windows rail
-shortcuts navigate directly: Discover opens Explore, Library opens its current section, and
-Playlists opens All Playlists. They do not open a menu that asks for the same choice again.
+shortcuts mirror the expanded destinations in the same order: Home; Explore, Charts, Moods &
+genres, New releases; Liked Music, Artists, Albums, History, Downloads; All Playlists; Settings.
+Search stays above Home. These are individual icon actions with matching glyphs, names and
+tooltips, rather than aggregate Discover or Library buttons. Group spacing preserves the
+hierarchy without adding text to the rail. New playlist remains available as a named plus icon
+when signed in. The destinations scroll at short heights while account identity stays anchored
+at the bottom. Every shortcut navigates directly without asking for the same choice again.
 Only the menu action expands navigation, starting at its top. Selecting the current destination
 closes the panel without reloading it. Use a rounded selection fill and a short leading accent marker, with focus and
 hover distinct from selection. Compact icons keep the same restrained visual size as expanded
