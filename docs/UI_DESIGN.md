@@ -205,6 +205,16 @@ playing state has a stable marker that differs from hover. Context menus and key
 expose the same meaningful operations as the visible row. Do not hide an essential operation
 behind pointer hover alone.
 
+A song's menu has the same items, names and order on every platform, wherever the song
+appears: Play, Play Next, Add to Queue and Start Radio (Remove from Queue on a queue row); then
+Like and Dislike with an account; then Go to Artist and Go to Album; then Add to Playlist and,
+on an owned playlist, Remove from Playlist; then Copy Link. Every item carries an icon, since a
+menu where only some rows have one reads as ragged, and labels use title case. Go to Artist and
+Go to Album stay in the menu whenever the song names an artist or album and are dimmed when
+the catalog gave no link, so the menu does not change shape from one song to the next. The
+macOS menus are the reference; Windows draws its flyouts with rounded rows highlighted in the
+accent colour, which is the nearest native equivalent.
+
 Album and playlist pages lead with cover art, title, relevant metadata and primary Play/Pause
 and Shuffle actions. The primary action reflects whether that collection is playing. Ordered
 collections launch ordered queues; discovery selections may resolve a station. Sort and Find
@@ -320,8 +330,12 @@ can occupy the trailing column. The timeline and full transport sit below the ar
 and mini-player actions are grouped at the top leading edge, volume at the top trailing edge,
 and Lyrics/Queue in a bottom trailing capsule. Top and bottom chrome share material and
 appearance. Native toolbar backing must not create an extra light plate behind dark capsules.
-Small individual Like and More actions are circular. Switching presentation preserves the
-same session, track, queue, volume, position and mounted playback host.
+Small individual Like and More actions are circular, side by side after the track metadata;
+More opens the playing song's menu. Switching presentation preserves the
+same session, track, queue, volume, position and mounted playback host. Choosing a page from
+the full player's menu, such as Go to Artist, closes the full player before the page opens,
+because the page would otherwise load unseen behind it; from the mini player it also brings
+the main window back.
 
 Mini player is a compact native listening window with cover, metadata, timeline and core
 transport. Large lyric/queue columns can step aside there, with a route back to the full
