@@ -113,11 +113,12 @@ compact arrangement; opening a temporary control must not select a different arr
 
 ## Navigation and account placement
 
-The leading navigation presents Search and Home first, followed by Discover, Library,
-Playlists and Goosic groups. Discover contains Explore, Charts, Moods & genres and New releases.
+The leading navigation presents Search and Home first, followed by Discover, Library and
+Playlists groups. Discover contains Explore, Charts, Moods & genres and New releases.
 Library exposes Liked Music, Artists, Albums, History and Downloads. Playlists contains All
-Playlists and account playlist entries with their artwork. Settings belongs to Goosic. Account
-identity and account actions anchor the bottom of navigation.
+Playlists and account playlist entries with their artwork. Settings is not a navigation row:
+it opens from the account menu and from the platform's own settings command. Account identity
+and account actions anchor the bottom of navigation.
 
 The November 2, 2026 sidebar reference adds a compact icon rail and an expanded navigation
 panel. Keep the Goosic identity at the top, a menu action below it, Search before Home, and the
@@ -320,7 +321,14 @@ presentation changes must not accidentally stop or restart playback.
 
 ## Settings, feedback and loading
 
-Settings use readable groups with a title/icon, label, concise explanation and native control.
+Settings live in their own window or dialog, apart from the main window, so changing one never
+takes the user away from what is playing. Changes apply as they are made and are saved by the
+shared model, so there is no Cancel or OK behind which an edit could be lost. On macOS this is
+the standard Settings window, reached with ⌘, and from the account menu: a toolbar of tabs
+(General, Playback, Accounts, Advanced) over right-aligned group labels with checkboxes and
+pop-up menus, as Music's is, with Goosic's accent on the checkmarks only.
+
+Settings use readable groups with a label, concise explanation and native control.
 Organize by connection/updates, playback, appearance or startup behavior, integrations,
 advanced diagnostics and accounts as appropriate to actual capability. Do not distribute a
 platform-only setting to another shell as a dead control. Shared settings such as autoplay,
@@ -383,8 +391,9 @@ state transition on other systems. Other player controls share press/state feedb
 current macOS control transitions are about 180–280 ms; native timing can adapt. Apply the most
 restrictive request from system Reduce Motion and the app preference. Efficiency modes may
 suppress decorative motion too. Do not animate layout on playback ticks or resize the whole
-page for a small glyph transition. Full-player presentation fades rather than exposing clipped
-window edges during scaling.
+page for a small glyph transition. The full player slides up from the bottom edge as one
+surface, artwork included, as Music's does, rather than fading or scaling, which exposed clipped
+window edges; with reduced motion it appears without the slide.
 
 Fetch, artwork decoding, palette sampling and blur must not block the UI thread. Use bounded
 work queues, cached/downsampled artwork and targeted view invalidation. Avoid a whole-shell
