@@ -232,7 +232,10 @@ page rather than at an edge. The whole page takes that colour and is drawn in th
 appearance over it, whatever the app's theme: the colour runs unchanged for the hero's height,
 so the hero's foot meets the same colour wherever it has scrolled to, and only then deepens
 toward black down the page. The artist's colour belongs to the page, not only to the rectangle
-the picture occupies. The name is centred near the hero's foot in a large bold weight, with
+the picture occupies. The picture stays where it is while the page scrolls over it: as the hero
+scrolls away the picture blurs, fully by the time half of it has gone, and then dissolves into
+the page colour, so once the hero has left the page is the artist's colour alone. Reduced
+transparency keeps the dissolve and drops the blur. The name is centred near the hero's foot in a large bold weight, with
 upstream's audience line under it when there is one. Under those sit three round buttons: About
 (the description, audience and subscriber count, in a popover) to the left, a larger white Play
 in the middle that plays the top songs in order and pauses them when they are already playing,

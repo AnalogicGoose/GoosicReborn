@@ -4,7 +4,9 @@ An artist page opens with the artist's own picture, in the manner of an Apple Mu
 rather than a heading over a list. [UI_DESIGN.md](UI_DESIGN.md) is the product contract for what
 that looks like; this document is how each shell builds it. The macOS shell has it. Windows and
 Linux have the data already, because it arrives in the service's answer, and need only the
-native drawing described below.
+native drawing described below. The macOS version, in
+`apps/goosic-swift/Sources/GoosicSwift/Platform/macOS/NativeMacArtistHero.swift` and the artist
+branch of `NativeMacCatalogPage`, is the reference when a sentence here is not enough.
 
 ## Where the data comes from
 
@@ -59,11 +61,25 @@ than as an artist's colour.
 
 ## Drawing it
 
-The hero is the first thing on the page, inside the scrolling content so it scrolls away with
-it, and it spans the content area edge to edge: no leading padding, no rounded corners, and it
-runs under the transparent toolbar to the window's top. In order from back to front it holds
-the page colour; the banner, scaled to fill and anchored at its top, so a taller hero crops from
-the foot and keeps faces; a vertical scrim; and the text. The scrim goes from black at 20% at
+The hero is two layers. The picture is in the page's background, fixed at the top of the content
+area, and does not scroll. The name and buttons are the first thing in the scrolling content, a
+transparent block of the same height, so they scroll up over the picture. Both span the content
+area edge to edge: no leading padding, no rounded corners, and they run under the transparent
+toolbar to the window's top, ignoring the same safe-area edges so the two line up. In order from
+back to front the picture layer holds the page colour; the banner, scaled to fill and anchored
+at its top, so a taller hero crops from the foot and keeps faces; and a vertical scrim.
+
+How far the hero has scrolled drives the picture. Call it progress: the distance the hero's top
+has moved above the content area's top, over the hero's height, held between 0 and 1. The
+picture's blur radius is 30 points times progress over 0.5, capped at 30, so it is fully blurred
+by the time half the hero has gone; its opacity is 1 less progress minus 0.3 over 0.6, held
+between 0 and 1, so it starts dissolving at a third and has gone with the hero's foot. Blur
+without letting the picture's edges turn transparent. With reduced transparency the radius is
+0 and only the dissolve remains. Measure progress from something that keeps reporting after the
+hero has left the screen: a virtualising list that recycles the hero's row stops telling you
+where it is, and the picture snaps back to sharp. Redraw only the picture as progress changes,
+never the song list, and round progress to hundredths so a scroll does not redraw it for every
+point moved. The scrim goes from black at 20% at
 the top, to clear at 22%, then through the page colour at 25% at the middle and 85% at 78%, to
 the page colour at the foot, so the picture ends in the page rather than at an edge. With
 increased contrast the stops are 35%, 55% and 95%; with reduced transparency the scrim is an
@@ -116,9 +132,13 @@ colour; a white one gives (118, 118, 118); a 4 by 8 bitmap white above and black
 two rows gives black; and a 12-byte bitmap claiming 2 by 2 gives null, as does an empty one.
 A change to one copy is a change to all three in the same commit.
 
-Draw the hero as the first element of the page's `ItemsRepeater` or list header, so it scrolls
-with the songs, with its width bound to the content area's actual width and its height from
-`ArtistHero.Height`. An `Image` with `Stretch="UniformToFill"` and `VerticalAlignment="Top"`
+Put the picture layer behind the page's `ScrollViewer` and the text block as the first element
+of its content, with widths bound to the content area's actual width and heights from
+`ArtistHero.Height`. Progress comes from the `ScrollViewer`'s `ViewChanging` and `ViewChanged`
+offsets, which keep arriving whether or not the hero is realised; the blur is a Win2D
+`GaussianBlurEffect` with `BorderMode` set to hard, or a Composition `GaussianBlurEffect`
+through `CompositionEffectBrush`, whose radius is an animatable property that can be driven
+from the scroll offset with an `ExpressionAnimation` instead of from code on every change. An `Image` with `Stretch="UniformToFill"` and `VerticalAlignment="Top"`
 inside a clipped `Grid` gives the crop; the scrim is a `LinearGradientBrush` with the stops
 above; the round buttons are `Button`s with a `CornerRadius` of half their size. Load the
 banner through `ArtworkLoader`, which already caches by URL, and sample the tint from a
@@ -140,11 +160,14 @@ directly; it restates nothing.
 The page is a `gtk::ListView` of `PageRow`s built in `src/pages.rs` and drawn by `row_widget`
 in `src/ui.rs`. Add a `PageRow::ArtistHero` variant holding the header, the name, the channel
 and the top songs, emitted first for an artist page in place of the usual heading row, and give
-`same_row` a case for it so a refresh does not rebuild the picture. Draw it as a `gtk::Overlay`
-whose child is a `gtk::Picture` with `ContentFit::Cover` inside a box clipped with
-`set_overflow(gtk::Overflow::Hidden)` and sized from `hero::height`; keep the top anchoring by
-drawing the texture yourself in a custom widget's `snapshot`, as `src/backdrop.rs` already
-does, because `Picture` centres its crop. The scrim is a CSS `linear-gradient` on an overlay
+`same_row` a case for it so a refresh does not rebuild it. That row is the transparent text
+block. The picture belongs behind the list in a `gtk::Overlay`, drawn by a custom widget's
+`snapshot`, as `src/backdrop.rs` already draws the artwork background, so the crop can be
+anchored at the top, which `gtk::Picture` cannot do, and the blur is
+`gtk::Snapshot::push_blur` with the radius from progress. Progress comes from the list's
+`gtk::ScrolledWindow` vertical adjustment, whose `value` keeps changing after the `ListView`
+has recycled the hero row; connect to its `value-changed` and queue a redraw of the picture
+widget alone. The scrim is a CSS `linear-gradient` on an overlay
 box, written with the page colour, and the buttons are `gtk::Button`s with the `circular` style
 class. The row has to break out of the list's usual side margin, so it carries a style class
 that removes it.
