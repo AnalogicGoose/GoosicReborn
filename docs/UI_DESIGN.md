@@ -127,8 +127,11 @@ is a navigation tab with a magnifying-glass icon and an expanded label, matching
 query field belongs to the main Search page rather than the sidebar. Selecting Search or using
 the search shortcut opens that page and focuses its floating field, preserving the query and
 category when returning. The compact Search icon opens the same page without expanding the
-sidebar. Compact navigation keeps named, keyboard-reachable icons with tooltips; opening a
-group can expand the panel to expose its existing destinations. Use a rounded selection fill and a short leading accent marker, with focus and
+sidebar. Compact navigation keeps named, keyboard-reachable icons with tooltips. Windows rail
+shortcuts navigate directly: Discover opens Explore, Library opens its current section, and
+Playlists opens All Playlists. They do not open a menu that asks for the same choice again.
+Only the menu action expands navigation, starting at its top. Selecting the current destination
+closes the panel without reloading it. Use a rounded selection fill and a short leading accent marker, with focus and
 hover distinct from selection. Compact icons keep the same restrained visual size as expanded
 navigation icons, within full-size hit targets. Align icon centers, brand artwork and the
 account avatar on one leading axis; hide label spacing along with its text so neither the
@@ -139,14 +142,17 @@ the route, query, account, queue, playback position and mounted renderer.
 
 Windows adapts this with WinUI buttons, Fluent glyphs and theme-aware Acrylic, a 64-logical-pixel
 rail and an expanded panel of about 280 pixels. The rail is the default on every launch. The
-expanded panel opens only through an explicit menu or group action, overlays the canvas at
+expanded panel opens only through the explicit menu action, overlays the canvas at
 every window width, and returns to the rail after a destination is chosen, an outside click,
 or Escape. Expansion is temporary and is not restored with window placement. Content and the
 player keep their rail-layout positions while the panel is open. The rail reserves enough content
 space to keep the player's essential actions reachable. Goosic's Discover and Library groups
 retain their actual destinations, and account playlists and creation remain accessible through
 the expanded panel. The reference does not add Apple Music destinations or replace the current
-floating search and player treatment. Adoption on macOS and GTK remains pending.
+floating search and player treatment. Both sidebar states share the same theme-aware Acrylic
+and solid accessibility fallback. Expansion uses a brief compositor reveal without stretching
+icons or moving the page/player; system Reduce Motion, app Reduce Motion and Efficiency mode
+disable it. Adoption on macOS and GTK remains pending.
 
 Selection uses a restrained rounded row highlight and readable emphasis. Distinguish selected
 navigation from hover and keyboard focus. The navigation list may scroll while its account
