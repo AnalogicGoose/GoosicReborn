@@ -119,6 +119,23 @@ Library exposes Liked Music, Artists, Albums, History and Downloads. Playlists c
 Playlists and account playlist entries with their artwork. Settings belongs to Goosic. Account
 identity and account actions anchor the bottom of navigation.
 
+The November 2, 2026 sidebar reference adds a compact icon rail and an expanded navigation
+panel. Keep the Goosic identity at the top, a menu action below it, Search before Home, and the
+account avatar anchored at the bottom in both arrangements. Expanded navigation shows group
+labels, destination names and account status. Compact navigation keeps named, keyboard-reachable
+icons with tooltips; opening a group or Search can expand the panel to expose its existing
+destinations. Use a rounded selection fill and a short leading accent marker, with focus and
+hover distinct from selection. Collapsing navigation changes presentation only: it preserves
+the route, query, account, queue, playback position and mounted renderer.
+
+Windows adapts this with WinUI buttons, Fluent glyphs and theme-aware Acrylic, a 64-logical-pixel
+rail and an expanded panel of about 280 pixels. At narrow widths the expanded panel overlays
+the canvas and returns to the rail after navigation; the rail still reserves enough content
+space to keep the player's essential actions reachable. Goosic's Discover and Library groups
+retain their actual destinations, and account playlists and creation remain accessible through
+the expanded panel. The reference does not add Apple Music destinations or replace the current
+floating search and player treatment. Adoption on macOS and GTK remains pending.
+
 Selection uses a restrained rounded row highlight and readable emphasis. Distinguish selected
 navigation from hover and keyboard focus. The navigation list may scroll while its account
 footer remains available; their materials form one continuous region. Avoid an unrelated opaque
