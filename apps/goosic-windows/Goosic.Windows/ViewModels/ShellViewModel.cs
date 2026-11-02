@@ -638,14 +638,17 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private string _currentRoute = "route" + KeySeparator + "home";
     private readonly Stack<string> _routeHistory = new();
     private int _pageRequestVersion;
+    private int _pageContentRevision;
 
     internal ShellViewModel(GoosicServiceClient client)
     {
         _client = client;
         WireTrackView();
+        Shelves.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowPageSkeleton));
         Tracks.CollectionChanged += (_, change) =>
         {
             OnPropertyChanged(nameof(HasTracks));
+            OnPropertyChanged(nameof(ShowPageSkeleton));
             // A page fills one row at a time; numbering only the new rows keeps a long list linear.
             if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add
                 && change.NewStartingIndex + (change.NewItems?.Count ?? 0) == Tracks.Count)
@@ -1338,9 +1341,35 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     internal event Action<string>? OpeningRouteChosen;
 
     /// <summary>Loads one browse surface.</summary>
-    internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true)
+    internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true, string? librarySection = null)
     {
+        if (route == "search")
+        {
+            await OpenSearchPageAsync(rememberCurrentRoute).ConfigureAwait(true);
+            return;
+        }
+
         var requestVersion = ++_pageRequestVersion;
+        var scope = CacheScope;
+        var startedDuringAccountChange = IsAccountBusy;
+        PreparedFeed? prepared = null;
+        if (route is not ("settings" or "downloads"))
+        {
+            var preparing = PrepareFeedAsync(route, librarySection);
+            // A quick answer replaces the page once; a slow one shows the loading state first,
+            // so a click on a slow connection never looks as if it was ignored.
+            if (await Task.WhenAny(preparing, Task.Delay(SlowNavigationDelay)).ConfigureAwait(true) != preparing)
+            {
+                if (requestVersion != _pageRequestVersion) return;
+                ShowNavigationPending(route);
+            }
+
+            prepared = await preparing.ConfigureAwait(true);
+            if (!FeedNavigationCommitRules.CanCommit(requestVersion, _pageRequestVersion, scope, CacheScope,
+                    IsAccountBusy, startedDuringAccountChange)) return;
+        }
+
+        if (librarySection is not null) _librarySection = librarySection;
         ClearPageArtwork();
         if (route == "settings")
         {
@@ -1401,6 +1430,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         SetPageTruncated(false);
         var entry = RouteEntry.All.FirstOrDefault(candidate => candidate.Route == route);
         PageTitle = entry?.Title ?? route;
+        PageSubtitle = "";
         // Home is shelves under the title bar, with no heading of its own, as on macOS.
         ShowPageHeader = route != "home";
         Shelves.Clear();
@@ -1410,65 +1440,43 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         ForgetPersonalPage();
         Status = "";
         PageState = PageState.Loading;
-        if (await TryLoadPersonalRouteAsync(route).ConfigureAwait(true))
+        if (prepared is null)
         {
+            await TryLoadPersonalRouteAsync(route).ConfigureAwait(true);
             return;
         }
 
-        var cacheKey = "route:" + route;
-        var cached = _pages.Get(CatalogCacheScope, cacheKey);
-        if (cached is not null)
+        if (prepared.Error is { } preparedError)
         {
-            ShowRoutePage(cached);
-        }
-
-        try
-        {
-            // `catalog.browse` reads the surface from `catalogId`, and uses `query` as the title
-            // it echoes back on the page.
-            var payload = new JsonObject
+            // A failed refresh keeps the copy already seen, as it did before pages were prepared;
+            // the log says the refresh failed.
+            var kept = prepared.PersonalSource is { } failedSource
+                ? _pages.Get(scope, PersonalCacheKey(failedSource))
+                : _pages.Get(CatalogCacheScope, "route:" + route);
+            if (kept is null)
             {
-                ["catalogId"] = route,
-                ["query"] = PageTitle,
-            };
-            var answer = await _client.RequestAsync("catalog.browse", payload).ConfigureAwait(true);
-            if (requestVersion != _pageRequestVersion)
-            {
-                return;
-            }
-            var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
-            if (page is null)
-            {
-                if (cached is null)
-                {
-                    PageState = PageState.Failure(PageFailure.Other, null, PageTitle, NetworkAvailable());
-                }
-
+                PageState = FailureState(preparedError, PageTitle);
                 return;
             }
 
-            if (_pages.Put(CatalogCacheScope, cacheKey, page with { NextCursor = null }) || cached is null)
-            {
-                if (cached is not null)
-                {
-                    Tracks.Clear();
-                    Shelves.Clear();
-                }
+            Describe(preparedError);
+            prepared = prepared with { Page = kept, Error = null };
+        }
 
-                ShowRoutePage(page);
-            }
-            else
-            {
-                NextCursor = page.NextCursor;
-            }
-        }
-        catch (Exception error) when (requestVersion == _pageRequestVersion && cached is null)
+        if (prepared.Page is not { } page) return;
+        if (prepared.PersonalSource is { } source)
         {
-            PageState = FailureState(error, PageTitle);
+            _personalSource = source;
+            IsLibraryPage = route == "library";
+            PageTitle = source.Title;
+            PageSubtitle = AccountName;
+            _pages.Put(scope, PersonalCacheKey(source), page with { NextCursor = null });
+            ShowPersonalPage(page, source);
         }
-        catch (Exception error)
+        else
         {
-            Describe(error);
+            _pages.Put(CatalogCacheScope, "route:" + route, page with { NextCursor = null });
+            ShowRoutePage(page);
         }
     }
 
@@ -1540,6 +1548,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// <summary>Records the page being left, then makes <paramref name="key"/> current.</summary>
     private void Remember(string key, bool remember)
     {
+        ++_pageContentRevision;
+        PageClearedForPendingNavigation = false;
         if (remember && !string.Equals(key, _currentRoute, StringComparison.Ordinal))
         {
             _routeHistory.Push(_currentRoute);
@@ -1700,16 +1710,22 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Searches the catalog, and shows what came back as rows.</summary>
-    internal async Task SearchAsync(string query, string filter, bool remember = true)
+    internal async Task SearchAsync(string query, string filter, bool remember = true, bool updateInput = true)
     {
         var trimmed = query.Trim();
         if (trimmed.Length == 0)
         {
-            Status = "Type something to search the catalog.";
+            if (updateInput)
+            {
+                SearchText = "";
+            }
+
+            ShowSearchLanding(remember);
             return;
         }
 
         var requestVersion = ++_pageRequestVersion;
+        _searchRequestVersion = requestVersion;
         ClearPageArtwork();
 
         Remember(string.Join(KeySeparator, "search", trimmed, filter), remember);
@@ -1720,8 +1736,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Tracks.Clear();
         NextCursor = null;
         AllTracksId = null;
-        ForgetPersonalPage();
-        MarkSearchPage(trimmed);
+        ForgetPersonalPage(keepSearchPage: true);
+        MarkSearchPage(trimmed, filter, updateInput);
         PageKind = DetailKind.Search;
         SetPageTruncated(false);
         Status = "";
@@ -1854,10 +1870,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (Set(ref _pageState, value))
             {
                 OnPropertyChanged(nameof(IsPageLoading));
+                OnPropertyChanged(nameof(ShowPageSkeleton));
                 OnPropertyChanged(nameof(ShowsPageStatePanel));
             }
         }
     }
+
+    public bool ShowPageSkeleton => IsPageLoading && Tracks.Count == 0 && Shelves.Count == 0;
 
     public bool IsPageLoading => _pageState.Kind == PageStateKind.Loading;
 

@@ -74,32 +74,16 @@ public sealed partial class ShellViewModel
 
     public bool HasLyrics => Lyrics.Count > 0;
 
-    private bool _isSearchPage;
-    private string _searchQuery = "";
-
-    /// <summary>The search filters, in the order YouTube Music offers them.</summary>
+    /// <summary>The shared search categories, in the same order as the macOS picker.</summary>
     public IReadOnlyList<SearchFilterChoice> SearchFilterChoices { get; } =
     [
         new("All", "all"),
         new("Songs", "songs"),
-        new("Videos", "videos"),
         new("Albums", "albums"),
         new("Artists", "artists"),
         new("Playlists", "playlists"),
+        new("Videos", "videos"),
     ];
-
-    /// <summary>Whether the page on screen is search results, so the filter chips show.</summary>
-    public bool IsSearchPage { get => _isSearchPage; private set => Set(ref _isSearchPage, value); }
-
-    /// <summary>Runs the current search again under another filter.</summary>
-    internal Task RefilterSearchAsync(string filter) =>
-        _searchQuery.Length == 0 ? Task.CompletedTask : SearchAsync(_searchQuery, filter);
-
-    internal void MarkSearchPage(string query)
-    {
-        _searchQuery = query;
-        IsSearchPage = true;
-    }
 
     private bool _showPageHeader;
 
@@ -122,6 +106,16 @@ public sealed partial class ShellViewModel
         }
     }
 
+    /// <summary>The actual library section or playlist shown, for both sidebar presentations.</summary>
+    internal string? CurrentSidebarDestination => CurrentRouteName switch
+    {
+        _ when IsSearchPage => "search",
+        "library" => "library:" + _librarySection,
+        { } route => route,
+        _ when _pagePlaylistId is not null && !IsSearchPage => "playlists",
+        _ => null,
+    };
+
     /// <summary>Opens one section of the library directly, as the sidebar's library items do.</summary>
     internal async Task OpenLibrarySectionAsync(string browseId)
     {
@@ -131,8 +125,7 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        _librarySection = browseId;
-        await LoadRouteAsync("library").ConfigureAwait(true);
+        await LoadRouteAsync("library", librarySection: browseId).ConfigureAwait(true);
     }
 
     public bool HasNoLyrics => Lyrics.Count == 0;

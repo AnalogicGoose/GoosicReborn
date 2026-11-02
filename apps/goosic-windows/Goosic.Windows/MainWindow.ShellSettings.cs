@@ -190,8 +190,8 @@ public sealed partial class MainWindow : Window
         // A monitor that has since been unplugged would leave the window off every screen; the
         // nearest display's work area keeps it reachable.
         var area = DisplayArea.GetFromRect(bounds, DisplayAreaFallback.Nearest).WorkArea;
-        var width = Math.Min(Math.Max(placement.Width, 640), area.Width);
-        var height = Math.Min(Math.Max(placement.Height, 480), area.Height);
+        var width = Math.Min(Math.Max(placement.Width, (int)WindowLayout.MinimumWidth), area.Width);
+        var height = Math.Min(Math.Max(placement.Height, (int)WindowLayout.MinimumHeight), area.Height);
         var x = Math.Clamp(placement.X, area.X, area.X + area.Width - width);
         var y = Math.Clamp(placement.Y, area.Y, area.Y + area.Height - height);
         AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
@@ -200,10 +200,6 @@ public sealed partial class MainWindow : Window
             presenter.Maximize();
         }
 
-        if (placement.SidebarHidden && Sidebar.Visibility == Visibility.Visible)
-        {
-            ToggleSidebar();
-        }
     }
 
     private void SavePlacement()
@@ -221,7 +217,7 @@ public sealed partial class MainWindow : Window
             ? (new PointInt32(previous.X, previous.Y), new SizeInt32(previous.Width, previous.Height))
             : (AppWindow.Position, AppWindow.Size);
         ShellPreferences.Placement = new WindowPlacement(position.X, position.Y, size.Width, size.Height,
-            maximized, Sidebar.Visibility != Visibility.Visible);
+            maximized, SidebarHidden: true);
     }
 
     // ---- Now playing: notification, Discord, tray ----
