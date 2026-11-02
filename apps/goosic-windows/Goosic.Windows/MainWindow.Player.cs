@@ -127,15 +127,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void OnSearchFilter(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: string filter })
-        {
-            await Model.RefilterSearchAsync(filter);
-            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
-        }
-    }
-
     private async void OnQueueItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is TrackViewModel entry)

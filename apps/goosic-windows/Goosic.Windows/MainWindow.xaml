@@ -67,20 +67,6 @@
                             <TextBlock Text="{x:Bind Model.PageMeta, Mode=OneWay}" TextWrapping="Wrap" MaxLines="2"
                                        TextTrimming="CharacterEllipsis"
                                        FontSize="14" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                            <ItemsControl Margin="0,12,0,0" ItemsSource="{x:Bind Model.SearchFilterChoices}"
-                                          Visibility="{x:Bind Model.IsSearchPage, Mode=OneWay}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" Spacing="8" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:SearchFilterChoice">
-                                        <Button Content="{x:Bind Title}" Tag="{x:Bind Filter}" CornerRadius="8" Padding="12,5"
-                                                Click="OnSearchFilter" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
                             <ItemsControl Margin="0,12,0,0" ItemsSource="{x:Bind Model.LibrarySections}"
                                           Visibility="{x:Bind Model.IsLibraryPage, Mode=OneWay}">
                                 <ItemsControl.ItemsPanel>
@@ -168,6 +154,29 @@
                             </StackPanel>
                             </StackPanel>
                         </Grid>
+
+                        <StackPanel Spacing="22" Visibility="{x:Bind Model.ShowsSearchLanding, Mode=OneWay}">
+                            <StackPanel x:Name="RecentSearchSection" Spacing="10" Visibility="Collapsed">
+                                <TextBlock Text="Recently searched" FontSize="20" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level2" />
+                                <ItemsControl x:Name="RecentSearchItems">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Content="{Binding}" Tag="{Binding}" Click="OnRecentSearch"
+                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,0,0,6" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                            <TextBlock Text="Browse categories" FontSize="20" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level2" />
+                            <Grid ColumnSpacing="12" RowSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <Button Content="Explore" Tag="explore" Click="OnNavigate" HorizontalAlignment="Stretch" Padding="16,20" />
+                                <Button Grid.Column="1" Content="Charts" Tag="charts" Click="OnNavigate" HorizontalAlignment="Stretch" Padding="16,20" />
+                                <Button Grid.Row="1" Content="Moods &amp; genres" Tag="moodsAndGenres" Click="OnNavigate" HorizontalAlignment="Stretch" Padding="16,20" />
+                                <Button Grid.Row="1" Grid.Column="1" Content="New releases" Tag="newReleases" Click="OnNavigate" HorizontalAlignment="Stretch" Padding="16,20" />
+                            </Grid>
+                        </StackPanel>
 
                         <!-- Settings, grouped the way iOS Settings is: a small heading, then a rounded list of
                              rows, each an icon tile, a name with one line of explanation, and its control. -->
@@ -830,6 +839,22 @@
                 <Rectangle x:Name="TitleFade" Height="48" VerticalAlignment="Top" IsHitTestVisible="False"
                            Fill="{ThemeResource GoosicTitleFadeBrush}" />
 
+                <!-- Search controls float above the full-height results viewport. -->
+                <StackPanel x:Name="SearchChrome" VerticalAlignment="Top" Margin="314,56,34,0"
+                            Spacing="12" SizeChanged="OnSearchChromeSizeChanged"
+                            Visibility="{x:Bind Model.IsSearchPage, Mode=OneWay}">
+                    <AutoSuggestBox x:Name="SearchQuery" PlaceholderText="Search music" QueryIcon="Find"
+                                    MaxWidth="620" HorizontalAlignment="Stretch" MinHeight="44" CornerRadius="22"
+                                    Background="{ThemeResource GoosicPillAcrylicBrush}"
+                                    Text="{x:Bind Model.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                    QuerySubmitted="OnSearchSubmitted" TextChanged="OnSearchTextChanged" GotFocus="OnSearchGotFocus"
+                                    AutomationProperties.Name="Search music" />
+                    <ComboBox x:Name="SearchCategory" Width="160" HorizontalAlignment="Center"
+                              ItemsSource="{x:Bind Model.SearchFilterChoices}" DisplayMemberPath="Title"
+                              SelectedValuePath="Filter" SelectedValue="{x:Bind Model.SearchFilter, Mode=OneWay}"
+                              SelectionChanged="OnSearchCategoryChanged" AutomationProperties.Name="Search category" />
+                </StackPanel>
+
                 <!-- What the last action did, above the player; it clears itself. -->
                 <Border x:Name="ToastHost" VerticalAlignment="Bottom" HorizontalAlignment="Center"
                         Margin="0,0,0,102" Padding="16,10,8,10" CornerRadius="12" MaxWidth="560"
@@ -1128,20 +1153,26 @@
                         <Image Width="26" Height="26" Source="ms-appx:///Assets/Goosic.png"
                                AutomationProperties.AccessibilityView="Raw" />
                         <TextBlock x:Name="SidebarBrandName" Grid.Column="1" Text="Goosic" FontSize="18" Margin="9,0,0,0"
-                                   FontWeight="SemiBold" VerticalAlignment="Center" />
+                                   FontWeight="Normal" VerticalAlignment="Center" />
                     </Grid>
                     <Button x:Name="SidebarToggle" Grid.Row="1" Style="{StaticResource SidebarGlyphStyle}"
                             Content="&#xE700;" HorizontalAlignment="Left" Width="48" Height="44" FontSize="16"
                             ToolTipService.ToolTip="Collapse sidebar (Ctrl+B)"
                             AutomationProperties.Name="Collapse sidebar" Click="OnToggleSidebar" />
-                    <Button x:Name="SidebarSearchButton" Grid.Row="2" Style="{StaticResource SidebarGlyphStyle}"
-                            Content="&#xE721;" HorizontalAlignment="Left" Width="48" Height="44" FontSize="16"
-                            Margin="0,0,0,4" Visibility="Collapsed"
-                            ToolTipService.ToolTip="Search (Ctrl+F)" AutomationProperties.Name="Search" Click="OnSidebarSearch" />
-                    <AutoSuggestBox x:Name="SidebarSearch" Grid.Row="2" PlaceholderText="Search" MinHeight="44"
-                                    CornerRadius="18" AutomationProperties.Name="Search"
-                                    QueryIcon="Find" QuerySubmitted="OnSearchSubmitted"
-                                    TextChanged="OnSearchTextChanged" GotFocus="OnSearchGotFocus" Margin="2,0,2,4" />
+                    <ToggleButton x:Name="SidebarSearchButton" Grid.Row="2" Style="{StaticResource SidebarRailItemStyle}"
+                                  Tag="search" Margin="0,0,0,4" Visibility="Collapsed"
+                                  ToolTipService.ToolTip="Search (Ctrl+F)" AutomationProperties.Name="Search" Click="OnNavigate">
+                        <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE721;" />
+                    </ToggleButton>
+                    <ToggleButton x:Name="SidebarSearchTab" Grid.Row="2" Style="{StaticResource SidebarNavigationStyle}"
+                                  Tag="search" Margin="0,0,0,4" ToolTipService.ToolTip="Search (Ctrl+F)"
+                                  AutomationProperties.Name="Search" Click="OnNavigate">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE721;" />
+                            <TextBlock Grid.Column="1" Text="Search" TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                    </ToggleButton>
 
                     <ScrollViewer x:Name="SidebarNavigation" Grid.Row="3" VerticalScrollBarVisibility="Auto">
                         <StackPanel x:Name="SidebarItems" Spacing="1">

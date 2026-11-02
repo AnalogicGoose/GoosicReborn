@@ -238,7 +238,7 @@ public sealed partial class ShellViewModel
         OnPropertyChanged(nameof(SubscribeGlyph));
     }
 
-    private void ForgetPersonalPage()
+    private void ForgetPersonalPage(bool keepSearchPage = false)
     {
         // Leaving the page ends editing; its rows are about to be replaced anyway.
         EndPlaylistEdit();
@@ -247,7 +247,10 @@ public sealed partial class ShellViewModel
         _pageArtistId = null;
         IsLibraryPage = false;
         IsSettingsPage = false;
-        IsSearchPage = false;
+        if (!keepSearchPage)
+        {
+            IsSearchPage = false;
+        }
         PageActionsChanged();
     }
 

@@ -1340,6 +1340,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// <summary>Loads one browse surface.</summary>
     internal async Task LoadRouteAsync(string route, bool rememberCurrentRoute = true)
     {
+        if (route == "search")
+        {
+            await OpenSearchPageAsync(rememberCurrentRoute).ConfigureAwait(true);
+            return;
+        }
+
         var requestVersion = ++_pageRequestVersion;
         ClearPageArtwork();
         if (route == "settings")
@@ -1700,12 +1706,17 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Searches the catalog, and shows what came back as rows.</summary>
-    internal async Task SearchAsync(string query, string filter, bool remember = true)
+    internal async Task SearchAsync(string query, string filter, bool remember = true, bool updateInput = true)
     {
         var trimmed = query.Trim();
         if (trimmed.Length == 0)
         {
-            Status = "Type something to search the catalog.";
+            if (updateInput)
+            {
+                SearchText = "";
+            }
+
+            ShowSearchLanding(remember);
             return;
         }
 
@@ -1720,8 +1731,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Tracks.Clear();
         NextCursor = null;
         AllTracksId = null;
-        ForgetPersonalPage();
-        MarkSearchPage(trimmed);
+        ForgetPersonalPage(keepSearchPage: true);
+        MarkSearchPage(trimmed, filter, updateInput);
         PageKind = DetailKind.Search;
         SetPageTruncated(false);
         Status = "";

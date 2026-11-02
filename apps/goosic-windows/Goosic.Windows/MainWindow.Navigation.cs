@@ -35,6 +35,12 @@ public sealed partial class MainWindow : Window
 
     private async Task NavigateAsync(string tag)
     {
+        if (tag == "search")
+        {
+            await OpenSearchAsync();
+            return;
+        }
+
         HighlightNavigation(tag);
         DismissOverlaySidebar();
         if (tag.StartsWith("library:", StringComparison.Ordinal))
@@ -54,6 +60,8 @@ public sealed partial class MainWindow : Window
     private void HighlightNavigation(string? tag)
     {
         _navigationTag = tag;
+        SidebarSearchTab.IsChecked = tag == "search";
+        SidebarSearchButton.IsChecked = tag == "search";
         foreach (var child in SidebarItems.Children)
         {
             if (child is ToggleButton { Tag: string itemTag } item)
@@ -116,7 +124,11 @@ public sealed partial class MainWindow : Window
     /// <summary>Every new page starts at its top, whichever path loaded it.</summary>
     private void OnPageLoadingChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(ShellViewModel.IsPageLoading) && Model.IsPageLoading)
+        if (args.PropertyName == nameof(ShellViewModel.IsSearchPage))
+        {
+            ApplyInsets();
+        }
+        else if (args.PropertyName == nameof(ShellViewModel.IsPageLoading) && Model.IsPageLoading)
         {
             ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         }
@@ -159,13 +171,12 @@ public sealed partial class MainWindow : Window
         if (expanded != _sidebarExpanded)
         {
             SidebarToggle.Focus(FocusState.Programmatic);
-            SidebarSearch.IsSuggestionListOpen = false;
         }
 
         _sidebarExpanded = expanded;
         var visible = expanded ? Visibility.Visible : Visibility.Collapsed;
         SidebarBrandName.Visibility = visible;
-        SidebarSearch.Visibility = visible;
+        SidebarSearchTab.Visibility = visible;
         SidebarNavigation.Visibility = visible;
         AccountDetails.Visibility = visible;
         SidebarRail.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
@@ -179,8 +190,6 @@ public sealed partial class MainWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(SidebarToggle, "Ctrl+B");
         ToolTipService.SetToolTip(SidebarToggle, $"{label} (Ctrl+B)");
     }
-
-    private void OnSidebarSearch(object sender, RoutedEventArgs e) => OpenSearch();
 
     private void OnExpandSidebarGroup(object sender, RoutedEventArgs e)
     {
@@ -232,14 +241,25 @@ public sealed partial class MainWindow : Window
         PageRetryButton.IsEnabled = true;
     }
 
-    private void OpenSearch()
+    private void OpenSearch() => _ = OpenSearchAsync();
+
+    private async Task OpenSearchAsync()
     {
-        if (!_sidebarExpanded)
+        UpdateRecentSearches();
+        var alreadyOpen = Model.IsSearchPage;
+        var navigation = Model.OpenSearchPageAsync();
+        HighlightNavigation("search");
+        DismissOverlaySidebar();
+        ApplyInsets();
+        SearchChrome.UpdateLayout();
+        SearchQuery.Focus(FocusState.Programmatic);
+        if (!alreadyOpen)
         {
-            ToggleSidebar();
+            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         }
 
-        SidebarSearch.Focus(FocusState.Programmatic);
+        await navigation;
+        UpdateBackButton();
     }
 
     /// <summary>
@@ -250,6 +270,14 @@ public sealed partial class MainWindow : Window
     {
         if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput)
         {
+            Model.SearchText = sender.Text;
+            if (string.IsNullOrWhiteSpace(sender.Text) && Model.IsSearchPage)
+            {
+                Model.ShowSearchLanding();
+                UpdateRecentSearches();
+                UpdateBackButton();
+            }
+
             ShowRecentSearches(sender);
         }
     }
@@ -269,20 +297,51 @@ public sealed partial class MainWindow : Window
         box.IsSuggestionListOpen = matches.Count > 0;
     }
 
-    private static void RememberSearch(string query) =>
-        ShellPreferences.RecentSearches = RecentSearches.Remember(ShellPreferences.RecentSearches, query);
+    private void UpdateRecentSearches()
+    {
+        var recent = ShellPreferences.RecentSearches;
+        RecentSearchItems.ItemsSource = recent;
+        RecentSearchSection.Visibility = recent.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private async void OnSearchSubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
         var query = args.ChosenSuggestion as string ?? args.QueryText;
         sender.Text = query;
         sender.IsSuggestionListOpen = false;
-        RememberSearch(query);
-        HighlightNavigation(null);
-        DismissOverlaySidebar();
-        await Model.SearchAsync(query, "all");
+        await SubmitSearchAsync(query);
+    }
+
+    private async Task SubmitSearchAsync(string query)
+    {
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            ShellPreferences.RecentSearches = RecentSearches.Remember(ShellPreferences.RecentSearches, query);
+        }
+
+        UpdateRecentSearches();
+        HighlightNavigation("search");
+        await Model.SearchAsync(query, Model.SearchFilter);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
+    }
+
+    private async void OnRecentSearch(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string query })
+        {
+            await SubmitSearchAsync(query);
+        }
+    }
+
+    private async void OnSearchCategoryChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Model.IsSearchPage && sender is ComboBox { SelectedValue: string filter })
+        {
+            await Model.RefilterSearchAsync(filter);
+            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+            UpdateBackButton();
+        }
     }
 
     private async void OnBack(object sender, RoutedEventArgs e) => await GoBackAsync();

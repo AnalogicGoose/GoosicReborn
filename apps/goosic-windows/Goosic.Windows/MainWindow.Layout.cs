@@ -104,7 +104,9 @@ public sealed partial class MainWindow : Window
         var clearance = WindowLayout.PlayerEdgeClearance;
         TitleBarStrip.Margin = new Thickness(Sidebar.Width + 56, 0, 0, 0);
         BackButton.Margin = new Thickness(Sidebar.Width + 16, 14, 0, 0);
-        ContentStack.Padding = new Thickness(left, 56, right, compact ? 166 : 128);
+        SearchChrome.Margin = new Thickness(left, 56, right, 0);
+        var top = Model.IsSearchPage ? 56 + Math.Max(100, SearchChrome.ActualHeight) + 20 : 56;
+        ContentStack.Padding = new Thickness(left, top, right, compact ? 166 : 128);
         if (RootGrid.ActualWidth > 0)
         {
             // Placed by hand rather than centred between the panels: see PlayerPlacement.
@@ -121,6 +123,8 @@ public sealed partial class MainWindow : Window
             FitCarousel(carousel, left, right);
         }
     }
+
+    private void OnSearchChromeSizeChanged(object sender, SizeChangedEventArgs e) => ApplyInsets();
 
     private static void FitCarousel(ScrollViewer carousel, double left, double right)
     {
