@@ -163,7 +163,10 @@ mod tests {
     /// because each file reads correctly on its own.
     #[test]
     fn no_case_is_both_required_and_refused() {
-        let refused: Vec<String> = rejection_cases().into_iter().map(|case| case.wire).collect();
+        let refused: Vec<String> = rejection_cases()
+            .into_iter()
+            .map(|case| case.wire)
+            .collect();
         for case in encoding_cases().into_iter().chain(tolerance_cases()) {
             assert!(
                 !refused.contains(&case.wire),
