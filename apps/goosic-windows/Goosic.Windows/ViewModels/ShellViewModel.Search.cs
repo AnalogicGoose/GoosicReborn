@@ -46,7 +46,7 @@ public sealed partial class ShellViewModel
     /// <summary>Search is a local navigation surface; opening it never starts playback.</summary>
     internal Task OpenSearchPageAsync(bool remember = true)
     {
-        if (IsSearchPage)
+        if (IsSearchPage && !PageClearedForPendingNavigation)
         {
             return Task.CompletedTask;
         }
