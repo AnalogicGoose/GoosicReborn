@@ -201,22 +201,24 @@ job, and it only removes branches whose commits already live in their parent.
   same change.
 - **Prose over bullets in `docs/`.** Existing documents explain *why* a contract exists, not
   just what it is. Match that.
-- **Commit messages read like an Apple product page.** The subject is a short headline in the
-  imperative. The body opens with a one-line tagline that says what the change means for the
-  person using Goosic, in plain words, then a short, confident paragraph on what changed and
-  why it had to. Write it to be read by someone who was not there: lead with the outcome,
-  keep sentences short, and leave internals for the paragraph, not the tagline. Every claim
-  must be true and visible in the diff; the style is presentation, not hype, so never promise
-  more than the change does. No co-authorship, attribution, or session trailers.
+- **Commit messages** state what changed and why it had to change, in the imperative. No
+  co-authorship, attribution, or session trailers.
+- **Release notes read like an Apple product page.** This applies to `docs/RELEASE_<version>.md`
+  and the GitHub release built from it, not to commits. Open with the version as a headline and
+  a one-line tagline that sums up the release. Give each change its own section: a short
+  headline, a one-line tagline that says what it means for the person using Goosic, then a
+  short, confident paragraph on what changed and why. Lead with the outcome, keep sentences
+  short, and leave internals out of the taglines. Every claim must be true and checkable;
+  the style is presentation, not hype, so never promise more than the release does, and say
+  plainly what still needs a live check. The downloads and installation section stays factual.
 
   ```
-  Slide the full player up from the bottom
+  ## macOS: the full player slides up
 
   Now playing, front and center.
 
-  Opening the full player faded and scaled it, which clipped the top of the window and
-  stuttered. It now slides up as one surface, as Music's does, with its background drawn at
-  an eighth of the size so every frame keeps up.
+  The full player now slides up from the bottom edge as one piece, as Music's does, instead
+  of fading and scaling, which cut off the top of the window and stuttered.
   ```
 - **Rust** is edition 2021, `max_width = 100` (`rustfmt.toml`). Tests live beside the code
   they cover; live network tests are `#[ignore]`d.
