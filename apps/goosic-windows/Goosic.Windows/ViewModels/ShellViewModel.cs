@@ -1379,7 +1379,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
         if (route == "downloads")
         {
-            Remember("route" + KeySeparator + route, rememberCurrentRoute);
+            Remember("route" + KeySeparator + route, rememberCurrentRoute, requestVersion);
             Shelves.Clear();
             Tracks.Clear();
             NextCursor = null;
@@ -1417,7 +1417,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
-        Remember("route" + KeySeparator + route, rememberCurrentRoute);
+        Remember("route" + KeySeparator + route, rememberCurrentRoute, requestVersion);
         if (StartRoute.IsRemembered(route) && route != LastRoute)
         {
             // Rust keeps it, so "start on the page I was on last" survives a restart.
@@ -1546,10 +1546,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Records the page being left, then makes <paramref name="key"/> current.</summary>
-    private void Remember(string key, bool remember)
+    /// <param name="requestVersion">The request that will fill the page, when it still has to load.</param>
+    private void Remember(string key, bool remember, int requestVersion = -1)
     {
         ++_pageContentRevision;
         PageClearedForPendingNavigation = false;
+        _currentPageRequestVersion = requestVersion;
         if (remember && !string.Equals(key, _currentRoute, StringComparison.Ordinal))
         {
             _routeHistory.Push(_currentRoute);
@@ -1591,7 +1593,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
-        Remember(string.Join(KeySeparator, "entity", kind, id, title), remember);
+        Remember(string.Join(KeySeparator, "entity", kind, id, title), remember, requestVersion);
         PageKind = DetailLayout.FromEntity(kind);
         SetPageTruncated(false);
         var hasEntityArtwork = SetEntityArtworkAsync(kind, id, artworkVersion);
@@ -1728,7 +1730,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         _searchRequestVersion = requestVersion;
         ClearPageArtwork();
 
-        Remember(string.Join(KeySeparator, "search", trimmed, filter), remember);
+        Remember(string.Join(KeySeparator, "search", trimmed, filter), remember, requestVersion);
         ShowPageHeader = true;
         PageTitle = $"Results for “{trimmed}”";
         PageSubtitle = filter == "all" ? "Everything matching" : $"Matching {filter}";
