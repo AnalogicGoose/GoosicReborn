@@ -183,14 +183,14 @@
                                 <VisualState x:Name="Checked">
                                     <VisualState.Setters>
                                         <Setter Target="SelectionFill.Opacity" Value="1" />
-                                        <Setter Target="SelectionMarker.Opacity" Value="1" />
+
                                         <Setter Target="NavigationContent.Foreground" Value="{ThemeResource GoosicSidebarSelectedTextBrush}" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="CheckedPointerOver">
                                     <VisualState.Setters>
                                         <Setter Target="SelectionFill.Opacity" Value="1" />
-                                        <Setter Target="SelectionMarker.Opacity" Value="1" />
+
                                         <Setter Target="NavigationContent.Foreground" Value="{ThemeResource GoosicSidebarSelectedTextBrush}" />
                                         <Setter Target="InteractionFill.Opacity" Value="0.65" />
                                     </VisualState.Setters>
@@ -198,7 +198,7 @@
                                 <VisualState x:Name="CheckedPressed">
                                     <VisualState.Setters>
                                         <Setter Target="SelectionFill.Opacity" Value="1" />
-                                        <Setter Target="SelectionMarker.Opacity" Value="1" />
+
                                         <Setter Target="NavigationContent.Foreground" Value="{ThemeResource GoosicSidebarSelectedTextBrush}" />
                                         <Setter Target="InteractionFill.Opacity" Value="1" />
                                     </VisualState.Setters>
@@ -206,7 +206,7 @@
                                 <VisualState x:Name="CheckedDisabled">
                                     <VisualState.Setters>
                                         <Setter Target="SelectionFill.Opacity" Value="1" />
-                                        <Setter Target="SelectionMarker.Opacity" Value="1" />
+
                                         <Setter Target="NavigationContent.Foreground" Value="{ThemeResource GoosicSidebarSelectedTextBrush}" />
                                         <Setter Target="NavigationContent.Opacity" Value="0.4" />
                                     </VisualState.Setters>

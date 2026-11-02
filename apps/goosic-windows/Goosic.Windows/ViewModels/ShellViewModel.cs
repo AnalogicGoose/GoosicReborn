@@ -643,9 +643,11 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         _client = client;
         WireTrackView();
+        Shelves.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowPageSkeleton));
         Tracks.CollectionChanged += (_, change) =>
         {
             OnPropertyChanged(nameof(HasTracks));
+            OnPropertyChanged(nameof(ShowPageSkeleton));
             // A page fills one row at a time; numbering only the new rows keeps a long list linear.
             if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add
                 && change.NewStartingIndex + (change.NewItems?.Count ?? 0) == Tracks.Count)
@@ -1865,10 +1867,13 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (Set(ref _pageState, value))
             {
                 OnPropertyChanged(nameof(IsPageLoading));
+                OnPropertyChanged(nameof(ShowPageSkeleton));
                 OnPropertyChanged(nameof(ShowsPageStatePanel));
             }
         }
     }
+
+    public bool ShowPageSkeleton => IsPageLoading && Tracks.Count == 0 && Shelves.Count == 0;
 
     public bool IsPageLoading => _pageState.Kind == PageStateKind.Loading;
 

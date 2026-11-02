@@ -436,7 +436,7 @@
 
                         <!-- Loading: the shape of a page rather than a sentence about one. -->
                         <StackPanel x:Name="PageSkeleton" Spacing="26" Opacity="0.9"
-                                    Visibility="{x:Bind Model.IsPageLoading, Mode=OneWay}"
+                                    Visibility="{x:Bind Model.ShowPageSkeleton, Mode=OneWay}"
                                     AutomationProperties.Name="Loading" AutomationProperties.LiveSetting="Polite">
                             <StackPanel Spacing="12">
                                 <Border Width="220" Height="18" CornerRadius="6" HorizontalAlignment="Left" Margin="0,15,0,15"
@@ -587,7 +587,7 @@
                                          context menu key opens the same menu, so keyboard users lose nothing. -->
                                     <Button Style="{StaticResource TrackRowStyle}" Tag="{x:Bind VideoIdOrEmpty}"
                                             AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"
-                                            Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
+                                            Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnPlayTrack" ContextRequested="OnItemContextRequested"
                                             PointerEntered="OnTrackRowPointerEntered" PointerExited="OnTrackRowPointerExited"
                                             Opacity="{x:Bind RowOpacity, Mode=OneWay}"
                                             Visibility="{x:Bind FilterVisibility, Mode=OneWay}"
@@ -692,7 +692,7 @@
                                                     <DataTemplate x:DataType="vm:CardViewModel">
                                                       <Button Style="{StaticResource CardButtonStyle}"
                                                               Padding="8" Margin="-8,0,14,0"
-                                                              Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                              Tag="{x:Bind ActivationTag}" Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnCardActivated"
                                                               AutomationProperties.Name="{x:Bind AccessibleName}"
                                                               ContextRequested="OnItemContextRequested">
                                                         <!-- A video's card is 16:9 at the same height, as YouTube Music draws it. -->
@@ -741,7 +741,7 @@
                                                 <DataTemplate x:DataType="vm:CardViewModel">
                                                     <Button Style="{StaticResource CardButtonStyle}" Padding="0"
                                                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                            Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                            Tag="{x:Bind ActivationTag}" Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnCardActivated"
                                                             AutomationProperties.Name="{x:Bind AccessibleName}"
                                                             ContextRequested="OnItemContextRequested">
                                                         <StackPanel Spacing="4">
@@ -775,7 +775,7 @@
                                             </ItemsRepeater.Layout>
                                             <ItemsRepeater.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:CardViewModel">
-                                                    <Button Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                    <Button Tag="{x:Bind ActivationTag}" Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnCardActivated"
                                                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                                             HorizontalContentAlignment="Stretch" Padding="0"
                                                             CornerRadius="8" BorderThickness="0"
@@ -821,7 +821,7 @@
                                                                     <Button Style="{StaticResource CardButtonStyle}"
                                                                             HorizontalAlignment="Stretch" Padding="8,2" Margin="-8,0,0,0"
                                                                             HorizontalContentAlignment="Stretch"
-                                                                            Tag="{x:Bind ActivationTag}" Click="OnCardActivated"
+                                                                            Tag="{x:Bind ActivationTag}" Loaded="OnCatalogItemLoaded" Unloaded="OnCatalogItemUnloaded" Click="OnCardActivated"
                                                                             AutomationProperties.Name="{x:Bind AccessibleName}"
                                                                             ContextRequested="OnItemContextRequested">
                                                                         <Grid Height="56" ColumnSpacing="12" Padding="0,4">
@@ -1243,7 +1243,7 @@
             <Border x:Name="Sidebar" HorizontalAlignment="Left" Width="280" Margin="8"
                     CornerRadius="14" Background="{ThemeResource GoosicSidebarAcrylicBrush}"
                     BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}">
-                <Grid Padding="7,8,7,8" RowSpacing="4">
+                <Grid x:Name="SidebarLayout" Padding="7,8,7,8" RowSpacing="4">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -1251,6 +1251,10 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
+                    <Border x:Name="SidebarSelectionIndicator" Grid.RowSpan="5" Width="3" Height="20" CornerRadius="2"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Background="{ThemeResource GoosicNavigationAccentBrush}"
+                            Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw" Canvas.ZIndex="10" />
+
 
                     <Grid Height="36" Margin="11,0,11,4">
                         <Grid.ColumnDefinitions>
@@ -1281,7 +1285,7 @@
                         </Grid>
                     </ToggleButton>
 
-                    <ScrollViewer x:Name="SidebarNavigation" Grid.Row="3" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer x:Name="SidebarNavigation" ViewChanged="OnSidebarNavigationScrolled" Grid.Row="3" VerticalScrollBarVisibility="Auto">
                         <StackPanel x:Name="SidebarItems" Spacing="1">
                             <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="home" Click="OnNavigate" AutomationProperties.Name="Home" ToolTipService.ToolTip="Home">
                                 <Grid ColumnSpacing="12">
@@ -1406,7 +1410,7 @@
                         </StackPanel>
                     </ScrollViewer>
 
-                    <ScrollViewer x:Name="SidebarRail" Grid.Row="3" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden"
+                    <ScrollViewer x:Name="SidebarRail" ViewChanged="OnSidebarNavigationScrolled" Grid.Row="3" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden"
                                   HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
                         <StackPanel x:Name="SidebarRailItems" Spacing="0">
                             <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="home" Click="OnNavigate"

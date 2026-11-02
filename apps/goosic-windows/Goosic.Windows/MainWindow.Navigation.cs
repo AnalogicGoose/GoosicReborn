@@ -89,6 +89,7 @@ public sealed partial class MainWindow : Window
         }
 
         UpdatePlaylistSelection(SidebarPlaylists);
+        UpdateSidebarIndicator();
     }
 
     private void OnSidebarPlaylistLoaded(object sender, RoutedEventArgs e)
@@ -131,6 +132,7 @@ public sealed partial class MainWindow : Window
         }
         else if (args.PropertyName == nameof(ShellViewModel.IsPageLoading) && Model.IsPageLoading)
         {
+            _catalogArrivalIndex = 0;
             ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         }
         else if (args.PropertyName == nameof(ShellViewModel.IsPageLoading))

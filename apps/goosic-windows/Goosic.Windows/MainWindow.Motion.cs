@@ -133,6 +133,11 @@ public sealed partial class MainWindow
         if (!enabled)
         {
             _sidebarRevealClip?.StopAnimation("RightInset");
+            SidebarSelectionIndicator.TranslationTransition = null;
+            foreach (var item in _catalogArrivals.ToArray())
+            {
+                OnCatalogItemUnloaded(item, new RoutedEventArgs());
+            }
             foreach (var child in ContentStack.Children)
             {
                 var childVisual = ElementCompositionPreview.GetElementVisual(child);
@@ -363,18 +368,6 @@ public sealed partial class MainWindow
         page.StopAnimation("Translation");
         page.Opacity = 1;
         page.Properties.InsertVector3("Translation", Vector3.Zero);
-        // The first child is the page heading. Never animate it or change layout for this fade.
-        foreach (var child in ContentStack.Children.Skip(1))
-        {
-            var visual = ElementCompositionPreview.GetElementVisual(child);
-            visual.StopAnimation("Opacity");
-            visual.Opacity = (float)child.Opacity;
-            if (AnimationsEnabled && child.Visibility == Visibility.Visible)
-            {
-                visual.StartAnimation("Opacity", Scalar("Opacity", 0, (float)child.Opacity,
-                    TimeSpan.FromMilliseconds(180), _easeOut!));
-            }
-        }
     }
 
     private ScalarKeyFrameAnimation Scalar(string target, float from, float to, TimeSpan duration, CompositionEasingFunction easing)
