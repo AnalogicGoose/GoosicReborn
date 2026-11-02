@@ -343,12 +343,19 @@ use saved content to imply a successful refresh.
 
 ## Accessibility, motion and performance
 
-The November 2 Apple Music video is a motion reference for page fades, brief directional
-forward/back transitions, sidebar hover/selection feedback and native account-menu opening
+The November 2 Apple Music video is a motion reference for page fades,
+sidebar hover/selection feedback and native account-menu opening
 and closing. Adapt those effects to existing Goosic destinations and controls; the clip does
 not request new settings pages, Apple account actions or a different player placement. Added
 motion excludes album artwork. Navigation and selection remain usable while effects run,
 and system/app reduced motion and Efficiency mode disable added transitions.
+
+The 08:00 reference is reviewed separately, frame by frame: 25 frames at 30 fps over 0.83
+seconds. Its page entrance keeps the heading and content geometry fixed. Content becomes
+visible at about 0.37 seconds and settles over roughly 0.17–0.20 seconds. The Windows page
+entrance therefore uses a short content fade with a stationary heading, without horizontal
+or vertical translation. Artwork arrival in that clip is not an instruction to add artwork
+effects. Other motion is reviewed one interaction at a time rather than inferred from this clip.
 
 Every icon action has a meaningful accessible name, suitable native hit target and keyboard
 path. Single-selection controls expose their selection; disabled actions reflect actual
