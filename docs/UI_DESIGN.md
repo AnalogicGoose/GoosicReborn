@@ -224,6 +224,14 @@ browse destinations give the empty-query page useful content without fake recomm
 
 Windows uses a restrained rounded rectangle with an 8-logical-pixel corner radius for the
 search field, following the user's Windows-specific correction; macOS retains its capsule.
+The Windows landing page follows the macOS composition: no extra Search title or explanatory
+subtitle above discovery; a centered field with a leading search glyph and explicit submit
+action; a visible horizontal native single-selection category list; then recent-query cards
+and colored browse cards. Recent queries use roughly 240-by-80 cards with a history glyph,
+two-line titles and a Clear action in the section heading. Browse cards are about 150 high,
+with a restrained color gradient, a large decorative native glyph and a bottom-leading title.
+Explore is blue, Charts orange, Moods & genres purple and New releases pink. Their grid adapts
+to available space without turning into window-wide strips. Contrast themes use system brushes.
 
 All, Songs, Albums, Artists, Playlists and Videos form one native single-selection category
 control. Selected state must be visible and accessible. macOS uses its native segmented picker;
