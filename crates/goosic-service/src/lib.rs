@@ -5,8 +5,8 @@ pub mod lyrics;
 pub mod settings;
 
 use goosic_catalog::Catalog;
-use goosic_lyrics::LyricsClient;
 use goosic_core::{CoreError, PlaybackAuthority};
+use goosic_lyrics::LyricsClient;
 use goosic_protocol::{
     ErrorObject, Owner, RequestEnvelope, ResponseEnvelope, ResponsePayload, PROTOCOL_VERSION,
 };

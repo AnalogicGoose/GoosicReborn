@@ -52,16 +52,33 @@ jobs:
                     for CHILD in $CHILDREN; do
                       git rev-parse --verify "origin/$CHILD" >/dev/null 2>&1 || continue
 
-                      # A finished branch still exists until someone deletes it. Merging into
-                      # one makes a commit nobody reads and a CI run nobody reads either.
+                      case "$CHILD" in
+                        development|platform/*) LONG_LIVED=1 ;;
+                        *)                      LONG_LIVED=0 ;;
+                      esac
+
                       if git merge-base --is-ancestor "origin/$CHILD" "origin/$PARENT"; then
-                        echo "skip $CHILD: already contained in $PARENT"
+                        if [ "$LONG_LIVED" = 0 ]; then
+                          # A finished branch still exists until someone deletes it. Merging into
+                          # one makes a commit nobody reads and a CI run nobody reads either.
+                          echo "skip $CHILD: already contained in $PARENT"
+                        elif [ "$(git rev-parse "origin/$CHILD")" = "$(git rev-parse "origin/$PARENT")" ]; then
+                          echo "skip $CHILD: already at $PARENT"
+                        else
+                          # A long-lived branch is contained after a deployment or a promotion,
+                          # and it is not finished: skipping it would stop it receiving anything
+                          # again. It has no commits of its own to keep, so it fast-forwards.
+                          # Not a force push: the server refuses this if it is not a fast-forward.
+                          git push --quiet origin "origin/$PARENT:refs/heads/$CHILD"
+                          echo "fast-forwarded $CHILD to $PARENT"
+                        fi
                         continue
                       fi
 
-                      # A branch untouched for a month is not waiting for updates.
+                      # A work branch untouched for a month is not waiting for updates. A
+                      # long-lived one is, however quiet it has been.
                       AGE=$(( ( $(date +%s) - $(git log -1 --format=%ct "origin/$CHILD") ) / 86400 ))
-                      if [ "$AGE" -gt 30 ]; then
+                      if [ "$LONG_LIVED" = 0 ] && [ "$AGE" -gt 30 ]; then
                         echo "skip $CHILD: no activity in $AGE days"
                         continue
                       fi

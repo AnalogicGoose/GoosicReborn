@@ -52,7 +52,11 @@ pub fn index_after(
         // Swift shell drew until it missed; drawing from the other positions directly gives the
         // same distribution and cannot spin.
         let candidate = pick(count - 1) % (count - 1);
-        return Some(if candidate >= index { candidate + 1 } else { candidate });
+        return Some(if candidate >= index {
+            candidate + 1
+        } else {
+            candidate
+        });
     }
     let next = index + 1;
     if next < count {
@@ -97,7 +101,8 @@ impl AdPlaybackRecovery {
             self.resume_requested = false;
             return false;
         }
-        if self.awaiting_content && state == "paused" && !listener_paused && !self.resume_requested {
+        if self.awaiting_content && state == "paused" && !listener_paused && !self.resume_requested
+        {
             self.resume_requested = true;
             return true;
         }
@@ -113,7 +118,9 @@ pub fn random_index(count: usize) -> usize {
         return 0;
     }
     // Each `RandomState` is keyed afresh, so hashing nothing still yields a new value per call.
-    let value = std::collections::hash_map::RandomState::new().build_hasher().finish();
+    let value = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
     (value % count as u64) as usize
 }
 
@@ -152,6 +159,32 @@ pub fn clamp_seek(position: f64, duration: f64) -> Option<f64> {
 /// The volume a request should actually set, or `None` when the request is not a number.
 pub fn clamp_volume(volume: f64) -> Option<f64> {
     volume.is_finite().then(|| volume.clamp(0.0, 1.0))
+}
+
+/// The gain, 0 to 1, a volume slider at `position` (0 to 1) plays at.
+///
+/// Loudness is heard logarithmically, so a slider that moved the gain in a straight line spent
+/// almost all of its travel between "loud" and "louder". Cubing the position is the usual
+/// approximation of an audio-taper potentiometer -- half way is about -18 dB and a tenth of the
+/// way about -60 dB -- and unlike a pure decibel curve it still reaches true silence at zero. The
+/// player and the saved preference hold the gain; only the slider and its percentage work in
+/// positions, so a saved volume opens at the same slider position on every platform.
+pub fn volume_gain(position: f64) -> f64 {
+    let position = if position.is_finite() {
+        position.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    position * position * position
+}
+
+/// The slider position, 0 to 1, that plays at `gain`; the inverse of [`volume_gain`].
+pub fn volume_position(gain: f64) -> f64 {
+    if gain.is_finite() {
+        gain.clamp(0.0, 1.0).cbrt()
+    } else {
+        0.0
+    }
 }
 
 /// A seek the shell has asked for and not yet seen the player confirm.
@@ -254,7 +287,12 @@ pub fn should_advance_after_end(
 ) -> bool {
     !sample.is_advertisement
         && last_ended_video_id != Some(sample.video_id)
-        && has_finished(sample.state, sample.position, sample.duration, listener_paused)
+        && has_finished(
+            sample.state,
+            sample.position,
+            sample.duration,
+            listener_paused,
+        )
 }
 
 /// What to do with the volume a web player reports.
@@ -341,8 +379,16 @@ pub fn now_playing_subtitle(track: Option<&Track>) -> String {
 mod tests {
     use super::*;
 
-    fn next(index: usize, count: usize, repeat: RepeatMode, shuffle: bool, wrapping: bool) -> Option<usize> {
-        index_after(index, count, repeat, shuffle, wrapping, |n| n.saturating_sub(1))
+    fn next(
+        index: usize,
+        count: usize,
+        repeat: RepeatMode,
+        shuffle: bool,
+        wrapping: bool,
+    ) -> Option<usize> {
+        index_after(index, count, repeat, shuffle, wrapping, |n| {
+            n.saturating_sub(1)
+        })
     }
 
     #[test]
@@ -413,7 +459,10 @@ mod tests {
             assert!(chosen.is_some_and(|index| index < 4));
         }
         for _ in 0..200 {
-            assert_ne!(index_after(2, 4, RepeatMode::Off, true, false, random_index), Some(2));
+            assert_ne!(
+                index_after(2, 4, RepeatMode::Off, true, false, random_index),
+                Some(2)
+            );
         }
     }
 
@@ -450,7 +499,10 @@ mod tests {
     fn nothing_is_seekable_before_the_host_reports_a_duration() {
         assert!(!is_seekable(0.0, Owner::OfficialWebView, false));
         assert!(!is_seekable(200.0, Owner::None, false));
-        assert!(!is_seekable(200.0, Owner::OfficialWebView, true), "advertisements never seek");
+        assert!(
+            !is_seekable(200.0, Owner::OfficialWebView, true),
+            "advertisements never seek"
+        );
         assert!(is_seekable(200.0, Owner::LocalDownloadedFile, false));
     }
 
@@ -465,38 +517,111 @@ mod tests {
         assert_eq!(clamp_volume(f64::NAN), None);
     }
 
+    /// The same cases as `VolumeTaperTests.swift` and the Windows `SliderFollowsAnAudioTaper`.
+    #[test]
+    fn the_volume_slider_follows_an_audio_taper() {
+        for (position, gain) in [(0.0, 0.0), (0.5, 0.125), (1.0, 1.0), (1.5, 1.0)] {
+            assert!(
+                (volume_gain(position) - gain).abs() < 1e-10,
+                "gain at {position}"
+            );
+            assert!(
+                (volume_position(gain) - position.clamp(0.0, 1.0)).abs() < 1e-10,
+                "position for {gain}"
+            );
+        }
+        assert_eq!(volume_gain(f64::NAN), 0.0);
+        assert_eq!(volume_position(-0.5), 0.0);
+    }
+
     #[test]
     fn a_pending_seek_shows_until_it_lands_or_the_window_passes() {
         let requested_at = Instant::now();
-        let seek = PendingSeek { position: 90.0, requested_at };
+        let seek = PendingSeek {
+            position: 90.0,
+            requested_at,
+        };
         assert_eq!(displayed_position(10.0, Some(seek), requested_at), 90.0);
-        assert_eq!(displayed_position(10.0, Some(seek), requested_at + SEEK_SETTLE_WINDOW), 10.0);
+        assert_eq!(
+            displayed_position(10.0, Some(seek), requested_at + SEEK_SETTLE_WINDOW),
+            10.0
+        );
         assert_eq!(displayed_position(10.0, None, requested_at), 10.0);
-        assert!(seek.is_settled_by(89.0, requested_at), "landed within tolerance");
-        assert!(!seek.is_settled_by(10.0, requested_at), "still on the old position");
+        assert!(
+            seek.is_settled_by(89.0, requested_at),
+            "landed within tolerance"
+        );
+        assert!(
+            !seek.is_settled_by(10.0, requested_at),
+            "still on the old position"
+        );
         assert!(seek.is_settled_by(10.0, requested_at + SEEK_SETTLE_WINDOW));
     }
 
     fn lease(owner: Owner, generation: u64) -> PlaybackState {
-        PlaybackState { account_id: None, owner, generation, sample_sequence: 0 }
+        PlaybackState {
+            account_id: None,
+            owner,
+            generation,
+            sample_sequence: 0,
+        }
     }
 
     fn sample(generation: u64, video_id: &str, current_time: f64) -> ReportedSample<'_> {
-        ReportedSample { generation, video_id, current_time, duration: 200.0 }
+        ReportedSample {
+            generation,
+            video_id,
+            current_time,
+            duration: 200.0,
+        }
     }
 
     #[test]
     fn a_sample_is_believed_only_from_the_lease_holder_for_its_own_load() {
         let official = lease(Owner::OfficialWebView, 4);
         let host = Owner::OfficialWebView;
-        assert!(believes_sample(host, &official, Some("v"), &sample(4, "v", 10.0)));
-        assert!(!believes_sample(Owner::LocalDownloadedFile, &official, Some("v"), &sample(4, "v", 10.0)));
-        assert!(!believes_sample(host, &official, Some("v"), &sample(3, "v", 10.0)), "stale generation");
-        assert!(!believes_sample(host, &official, Some("w"), &sample(4, "v", 10.0)), "another load");
-        assert!(!believes_sample(host, &official, None, &sample(4, "v", 10.0)), "nothing loaded");
-        assert!(!believes_sample(host, &official, Some("v"), &sample(4, "v", f64::NAN)));
-        assert!(!believes_sample(host, &official, Some("v"), &sample(4, "v", -1.0)));
-        assert!(!believes_sample(Owner::None, &lease(Owner::None, 4), Some("v"), &sample(4, "v", 1.0)));
+        assert!(believes_sample(
+            host,
+            &official,
+            Some("v"),
+            &sample(4, "v", 10.0)
+        ));
+        assert!(!believes_sample(
+            Owner::LocalDownloadedFile,
+            &official,
+            Some("v"),
+            &sample(4, "v", 10.0)
+        ));
+        assert!(
+            !believes_sample(host, &official, Some("v"), &sample(3, "v", 10.0)),
+            "stale generation"
+        );
+        assert!(
+            !believes_sample(host, &official, Some("w"), &sample(4, "v", 10.0)),
+            "another load"
+        );
+        assert!(
+            !believes_sample(host, &official, None, &sample(4, "v", 10.0)),
+            "nothing loaded"
+        );
+        assert!(!believes_sample(
+            host,
+            &official,
+            Some("v"),
+            &sample(4, "v", f64::NAN)
+        ));
+        assert!(!believes_sample(
+            host,
+            &official,
+            Some("v"),
+            &sample(4, "v", -1.0)
+        ));
+        assert!(!believes_sample(
+            Owner::None,
+            &lease(Owner::None, 4),
+            Some("v"),
+            &sample(4, "v", 1.0)
+        ));
     }
 
     #[test]
@@ -508,8 +633,16 @@ mod tests {
             position,
             duration: 229.0,
         };
-        assert!(should_advance_after_end(&end("ended", false, 10.0), None, false));
-        assert!(should_advance_after_end(&end("ended", false, 10.0), Some("u"), false));
+        assert!(should_advance_after_end(
+            &end("ended", false, 10.0),
+            None,
+            false
+        ));
+        assert!(should_advance_after_end(
+            &end("ended", false, 10.0),
+            Some("u"),
+            false
+        ));
         assert!(
             !should_advance_after_end(&end("ended", false, 10.0), Some("v"), false),
             "reported twice"
@@ -518,7 +651,11 @@ mod tests {
             !should_advance_after_end(&end("ended", true, 10.0), None, false),
             "an advertisement ended"
         );
-        assert!(!should_advance_after_end(&end("paused", false, 10.0), None, false));
+        assert!(!should_advance_after_end(
+            &end("paused", false, 10.0),
+            None,
+            false
+        ));
         assert!(
             should_advance_after_end(&end("paused", false, 228.8), None, false),
             "the official page stops just short of the end with Automix off"
@@ -542,28 +679,59 @@ mod tests {
 
     #[test]
     fn a_hidden_page_reapplies_the_chosen_volume_after_any_reset() {
-        assert_eq!(volume_sync(false, false, 1.0, false, 0.4, false), VolumeSync::PushStored);
-        assert_eq!(volume_sync(false, false, 0.4, true, 0.4, false), VolumeSync::PushStored);
-        assert_eq!(volume_sync(false, false, 0.405, false, 0.4, false), VolumeSync::AlreadyMatches);
-        assert_eq!(volume_sync(true, false, 1.0, false, 0.4, false), VolumeSync::PushStored);
-        assert_eq!(volume_sync(true, false, 0.4, true, 0.4, false), VolumeSync::PushStored);
-        assert_eq!(volume_sync(true, false, 0.4, false, 0.4, false), VolumeSync::AlreadyMatches);
-        assert_eq!(volume_sync(false, true, 1.0, false, 0.4, false), VolumeSync::Ignore);
+        assert_eq!(
+            volume_sync(false, false, 1.0, false, 0.4, false),
+            VolumeSync::PushStored
+        );
+        assert_eq!(
+            volume_sync(false, false, 0.4, true, 0.4, false),
+            VolumeSync::PushStored
+        );
+        assert_eq!(
+            volume_sync(false, false, 0.405, false, 0.4, false),
+            VolumeSync::AlreadyMatches
+        );
+        assert_eq!(
+            volume_sync(true, false, 1.0, false, 0.4, false),
+            VolumeSync::PushStored
+        );
+        assert_eq!(
+            volume_sync(true, false, 0.4, true, 0.4, false),
+            VolumeSync::PushStored
+        );
+        assert_eq!(
+            volume_sync(true, false, 0.4, false, 0.4, false),
+            VolumeSync::AlreadyMatches
+        );
+        assert_eq!(
+            volume_sync(false, true, 1.0, false, 0.4, false),
+            VolumeSync::Ignore
+        );
     }
 
     /// The Swift shell's merge lost this change. It is the case this port exists to keep.
     #[test]
     fn a_shuffle_change_made_while_a_volume_save_is_pending_is_not_lost() {
-        let pending = PreferencesPatch { volume: Some(0.25), ..Default::default() };
+        let pending = PreferencesPatch {
+            volume: Some(0.25),
+            ..Default::default()
+        };
         let merged = merge_preferences(
             Some(pending),
-            PreferencesPatch { shuffle: Some(true), ..Default::default() },
+            PreferencesPatch {
+                shuffle: Some(true),
+                ..Default::default()
+            },
         );
         assert_eq!(merged.volume, Some(0.25));
         assert_eq!(merged.shuffle, Some(true));
         let merged = merge_preferences(
             Some(merged),
-            PreferencesPatch { repeat_mode: Some("all".into()), volume: Some(0.5), ..Default::default() },
+            PreferencesPatch {
+                repeat_mode: Some("all".into()),
+                volume: Some(0.5),
+                ..Default::default()
+            },
         );
         assert_eq!(merged.shuffle, Some(true));
         assert_eq!(merged.repeat_mode.as_deref(), Some("all"));
@@ -571,7 +739,10 @@ mod tests {
 
         let merged = merge_preferences(
             Some(merged),
-            PreferencesPatch { artwork_background: Some(false), ..Default::default() },
+            PreferencesPatch {
+                artwork_background: Some(false),
+                ..Default::default()
+            },
         );
         assert_eq!(merged.shuffle, Some(true));
         assert_eq!(merged.artwork_background, Some(false));
@@ -579,7 +750,10 @@ mod tests {
 
     #[test]
     fn a_first_change_is_saved_as_it_is() {
-        let update = PreferencesPatch { theme: Some("dark".into()), ..Default::default() };
+        let update = PreferencesPatch {
+            theme: Some("dark".into()),
+            ..Default::default()
+        };
         assert_eq!(merge_preferences(None, update.clone()), update);
     }
 

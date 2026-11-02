@@ -36,7 +36,10 @@ fn a_well_known_song_returns_synced_lyrics() {
     assert!(!document.lines.is_empty());
     if document.synced {
         assert!(
-            document.lines.windows(2).all(|pair| pair[0].at_ms <= pair[1].at_ms),
+            document
+                .lines
+                .windows(2)
+                .all(|pair| pair[0].at_ms <= pair[1].at_ms),
             "synced lines must be ordered"
         );
         assert!(
@@ -82,5 +85,8 @@ fn a_repeat_lookup_is_served_from_the_cache() {
     let warm = second.elapsed();
 
     println!("cold={cold:?} warm={warm:?}");
-    assert!(warm < cold, "a repeat lookup must not hit the network again");
+    assert!(
+        warm < cold,
+        "a repeat lookup must not hit the network again"
+    );
 }
