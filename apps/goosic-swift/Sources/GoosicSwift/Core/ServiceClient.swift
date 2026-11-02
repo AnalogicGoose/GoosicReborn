@@ -213,24 +213,30 @@ final class GoosicServiceClient: @unchecked Sendable {
 
     private func startReading() {
         readQueue.async { [self] in
-            while true {
-                let chunk = output.availableData
-                if chunk.isEmpty {
-                    // A closed pipe is the end of the conversation, whether the child exited or
-                    // the handle was closed underneath us.
-                    let status = process.isRunning ? nil : process.terminationStatus
-                    invalidate(with: status.map(ServiceClientError.processExited) ?? ServiceClientError.endOfFile)
-                    // After `close()` the stream is already invalidated, so the call above closed
-                    // nothing. This thread owns the read handle and is done with it either way.
-                    try? output.close()
-                    return
-                }
-                lock.lock()
-                frames.append(chunk)
-                lock.unlock()
-                if !drainFrames() { return }
-            }
+            // The pool is per read because this work item lasts as long as the service does, so
+            // the one its queue would drain is never reached. `availableData` autoreleases a 16 KB
+            // buffer each time, and they all stayed reachable until the connection ended.
+            while drainingAutoreleasedObjects({ readNextChunk() }) {}
         }
+    }
+
+    /// Returns false once the stream has ended and reading should stop.
+    private func readNextChunk() -> Bool {
+        let chunk = output.availableData
+        if chunk.isEmpty {
+            // A closed pipe is the end of the conversation, whether the child exited or the
+            // handle was closed underneath us.
+            let status = process.isRunning ? nil : process.terminationStatus
+            invalidate(with: status.map(ServiceClientError.processExited) ?? ServiceClientError.endOfFile)
+            // After `close()` the stream is already invalidated, so the call above closed nothing.
+            // This thread owns the read handle and is done with it either way.
+            try? output.close()
+            return false
+        }
+        lock.lock()
+        frames.append(chunk)
+        lock.unlock()
+        return drainFrames()
     }
 
     /// Returns false once the stream has been invalidated and reading should stop.
@@ -315,4 +321,13 @@ final class GoosicServiceClient: @unchecked Sendable {
             MainActor.assumeIsolated { completion(result) }
         }
     }
+}
+
+/// Autorelease pools exist only where Foundation sits on the Objective-C runtime.
+private func drainingAutoreleasedObjects<Result>(_ body: () -> Result) -> Result {
+    #if canImport(ObjectiveC)
+    return autoreleasepool(invoking: body)
+    #else
+    return body()
+    #endif
 }

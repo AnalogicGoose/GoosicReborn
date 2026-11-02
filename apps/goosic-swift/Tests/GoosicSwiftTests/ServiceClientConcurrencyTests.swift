@@ -209,6 +209,47 @@ final class ServiceClientConcurrencyTests: XCTestCase {
     }
     #endif
 
+    #if canImport(Darwin)
+    /// A read loop that never returns never reaches the pool its queue would drain, so each pipe
+    /// read used to leave a 16 KB buffer behind for as long as the service ran: past 700 MB in an
+    /// afternoon of playback, reachable the whole time, so a leak scan saw nothing. Measured while
+    /// the connection is open, because closing it would release exactly what is being looked for.
+    func testAnsweredRequestsDoNotAccumulateMemoryWhileTheServiceRuns() throws {
+        let client = try GoosicServiceClient(executablePath: try makeStubService(delay: 0))
+        defer { client.close() }
+
+        // One at a time, so each answer is a read of its own, as a playback sample is.
+        func exchange(_ count: Int) {
+            for _ in 0..<count {
+                let answered = expectation(description: "answered")
+                client.send(command: "playback.sample") { _ in answered.fulfill() }
+                wait(for: [answered], timeout: 5)
+            }
+        }
+
+        exchange(100)
+        let before = try Self.physicalFootprint()
+        exchange(1_500)
+        let growth = try Self.physicalFootprint() - before
+
+        // The defect costs at least 24 MB across these reads. The margin is for the test's own
+        // allocations.
+        XCTAssertLessThan(growth, 8 * 1024 * 1024, "the read loop retained \(growth) bytes")
+    }
+
+    private static func physicalFootprint() throws -> Int64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard status == KERN_SUCCESS else { throw XCTSkip("task_info failed: \(status)") }
+        return Int64(info.phys_footprint)
+    }
+    #endif
+
     /// Only a broken stream ends the connection. The model used to drop Rust's authority on any
     /// failure but a rejection, so one slow catalog read stopped tracking audio that kept playing.
     func testOnlyTransportFailuresEndTheConnection() {
