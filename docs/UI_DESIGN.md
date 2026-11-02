@@ -363,6 +363,12 @@ Skeletons appear only while the page has no content, including during cached or 
 refreshes; they must not remain above already loaded shelves. Independent artwork arrival
 effects remain excluded. Reduced motion uses immediate final geometry and full opacity.
 
+Feed navigation prepares the destination before replacing the current canvas. Commit one
+complete response and run the arrival once; do not first animate cached shelves and then
+clear/recreate them when a refresh completes. The current feed remains usable while fetching.
+Newer navigation or an account change invalidates an earlier pending response. Failures have
+an honest destination error/retry state instead of replaying the entrance or leaving a skeleton.
+
 Every icon action has a meaningful accessible name, suitable native hit target and keyboard
 path. Single-selection controls expose their selection; disabled actions reflect actual
 availability. Focus is distinct from selection, visible but restrained, and dismissible where
