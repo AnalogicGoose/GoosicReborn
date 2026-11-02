@@ -122,14 +122,18 @@ identity and account actions anchor the bottom of navigation.
 The November 2, 2026 sidebar reference adds a compact icon rail and an expanded navigation
 panel. Keep the Goosic identity at the top, a menu action below it, Search before Home, and the
 account avatar anchored at the bottom in both arrangements. Expanded navigation shows group
-labels, destination names and account status. Compact navigation keeps named, keyboard-reachable
-icons with tooltips; opening a group or Search can expand the panel to expose its existing
-destinations. Use a rounded selection fill and a short leading accent marker, with focus and
+labels, destination names and account status. The Goosic name uses regular font weight. Search
+is a navigation tab with a magnifying-glass icon and an expanded label, matching macOS; its
+query field belongs to the main Search page rather than the sidebar. Selecting Search or using
+the search shortcut opens that page and focuses its floating field, preserving the query and
+category when returning. The compact Search icon opens the same page without expanding the
+sidebar. Compact navigation keeps named, keyboard-reachable icons with tooltips; opening a
+group can expand the panel to expose its existing destinations. Use a rounded selection fill and a short leading accent marker, with focus and
 hover distinct from selection. Compact icons keep the same restrained visual size as expanded
 navigation icons, within full-size hit targets. Align icon centers, brand artwork and the
 account avatar on one leading axis; hide label spacing along with its text so neither the
-avatar nor the brand artwork is clipped. Keep the first navigation row at the same vertical
-position when the search field becomes an icon. Long labels truncate inside their available
+avatar nor the brand artwork is clipped. Keep Search and Home at the same vertical positions
+when navigation collapses to icons. Long labels truncate inside their available
 column, with the full name accessible. Collapsing navigation changes presentation only: it preserves
 the route, query, account, queue, playback position and mounted renderer.
 
