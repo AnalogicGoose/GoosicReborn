@@ -137,9 +137,16 @@ impl Rest {
         let command = parts.next()?.to_owned();
         let id = parts.next()?.to_owned();
         let offset = parts.next()?.parse().ok()?;
-        let upstream = parts.next().filter(|value| !value.is_empty()).map(str::to_owned);
-        matches!(command.as_str(), "catalog.browse" | "catalog.category")
-            .then_some(Rest { command, id, offset, upstream })
+        let upstream = parts
+            .next()
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        matches!(command.as_str(), "catalog.browse" | "catalog.category").then_some(Rest {
+            command,
+            id,
+            offset,
+            upstream,
+        })
     }
 }
 
@@ -206,7 +213,9 @@ fn page_shelves(mut page: CatalogPage, command: &str, id: &str, offset: usize) -
     let mut kept = 0;
     for shelf in shelves.iter().take(MAX_SHELVES) {
         page.shelves.push(shelf.clone());
-        let size = serde_json::to_vec(&page).map(|bytes| bytes.len()).unwrap_or(0);
+        let size = serde_json::to_vec(&page)
+            .map(|bytes| bytes.len())
+            .unwrap_or(0);
         // Always at least one shelf, or a single enormous shelf would page forever.
         if size > MAX_CATALOG_BYTES && kept > 0 {
             page.shelves.pop();
@@ -414,7 +423,10 @@ mod tests {
     fn a_page_with_more_shelves_than_a_frame_holds_pages_the_rest_instead_of_dropping_it() {
         let first = page_shelves(shelf_page(16), "catalog.category", "cat|x", 0);
         assert_eq!(first.shelves.len(), MAX_SHELVES);
-        let cursor = first.next_cursor.clone().expect("the rest is one cursor away");
+        let cursor = first
+            .next_cursor
+            .clone()
+            .expect("the rest is one cursor away");
         let rest = Rest::decode(&cursor).expect("the service reads its own cursor");
         assert_eq!(rest.offset, MAX_SHELVES);
         assert_eq!(rest.id, "cat|x");
@@ -422,7 +434,10 @@ mod tests {
         let second = page_shelves(shelf_page(16), &rest.command, &rest.id, rest.offset);
         assert_eq!(second.shelves.len(), 4);
         assert_eq!(second.shelves[0].title, "Shelf 12");
-        assert_eq!(second.next_cursor, None, "nothing is left after the last shelf");
+        assert_eq!(
+            second.next_cursor, None,
+            "nothing is left after the last shelf"
+        );
         assert!(!clamp(first, MAX_CATALOG_BYTES).truncated);
     }
 

@@ -79,10 +79,17 @@ pub fn rejection_reason(
         return Some("it came from a superseded document".to_owned());
     }
     if Some(event.generation) != expected_generation {
-        return Some(format!("generation {} is not the active lease", event.generation));
+        return Some(format!(
+            "generation {} is not the active lease",
+            event.generation
+        ));
     }
     if Some(event.video_id.as_str()) != expected_video_id {
-        let described = if event.video_id.is_empty() { "no video" } else { &event.video_id };
+        let described = if event.video_id.is_empty() {
+            "no video"
+        } else {
+            &event.video_id
+        };
         return Some(format!("it describes {described}, not the requested video"));
     }
     if event.sequence <= last_sequence {
@@ -111,7 +118,9 @@ pub fn rejection_reason(
 /// sits in front of a URL the host builds should not be more generous than the thing it guards.
 pub fn is_valid_video_id(video_id: &str) -> bool {
     video_id.len() == 11
-        && video_id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        && video_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
 /// Encodes a string as a JavaScript string literal, so an injected value can never terminate the
@@ -272,7 +281,10 @@ mod tests {
         for answer in ["'absent'", "'off'", "'turned off'", "'still on'"] {
             assert!(AUTOMIX_OFF_SCRIPT.contains(answer), "{answer}");
         }
-        assert!(!AUTOMIX_OFF_SCRIPT.contains("location"), "it never navigates");
+        assert!(
+            !AUTOMIX_OFF_SCRIPT.contains("location"),
+            "it never navigates"
+        );
     }
 
     /// Exactly the shape `observer_script` posts.
@@ -289,7 +301,13 @@ mod tests {
     }
 
     fn reason(event: &BridgeEvent, last_sequence: u64) -> Option<String> {
-        rejection_reason(event, Some("token"), Some(7), Some("dQw4w9WgXcQ"), last_sequence)
+        rejection_reason(
+            event,
+            Some("token"),
+            Some(7),
+            Some("dQw4w9WgXcQ"),
+            last_sequence,
+        )
     }
 
     #[test]
@@ -342,12 +360,30 @@ mod tests {
     fn impossible_numbers_and_foreign_versions_are_refused() {
         let good = decoded(&payload("token", 7, 1));
         let refused = |event: BridgeEvent| reason(&event, 0);
-        assert!(refused(BridgeEvent { version: 1, ..good.clone() }).unwrap().contains("version 1"));
-        assert!(refused(BridgeEvent { volume: 1.5, ..good.clone() }).unwrap().contains("volume"));
-        assert!(refused(BridgeEvent { current_time: -1.0, ..good.clone() }).unwrap().contains("position"));
-        assert!(refused(BridgeEvent { video_id: String::new(), ..good.clone() })
-            .unwrap()
-            .contains("no video"));
+        assert!(refused(BridgeEvent {
+            version: 1,
+            ..good.clone()
+        })
+        .unwrap()
+        .contains("version 1"));
+        assert!(refused(BridgeEvent {
+            volume: 1.5,
+            ..good.clone()
+        })
+        .unwrap()
+        .contains("volume"));
+        assert!(refused(BridgeEvent {
+            current_time: -1.0,
+            ..good.clone()
+        })
+        .unwrap()
+        .contains("position"));
+        assert!(refused(BridgeEvent {
+            video_id: String::new(),
+            ..good.clone()
+        })
+        .unwrap()
+        .contains("no video"));
         assert!(
             rejection_reason(&good, None, Some(7), Some("dQw4w9WgXcQ"), 0).is_some(),
             "no active load means nothing is expected"
@@ -372,7 +408,9 @@ mod tests {
     #[test]
     fn the_observer_posts_to_the_handler_name_every_host_registers() {
         let script = observer_script("t", 1, "v");
-        assert!(script.contains(&format!("window.webkit.messageHandlers.{HANDLER_NAME}.postMessage")));
+        assert!(script.contains(&format!(
+            "window.webkit.messageHandlers.{HANDLER_NAME}.postMessage"
+        )));
     }
 
     #[test]
