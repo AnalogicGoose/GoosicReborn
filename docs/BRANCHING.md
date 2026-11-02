@@ -204,11 +204,28 @@ and a change to the core is exactly the kind of thing a person has to resolve, a
 that guesses is worse than one that stops. There is no `push --force` anywhere in this: a
 platform branch's own installers, scripts, and configuration survive by construction.
 
-**Branches already contained in their parent are skipped.** A finished work branch still exists
-until someone deletes it, and merging into it produces a commit nobody will ever read and a CI
-run nobody will read either.
+**Work branches already contained in their parent are skipped.** A finished `feature/*` or
+`fix/*` branch still exists until someone deletes it, and merging into it produces a commit
+nobody will ever read and a CI run nobody will read either.
 
-**Stale branches are skipped.** A branch with no activity for weeks is not waiting for updates.
+**Stale work branches are skipped.** A work branch with no activity for weeks is not waiting
+for updates.
+
+Neither skip applies to `development` or a `platform/*` branch, because for a long-lived branch
+being contained in its parent does not mean it is finished. It is the ordinary state right
+after a deployment, when `development` is an ancestor of `main`, and right after a promotion,
+when `platform/macos` or `platform/windows` has just been merged into `development`. The
+cascade once treated those the same as a finished work branch and skipped them, so every later
+change stopped at the parent; for the 0.2.9 release `development` and both platform branches
+had to be fast-forwarded by hand. A contained long-lived branch is now fast-forwarded to its
+parent instead. That is not a merge commit and not a force push: the branch has no commits of
+its own to lose, and the server refuses the push if it would not be a fast-forward. A quiet
+platform branch is likewise still waiting for the trunk, so the staleness rule leaves it alone.
+
+A change to `propagate.yml` itself takes effect late. The workflow starts from a `workflow_run`
+event, and GitHub runs such a workflow from the default branch's copy, so an edit is live only
+once a deployment carries it to `main`. Until then the cascade keeps its old behaviour, even on
+`development`, where the new copy already sits.
 
 The propagated push is a normal push, so CI runs on the result — and it should, because merging
 a parent into a branch that has its own work produces a tree that has never been compiled. That
