@@ -298,6 +298,12 @@ private struct NativeMacRootView: SwiftUI.View {
     /// Pages start at the detail column's own edge now that the sidebar is a real column.
     private let leadingInset: CGFloat = 0
     private var nowPlayingPanelVisible: Bool { model.queueVisible || model.lyricsVisible }
+    private static let fullPlayerSlideSeconds = 0.4
+    private var fullPlayerShowing: Bool { model.fullPlayerOpen && model.currentTrack != nil }
+    /// Whether the window has become the full player's: sidebar aside, its toolbar in place. Later
+    /// than opening it and earlier than closing it, so that relayout happens behind the opaque
+    /// panel. Run during the animation, it re-laid out the entire page underneath on every frame.
+    @SwiftUI.State private var fullPlayerCoversWindow = false
 
     var body: some SwiftUI.View {
         ZStack {
@@ -319,7 +325,7 @@ private struct NativeMacRootView: SwiftUI.View {
             // The sidebar steps aside under the full player, so that player's title-bar capsule
             // sits beside the traffic lights as Music's does rather than after the sidebar.
             SwiftUI.NavigationSplitView(columnVisibility: SwiftUI.Binding(
-                get: { model.fullPlayerOpen && model.currentTrack != nil ? .detailOnly : .all },
+                get: { fullPlayerCoversWindow ? .detailOnly : .all },
                 set: { _ in }
             )) {
                 NativeMacSidebar(store: store)
@@ -339,14 +345,31 @@ private struct NativeMacRootView: SwiftUI.View {
 
             // Above everything, but the layers beneath stay mounted: the official playback
             // surface in particular must outlive opening and closing this.
-            if model.fullPlayerOpen && model.currentTrack != nil {
-                NativeMacFullPlayer(store: store, clock: model.clock)
-                    // Scaling a view that ignores the safe area briefly exposes the content
-                    // underneath around the title bar. Music keeps the surface full-size and
-                    // cross-fades it instead, so the transition cannot look clipped.
-                    .transition(.opacity)
-                    .zIndex(10)
+            // An opaque panel sliding over the page. Nothing beneath it has to be blended, and
+            // the page is not redrawn; a fade showed both at once and left the title bar strip
+            // looking cut off. Its animation is scoped to this panel for the same reason.
+            ZStack {
+                if fullPlayerShowing {
+                    NativeMacFullPlayer(store: store, clock: model.clock)
+                        // The cover and background often load mid-slide. Without a group of its
+                        // own, whatever arrives late is placed where the panel will end up.
+                        .geometryGroup()
+                        // The group takes the safe area as its bounds, so it must also ignore it
+                        // for the panel to reach the top of the window.
+                        .ignoresSafeArea()
+                        .transition(.move(edge: .bottom))
+                }
             }
+            .animation(reduceMotion ? nil : .smooth(duration: Self.fullPlayerSlideSeconds), value: fullPlayerShowing)
+            .zIndex(10)
+        }
+        .task(id: fullPlayerShowing) {
+            guard fullPlayerShowing else {
+                fullPlayerCoversWindow = false
+                return
+            }
+            if !reduceMotion { try? await Task.sleep(for: .seconds(Self.fullPlayerSlideSeconds)) }
+            if !Task.isCancelled { fullPlayerCoversWindow = true }
         }
         // Owned here rather than by the menu that opens it: a context menu is gone by the time
         // its action runs, and an alert presented from a view that no longer exists never appears.
@@ -403,7 +426,6 @@ private struct NativeMacRootView: SwiftUI.View {
         .labelStyle(.titleAndIcon)
         .background(NativeMacWindowChrome())
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: model.artworkBackground)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: model.fullPlayerOpen)
         .animation(reduceMotion ? nil : .spring(duration: 0.3), value: model.notice)
         .environment(\.goosicArtworkModel, model)
         .environment(\.goosicReduceMotion, reduceMotion)
@@ -438,7 +460,17 @@ private struct NativeMacRootView: SwiftUI.View {
             // Each item exists only while it has something to show. An empty group still
             // reserves a slot, and the toolbar folds unused slots into a stray » overflow button.
             .toolbar {
-                if model.fullPlayerOpen && model.currentTrack != nil {
+                // A window with no toolbar puts the traffic lights somewhere else, so they moved
+                // whenever a page had nothing to show here. This keeps one on every page.
+                if !toolbarHasContent {
+                    if #available(macOS 26.0, *) {
+                        ToolbarItem(placement: .automatic) { toolbarAnchor }
+                            .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .automatic) { toolbarAnchor }
+                    }
+                }
+                if fullPlayerCoversWindow {
                     if #available(macOS 26.0, *) {
                         ToolbarItem(placement: .navigation) { fullPlayerWindowControls }
                             .sharedBackgroundVisibility(.hidden)
@@ -446,7 +478,7 @@ private struct NativeMacRootView: SwiftUI.View {
                         ToolbarItem(placement: .navigation) { fullPlayerWindowControls }
                     }
                 }
-                if model.detail != nil && !model.fullPlayerOpen {
+                if model.detail != nil && !fullPlayerCoversWindow {
                     ToolbarItem(placement: .navigation) {
                         SwiftUI.Button(action: model.closeDetail) {
                             SwiftUI.Image(systemName: "chevron.left")
@@ -457,7 +489,7 @@ private struct NativeMacRootView: SwiftUI.View {
                     }
                 }
                 if model.route == .library, model.detail == nil, model.activeAccount != nil,
-                   !model.fullPlayerOpen {
+                   !fullPlayerCoversWindow {
                     // The library's section picker, centred in the title bar as Music does.
                     ToolbarItem(placement: .principal) {
                         SwiftUI.Picker(
@@ -477,10 +509,10 @@ private struct NativeMacRootView: SwiftUI.View {
                 }
                 // In the split view's detail column `.automatic` is the column's leading edge; a
                 // flexible spacer is what carries the items after it to the trailing edge.
-                if model.detail != nil || (model.fullPlayerOpen && model.currentTrack != nil) {
+                if model.detail != nil || fullPlayerCoversWindow {
                     NativeMacTrailingSpacer()
                 }
-                if let entity = model.detail, !model.fullPlayerOpen {
+                if let entity = model.detail, !fullPlayerCoversWindow {
                     // Find, Share and More at the trailing edge, as in Music.
                     ToolbarItemGroup(placement: .automatic) {
                         if case .playlist = entity {
@@ -510,7 +542,7 @@ private struct NativeMacRootView: SwiftUI.View {
                         NativeMacPageMenu(entity: entity, model: model)
                     }
                 }
-                if model.fullPlayerOpen && model.currentTrack != nil {
+                if fullPlayerCoversWindow {
                     // Only a toolbar item keeps its drag in the title bar; a slider drawn there by
                     // the content would move the window instead.
                     // Volume at the trailing edge, as in Music.
@@ -522,6 +554,17 @@ private struct NativeMacRootView: SwiftUI.View {
                     }
                 }
             }
+    }
+
+    private var toolbarHasContent: Bool {
+        fullPlayerCoversWindow || model.detail != nil
+            || (model.route == .library && model.activeAccount != nil)
+    }
+
+    private var toolbarAnchor: some SwiftUI.View {
+        SwiftUI.Color.clear
+            .frame(width: 1, height: 1)
+            .accessibilityHidden(true)
     }
 
     private var fullPlayerWindowControls: some SwiftUI.View {
@@ -858,7 +901,6 @@ private struct NativeMacSidebar: SwiftUI.View {
     static let width: CGFloat = 210
 
     @ObservedObject var store: NativeMacModelStore
-    @SwiftUI.Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @SwiftUI.State private var confirmSignOut = false
 
     private var model: GoosicAppModel { store.model }
@@ -866,7 +908,7 @@ private struct NativeMacSidebar: SwiftUI.View {
     var body: some SwiftUI.View {
         SwiftUI.VStack(spacing: 0) {
             sidebarList
-                .mask(sidebarScrollMask)
+            SwiftUI.Divider()
             accountButton
         }
         // The split view draws the sidebar's glass and sets its width; nothing is layered here.
@@ -909,31 +951,6 @@ private struct NativeMacSidebar: SwiftUI.View {
         .listStyle(.sidebar)
         .environment(\.defaultMinListRowHeight, 30)
         .scrollContentBackground(.hidden)
-    }
-
-    /// Fade the scrolling content, not the sidebar surface. The one continuous sidebar material
-    /// therefore shows through at both edges instead of producing a footer-colored rectangle.
-    @SwiftUI.ViewBuilder
-    private var sidebarScrollMask: some SwiftUI.View {
-        if reduceTransparency {
-            SwiftUI.Rectangle().fill(SwiftUI.Color.black)
-        } else {
-            SwiftUI.VStack(spacing: 0) {
-                SwiftUI.LinearGradient(
-                    colors: [SwiftUI.Color.clear, SwiftUI.Color.black],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                    .frame(height: 62)
-                SwiftUI.Rectangle().fill(SwiftUI.Color.black)
-                SwiftUI.LinearGradient(
-                    colors: [SwiftUI.Color.black, SwiftUI.Color.clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                    .frame(height: 58)
-            }
-        }
     }
 
     /// Rows are plain buttons on a native list, so they take the system row metrics while the
