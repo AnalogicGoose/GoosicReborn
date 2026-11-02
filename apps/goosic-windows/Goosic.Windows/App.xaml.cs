@@ -19,6 +19,7 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        UnhandledException += (_, error) => BridgeLog.Write($"UI unhandled: {error.Exception}");
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)

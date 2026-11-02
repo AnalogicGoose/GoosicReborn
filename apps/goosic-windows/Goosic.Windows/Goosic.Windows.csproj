@@ -39,6 +39,7 @@
 
   <ItemGroup>
     <Content Include="Assets\Goosic.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Goosic.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
