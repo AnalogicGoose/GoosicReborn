@@ -896,7 +896,17 @@
                                             Background="Transparent" BorderThickness="0"
                                             Text="{x:Bind Model.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                             QuerySubmitted="OnSearchSubmitted" TextChanged="OnSearchTextChanged" GotFocus="OnSearchGotFocus"
-                                            AutomationProperties.Name="Search music" />
+                                            AutomationProperties.Name="Search music" VerticalAlignment="Center">
+                                <AutoSuggestBox.TextBoxStyle>
+                                    <Style TargetType="TextBox" BasedOn="{StaticResource AutoSuggestBoxTextBoxStyle}">
+                                        <Setter Property="VerticalContentAlignment" Value="Center" />
+                                        <Setter Property="Padding" Value="4,0" />
+                                        <Setter Property="MinHeight" Value="40" />
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Setter Property="BorderThickness" Value="0" />
+                                    </Style>
+                                </AutoSuggestBox.TextBoxStyle>
+                            </AutoSuggestBox>
                             <Button Grid.Column="2" Content="Search" Click="OnSearchSubmitButton" Background="Transparent" BorderThickness="0"
                                     Foreground="{ThemeResource GoosicNavigationAccentBrush}" IsEnabled="{x:Bind Model.CanSubmitSearch, Mode=OneWay}" />
                         </Grid>
@@ -1363,12 +1373,12 @@
 
                     <ScrollViewer x:Name="SidebarRail" Grid.Row="3" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden"
                                   HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
-                        <StackPanel x:Name="SidebarRailItems" Spacing="1">
+                        <StackPanel x:Name="SidebarRailItems" Spacing="0">
                             <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="home" Click="OnNavigate"
                                           AutomationProperties.Name="Home" ToolTipService.ToolTip="Home">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE80F;" />
                             </ToggleButton>
-                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="explore" Click="OnNavigate" Margin="0,12,0,0"
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="explore" Click="OnNavigate"
                                           AutomationProperties.Name="Explore" ToolTipService.ToolTip="Explore">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE774;" />
                             </ToggleButton>
@@ -1384,7 +1394,7 @@
                                           AutomationProperties.Name="New releases" ToolTipService.ToolTip="New releases">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE734;" />
                             </ToggleButton>
-                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="liked" Click="OnNavigate" Margin="0,12,0,0"
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="liked" Click="OnNavigate"
                                           AutomationProperties.Name="Liked Music" ToolTipService.ToolTip="Liked Music">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xEB51;" />
                             </ToggleButton>
@@ -1404,14 +1414,14 @@
                                           AutomationProperties.Name="Downloads" ToolTipService.ToolTip="Downloads">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE896;" />
                             </ToggleButton>
-                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="library:FEmusic_liked_playlists" Click="OnNavigate" Margin="0,12,0,0"
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="library:FEmusic_liked_playlists" Click="OnNavigate"
                                           AutomationProperties.Name="All Playlists" ToolTipService.ToolTip="All Playlists">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xF0E2;" />
                             </ToggleButton>
                             <Button Style="{StaticResource SidebarGlyphStyle}" Width="48" Content="&#xE710;"
                                     AutomationProperties.Name="New playlist" ToolTipService.ToolTip="New playlist"
                                     Visibility="{x:Bind Model.IsSignedIn, Mode=OneWay}" Click="OnNewPlaylist" />
-                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="settings" Click="OnNavigate" Margin="0,12,0,0"
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="settings" Click="OnNavigate"
                                           AutomationProperties.Name="Settings" ToolTipService.ToolTip="Settings">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE713;" />
                             </ToggleButton>
