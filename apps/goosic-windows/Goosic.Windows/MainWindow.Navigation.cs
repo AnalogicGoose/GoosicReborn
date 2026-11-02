@@ -358,6 +358,9 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenAsync(string kind, string id, string title)
     {
+        // The full player, and the mini player that is its compact form, cover the page this
+        // opens; without stepping aside, Go to Artist from either seemed to do nothing.
+        SetFullPlayerOpen(false);
         HighlightNavigation(null);
         await Model.OpenEntityAsync(kind, id, title);
         // Some entities open a route of their own, such as Liked Music; its sidebar row lights up.

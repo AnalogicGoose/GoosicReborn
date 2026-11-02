@@ -1854,6 +1854,7 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Spacing="3">
                             <TextBlock Text="{x:Bind Model.NowPlayingTitle, Mode=OneWay}" FontSize="24"
@@ -1868,6 +1869,13 @@
                                       ToolTipService.ToolTip="{x:Bind Model.LikeLabel, Mode=OneWay}"
                                       AutomationProperties.Name="{x:Bind Model.LikeLabel, Mode=OneWay}"
                                       Click="OnLikeNowPlaying" />
+                        <!-- The song's own menu beside Like, as Music's full player has it. -->
+                        <Button Grid.Column="2" x:Name="FullPlayerMoreButton" VerticalAlignment="Center"
+                                Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xE712;"
+                                IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
+                                ToolTipService.ToolTip="More"
+                                AutomationProperties.Name="More options for this song"
+                                Click="OnFullPlayerMore" />
                     </Grid>
 
                     <Slider x:Name="FullPlayerProgress" Minimum="0" StepFrequency="1"
