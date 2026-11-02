@@ -201,8 +201,23 @@ job, and it only removes branches whose commits already live in their parent.
   same change.
 - **Prose over bullets in `docs/`.** Existing documents explain *why* a contract exists, not
   just what it is. Match that.
-- **Commit messages** state what changed and why it had to change, in the imperative. No
-  co-authorship, attribution, or session trailers.
+- **Commit messages read like an Apple product page.** The subject is a short headline in the
+  imperative. The body opens with a one-line tagline that says what the change means for the
+  person using Goosic, in plain words, then a short, confident paragraph on what changed and
+  why it had to. Write it to be read by someone who was not there: lead with the outcome,
+  keep sentences short, and leave internals for the paragraph, not the tagline. Every claim
+  must be true and visible in the diff; the style is presentation, not hype, so never promise
+  more than the change does. No co-authorship, attribution, or session trailers.
+
+  ```
+  Slide the full player up from the bottom
+
+  Now playing, front and center.
+
+  Opening the full player faded and scaled it, which clipped the top of the window and
+  stuttered. It now slides up as one surface, as Music's does, with its background drawn at
+  an eighth of the size so every frame keeps up.
+  ```
 - **Rust** is edition 2021, `max_width = 100` (`rustfmt.toml`). Tests live beside the code
   they cover; live network tests are `#[ignore]`d.
 - **Swift is built in the Swift 6 language mode.** Concurrency errors are errors, not warnings.
