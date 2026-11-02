@@ -16,5 +16,10 @@ struct GoosicDebugHostApp: App {
                 .preferredColorScheme(scheme)
         }
         .defaultSize(width: 1_020, height: 680)
+
+        Settings {
+            GoosicMacUITestSettings()
+                .preferredColorScheme(scheme)
+        }
     }
 }
