@@ -313,8 +313,9 @@ state transition on other systems. Other player controls share press/state feedb
 current macOS control transitions are about 180–280 ms; native timing can adapt. Apply the most
 restrictive request from system Reduce Motion and the app preference. Efficiency modes may
 suppress decorative motion too. Do not animate layout on playback ticks or resize the whole
-page for a small glyph transition. Full-player presentation fades rather than exposing clipped
-window edges during scaling.
+page for a small glyph transition. The full player slides up from the bottom edge as one
+surface, artwork included, as Music's does, rather than fading or scaling, which exposed clipped
+window edges; with reduced motion it appears without the slide.
 
 Fetch, artwork decoding, palette sampling and blur must not block the UI thread. Use bounded
 work queues, cached/downsampled artwork and targeted view invalidation. Avoid a whole-shell
