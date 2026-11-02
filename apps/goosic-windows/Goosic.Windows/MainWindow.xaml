@@ -844,7 +844,7 @@
                             Spacing="12" SizeChanged="OnSearchChromeSizeChanged"
                             Visibility="{x:Bind Model.IsSearchPage, Mode=OneWay}">
                     <AutoSuggestBox x:Name="SearchQuery" PlaceholderText="Search music" QueryIcon="Find"
-                                    MaxWidth="620" HorizontalAlignment="Stretch" MinHeight="44" CornerRadius="22"
+                                    MaxWidth="620" HorizontalAlignment="Stretch" MinHeight="44" CornerRadius="8"
                                     Background="{ThemeResource GoosicPillAcrylicBrush}"
                                     Text="{x:Bind Model.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                     QuerySubmitted="OnSearchSubmitted" TextChanged="OnSearchTextChanged" GotFocus="OnSearchGotFocus"
@@ -1131,6 +1131,9 @@
             </Grid>
 
             <!-- ============================== Sidebar ============================== -->
+            <!-- Consume the dismissing click so covered music controls cannot activate. -->
+            <Border x:Name="SidebarDismissLayer" Background="Transparent" Visibility="Collapsed"
+                    Tapped="OnDismissSidebar" AutomationProperties.AccessibilityView="Raw" />
             <Border x:Name="Sidebar" HorizontalAlignment="Left" Width="280" Margin="8"
                     CornerRadius="14" Background="{ThemeResource GoosicSidebarAcrylicBrush}"
                     BorderThickness="1" BorderBrush="{ThemeResource GoosicPillBorderBrush}">

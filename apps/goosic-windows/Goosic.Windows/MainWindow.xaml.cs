@@ -50,6 +50,7 @@ public sealed partial class MainWindow : Window
         }
 
         InitializeComponent();
+        SetSidebarExpanded(false);
         // For checking a theme without changing Windows: GOOSIC_THEME=Light or Dark.
         if (Enum.TryParse<ElementTheme>(Environment.GetEnvironmentVariable("GOOSIC_THEME"), ignoreCase: true, out var theme))
         {

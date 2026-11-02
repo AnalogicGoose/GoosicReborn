@@ -91,6 +91,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnNewPlaylist(object sender, RoutedEventArgs e)
     {
+        DismissOverlaySidebar();
         await NewPlaylistAsync(null);
     }
 

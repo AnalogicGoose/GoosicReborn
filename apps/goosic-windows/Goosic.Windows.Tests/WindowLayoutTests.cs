@@ -18,7 +18,6 @@ public class WindowLayoutTests
     public void NarrowPanelsFloatOverThePageAndDoNotInsetIt()
     {
         Assert.Equal(0, WindowLayout.Inset(WindowWidthClass.Narrow, panelVisible: true, panelWidth: 280));
-        Assert.True(WindowLayout.ClosesSidebarAfterNavigation(WindowWidthClass.Narrow));
     }
 
     [Theory]
@@ -28,7 +27,6 @@ public class WindowLayoutTests
     {
         Assert.Equal(WindowLayout.PanelGap + 280, WindowLayout.Inset(widthClass, true, 280));
         Assert.Equal(0, WindowLayout.Inset(widthClass, false, 280));
-        Assert.False(WindowLayout.ClosesSidebarAfterNavigation(widthClass));
     }
 
     [Theory]
@@ -50,7 +48,9 @@ public class WindowLayoutTests
     [InlineData(WindowWidthClass.Narrow, true)]
     [InlineData(WindowWidthClass.Narrow, false)]
     [InlineData(WindowWidthClass.Medium, false)]
+    [InlineData(WindowWidthClass.Medium, true)]
     [InlineData(WindowWidthClass.Wide, false)]
+    [InlineData(WindowWidthClass.Wide, true)]
     public void TheRailAlwaysKeepsContentAndEssentialPlayerActionsReachable(WindowWidthClass widthClass, bool expanded)
     {
         var inset = WindowLayout.NavigationInset(widthClass, expanded, 280);
@@ -62,8 +62,13 @@ public class WindowLayoutTests
     [Theory]
     [InlineData(WindowWidthClass.Medium)]
     [InlineData(WindowWidthClass.Wide)]
-    public void ExpandedNavigationReservesItsWidthOnlyWhenDocked(WindowWidthClass widthClass) =>
-        Assert.Equal(288, WindowLayout.NavigationInset(widthClass, true, 280));
+    public void OpeningNavigationDoesNotMoveOrResizeThePlayer(WindowWidthClass widthClass)
+    {
+        var closed = WindowLayout.NavigationInset(widthClass, false, 280);
+        var open = WindowLayout.NavigationInset(widthClass, true, 280);
+        Assert.Equal(WindowLayout.PlayerPlacement(1250, closed, 348),
+            WindowLayout.PlayerPlacement(1250, open, 348));
+    }
 
     [Fact]
     public void ThePlayerSitsInTheMiddleOfThePageBesideTheSidebar()

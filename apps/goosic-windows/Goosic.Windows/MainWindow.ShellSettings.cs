@@ -200,10 +200,6 @@ public sealed partial class MainWindow : Window
             presenter.Maximize();
         }
 
-        if (placement.SidebarHidden && _sidebarExpanded)
-        {
-            ToggleSidebar();
-        }
     }
 
     private void SavePlacement()
@@ -221,7 +217,7 @@ public sealed partial class MainWindow : Window
             ? (new PointInt32(previous.X, previous.Y), new SizeInt32(previous.Width, previous.Height))
             : (AppWindow.Position, AppWindow.Size);
         ShellPreferences.Placement = new WindowPlacement(position.X, position.Y, size.Width, size.Height,
-            maximized, !_sidebarExpanded);
+            maximized, SidebarHidden: true);
     }
 
     // ---- Now playing: notification, Discord, tray ----

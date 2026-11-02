@@ -57,9 +57,9 @@ public static class WindowLayout
     public static double SidePanelWidth(WindowWidthClass widthClass, double windowWidth) =>
         widthClass == WindowWidthClass.Wide ? 360 : Math.Max(280, Math.Min(340, windowWidth - 24));
 
-    /// <summary>The rail reserves space even when an expanded narrow sidebar overlays the page.</summary>
+    /// <summary>The temporary navigation panel overlays the page; only the rail reserves space.</summary>
     public static double NavigationInset(WindowWidthClass widthClass, bool expanded, double expandedWidth) =>
-        PanelGap + (expanded && !PanelsOverlayContent(widthClass) ? expandedWidth : SidebarRailWidth);
+        PanelGap + SidebarRailWidth;
 
     /// <summary>
     /// Where the pill sits and how wide it is, from the window's left edge.
@@ -89,12 +89,6 @@ public static class WindowLayout
     /// <summary>How far the page is pushed in by a panel along one edge.</summary>
     public static double Inset(WindowWidthClass widthClass, bool panelVisible, double panelWidth) =>
         !PanelsOverlayContent(widthClass) && panelVisible ? PanelGap + panelWidth : 0;
-
-    /// <summary>
-    /// Whether choosing a destination in the sidebar should also close it: only where the sidebar
-    /// covers the page, since otherwise it would hide what was just opened.
-    /// </summary>
-    public static bool ClosesSidebarAfterNavigation(WindowWidthClass widthClass) => PanelsOverlayContent(widthClass);
 
     /// <summary>The window's minimum size in raw pixels, which is what the presenter takes.</summary>
     public static (int Width, int Height) MinimumPixels(double rasterizationScale) =>

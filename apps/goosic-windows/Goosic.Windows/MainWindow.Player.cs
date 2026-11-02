@@ -107,6 +107,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnAccount(object sender, RoutedEventArgs e)
     {
+        DismissOverlaySidebar();
         await Model.RefreshAccountsAsync();
     }
 

@@ -82,13 +82,13 @@ public sealed partial class MainWindow : Window
                 {
                     SetFullPlayerOpen(false);
                 }
+                else if (_sidebarExpanded)
+                {
+                    ToggleSidebar();
+                }
                 else if (_volumeOpen)
                 {
                     SetVolumeOpen(false);
-                }
-                else if (_sidebarExpanded && PanelsOverlayContent)
-                {
-                    ToggleSidebar();
                 }
                 else if (_sidePanel.IsOpen)
                 {

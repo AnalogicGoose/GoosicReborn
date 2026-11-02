@@ -18,7 +18,7 @@ namespace Goosic.Windows;
 
 public sealed partial class MainWindow : Window
 {
-    private bool _sidebarExpanded = true;
+    private bool _sidebarExpanded;
     private string? _navigationTag = "home";
     // ---- Navigation -------------------------------------------------------------------------
 
@@ -161,7 +161,6 @@ public sealed partial class MainWindow : Window
     private void ToggleSidebar()
     {
         SetSidebarExpanded(!_sidebarExpanded);
-        GlidePlayerOnce();
         ApplyInsets();
     }
 
@@ -174,6 +173,7 @@ public sealed partial class MainWindow : Window
         }
 
         _sidebarExpanded = expanded;
+        SidebarDismissLayer.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
         var visible = expanded ? Visibility.Visible : Visibility.Collapsed;
         SidebarBrandName.Visibility = visible;
         SidebarSearchTab.Visibility = visible;
@@ -224,14 +224,20 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Closes the sidebar after a choice where it covers the page, so the choice is visible.
+    /// Expansion is temporary at every width; choosing a destination restores the rail.
     /// </summary>
     private void DismissOverlaySidebar()
     {
-        if (WindowLayout.ClosesSidebarAfterNavigation(_widthClass) && _sidebarExpanded)
+        if (_sidebarExpanded)
         {
             ToggleSidebar();
         }
+    }
+
+    private void OnDismissSidebar(object sender, TappedRoutedEventArgs e)
+    {
+        DismissOverlaySidebar();
+        e.Handled = true;
     }
 
     private async void OnRetryPage(object sender, RoutedEventArgs e)
@@ -348,6 +354,7 @@ public sealed partial class MainWindow : Window
 
     private async Task GoBackAsync()
     {
+        DismissOverlaySidebar();
         await Model.GoBackAsync();
         HighlightNavigation(Model.CurrentSidebarDestination);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
