@@ -39,6 +39,7 @@ jobs:
             rust: ${{ steps.paths.outputs.rust }}
             swift: ${{ steps.paths.outputs.swift }}
             linux: ${{ steps.paths.outputs.linux }}
+            windows: ${{ steps.paths.outputs.windows }}
         steps:
             -   uses: actions/checkout@v4
                 with:
@@ -70,16 +71,18 @@ jobs:
                         echo "Tree $TREE is new."
                     fi
 
-            # Documentation cannot break a build. The Rust crates feed the Rust workspace and the
-            # GTK shell, which links two of them and runs the service; each shell's own directory
-            # builds only that shell. Anything unclassifiable builds everything.
+            # Documentation cannot break a build. The Rust crates feed the Rust workspace, the
+            # GTK shell, which links two of them and runs the service, and the WinUI shell, which
+            # builds the rules library from them; each shell's own directory builds only that
+            # shell. The WinUI shell also ships the Swift shell's catalog reader, so that one file
+            # builds both. Anything unclassifiable builds everything.
             -   name: See which parts of the tree changed
                 id: paths
                 run: |
-                    RUST=false; SWIFT=false; LINUX=false
+                    RUST=false; SWIFT=false; LINUX=false; WINDOWS=false
                     BEFORE="${{ github.event.before }}"
                     if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-                        RUST=true; SWIFT=true; LINUX=true
+                        RUST=true; SWIFT=true; LINUX=true; WINDOWS=true
                     else
                         CHANGED=$(git diff --name-only "$BEFORE" HEAD)
                         echo "$CHANGED"
@@ -87,10 +90,13 @@ jobs:
                         while IFS= read -r FILE; do
                             [ -z "$FILE" ] && continue
                             case "$FILE" in
-                                crates/*|Cargo.toml|Cargo.lock) RUST=true; LINUX=true ;;
+                                crates/*|Cargo.toml|Cargo.lock) RUST=true; LINUX=true; WINDOWS=true ;;
                                 apps/goosic-linux/*)            LINUX=true ;;
+                                apps/goosic-windows/*)          WINDOWS=true ;;
+                                apps/goosic-swift/Sources/GoosicSwift/Resources/PersonalCatalog.js)
+                                                                SWIFT=true; WINDOWS=true ;;
                                 apps/goosic-swift/*)            SWIFT=true ;;
-                                *)                              RUST=true; SWIFT=true; LINUX=true ;;
+                                *)                              RUST=true; SWIFT=true; LINUX=true; WINDOWS=true ;;
                             esac
                         done <<< "$CODE"
                     fi
@@ -103,6 +109,7 @@ jobs:
                     echo "rust=$RUST"   >> "$GITHUB_OUTPUT"
                     echo "swift=$SWIFT" >> "$GITHUB_OUTPUT"
                     echo "linux=$LINUX" >> "$GITHUB_OUTPUT"
+                    echo "windows=$WINDOWS" >> "$GITHUB_OUTPUT"
 
     # The Rust workspace is portable by design: rusqlite is bundled and ureq uses rustls,
     # so there is no system SQLite or OpenSSL to install on any of the three.
@@ -223,16 +230,43 @@ jobs:
                     path: ~/Library/Caches/goosic-swift-build
                     key: ${{ steps.swift-build-cache.outputs.cache-primary-key }}
 
+    # The WinUI shell in `apps/goosic-windows`. Until this job existed it was first compiled by
+    # the release workflow, on a tag, which is how 0.2.9 shipped a missing `using` that only the
+    # C# compiler on Windows could see. The presentation tests compile the UI-free files on their
+    # own; the Debug x64 build is the one `run.ps1` makes, which compiles the XAML and the rest of
+    # the app and builds the rules library it loads, without publishing or packaging anything.
+    shell-windows:
+        name: Shell (Windows, WinUI)
+        needs: guard
+        if: needs.guard.outputs.known-good == 'false' && needs.guard.outputs.windows == 'true'
+        runs-on: windows-latest
+        steps:
+            -   uses: actions/checkout@v4
+            -   uses: dtolnay/rust-toolchain@stable
+            -   uses: Swatinem/rust-cache@v2
+                with:
+                    save-if: ${{ env.IS_CACHE_WRITER == 'true' }}
+            -   uses: actions/setup-dotnet@v4
+                with:
+                    dotnet-version: '9.0.x'
+
+            -   name: Test the presentation rules
+                run: dotnet test apps/goosic-windows/Goosic.Windows.Tests/Goosic.Windows.Tests.csproj
+
+            -   name: Build the app
+                run: dotnet build apps/goosic-windows/Goosic.Windows -c Debug -p:Platform=x64
+
     # The stamp, and it only goes on a tree the heavy jobs actually compiled. A tree skipped
     # because just documentation moved is never claimed to have been built.
     seal:
         name: Stamp this tree as passing
-        needs: [guard, rust, shell-gtk, shell-macos]
+        needs: [guard, rust, shell-gtk, shell-macos, shell-windows]
         if: >-
             always()
             && needs.guard.outputs.known-good == 'false'
             && needs.guard.outputs.rust == 'true'
             && needs.guard.outputs.swift == 'true'
+            && needs.guard.outputs.windows == 'true'
             && !contains(needs.*.result, 'failure')
             && !contains(needs.*.result, 'cancelled')
         runs-on: ubuntu-latest
