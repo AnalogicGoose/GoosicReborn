@@ -26,7 +26,11 @@ pub const COMPLETION_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// The YouTube hosts a sign-in passes through. These have no country variants, so they stay an
 /// exact list.
-pub const ALLOWED_LOGIN_HOSTS: [&str; 3] = ["accounts.youtube.com", "www.youtube.com", "music.youtube.com"];
+pub const ALLOWED_LOGIN_HOSTS: [&str; 3] = [
+    "accounts.youtube.com",
+    "www.youtube.com",
+    "music.youtube.com",
+];
 
 /// The Google services a sign-in is allowed to visit, as the leftmost label.
 pub const GOOGLE_SIGN_IN_LABELS: [&str; 5] = ["accounts", "consent", "myaccount", "gds", "ogs"];
@@ -163,9 +167,9 @@ pub fn is_google_sign_in_host(host: &str) -> bool {
     if labels[1] != "google" || !GOOGLE_SIGN_IN_LABELS.contains(&labels[0]) {
         return false;
     }
-    labels[2..]
-        .iter()
-        .all(|label| !label.is_empty() && label.len() <= 3 && label.bytes().all(|b| b.is_ascii_alphabetic()))
+    labels[2..].iter().all(|label| {
+        !label.is_empty() && label.len() <= 3 && label.bytes().all(|b| b.is_ascii_alphabetic())
+    })
 }
 
 /// Whether a page is on the one origin a completed sign-in lands on.
@@ -210,7 +214,11 @@ pub fn make_result(
     }
     let summary = sanitize_metadata(metadata)?;
     match CompletionDecision::from(Some(&summary)) {
-        CompletionDecision::Accept(summary) => Some(LoginResult { account_id, profile_id, summary }),
+        CompletionDecision::Accept(summary) => Some(LoginResult {
+            account_id,
+            profile_id,
+            summary,
+        }),
         CompletionDecision::Wait => None,
     }
 }
@@ -317,8 +325,9 @@ return JSON.stringify({
 
 fn clean(value: Option<&str>, max_bytes: usize) -> Option<String> {
     let trimmed = trim_whitespace(value?);
-    let acceptable =
-        !trimmed.is_empty() && trimmed.len() <= max_bytes && !trimmed.chars().any(is_control_or_format);
+    let acceptable = !trimmed.is_empty()
+        && trimmed.len() <= max_bytes
+        && !trimmed.chars().any(is_control_or_format);
     acceptable.then(|| trimmed.to_owned())
 }
 
@@ -350,7 +359,10 @@ mod tests {
             "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222"
         ));
-        assert!(!are_distinct_profiles("not-a-uuid", "22222222-2222-2222-2222-222222222222"));
+        assert!(!are_distinct_profiles(
+            "not-a-uuid",
+            "22222222-2222-2222-2222-222222222222"
+        ));
         assert!(!are_distinct_profiles(
             "11111111-1111-1111-1111-111111111111",
             "11111111-1111-1111-1111-111111111111"
@@ -361,17 +373,26 @@ mod tests {
             "11111111-1111-1111-1111-111111111111",
             "11111111111111111111111111111111"
         ));
-        assert!(!is_valid_stable_uuid("{11111111-1111-1111-1111-111111111111}"));
+        assert!(!is_valid_stable_uuid(
+            "{11111111-1111-1111-1111-111111111111}"
+        ));
         assert!(is_valid_stable_uuid("8E4CA2CD-373A-46E3-A5B0-9A2A7B3B5084"));
     }
 
     #[test]
     fn a_login_summary_is_bounded_and_sanitized() {
-        let raw = serde_json::to_vec(&summary("  Ada  ", Some("ada@example.test"), Some("https://example.test/avatar.jpg")))
-            .unwrap();
+        let raw = serde_json::to_vec(&summary(
+            "  Ada  ",
+            Some("ada@example.test"),
+            Some("https://example.test/avatar.jpg"),
+        ))
+        .unwrap();
         let cleaned = sanitize_metadata(&raw).expect("a clean summary must survive");
         assert_eq!(cleaned.display_name, "Ada");
-        assert_eq!(cleaned.avatar_url.as_deref(), Some("https://example.test/avatar.jpg"));
+        assert_eq!(
+            cleaned.avatar_url.as_deref(),
+            Some("https://example.test/avatar.jpg")
+        );
         assert_eq!(sanitize_metadata(&vec![b' '; MAX_METADATA_BYTES + 1]), None);
     }
 
@@ -382,12 +403,26 @@ mod tests {
         let raw = r#"{"displayName":"Ada\u202egnp.exe","email":"   ","channel":"x\u200by",
                       "avatarUrl":"https://user:pw@example.test/a.jpg"}"#;
         let cleaned = sanitize_metadata(raw.as_bytes()).unwrap();
-        assert_eq!(cleaned.display_name, FALLBACK_DISPLAY_NAME, "a bidi override is refused");
+        assert_eq!(
+            cleaned.display_name, FALLBACK_DISPLAY_NAME,
+            "a bidi override is refused"
+        );
         assert_eq!(cleaned.email, None, "blank is absent");
         assert_eq!(cleaned.channel, None, "a zero-width space is refused");
-        assert_eq!(cleaned.avatar_url, None, "an avatar carrying credentials is refused");
-        let long_name = format!(r#"{{"displayName":"{}"}}"#, "a".repeat(MAX_DISPLAY_NAME_BYTES + 1));
-        assert_eq!(sanitize_metadata(long_name.as_bytes()).unwrap().display_name, FALLBACK_DISPLAY_NAME);
+        assert_eq!(
+            cleaned.avatar_url, None,
+            "an avatar carrying credentials is refused"
+        );
+        let long_name = format!(
+            r#"{{"displayName":"{}"}}"#,
+            "a".repeat(MAX_DISPLAY_NAME_BYTES + 1)
+        );
+        assert_eq!(
+            sanitize_metadata(long_name.as_bytes())
+                .unwrap()
+                .display_name,
+            FALLBACK_DISPLAY_NAME
+        );
     }
 
     #[test]
@@ -395,13 +430,27 @@ mod tests {
         assert!(is_exact_completion_origin("https://music.youtube.com"));
         assert!(!is_exact_completion_origin("https://www.youtube.com"));
         assert!(!is_exact_completion_origin("http://music.youtube.com"));
-        assert!(!is_exact_completion_origin("https://music.youtube.com:8443/"));
+        assert!(!is_exact_completion_origin(
+            "https://music.youtube.com:8443/"
+        ));
         let decide = |s: LoginSummary| CompletionDecision::from(Some(&s));
-        assert_eq!(decide(summary(FALLBACK_DISPLAY_NAME, None, None)), CompletionDecision::Wait);
+        assert_eq!(
+            decide(summary(FALLBACK_DISPLAY_NAME, None, None)),
+            CompletionDecision::Wait
+        );
         assert_eq!(decide(summary("Ada", None, None)), CompletionDecision::Wait);
-        assert_eq!(decide(summary("Ada", None, Some("http://evil.example/avatar"))), CompletionDecision::Wait);
-        assert_ne!(decide(summary("Ada", Some("ada@example.test"), None)), CompletionDecision::Wait);
-        assert_ne!(decide(summary("Ada", None, Some("https://lh3.example/a"))), CompletionDecision::Wait);
+        assert_eq!(
+            decide(summary("Ada", None, Some("http://evil.example/avatar"))),
+            CompletionDecision::Wait
+        );
+        assert_ne!(
+            decide(summary("Ada", Some("ada@example.test"), None)),
+            CompletionDecision::Wait
+        );
+        assert_ne!(
+            decide(summary("Ada", None, Some("https://lh3.example/a"))),
+            CompletionDecision::Wait
+        );
         assert_eq!(CompletionDecision::from(None), CompletionDecision::Wait);
     }
 
@@ -412,7 +461,10 @@ mod tests {
         let metadata = br#"{"displayName":"Ada","email":"ada@example.test"}"#;
         let page = "https://music.youtube.com/";
         assert!(make_result(account, profile, metadata, page).is_some());
-        assert!(make_result(account, account, metadata, page).is_none(), "one identity for both");
+        assert!(
+            make_result(account, account, metadata, page).is_none(),
+            "one identity for both"
+        );
         assert!(make_result(account, profile, metadata, "https://www.youtube.com/").is_none());
         assert!(make_result(account, profile, br#"{"displayName":"Ada"}"#, page).is_none());
     }
@@ -422,13 +474,29 @@ mod tests {
         let now = Instant::now();
         let deadline = now + Duration::from_secs(30);
         let ada = summary("Ada", Some("ada@example.test"), None);
-        assert_eq!(PollingDecision::decide(1, 2, now, deadline, true, Some(&ada)), PollingDecision::Cancel);
         assert_eq!(
-            PollingDecision::decide(2, 2, now + Duration::from_secs(31), deadline, true, Some(&ada)),
+            PollingDecision::decide(1, 2, now, deadline, true, Some(&ada)),
             PollingDecision::Cancel
         );
-        assert_eq!(PollingDecision::decide(2, 2, now, deadline, false, Some(&ada)), PollingDecision::Wait);
-        assert_eq!(PollingDecision::decide(2, 2, now, deadline, true, Some(&ada)), PollingDecision::Accept);
+        assert_eq!(
+            PollingDecision::decide(
+                2,
+                2,
+                now + Duration::from_secs(31),
+                deadline,
+                true,
+                Some(&ada)
+            ),
+            PollingDecision::Cancel
+        );
+        assert_eq!(
+            PollingDecision::decide(2, 2, now, deadline, false, Some(&ada)),
+            PollingDecision::Wait
+        );
+        assert_eq!(
+            PollingDecision::decide(2, 2, now, deadline, true, Some(&ada)),
+            PollingDecision::Accept
+        );
     }
 
     #[test]
@@ -436,12 +504,16 @@ mod tests {
         assert!(is_allowed_login_url("https://accounts.google.com/signin"));
         assert!(is_allowed_login_url("https://music.youtube.com/"));
         // Each of these was refused during a real sign-in, which is why they are covered.
-        assert!(is_allowed_login_url("https://accounts.youtube.com/accounts/SetSID"));
+        assert!(is_allowed_login_url(
+            "https://accounts.youtube.com/accounts/SetSID"
+        ));
         assert!(is_allowed_login_url("https://gds.google.com/web/consent"));
         assert!(!is_allowed_login_url("https://evil.example/"));
         assert!(!is_allowed_login_url("http://accounts.google.com/"));
         assert!(!is_allowed_login_url("about:blank"));
-        assert!(!is_allowed_login_url("https://user:pass@accounts.google.com/"));
+        assert!(!is_allowed_login_url(
+            "https://user:pass@accounts.google.com/"
+        ));
         assert!(!is_allowed_login_url("https://accounts.google.com:8443/"));
         assert!(!is_allowed_login_url(""));
     }
@@ -465,19 +537,31 @@ mod tests {
             "https://evil.google.com/",                  // not a service this knows
             "https://accounts.notgoogle.com/",           // second label is not google
             "https://accounts.google.com.ni.evil.example/",
-            "https://google.com/",      // no service label at all
-            "https://accounts.google/", // no suffix at all
+            "https://google.com/",           // no service label at all
+            "https://accounts.google/",      // no suffix at all
             "https://accounts.google.com./", // a trailing dot is an empty label
         ] {
-            assert!(!is_allowed_login_url(refused), "{refused} should be refused");
+            assert!(
+                !is_allowed_login_url(refused),
+                "{refused} should be refused"
+            );
         }
     }
 
     #[test]
     fn account_transitions_are_gated() {
-        assert!(can_start_account_transition(false, PlaybackTransition::Idle));
-        assert!(!can_start_account_transition(true, PlaybackTransition::Idle));
-        assert!(!can_start_account_transition(false, PlaybackTransition::Releasing));
+        assert!(can_start_account_transition(
+            false,
+            PlaybackTransition::Idle
+        ));
+        assert!(!can_start_account_transition(
+            true,
+            PlaybackTransition::Idle
+        ));
+        assert!(!can_start_account_transition(
+            false,
+            PlaybackTransition::Releasing
+        ));
         assert_eq!(activation_command(None), "account.change");
         assert_eq!(activation_command(Some("account")), "accounts.activate");
         assert!(can_commit_staging(true, true, true));
@@ -508,10 +592,19 @@ mod tests {
             "email":"ada@example.test"}],"activeAccountId":"11111111-1111-1111-1111-111111111111",
             "epoch":4}"#;
         let snapshot: AccountsSnapshot = serde_json::from_str(wire).unwrap();
-        assert_eq!(active_account(&snapshot).map(|a| a.display_name.as_str()), Some("Ada"));
-        let guest = AccountsSnapshot { active_account_id: None, ..snapshot.clone() };
+        assert_eq!(
+            active_account(&snapshot).map(|a| a.display_name.as_str()),
+            Some("Ada")
+        );
+        let guest = AccountsSnapshot {
+            active_account_id: None,
+            ..snapshot.clone()
+        };
         assert_eq!(active_account(&guest), None);
-        let dangling = AccountsSnapshot { active_account_id: Some("gone".into()), ..snapshot };
+        let dangling = AccountsSnapshot {
+            active_account_id: Some("gone".into()),
+            ..snapshot
+        };
         assert_eq!(active_account(&dangling), None);
     }
 }

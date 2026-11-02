@@ -55,7 +55,8 @@ make package-macos   # the download a tester installs; see docs/RELEASING.md
 ```
 
 `make test` must pass before you hand work back. CI repeats it on Linux, macOS, and
-Windows for every push — see [docs/BRANCHING.md](docs/BRANCHING.md) — so a change that only
+Windows for every push, and on Windows it also runs the WinUI shell's presentation tests and
+builds that app — see [docs/BRANCHING.md](docs/BRANCHING.md) — so a change that only
 compiles on the platform you are working on will be caught, but it is cheaper to notice it
 yourself: platform-specific code inside a `#if` is invisible to the compiler you are running. On Linux, `cargo fmt` and `cargo clippy`
 need separate packages on a distribution-packaged Rust — see the README's Prerequisites.

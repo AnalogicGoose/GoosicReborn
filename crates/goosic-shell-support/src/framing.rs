@@ -22,7 +22,10 @@ impl Default for FrameReader {
 
 impl FrameReader {
     pub fn new(max_frame_bytes: usize) -> Self {
-        Self { buffer: Vec::new(), max_frame_bytes }
+        Self {
+            buffer: Vec::new(),
+            max_frame_bytes,
+        }
     }
 
     /// Adds whatever a read produced. Chunk boundaries carry no meaning.

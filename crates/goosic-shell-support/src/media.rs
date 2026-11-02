@@ -68,11 +68,19 @@ impl NowPlaying {
         } else {
             0.0
         };
-        let elapsed_time = if duration > 0.0 { raw_elapsed.min(duration) } else { raw_elapsed };
+        let elapsed_time = if duration > 0.0 {
+            raw_elapsed.min(duration)
+        } else {
+            raw_elapsed
+        };
         // Advertisement status affects which commands are available, not the confirmed media
         // state. A playing advertisement is still reported as playing.
         let playing = active && !snapshot.is_paused;
-        let track = if active { snapshot.track.as_ref() } else { None };
+        let track = if active {
+            snapshot.track.as_ref()
+        } else {
+            None
+        };
         let non_empty = |value: &str| (!value.is_empty()).then(|| value.to_owned());
 
         NowPlaying {
@@ -214,7 +222,10 @@ mod tests {
         assert_eq!(projection.title.as_deref(), Some("Afterglow"));
         assert_eq!(projection.artist.as_deref(), Some("Signal Fires"));
         assert_eq!(projection.album.as_deref(), Some("Night Windows"));
-        assert_eq!(projection.artwork_url.as_deref(), Some("https://example.test/art.jpg"));
+        assert_eq!(
+            projection.artwork_url.as_deref(),
+            Some("https://example.test/art.jpg")
+        );
         assert_eq!(projection.elapsed_time, 42.0);
         assert_eq!(projection.duration, 222.0);
         assert_eq!(projection.playback_rate, 1.0);
@@ -224,12 +235,18 @@ mod tests {
 
     #[test]
     fn the_projection_clamps_impossible_times_and_stops_when_released() {
-        let clamped =
-            NowPlaying::from_snapshot(&MediaSnapshot { current_time: 999.0, duration: 30.0, ..snapshot() });
+        let clamped = NowPlaying::from_snapshot(&MediaSnapshot {
+            current_time: 999.0,
+            duration: 30.0,
+            ..snapshot()
+        });
         assert_eq!(clamped.elapsed_time, 30.0);
         assert_eq!(clamped.duration, 30.0);
 
-        let released = NowPlaying::from_snapshot(&MediaSnapshot { owner: Owner::None, ..snapshot() });
+        let released = NowPlaying::from_snapshot(&MediaSnapshot {
+            owner: Owner::None,
+            ..snapshot()
+        });
         assert!(!released.is_active);
         assert_eq!(released.title, None);
         assert_eq!(released.playback_state, MediaPlaybackState::Stopped);
@@ -238,14 +255,20 @@ mod tests {
 
     #[test]
     fn nothing_is_projected_or_offered_before_the_first_confirmed_sample() {
-        let loading = MediaSnapshot { is_ready: false, ..snapshot() };
+        let loading = MediaSnapshot {
+            is_ready: false,
+            ..snapshot()
+        };
         let projection = NowPlaying::from_snapshot(&loading);
         assert!(!projection.is_active);
         assert_eq!(projection.title, None);
         assert_eq!(projection.playback_state, MediaPlaybackState::Stopped);
         let availability = CommandAvailability::from_snapshot(&loading);
         for command in EVERY_COMMAND {
-            assert!(!availability.allows(command), "{command:?} offered before a confirmed sample");
+            assert!(
+                !availability.allows(command),
+                "{command:?} offered before a confirmed sample"
+            );
         }
     }
 
@@ -265,8 +288,10 @@ mod tests {
         assert!(paused_ad.stop);
         assert!(paused_ad.change_volume);
 
-        let playing_ad =
-            CommandAvailability::from_snapshot(&MediaSnapshot { is_advertisement: true, ..snapshot() });
+        let playing_ad = CommandAvailability::from_snapshot(&MediaSnapshot {
+            is_advertisement: true,
+            ..snapshot()
+        });
         assert!(!playing_ad.play);
         assert!(playing_ad.pause);
         assert!(playing_ad.stop);
@@ -279,7 +304,10 @@ mod tests {
             ..snapshot()
         });
         for command in EVERY_COMMAND {
-            assert!(!availability.allows(command), "{command:?} offered mid-transition");
+            assert!(
+                !availability.allows(command),
+                "{command:?} offered mid-transition"
+            );
         }
     }
 }
