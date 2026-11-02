@@ -116,9 +116,10 @@ compact arrangement; opening a temporary control must not select a different arr
 The leading navigation presents Search and Home first, followed by Discover, Library and
 Playlists groups. Discover contains Explore, Charts, Moods & genres and New releases.
 Library exposes Liked Music, Artists, Albums, History and Downloads. Playlists contains All
-Playlists and account playlist entries with their artwork. Settings is not a navigation row:
-it opens from the account menu and from the platform's own settings command. Account identity
-and account actions anchor the bottom of navigation.
+Playlists and account playlist entries with their artwork. Account identity and account actions
+anchor the bottom of navigation. Where Settings opens differs by platform: Windows keeps it as
+the last navigation destination, while on macOS it is not a navigation row and opens from the
+account menu and the app menu's Settings command.
 
 The November 2, 2026 sidebar reference adds a compact icon rail and an expanded navigation
 panel. Keep the Goosic identity at the top, a menu action below it, Search before Home, and the
@@ -321,10 +322,10 @@ presentation changes must not accidentally stop or restart playback.
 
 ## Settings, feedback and loading
 
-Settings live in their own window or dialog, apart from the main window, so changing one never
-takes the user away from what is playing. Changes apply as they are made and are saved by the
-shared model, so there is no Cancel or OK behind which an edit could be lost. On macOS this is
-the standard Settings window, reached with ⌘, and from the account menu: a toolbar of tabs
+Changes apply as they are made and are saved by the shared model, so there is no Cancel or OK
+behind which an edit could be lost. On macOS, Settings lives in its own window, apart from the
+main window, so changing one never takes the user away from what is playing. It is the standard
+Settings window, reached with ⌘, and from the account menu: a toolbar of tabs
 (General, Playback, Accounts, Advanced) over right-aligned group labels with checkboxes and
 pop-up menus, as Music's is, with Goosic's accent on the checkmarks only.
 
