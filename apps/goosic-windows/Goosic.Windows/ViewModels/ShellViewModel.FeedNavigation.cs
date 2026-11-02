@@ -9,10 +9,27 @@ namespace Goosic.Windows.ViewModels;
 
 public sealed partial class ShellViewModel
 {
+    /// <summary>How long a destination may take before the old page gives way to the loading state.</summary>
+    private static readonly TimeSpan SlowNavigationDelay = TimeSpan.FromMilliseconds(350);
+
     internal int NavigationRevision => _pageRequestVersion;
     internal void CancelPendingNavigation() => ++_pageRequestVersion;
     private sealed record PreparedFeed(CatalogPage? Page, Exception? Error,
         (string BrowseId, string Title, string Shape)? PersonalSource);
+
+    /// <summary>Replaces the old page with the destination's loading state while its answer is late.</summary>
+    private void ShowNavigationPending(string route)
+    {
+        ClearPageArtwork();
+        Shelves.Clear();
+        Tracks.Clear();
+        NextCursor = null;
+        PageTitle = RouteEntry.All.FirstOrDefault(entry => entry.Route == route)?.Title ?? route;
+        PageSubtitle = "";
+        ShowPageHeader = route != "home";
+        Status = "";
+        PageState = PageState.Loading;
+    }
 
     /// <summary>Fetch without changing route, visible collections, title, queue or playback.</summary>
     private async Task<PreparedFeed?> PrepareFeedAsync(string route, string? librarySection)

@@ -1351,11 +1351,22 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
         var requestVersion = ++_pageRequestVersion;
         var scope = CacheScope;
+        var startedDuringAccountChange = IsAccountBusy;
         PreparedFeed? prepared = null;
         if (route is not ("settings" or "downloads"))
         {
-            prepared = await PrepareFeedAsync(route, librarySection).ConfigureAwait(true);
-            if (!FeedNavigationCommitRules.CanCommit(requestVersion, _pageRequestVersion, scope, CacheScope, IsAccountBusy)) return;
+            var preparing = PrepareFeedAsync(route, librarySection);
+            // A quick answer replaces the page once; a slow one shows the loading state first,
+            // so a click on a slow connection never looks as if it was ignored.
+            if (await Task.WhenAny(preparing, Task.Delay(SlowNavigationDelay)).ConfigureAwait(true) != preparing)
+            {
+                if (requestVersion != _pageRequestVersion) return;
+                ShowNavigationPending(route);
+            }
+
+            prepared = await preparing.ConfigureAwait(true);
+            if (!FeedNavigationCommitRules.CanCommit(requestVersion, _pageRequestVersion, scope, CacheScope,
+                    IsAccountBusy, startedDuringAccountChange)) return;
         }
 
         if (librarySection is not null) _librarySection = librarySection;
@@ -1437,8 +1448,19 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
         if (prepared.Error is { } preparedError)
         {
-            PageState = FailureState(preparedError, PageTitle);
-            return;
+            // A failed refresh keeps the copy already seen, as it did before pages were prepared;
+            // the log says the refresh failed.
+            var kept = prepared.PersonalSource is { } failedSource
+                ? _pages.Get(scope, PersonalCacheKey(failedSource))
+                : _pages.Get(CatalogCacheScope, "route:" + route);
+            if (kept is null)
+            {
+                PageState = FailureState(preparedError, PageTitle);
+                return;
+            }
+
+            Describe(preparedError);
+            prepared = prepared with { Page = kept, Error = null };
         }
 
         if (prepared.Page is not { } page) return;

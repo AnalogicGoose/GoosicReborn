@@ -31,4 +31,8 @@ public class FeedNavigationCommitTests
     [InlineData("account-a", "account-a", true)]
     public void AccountChangesBlockPreparedPersonalContent(string prepared, string active, bool busy) =>
         Assert.False(FeedNavigationCommitRules.CanCommit(3, 3, prepared, active, busy));
+
+    [Fact]
+    public void TheAccountOperationsOwnLoadStillLands() =>
+        Assert.True(FeedNavigationCommitRules.CanCommit(4, 4, "account-b", "account-b", true, accountBusyAtStart: true));
 }
