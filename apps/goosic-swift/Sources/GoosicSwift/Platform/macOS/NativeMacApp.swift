@@ -1934,14 +1934,17 @@ private struct NativeMacPageMenu: SwiftUI.View {
             if let page = model.state(for: .entity(entity)).page, let first = page.tracks.first {
                 SwiftUI.Divider()
                 if case .artist = entity {
+                    // The songs the page shows, so Hide Explicit holds here as it does for Play.
+                    let shown = model.visible(page.tracks)
                     SwiftUI.Button("Shuffle", systemImage: "shuffle") {
                         if !model.shuffle { model.toggleShuffle() }
-                        if let pick = page.tracks.randomElement() {
-                            model.launch(.ordered(pick, page.tracks), source: QueueSource(
+                        if let pick = shown.randomElement() {
+                            model.launch(.ordered(pick, shown), source: QueueSource(
                                 title: page.title, key: .entity(entity)
                             ))
                         }
                     }
+                    .disabled(shown.isEmpty)
                 }
                 SwiftUI.Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
                     for track in page.tracks.reversed() { model.playNext(track) }
