@@ -46,6 +46,25 @@ public class WindowLayoutTests
         Assert.True(available >= WindowLayout.PlayerTwoRowMinimum);
     }
 
+    [Theory]
+    [InlineData(WindowWidthClass.Narrow, true)]
+    [InlineData(WindowWidthClass.Narrow, false)]
+    [InlineData(WindowWidthClass.Medium, false)]
+    [InlineData(WindowWidthClass.Wide, false)]
+    public void TheRailAlwaysKeepsContentAndEssentialPlayerActionsReachable(WindowWidthClass widthClass, bool expanded)
+    {
+        var inset = WindowLayout.NavigationInset(widthClass, expanded, 280);
+        Assert.Equal(WindowLayout.PanelGap + WindowLayout.SidebarRailWidth, inset);
+        var available = WindowLayout.MinimumWidth - inset - 2 * WindowLayout.PlayerEdgeClearance;
+        Assert.True(available >= WindowLayout.PlayerTwoRowMinimum);
+    }
+
+    [Theory]
+    [InlineData(WindowWidthClass.Medium)]
+    [InlineData(WindowWidthClass.Wide)]
+    public void ExpandedNavigationReservesItsWidthOnlyWhenDocked(WindowWidthClass widthClass) =>
+        Assert.Equal(288, WindowLayout.NavigationInset(widthClass, true, 280));
+
     [Fact]
     public void ThePlayerSitsInTheMiddleOfThePageBesideTheSidebar()
     {
@@ -89,10 +108,10 @@ public class WindowLayoutTests
     }
 
     [Theory]
-    [InlineData(1.0, 480, 560)]
-    [InlineData(1.5, 720, 840)]
-    [InlineData(1.25, 600, 700)]
-    [InlineData(1.75, 840, 980)]
+    [InlineData(1.0, 552, 560)]
+    [InlineData(1.5, 828, 840)]
+    [InlineData(1.25, 690, 700)]
+    [InlineData(1.75, 966, 980)]
     public void MinimumSizeFollowsTheDisplayScale(double scale, int width, int height) =>
         Assert.Equal((width, height), WindowLayout.MinimumPixels(scale));
 }

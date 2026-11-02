@@ -122,6 +122,15 @@ public sealed partial class ShellViewModel
         }
     }
 
+    /// <summary>The actual library section or playlist shown, for both sidebar presentations.</summary>
+    internal string? CurrentSidebarDestination => CurrentRouteName switch
+    {
+        "library" => "library:" + _librarySection,
+        { } route => route,
+        _ when _pagePlaylistId is not null && !IsSearchPage => "playlists",
+        _ => null,
+    };
+
     /// <summary>Opens one section of the library directly, as the sidebar's library items do.</summary>
     internal async Task OpenLibrarySectionAsync(string browseId)
     {

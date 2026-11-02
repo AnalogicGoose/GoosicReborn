@@ -15,9 +15,10 @@ public static class WindowLayout
     public const double WideFrom = 1200;
     public const double PanelGap = 8;
     public const double ContentGutter = 26;
+    public const double SidebarRailWidth = 64;
 
-    /// <summary>The compact pill's two button rows need this much; below it they would clip.</summary>
-    public const double MinimumWidth = 480;
+    /// <summary>The original 480-pixel window's player space, plus the persistent rail and its gap.</summary>
+    public const double MinimumWidth = 480 + SidebarRailWidth + PanelGap;
 
     /// <summary>How far the pill floats from the panels and the window's edge on either side.</summary>
     public const double PlayerEdgeClearance = 20;
@@ -33,10 +34,10 @@ public static class WindowLayout
     public const double PlayerSingleRowMinimum = 540;
 
     /// <summary>
-    /// What the two-row pill needs: its padding and the two button groups side by side. The
-    /// minimum window has to leave at least this between the pill's clearances.
+    /// What the two-row pill needs: 174 transport, 176 utilities, 32 padding, 36 column gaps and
+    /// a 2-pixel border. The minimum window must also allow for native window borders.
     /// </summary>
-    public const double PlayerTwoRowMinimum = 384;
+    public const double PlayerTwoRowMinimum = 420;
     public const double MinimumHeight = 560;
 
     public static WindowWidthClass Classify(double width) => width switch
@@ -55,6 +56,10 @@ public static class WindowLayout
 
     public static double SidePanelWidth(WindowWidthClass widthClass, double windowWidth) =>
         widthClass == WindowWidthClass.Wide ? 360 : Math.Max(280, Math.Min(340, windowWidth - 24));
+
+    /// <summary>The rail reserves space even when an expanded narrow sidebar overlays the page.</summary>
+    public static double NavigationInset(WindowWidthClass widthClass, bool expanded, double expandedWidth) =>
+        PanelGap + (expanded && !PanelsOverlayContent(widthClass) ? expandedWidth : SidebarRailWidth);
 
     /// <summary>
     /// Where the pill sits and how wide it is, from the window's left edge.

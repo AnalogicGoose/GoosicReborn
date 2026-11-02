@@ -82,7 +82,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnSidebarPlaylist(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string tag } && tag.Split(ShellViewModel.KeySeparator) is { Length: 3 } parts)
+        if (sender is FrameworkElement { Tag: string tag } && tag.Split(ShellViewModel.KeySeparator) is { Length: 3 } parts)
         {
             DismissOverlaySidebar();
             await OpenAsync(parts[0], parts[1], parts[2]);

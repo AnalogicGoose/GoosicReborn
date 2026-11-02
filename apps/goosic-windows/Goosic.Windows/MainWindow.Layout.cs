@@ -24,7 +24,8 @@ public sealed partial class MainWindow : Window
     private bool PanelsOverlayContent => WindowLayout.PanelsOverlayContent(_widthClass);
 
     private double LeftInset =>
-        WindowLayout.Inset(_widthClass, Sidebar.Visibility == Visibility.Visible, Sidebar.Width);
+        WindowLayout.NavigationInset(_widthClass, _sidebarExpanded,
+            WindowLayout.SidebarWidth(_widthClass, RootGrid.ActualWidth));
 
     private double RightInset =>
         WindowLayout.Inset(_widthClass, SidePanel.Visibility == Visibility.Visible, SidePanel.Width);
@@ -34,13 +35,13 @@ public sealed partial class MainWindow : Window
         var next = WindowLayout.Classify(e.NewSize.Width);
         var changed = next != _widthClass;
         _widthClass = next;
-        Sidebar.Width = WindowLayout.SidebarWidth(next, e.NewSize.Width);
         SidePanel.Width = WindowLayout.SidePanelWidth(next, e.NewSize.Width);
         if (changed && next == WindowWidthClass.Narrow)
         {
-            Sidebar.Visibility = Visibility.Collapsed;
+            SetSidebarExpanded(false);
         }
 
+        Sidebar.Width = _sidebarExpanded ? WindowLayout.SidebarWidth(next, e.NewSize.Width) : WindowLayout.SidebarRailWidth;
         ApplyInsets();
     }
 
@@ -101,6 +102,8 @@ public sealed partial class MainWindow : Window
         var right = RightInset + ContentGutter;
         var compact = ApplyPlayerLayout();
         var clearance = WindowLayout.PlayerEdgeClearance;
+        TitleBarStrip.Margin = new Thickness(Sidebar.Width + 56, 0, 0, 0);
+        BackButton.Margin = new Thickness(Sidebar.Width + 16, 14, 0, 0);
         ContentStack.Padding = new Thickness(left, 56, right, compact ? 166 : 128);
         if (RootGrid.ActualWidth > 0)
         {

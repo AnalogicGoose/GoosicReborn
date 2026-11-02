@@ -5,8 +5,10 @@
 
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#FF0552" />
+            <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemBaseHighColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#202020" />
-            <SolidColorBrush x:Key="GoosicRailBrush" Color="#14141A" />
+            <SolidColorBrush x:Key="GoosicRailBrush" Color="#211B30" />
             <SolidColorBrush x:Key="GoosicChromeBrush" Color="#1A1A20" />
             <SolidColorBrush x:Key="GoosicRaisedBrush" Color="#FFFFFF" Opacity="0.06" />
             <SolidColorBrush x:Key="GoosicRaisedStrongBrush" Color="#FFFFFF" Opacity="0.11" />
@@ -26,8 +28,10 @@
             </LinearGradientBrush>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#FF0552" />
+            <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemBaseHighColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#FBFBFD" />
-            <SolidColorBrush x:Key="GoosicRailBrush" Color="#F1F1F5" />
+            <SolidColorBrush x:Key="GoosicRailBrush" Color="#F0EDF5" />
             <SolidColorBrush x:Key="GoosicChromeBrush" Color="#EDEDF2" />
             <SolidColorBrush x:Key="GoosicRaisedBrush" Color="#000000" Opacity="0.05" />
             <SolidColorBrush x:Key="GoosicRaisedStrongBrush" Color="#000000" Opacity="0.10" />
@@ -51,6 +55,8 @@
             and acrylic give way to solid ones, which is what those themes promise to deliver.
         -->
         <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicTitleFadeBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicRailBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -79,9 +85,6 @@
 
 
 
-    <!-- The rail is icon-only until the sidebar is opened over the content. -->
-    <x:Double x:Key="GoosicRailWidth">48</x:Double>
-    <x:Double x:Key="GoosicSidebarWidth">292</x:Double>
     <x:Double x:Key="GoosicTransportHeight">56</x:Double>
     <x:Double x:Key="GoosicCardSize">196</x:Double>
 

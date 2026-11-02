@@ -86,6 +86,10 @@ public sealed partial class MainWindow : Window
                 {
                     SetVolumeOpen(false);
                 }
+                else if (_sidebarExpanded && PanelsOverlayContent)
+                {
+                    ToggleSidebar();
+                }
                 else if (_sidePanel.IsOpen)
                 {
                     CloseSidePanel();

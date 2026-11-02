@@ -18,6 +18,8 @@ namespace Goosic.Windows;
 
 public sealed partial class MainWindow : Window
 {
+    private bool _sidebarExpanded = true;
+    private string? _navigationTag = "home";
     // ---- Navigation -------------------------------------------------------------------------
 
     /// <summary>
@@ -25,7 +27,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void OnNavigate(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: string tag })
+        if (sender is FrameworkElement { Tag: string tag })
         {
             await NavigateAsync(tag);
         }
@@ -51,15 +53,65 @@ public sealed partial class MainWindow : Window
     /// <summary>Marks the sidebar item for the page on screen, as the macOS sidebar selects its row.</summary>
     private void HighlightNavigation(string? tag)
     {
-        var selected = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GoosicSidebarSelectedBrush"];
+        _navigationTag = tag;
         foreach (var child in SidebarItems.Children)
         {
-            if (child is Button { Tag: string itemTag } item)
+            if (child is ToggleButton { Tag: string itemTag } item)
             {
-                item.Background = itemTag == tag ? selected : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                item.IsChecked = itemTag == tag;
+            }
+        }
+
+        foreach (var child in SidebarRailItems.Children)
+        {
+            if (child is ToggleButton { Tag: string railTag } item)
+            {
+                item.IsChecked = railTag == tag || railTag == SidebarGroup(tag);
+            }
+        }
+
+        UpdatePlaylistSelection(SidebarPlaylists);
+    }
+
+    private void OnSidebarPlaylistLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton item)
+        {
+            item.IsChecked = IsCurrentSidebarPlaylist(item);
+        }
+    }
+
+    private bool IsCurrentSidebarPlaylist(ToggleButton item) =>
+        item.DataContext is PlaylistSummaryViewModel playlist
+        && Model.CurrentRouteName is null
+        && Model.PagePlaylistId is { } id
+        && string.Equals(playlist.Id.StartsWith("VL", StringComparison.Ordinal) ? playlist.Id[2..] : playlist.Id,
+            id, StringComparison.Ordinal);
+
+    private void UpdatePlaylistSelection(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is ToggleButton item)
+            {
+                item.IsChecked = IsCurrentSidebarPlaylist(item);
+            }
+            else
+            {
+                UpdatePlaylistSelection(child);
             }
         }
     }
+
+    private static string? SidebarGroup(string? tag) => tag switch
+    {
+        "explore" or "charts" or "moodsAndGenres" or "newReleases" => "discover",
+        "library" or "liked" or "history" or "downloads" => "library",
+        "library:FEmusic_liked_playlists" => "playlists",
+        not null when tag.StartsWith("library:", StringComparison.Ordinal) => "library",
+        _ => null,
+    };
 
     /// <summary>Every new page starts at its top, whichever path loaded it.</summary>
     private void OnPageLoadingChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
@@ -70,6 +122,7 @@ public sealed partial class MainWindow : Window
         }
         else if (args.PropertyName == nameof(ShellViewModel.IsPageLoading))
         {
+            HighlightNavigation(Model.CurrentSidebarDestination);
             PlayPageEntrance();
         }
     }
@@ -90,14 +143,75 @@ public sealed partial class MainWindow : Window
     private void UpdateBackButton() =>
         BackButton.Visibility = Model.CanGoBack ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>Hides or shows the sidebar; the content takes the whole width while it is hidden.</summary>
+    /// <summary>Switches between the compact rail and the expanded navigation panel.</summary>
     private void OnToggleSidebar(object sender, RoutedEventArgs e) => ToggleSidebar();
 
     private void ToggleSidebar()
     {
-        Sidebar.Visibility = Sidebar.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        SetSidebarExpanded(!_sidebarExpanded);
         GlidePlayerOnce();
         ApplyInsets();
+    }
+
+    private void SetSidebarExpanded(bool expanded)
+    {
+        // Move focus before its old control collapses; the renderer and model are untouched.
+        if (expanded != _sidebarExpanded)
+        {
+            SidebarToggle.Focus(FocusState.Programmatic);
+            SidebarSearch.IsSuggestionListOpen = false;
+        }
+
+        _sidebarExpanded = expanded;
+        var visible = expanded ? Visibility.Visible : Visibility.Collapsed;
+        SidebarBrandName.Visibility = visible;
+        SidebarSearch.Visibility = visible;
+        SidebarNavigation.Visibility = visible;
+        AccountDetails.Visibility = visible;
+        SidebarRail.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+        SidebarRailSurface.Visibility = SidebarRail.Visibility;
+        SidebarSearchButton.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+        Sidebar.Width = expanded
+            ? WindowLayout.SidebarWidth(_widthClass, RootGrid.ActualWidth)
+            : WindowLayout.SidebarRailWidth;
+        var label = expanded ? "Collapse sidebar" : "Expand sidebar";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SidebarToggle, label);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(SidebarToggle, "Ctrl+B");
+        ToolTipService.SetToolTip(SidebarToggle, $"{label} (Ctrl+B)");
+    }
+
+    private void OnSidebarSearch(object sender, RoutedEventArgs e) => OpenSearch();
+
+    private void OnExpandSidebarGroup(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string group })
+        {
+            return;
+        }
+
+        if (!_sidebarExpanded)
+        {
+            ToggleSidebar();
+        }
+
+        HighlightNavigation(_navigationTag);
+        // Expansion must be measured before revealing a row that was outside the short viewport.
+        SidebarNavigation.UpdateLayout();
+        var firstTag = group switch
+        {
+            "discover" => "explore",
+            "library" => "liked",
+            _ => "library:FEmusic_liked_playlists",
+        };
+        foreach (var child in SidebarItems.Children)
+        {
+            if (child is ToggleButton { Tag: string tag } item && tag == firstTag)
+            {
+                item.Focus(FocusState.Programmatic);
+                item.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
+                break;
+            }
+        }
     }
 
     /// <summary>
@@ -105,7 +219,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void DismissOverlaySidebar()
     {
-        if (WindowLayout.ClosesSidebarAfterNavigation(_widthClass) && Sidebar.Visibility == Visibility.Visible)
+        if (WindowLayout.ClosesSidebarAfterNavigation(_widthClass) && _sidebarExpanded)
         {
             ToggleSidebar();
         }
@@ -120,7 +234,7 @@ public sealed partial class MainWindow : Window
 
     private void OpenSearch()
     {
-        if (Sidebar.Visibility != Visibility.Visible)
+        if (!_sidebarExpanded)
         {
             ToggleSidebar();
         }
@@ -176,7 +290,7 @@ public sealed partial class MainWindow : Window
     private async Task GoBackAsync()
     {
         await Model.GoBackAsync();
-        HighlightNavigation(Model.CurrentRouteName);
+        HighlightNavigation(Model.CurrentSidebarDestination);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
     }
@@ -186,7 +300,7 @@ public sealed partial class MainWindow : Window
         HighlightNavigation(null);
         await Model.OpenEntityAsync(kind, id, title);
         // Some entities open a route of their own, such as Liked Music; its sidebar row lights up.
-        HighlightNavigation(Model.CurrentRouteName);
+        HighlightNavigation(Model.CurrentSidebarDestination);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
         UpdateBackButton();
     }

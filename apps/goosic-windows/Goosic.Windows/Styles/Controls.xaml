@@ -137,7 +137,95 @@
         </Setter>
     </Style>
 
-    <!-- ===== The macOS-style sidebar ===== -->
+    <!-- Sidebar actions keep native input/focus behavior in both the rail and expanded panel. -->
+    <Style x:Key="SidebarNavigationStyle" TargetType="ToggleButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Padding" Value="14,8" />
+        <Setter Property="MinHeight" Value="44" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Grid Background="Transparent">
+                        <Border x:Name="SelectionFill" CornerRadius="{TemplateBinding CornerRadius}"
+                                Background="{ThemeResource GoosicSidebarSelectedBrush}" Opacity="0" />
+                        <Border x:Name="InteractionFill" CornerRadius="{TemplateBinding CornerRadius}"
+                                Background="{ThemeResource GoosicRaisedStrongBrush}" Opacity="0" />
+                        <ContentPresenter x:Name="NavigationContent" Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Padding="{TemplateBinding Padding}"
+                                          FontSize="{TemplateBinding FontSize}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          Foreground="{TemplateBinding Foreground}" />
+                        <Border x:Name="SelectionMarker" Width="3" Height="20" CornerRadius="2"
+                                HorizontalAlignment="Left" VerticalAlignment="Center"
+                                Background="{ThemeResource GoosicNavigationAccentBrush}" Opacity="0" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters><Setter Target="InteractionFill.Opacity" Value="0.65" /></VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters><Setter Target="InteractionFill.Opacity" Value="1" /></VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters><Setter Target="NavigationContent.Opacity" Value="0.4" /></VisualState.Setters>
+                                </VisualState>
+                                <!-- WinUI ToggleButton requests combined checked/interaction states. -->
+                                <VisualState x:Name="Checked">
+                                    <VisualState.Setters>
+                                        <Setter Target="SelectionFill.Opacity" Value="1" />
+                                        <Setter Target="SelectionMarker.Opacity" Value="1" />
+                                        <Setter Target="NavigationContent.Foreground" Value="{ThemeResource GoosicSidebarSelectedTextBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="SelectionFill.Opacity" Value="1" />
+                                        <Setter Target="SelectionMarker.Opacity" Value="1" />
+                                        <Setter Target="NavigationContent.Foreground" Value="{ThemeResource GoosicSidebarSelectedTextBrush}" />
+                                        <Setter Target="InteractionFill.Opacity" Value="0.65" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="SelectionFill.Opacity" Value="1" />
+                                        <Setter Target="SelectionMarker.Opacity" Value="1" />
+                                        <Setter Target="NavigationContent.Foreground" Value="{ThemeResource GoosicSidebarSelectedTextBrush}" />
+                                        <Setter Target="InteractionFill.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="SelectionFill.Opacity" Value="1" />
+                                        <Setter Target="SelectionMarker.Opacity" Value="1" />
+                                        <Setter Target="NavigationContent.Foreground" Value="{ThemeResource GoosicSidebarSelectedTextBrush}" />
+                                        <Setter Target="NavigationContent.Opacity" Value="0.4" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="SidebarRailItemStyle" TargetType="ToggleButton" BasedOn="{StaticResource SidebarNavigationStyle}">
+        <Setter Property="Width" Value="48" />
+        <Setter Property="Height" Value="44" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+
     <Style x:Key="SidebarItemStyle" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
@@ -151,13 +239,12 @@
     <Style x:Key="SidebarIconStyle" TargetType="FontIcon">
         <Setter Property="FontSize" Value="16" />
         <Setter Property="Width" Value="20" />
-        <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
     </Style>
 
     <Style x:Key="SidebarHeaderStyle" TargetType="TextBlock">
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Margin" Value="10,16,0,4" />
+        <Setter Property="Margin" Value="14,16,0,4" />
         <Setter Property="Foreground" Value="{ThemeResource GoosicSecondaryTextBrush}" />
     </Style>
 
