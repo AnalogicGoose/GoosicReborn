@@ -491,7 +491,7 @@ struct NativeMacLibraryPage: SwiftUI.View {
             NativeMacEmptyPage(
                 title: "Library",
                 icon: "music.note.list",
-                message: "Sign in from Settings to load your playlists, liked songs, albums, and artists."
+                message: "Sign in from the account menu to load your playlists, liked songs, albums, and artists."
             )
             .padding(.leading, leadingInset)
         } else {

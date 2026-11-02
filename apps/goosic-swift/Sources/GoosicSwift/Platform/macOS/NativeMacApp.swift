@@ -47,11 +47,17 @@ struct GoosicMacApp: SwiftUI.App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 320, height: 470)
+
+        // Settings is a window of its own, as Music's is, and the scene gives the app menu its
+        // Settings… item and ⌘, without a command of ours.
+        SwiftUI.Settings {
+            NativeMacSettingsWindow(store: store)
+        }
     }
 }
 #endif
 
-/// The menu bar's commands. Settings answers ⌘, as every Mac app's does, and Like takes
+/// The menu bar's commands. Like takes
 /// ⌥⇧B, Spotify's shortcut, which the Windows shell uses too.
 private struct NativeMacCommands: SwiftUI.Commands {
     @ObservedObject var store: NativeMacModelStore
@@ -63,10 +69,6 @@ private struct NativeMacCommands: SwiftUI.Commands {
         SwiftUI.CommandGroup(after: .appInfo) {
             SwiftUI.Button("Check for Updates…") { NativeMacUpdater.shared.check() }
                 .disabled(!NativeMacUpdater.shared.isAvailable)
-        }
-        SwiftUI.CommandGroup(replacing: .appSettings) {
-            SwiftUI.Button("Settings…") { model.navigate(to: .settings) }
-                .keyboardShortcut(",", modifiers: .command)
         }
         SwiftUI.CommandGroup(after: .textEditing) {
             SwiftUI.Button("Search") {
@@ -262,6 +264,17 @@ public struct GoosicMacUITestHost: SwiftUI.View {
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 if !store.model.usesDebugSidebarFixture { store.model.connect() }
             }
+    }
+}
+
+/// The Settings window for the same UI-test host, over its own fixture model.
+public struct GoosicMacUITestSettings: SwiftUI.View {
+    @SwiftUI.StateObject private var store = NativeMacModelStore()
+
+    public init() {}
+
+    public var body: some SwiftUI.View {
+        NativeMacSettingsWindow(store: store)
     }
 }
 
@@ -663,8 +676,9 @@ private struct NativeMacRootView: SwiftUI.View {
                 NativeMacDownloadsView(store: store)
                     .padding(.leading, leadingInset)
             case .settings:
-                NativeMacSettingsView(store: store)
-                    .padding(.leading, leadingInset)
+                // Settings has its own window now; a route saved by an earlier version lands on
+                // Home instead of an empty page.
+                SwiftUI.Color.clear.task { model.navigate(to: .home) }
             }
         }
     }
@@ -891,7 +905,6 @@ private struct NativeMacSidebar: SwiftUI.View {
                 libraryRow(.playlists, title: "All Playlists", icon: "square.grid.2x2")
                 SwiftUI.ForEach(model.userPlaylists) { playlist in playlistRow(playlist) }
             }
-            SwiftUI.Section("Goosic") { row(.settings, icon: "gearshape") }
         }
         .listStyle(.sidebar)
         .environment(\.defaultMinListRowHeight, 30)
@@ -1084,10 +1097,12 @@ private struct NativeMacSidebar: SwiftUI.View {
     }
 }
 
-/// The account menu's entries, shared by the sidebar and the Settings page.
+/// The account menu's entries. Its last item opens the Settings window on Accounts, the one
+/// place in the main window that leads to Settings.
 struct NativeMacAccountMenuItems: SwiftUI.View {
     let model: GoosicAppModel
     @SwiftUI.Binding var confirmSignOut: Bool
+    @SwiftUI.Environment(\.openSettings) private var openSettings
 
     private var busy: Bool {
         !model.serviceConnected || model.accountOperationInProgress
@@ -1141,11 +1156,16 @@ struct NativeMacAccountMenuItems: SwiftUI.View {
             .disabled(busy)
         }
         SwiftUI.Divider()
-        SwiftUI.Button("Account Settings…", systemImage: "gearshape") { model.navigate(to: .settings) }
+        SwiftUI.Button("Settings…", systemImage: "gearshape") {
+            UserDefaults.standard.set(
+                NativeMacSettingsWindow.Tab.accounts.rawValue, forKey: NativeMacSettingsWindow.tabKey
+            )
+            openSettings()
+        }
     }
 }
 
-private struct NativeMacAccountAvatar: SwiftUI.View {
+struct NativeMacAccountAvatar: SwiftUI.View {
     let url: String?
     let fallback: String
 
@@ -2270,364 +2290,6 @@ private struct NativeMacDownloadsView: SwiftUI.View {
     }
 }
 
-private struct NativeMacSettingsView: SwiftUI.View {
-    @SwiftUI.Environment(\.nativeMacPlayerClearance) private var playerClearance
-    @ObservedObject var store: NativeMacModelStore
-
-    private var model: GoosicAppModel { store.model }
-    private var accountChangesDisabled: Bool {
-        !model.serviceConnected
-            || model.accountOperationInProgress
-            || model.playbackTransition != .idle
-            || model.isAdvertisement
-    }
-
-    var body: some SwiftUI.View {
-        SwiftUI.ScrollView {
-            SwiftUI.VStack(alignment: .leading, spacing: 22) {
-                SwiftUI.VStack(alignment: .leading, spacing: 4) {
-                    SwiftUI.Text("Settings")
-                        .font(.largeTitle.bold())
-                    SwiftUI.Text("Personalize playback and manage your Goosic account.")
-                        .foregroundStyle(.secondary)
-                }
-
-                settingsCard("Connection", systemImage: "bolt.horizontal.circle.fill") {
-                    settingsRow(
-                        title: "Goosic service",
-                        detail: model.serviceConnected ? "Connected and ready" : "The playback service is offline",
-                        systemImage: model.serviceConnected ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
-                        tint: model.serviceConnected ? .green : .orange
-                    ) {
-                        SwiftUI.Button(model.serviceConnected ? "Connected" : model.isConnecting ? "Connecting…" : "Reconnect", action: model.connect)
-                            .disabled(model.serviceConnected || model.isConnecting)
-                            .modifier(NativeMacSettingsButtonStyle(prominent: !model.serviceConnected))
-                    }
-                }
-
-                if NativeMacUpdater.shared.isAvailable {
-                    settingsCard("Updates", systemImage: "arrow.triangle.2.circlepath") {
-                        settingsRow(
-                            title: "Goosic updates",
-                            detail: "Check for a newer macOS alpha.",
-                            systemImage: "arrow.down.circle.fill",
-                            tint: .goosicPink
-                        ) {
-                            SwiftUI.Button("Check for Updates…") { NativeMacUpdater.shared.check() }
-                                .modifier(NativeMacSettingsButtonStyle(prominent: false))
-                        }
-                    }
-                }
-
-                settingsCard("Playback", systemImage: "play.circle.fill") {
-                    settingToggle(
-                        "Autoplay",
-                        detail: "Keep the music going with related recommendations.",
-                        systemImage: "infinity",
-                        isOn: SwiftUI.Binding(get: { model.autoplay }, set: { model.setAutoplay($0) })
-                    )
-                    SwiftUI.Divider().opacity(0.45)
-                    settingToggle(
-                        "Shuffle",
-                        detail: "Play the current queue in a randomized order.",
-                        systemImage: "shuffle",
-                        isOn: SwiftUI.Binding(
-                            get: { model.shuffle },
-                            set: { enabled in if enabled != model.shuffle { model.toggleShuffle() } }
-                        )
-                    )
-                    SwiftUI.Divider().opacity(0.45)
-                    settingToggle(
-                        "Album Art Background",
-                        detail: "Blur the playing track's artwork behind the window.",
-                        systemImage: "photo.fill",
-                        isOn: SwiftUI.Binding(
-                            get: { model.artworkBackground },
-                            set: { model.setArtworkBackground($0) }
-                        )
-                    )
-                    SwiftUI.Divider().opacity(0.45)
-                    settingToggle(
-                        "Hide Explicit Songs",
-                        detail: "Leave songs marked explicit out of lists and shelves.",
-                        systemImage: "e.square",
-                        isOn: SwiftUI.Binding(get: { model.hideExplicit }, set: { model.setHideExplicit($0) })
-                    )
-                    SwiftUI.Divider().opacity(0.45)
-                    settingToggle(
-                        "Reduce Motion",
-                        detail: "Skip decorative animation, on top of the system setting.",
-                        systemImage: "figure.walk.motion",
-                        isOn: SwiftUI.Binding(get: { model.reduceMotion }, set: { model.setReduceMotion($0) })
-                    )
-                    SwiftUI.Divider().opacity(0.45)
-                    settingsRow(
-                        title: "Open Goosic To",
-                        detail: "The page shown when Goosic starts.",
-                        systemImage: "house",
-                        tint: .goosicPink
-                    ) {
-                        SwiftUI.Picker("Open Goosic to", selection: SwiftUI.Binding(
-                            get: { model.startPage },
-                            set: { model.setStartPage($0) }
-                        )) {
-                            SwiftUI.Text("Where I left off").tag("last")
-                            SwiftUI.Text("Home").tag("home")
-                            SwiftUI.Text("Library").tag("library")
-                            SwiftUI.Text("Liked Music").tag("liked")
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                }
-
-                settingsCard("Appearance", systemImage: "circle.lefthalf.filled") {
-                    settingsRow(title: "Theme", detail: "Choose an appearance or follow your Mac.",
-                                systemImage: "paintpalette", tint: .goosicPink) {
-                        SwiftUI.Picker("Theme", selection: Binding(
-                            get: { model.theme }, set: { model.setTheme($0) }
-                        )) {
-                            ForEach(GoosicTheme.allCases, id: \.self) { theme in
-                                Text(theme.label).tag(theme)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                }
-
-                settingsCard("Integrations", systemImage: "square.stack.3d.up.fill") {
-                    settingToggle(
-                        "Discord Status",
-                        detail: "Show the song playing on your Discord profile while Discord is open.",
-                        systemImage: "gamecontroller.fill",
-                        isOn: SwiftUI.Binding(get: { model.discordStatus }, set: { model.setDiscordStatus($0) })
-                    )
-                }
-
-                settingsCard("Advanced", systemImage: "wrench.and.screwdriver.fill") {
-                    settingToggle(
-                        "Debug Mode",
-                        detail: "Show technical details, status messages, and full error text.",
-                        systemImage: "ladybug.fill",
-                        isOn: SwiftUI.Binding(get: { model.debugMode }, set: { model.setDebugMode($0) })
-                    )
-                    SwiftUI.Divider().opacity(0.45)
-                    settingsRow(
-                        title: "Log",
-                        detail: "Everything Goosic shows is logged, with nothing private in it.",
-                        systemImage: "doc.text.magnifyingglass",
-                        tint: .goosicPink
-                    ) {
-                        SwiftUI.Button("Open Log Folder") {
-                            guard let directory = Diagnostics.logDirectory else { return }
-                            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                            NSWorkspace.shared.open(directory)
-                        }
-                        .modifier(NativeMacSettingsButtonStyle(prominent: false))
-                    }
-                }
-
-                settingsCard("Accounts", systemImage: "person.crop.circle.fill") {
-                    SwiftUI.HStack(spacing: 14) {
-                        NativeMacAccountAvatar(
-                            url: model.activeAccount?.avatarUrl,
-                            fallback: String(model.activeAccountLabel.prefix(1)).uppercased()
-                        )
-                        .scaleEffect(1.2)
-                        .frame(width: 42, height: 42)
-
-                        SwiftUI.VStack(alignment: .leading, spacing: 2) {
-                            SwiftUI.Text(model.activeAccountLabel).font(.headline)
-                            SwiftUI.Text(model.activeAccount?.email ?? model.activeAccount?.channel ?? "Not signed in")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        SwiftUI.Spacer()
-                        SwiftUI.Button("Add Account", systemImage: "person.badge.plus", action: model.signIn)
-                            .disabled(accountChangesDisabled)
-                            .modifier(NativeMacSettingsButtonStyle(prominent: model.accounts.isEmpty))
-                    }
-
-                    if !model.accounts.isEmpty {
-                        SwiftUI.Divider().opacity(0.45)
-                        SwiftUI.VStack(spacing: 0) {
-                            SwiftUI.ForEach(Array(model.accounts.enumerated()), id: \.element.id) { index, account in
-                                accountRow(account)
-                                if index < model.accounts.count - 1 {
-                                    SwiftUI.Divider().padding(.leading, 46).opacity(0.45)
-                                }
-                            }
-                        }
-                    }
-
-                    SwiftUI.Text("Sign-in data remains inside each account's isolated WebKit profile and never enters the playback service.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: 720, alignment: .leading)
-            .padding(.horizontal, 32)
-            .padding(.top, 28)
-            .padding(.bottom, playerClearance)
-            .frame(maxWidth: .infinity)
-        }
-        .background(SwiftUI.Color(nsColor: .windowBackgroundColor).opacity(0.35))
-        .onAppear { model.loadAccounts() }
-    }
-
-    private func settingsCard<Content: SwiftUI.View>(
-        _ title: String,
-        systemImage: String,
-        @SwiftUI.ViewBuilder content: () -> Content
-    ) -> some SwiftUI.View {
-        SwiftUI.VStack(alignment: .leading, spacing: 16) {
-            SwiftUI.Label(title, systemImage: systemImage)
-                .font(.headline)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(SwiftUI.Color.goosicPink)
-            content()
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(NativeMacSettingsCardStyle())
-    }
-
-    private func settingToggle(
-        _ title: String,
-        detail: String,
-        systemImage: String,
-        isOn: SwiftUI.Binding<Bool>
-    ) -> some SwiftUI.View {
-        SwiftUI.HStack(spacing: 13) {
-            settingsIcon(systemImage, tint: .goosicPink)
-            SwiftUI.VStack(alignment: .leading, spacing: 2) {
-                SwiftUI.Text(title).font(.body.weight(.medium))
-                SwiftUI.Text(detail).font(.caption).foregroundStyle(.secondary)
-            }
-            SwiftUI.Spacer()
-            SwiftUI.Toggle(title, isOn: isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .tint(.goosicPink)
-                .controlSize(.large)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func settingsRow<Trailing: SwiftUI.View>(
-        title: String,
-        detail: String,
-        systemImage: String,
-        tint: SwiftUI.Color,
-        @SwiftUI.ViewBuilder trailing: () -> Trailing
-    ) -> some SwiftUI.View {
-        SwiftUI.HStack(spacing: 13) {
-            settingsIcon(systemImage, tint: tint)
-            SwiftUI.VStack(alignment: .leading, spacing: 2) {
-                SwiftUI.Text(title).font(.body.weight(.medium))
-                SwiftUI.Text(detail).font(.caption).foregroundStyle(.secondary)
-            }
-            SwiftUI.Spacer()
-            trailing()
-        }
-    }
-
-    private func settingsIcon(_ systemImage: String, tint: SwiftUI.Color) -> some SwiftUI.View {
-        SwiftUI.Image(systemName: systemImage)
-            .symbolRenderingMode(.hierarchical)
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(tint)
-            .frame(width: 32, height: 32)
-            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-    }
-
-    private func accountRow(_ account: GoosicAccountSummary) -> some SwiftUI.View {
-        let active = account.id == model.activeAccountId
-        return SwiftUI.HStack(spacing: 12) {
-            NativeMacAccountAvatar(
-                url: account.avatarUrl,
-                fallback: String(account.displayName.prefix(1)).uppercased()
-            )
-            SwiftUI.VStack(alignment: .leading, spacing: 1) {
-                SwiftUI.HStack(spacing: 6) {
-                    SwiftUI.Text(account.displayName).fontWeight(.medium)
-                    if active {
-                        SwiftUI.Text("ACTIVE")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.green)
-                    }
-                }
-                SwiftUI.Text(account.email ?? account.channel ?? "YouTube Music account")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            SwiftUI.Spacer()
-            if !active {
-                SwiftUI.Button("Use") { model.switchAccount(to: account.id) }
-                    .disabled(accountChangesDisabled)
-                    .modifier(NativeMacSettingsButtonStyle(prominent: false))
-            }
-            SwiftUI.Menu {
-                if active && model.sessionExpired {
-                    SwiftUI.Button("Sign In Again…", systemImage: "arrow.clockwise.circle") { model.signInAgain() }
-                        .disabled(accountChangesDisabled)
-                }
-                if active {
-                    SwiftUI.Button("Browse as a Guest", systemImage: "person.crop.circle.badge.questionmark") {
-                        model.browseAsGuest()
-                    }
-                    .disabled(accountChangesDisabled)
-                }
-                // Signing out and removing are the same thing, as on Windows: Goosic forgets the
-                // account and clears its sign-in from this Mac.
-                SwiftUI.Button(active ? "Sign Out" : "Remove Account", systemImage: "person.crop.circle.badge.minus", role: .destructive) {
-                    model.removeAccount(account.id)
-                }
-                .disabled(accountChangesDisabled)
-            } label: {
-                SwiftUI.Image(systemName: "ellipsis")
-                    .frame(width: 26, height: 26)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("Account options")
-        }
-        .padding(.vertical, 6)
-    }
-}
-
-private struct NativeMacSettingsCardStyle: SwiftUI.ViewModifier {
-    func body(content: Content) -> some SwiftUI.View {
-        content
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(.primary.opacity(0.08), lineWidth: 1))
-    }
-}
-
-private struct NativeMacSettingsButtonStyle: SwiftUI.ViewModifier {
-    let prominent: Bool
-
-    @SwiftUI.ViewBuilder
-    func body(content: Content) -> some SwiftUI.View {
-        if #available(macOS 26.0, *) {
-            if prominent {
-                content.buttonStyle(.glassProminent).tint(.goosicPink)
-            } else {
-                content.buttonStyle(.glass).tint(Optional<SwiftUI.Color>.none)
-            }
-        } else {
-            if prominent {
-                content.buttonStyle(.borderedProminent).tint(.goosicPink)
-            } else {
-                content.buttonStyle(.bordered).tint(Optional<SwiftUI.Color>.none)
-            }
-        }
-    }
-}
-
 struct NativeMacEmptyPage: SwiftUI.View {
     let title: String
     let icon: String
@@ -2690,12 +2352,6 @@ private struct NativeMacAppPreview: SwiftUI.View {
 
 #Preview("Full App — Compact Height") {
     NativeMacAppPreview(colorScheme: nil, height: 680)
-}
-
-#Preview("Settings — macOS 26") {
-    NativeMacSettingsView(store: NativeMacModelStore())
-        .tint(.goosicPink)
-        .frame(width: 900, height: 760)
 }
 #endif
 /// Lets the artwork backdrop continue under the floating sidebar on macOS 26.

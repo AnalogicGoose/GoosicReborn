@@ -20,7 +20,7 @@ final class GoosicSidebarUITests: XCTestCase {
         XCTAssertTrue(finalPlaylist.waitForExistence(timeout: 2))
 
         account.click()
-        XCTAssertTrue(app.menuItems["Account Settings…"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.menuItems["Settings…"].firstMatch.waitForExistence(timeout: 3))
     }
 
     func testFixtureRendersInLightAppearance() throws {
@@ -49,12 +49,17 @@ final class GoosicSidebarUITests: XCTestCase {
         add(attachment)
     }
 
-    func testSettingsExposesAllThemeChoices() throws {
+    func testSettingsWindowExposesAllThemeChoices() throws {
         let app = launchFixture(appearance: "light")
-        app.buttons["sidebar.route.settings"].click()
-        let theme = app.popUpButtons["Theme"]
-        for _ in 0..<4 where !theme.isHittable { app.windows.firstMatch.swipeUp() }
-        XCTAssertTrue(theme.exists)
+        // Settings is a window of its own, reached by ⌘, or the account menu, not a sidebar row.
+        XCTAssertFalse(app.buttons["sidebar.route.settings"].exists)
+        app.typeKey(",", modifierFlags: .command)
+        // The window reopens on whichever tab was last chosen, so pick General explicitly.
+        let general = app.toolbars.buttons["General"].firstMatch
+        XCTAssertTrue(general.waitForExistence(timeout: 3))
+        general.click()
+        let theme = app.popUpButtons["settings.theme"]
+        XCTAssertTrue(theme.waitForExistence(timeout: 3))
         theme.click()
         XCTAssertTrue(app.menuItems["System"].exists)
         XCTAssertTrue(app.menuItems["Light"].exists)
