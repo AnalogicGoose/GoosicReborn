@@ -203,6 +203,23 @@ job, and it only removes branches whose commits already live in their parent.
   just what it is. Match that.
 - **Commit messages** state what changed and why it had to change, in the imperative. No
   co-authorship, attribution, or session trailers.
+- **Release notes read like an Apple product page.** This applies to `docs/RELEASE_<version>.md`
+  and the GitHub release built from it, not to commits. Open with the version as a headline and
+  a one-line tagline that sums up the release. Give each change its own section: a short
+  headline, a one-line tagline that says what it means for the person using Goosic, then a
+  short, confident paragraph on what changed and why. Lead with the outcome, keep sentences
+  short, and leave internals out of the taglines. Every claim must be true and checkable;
+  the style is presentation, not hype, so never promise more than the release does, and say
+  plainly what still needs a live check. The downloads and installation section stays factual.
+
+  ```
+  ## macOS: the full player slides up
+
+  Now playing, front and center.
+
+  The full player now slides up from the bottom edge as one piece, as Music's does, instead
+  of fading and scaling, which cut off the top of the window and stuttered.
+  ```
 - **Rust** is edition 2021, `max_width = 100` (`rustfmt.toml`). Tests live beside the code
   they cover; live network tests are `#[ignore]`d.
 - **Swift is built in the Swift 6 language mode.** Concurrency errors are errors, not warnings.
