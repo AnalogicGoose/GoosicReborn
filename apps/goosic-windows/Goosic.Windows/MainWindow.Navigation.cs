@@ -35,12 +35,6 @@ public sealed partial class MainWindow : Window
 
     private async Task NavigateAsync(string tag)
     {
-        tag = tag switch
-        {
-            "discover" => "explore",
-            "playlists" => "library:FEmusic_liked_playlists",
-            _ => tag,
-        };
         if (tag == "search")
         {
             await OpenSearchAsync();
@@ -86,7 +80,7 @@ public sealed partial class MainWindow : Window
         {
             if (child is ToggleButton { Tag: string railTag } item)
             {
-                item.IsChecked = railTag == tag || railTag == SidebarGroup(tag);
+                item.IsChecked = railTag == tag;
             }
         }
 
@@ -123,15 +117,6 @@ public sealed partial class MainWindow : Window
             }
         }
     }
-
-    private static string? SidebarGroup(string? tag) => tag switch
-    {
-        "explore" or "charts" or "moodsAndGenres" or "newReleases" => "discover",
-        "library" or "liked" or "history" or "downloads" => "library",
-        "library:FEmusic_liked_playlists" => "playlists",
-        not null when tag.StartsWith("library:", StringComparison.Ordinal) => "library",
-        _ => null,
-    };
 
     /// <summary>Every new page starts at its top, whichever path loaded it.</summary>
     private void OnPageLoadingChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
