@@ -40,8 +40,10 @@ fn every_scripted_conversation_produces_the_recorded_answers() {
         let lyrics = LyricsClient::new();
 
         for (position, step) in exchange.steps.iter().enumerate() {
-            let request: RequestEnvelope = serde_json::from_str(&step.request)
-                .unwrap_or_else(|error| panic!("{}: request did not decode: {error}", exchange.name));
+            let request: RequestEnvelope =
+                serde_json::from_str(&step.request).unwrap_or_else(|error| {
+                    panic!("{}: request did not decode: {error}", exchange.name)
+                });
 
             let response = handle_request(
                 &mut authority,
@@ -50,7 +52,7 @@ fn every_scripted_conversation_produces_the_recorded_answers() {
                 &mut downloads,
                 &mut accounts,
                 &lyrics,
-                request
+                request,
             );
             let actual = serde_json::to_string(&response).expect("response did not encode");
 

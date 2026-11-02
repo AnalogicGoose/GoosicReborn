@@ -158,10 +158,19 @@ impl ServiceClient {
         let request_id = format!("{}-{}", self.inner.id_prefix, state.next_number);
         let line = encode(&request_id, command, payload);
         let deadline = Instant::now() + (self.inner.timeouts)(command);
-        state.pending.insert(request_id.clone(), Pending { completion, deadline });
+        state.pending.insert(
+            request_id.clone(),
+            Pending {
+                completion,
+                deadline,
+            },
+        );
         // The writer thread owns the pipe, so a full pipe buffer can never stall the caller —
         // which, for every shell, is its UI thread.
-        let queued = state.writer.as_ref().is_some_and(|writer| writer.send(line).is_ok());
+        let queued = state
+            .writer
+            .as_ref()
+            .is_some_and(|writer| writer.send(line).is_ok());
         drop(state);
         self.inner.wake_timer.notify_all();
         if !queued {
@@ -185,7 +194,9 @@ impl ServiceClient {
             let _ = answer.send(result);
         });
         answered.recv().unwrap_or_else(|_| {
-            Err(TransportError::Unavailable("the request was abandoned".to_owned()))
+            Err(TransportError::Unavailable(
+                "the request was abandoned".to_owned(),
+            ))
         })
     }
 
@@ -197,7 +208,9 @@ impl ServiceClient {
 
 impl Drop for ServiceClient {
     fn drop(&mut self) {
-        self.inner.invalidate(TransportError::Unavailable("the client was closed".to_owned()));
+        self.inner.invalidate(TransportError::Unavailable(
+            "the client was closed".to_owned(),
+        ));
     }
 }
 
@@ -225,7 +238,9 @@ impl Inner {
     /// Poisoning is ignored on purpose. A completion panicking on another thread says nothing
     /// about the table, which is only ever changed in single statements under this lock.
     fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn deliver(&self, response: ResponseEnvelope) {
@@ -293,9 +308,13 @@ fn encode(request_id: &str, command: &str, payload: RequestPayload) -> Vec<u8> {
 }
 
 fn start_thread(name: &str, body: impl FnOnce() + Send + 'static) -> Result<(), TransportError> {
-    thread::Builder::new().name(name.to_owned()).spawn(body).map(|_| ()).map_err(|error| {
-        TransportError::Unavailable(format!("could not start the {name} thread: {error}"))
-    })
+    thread::Builder::new()
+        .name(name.to_owned())
+        .spawn(body)
+        .map(|_| ())
+        .map_err(|error| {
+            TransportError::Unavailable(format!("could not start the {name} thread: {error}"))
+        })
 }
 
 fn write_loop(inner: &Inner, mut stdin: ChildStdin, lines: Receiver<Vec<u8>>) {
@@ -331,7 +350,9 @@ fn read_loop(inner: &Inner, mut stdout: ChildStdout) {
         // One read can carry several responses, so this keeps taking them until only a partial
         // frame is left.
         loop {
-            match frames.next_frame().and_then(|frame| frame.map(|f| decode_response(&f)).transpose())
+            match frames
+                .next_frame()
+                .and_then(|frame| frame.map(|f| decode_response(&f)).transpose())
             {
                 Ok(Some(response)) => inner.deliver(response),
                 Ok(None) => break,
@@ -384,7 +405,10 @@ fn deadline_loop(inner: &Inner) {
                     Err(poisoned) => poisoned.into_inner().0,
                 }
             }
-            None => inner.wake_timer.wait(state).unwrap_or_else(|poisoned| poisoned.into_inner()),
+            None => inner
+                .wake_timer
+                .wait(state)
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
         };
     }
 }
@@ -552,7 +576,11 @@ for thread in threads:
         }
         for _ in commands {
             let (command, result) = answers.recv_timeout(Duration::from_secs(10)).unwrap();
-            assert_eq!(message(&result).as_deref(), Some(command), "{command} got another answer");
+            assert_eq!(
+                message(&result).as_deref(),
+                Some(command),
+                "{command} got another answer"
+            );
         }
     }
 
@@ -591,20 +619,31 @@ for thread in threads:
         thread::sleep(Duration::from_millis(1200));
         let later = client.request("state.get", RequestPayload::default());
         assert_eq!(message(&later).as_deref(), Some("state.get"));
-        assert_eq!(calls.load(Ordering::SeqCst), 1, "the timed-out completion ran twice");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the timed-out completion ran twice"
+        );
     }
 
     #[test]
     fn a_refusal_is_an_answer_and_the_conversation_continues() {
         let stub = Stub::new();
         let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(0.0)).spawn());
-        let refused = client.request("refuse.claim", RequestPayload::default()).unwrap_err();
+        let refused = client
+            .request("refuse.claim", RequestPayload::default())
+            .unwrap_err();
         assert_eq!(
             refused,
-            TransportError::Remote { code: "ownerConflict".into(), message: "held".into() }
+            TransportError::Remote {
+                code: "ownerConflict".into(),
+                message: "held".into()
+            }
         );
         assert_eq!(client.closed_reason(), None);
-        assert!(client.request("state.get", RequestPayload::default()).is_ok());
+        assert!(client
+            .request("state.get", RequestPayload::default())
+            .is_ok());
     }
 
     /// After an undecodable line there is no way to know where the next frame begins, so every
@@ -622,8 +661,13 @@ for thread in threads:
         assert_eq!(corrupt.unwrap_err(), TransportError::InvalidResponse);
         let innocent = answered.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(innocent.unwrap_err(), TransportError::InvalidResponse);
-        assert_eq!(client.closed_reason(), Some(TransportError::InvalidResponse));
-        let refused = client.request("state.get", RequestPayload::default()).unwrap_err();
+        assert_eq!(
+            client.closed_reason(),
+            Some(TransportError::InvalidResponse)
+        );
+        let refused = client
+            .request("state.get", RequestPayload::default())
+            .unwrap_err();
         assert!(matches!(refused, TransportError::Unavailable(_)));
     }
 
@@ -631,8 +675,13 @@ for thread in threads:
     fn a_service_speaking_another_protocol_version_closes_the_client() {
         let stub = Stub::new();
         let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(0.0)).spawn());
-        let error = client.request("foreign.hello", RequestPayload::default()).unwrap_err();
-        assert!(matches!(error, TransportError::ProtocolVersionMismatch { .. }));
+        let error = client
+            .request("foreign.hello", RequestPayload::default())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            TransportError::ProtocolVersionMismatch { .. }
+        ));
         assert!(client.closed_reason().is_some());
     }
 
@@ -662,7 +711,10 @@ for thread in threads:
         drop(client);
         let abandoned = answered.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(matches!(abandoned, Err(TransportError::Unavailable(_))));
-        assert!(started.elapsed() < Duration::from_secs(2), "closing waited for the service");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "closing waited for the service"
+        );
     }
 
     #[test]
