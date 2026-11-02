@@ -924,6 +924,7 @@ public sealed partial class ShellViewModel
         _loadingMore = true;
         OnPropertyChanged(nameof(IsLoadingMore));
         var cursor = _nextCursor;
+        var contentRevision = _pageContentRevision;
         try
         {
             if (await TryLoadMorePersonalAsync(cursor!).ConfigureAwait(true))
@@ -935,7 +936,7 @@ public sealed partial class ShellViewModel
                 .RequestAsync("catalog.continue", new JsonObject { ["continuation"] = cursor })
                 .ConfigureAwait(true);
             var page = answer.Deserialize<CatalogResponsePayload>(ServiceProtocol.Json)?.Page;
-            if (page is null || _nextCursor != cursor)
+            if (page is null || _nextCursor != cursor || contentRevision != _pageContentRevision)
             {
                 // Another page was opened while this was loading; its rows do not belong there.
                 return;

@@ -24,23 +24,25 @@ public sealed partial class MainWindow : Window
     private bool PanelsOverlayContent => WindowLayout.PanelsOverlayContent(_widthClass);
 
     private double LeftInset =>
-        WindowLayout.Inset(_widthClass, Sidebar.Visibility == Visibility.Visible, Sidebar.Width);
+        WindowLayout.NavigationInset(_widthClass, _sidebarExpanded,
+            WindowLayout.SidebarWidth(_widthClass, RootGrid.ActualWidth));
 
     private double RightInset =>
         WindowLayout.Inset(_widthClass, SidePanel.Visibility == Visibility.Visible, SidePanel.Width);
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
     {
+        _sidebarRevealClip?.StopAnimation("RightInset");
         var next = WindowLayout.Classify(e.NewSize.Width);
         var changed = next != _widthClass;
         _widthClass = next;
-        Sidebar.Width = WindowLayout.SidebarWidth(next, e.NewSize.Width);
         SidePanel.Width = WindowLayout.SidePanelWidth(next, e.NewSize.Width);
         if (changed && next == WindowWidthClass.Narrow)
         {
-            Sidebar.Visibility = Visibility.Collapsed;
+            SetSidebarExpanded(false);
         }
 
+        Sidebar.Width = _sidebarExpanded ? WindowLayout.SidebarWidth(next, e.NewSize.Width) : WindowLayout.SidebarRailWidth;
         ApplyInsets();
     }
 
@@ -101,7 +103,13 @@ public sealed partial class MainWindow : Window
         var right = RightInset + ContentGutter;
         var compact = ApplyPlayerLayout();
         var clearance = WindowLayout.PlayerEdgeClearance;
-        ContentStack.Padding = new Thickness(left, 56, right, compact ? 166 : 128);
+        // Title-bar controls clear the temporary panel even though the page keeps its rail inset.
+        TitleBarStrip.Margin = new Thickness(Sidebar.Width + 56, 0, 0, 0);
+        BackButton.Margin = new Thickness(Sidebar.Width + 16, 14, 0, 0);
+        SearchChrome.Margin = new Thickness(left, 56, right, 0);
+        var top = Model.IsSearchPage ? 56 + Math.Max(100, SearchChrome.ActualHeight) + 48 : 56;
+        ContentStack.Padding = new Thickness(left, top, right, compact ? 166 : 128);
+        FitSearchBrowseCards(left, right);
         if (RootGrid.ActualWidth > 0)
         {
             // Placed by hand rather than centred between the panels: see PlayerPlacement.
@@ -116,6 +124,37 @@ public sealed partial class MainWindow : Window
         foreach (var carousel in _carousels)
         {
             FitCarousel(carousel, left, right);
+        }
+    }
+
+    private void OnSearchChromeSizeChanged(object sender, SizeChangedEventArgs e) => ApplyInsets();
+
+    private void FitSearchBrowseCards(double left, double right)
+    {
+        var available = Math.Max(0, Math.Min(1000, RootGrid.ActualWidth - left - right));
+        BrowseCategoryGrid.Width = available;
+        var columns = available >= 860 ? 4 : available >= 420 ? 2 : 1;
+        if (BrowseCategoryGrid.ColumnDefinitions.Count == columns)
+        {
+            return;
+        }
+
+        BrowseCategoryGrid.ColumnDefinitions.Clear();
+        BrowseCategoryGrid.RowDefinitions.Clear();
+        for (var index = 0; index < columns; index++)
+        {
+            BrowseCategoryGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+
+        for (var index = 0; index < 4 / columns; index++)
+        {
+            BrowseCategoryGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        for (var index = 0; index < BrowseCategoryGrid.Children.Count; index++)
+        {
+            Grid.SetColumn((FrameworkElement)BrowseCategoryGrid.Children[index], index % columns);
+            Grid.SetRow((FrameworkElement)BrowseCategoryGrid.Children[index], index / columns);
         }
     }
 
