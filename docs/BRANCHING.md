@@ -142,7 +142,7 @@ sitting at and broken on another, and nobody finds out until someone with that m
 free. The Swift 6 language mode landed that way — two errors that only a Mac could see, each
 costing a round trip through a colleague.
 
-Four jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
+Five jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
 portable by construction and there is no excuse for it to break anywhere. The Swift package
 builds and tests only on macOS against SwiftUI and AppKit. SwiftCrossUI and the Swift Linux
 reference CI job have been removed. On a branch that contains
@@ -150,15 +150,20 @@ reference CI job have been removed. On a branch that contains
 passes clippy and runs its tests in a Fedora container, because `ubuntu-latest` ships a GTK
 older than the 4.20 that shell requires. The Flatpak builder on the GNOME runtime takes that job
 over once the shell has a manifest, since building the package users install is the better test.
+The WinUI shell in `apps/goosic-windows` runs its presentation tests and builds the app in Debug
+x64, the build `run.ps1` makes, on Windows. Until that job existed the shell was first compiled
+by the release workflow on a version tag, and 0.2.9 failed there on a missing `using` that no Mac
+or Linux machine could have reported; it took a hotfix to ship.
 
 A change runs only the suites it can affect. Documentation runs nothing; the crates run the Rust
-workspace and the GTK shell, which links two of them and runs the service; `apps/goosic-linux`
-runs only the GTK shell and `apps/goosic-swift` only the Swift package; anything else runs
-everything.
+workspace, the GTK shell, which links two of them and runs the service, and the WinUI shell,
+which builds the rules library from them; `apps/goosic-linux` runs only the GTK shell,
+`apps/goosic-windows` only the WinUI shell and `apps/goosic-swift` only the Swift package, except
+the personal catalog reader both the Swift and WinUI shells ship; anything else runs everything.
 
-Windows is marked `continue-on-error`. The shell has never been built there and the hosts are
-stubs, so the job reports the state without blocking a merge on work nobody has started. When
-`platform/windows` has real work, that flag comes off.
+The Rust workspace's Windows entry is still marked `continue-on-error`, a leftover from when no
+Windows shell existed. The WinUI job is not: a shell that fails to compile blocks the merge and
+the passing stamp like any other.
 
 The rule this makes enforceable is the one `development` already had: it must always build
 and pass. Before it was an intention; now the trunk is red or green in public.
