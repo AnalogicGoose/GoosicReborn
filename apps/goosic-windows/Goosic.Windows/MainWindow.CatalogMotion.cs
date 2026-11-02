@@ -33,7 +33,7 @@ public sealed partial class MainWindow
     private void OnCatalogItemUnloaded(object sender, RoutedEventArgs e)
     {
         if (sender is not UIElement item) return;
-        _catalogArrivals.Remove(item);
+        if (!_catalogArrivals.Remove(item)) return;
         var visual = ElementCompositionPreview.GetElementVisual(item);
         visual.StopAnimation("Translation");
         visual.Properties.InsertVector3("Translation", Vector3.Zero);

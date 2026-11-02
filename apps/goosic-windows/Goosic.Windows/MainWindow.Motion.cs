@@ -363,6 +363,7 @@ public sealed partial class MainWindow
     private void PlayPageEntrance()
     {
         if (_compositor is null) return;
+        ElementCompositionPreview.SetIsTranslationEnabled(ContentStack, true);
         var page = ElementCompositionPreview.GetElementVisual(ContentStack);
         page.StopAnimation("Opacity");
         page.StopAnimation("Translation");
