@@ -14,7 +14,7 @@ namespace Goosic.Windows;
 /// </summary>
 /// <remarks>
 /// Every animation here is a composition animation on the element's visual: it runs on the
-/// compositor thread, touches only opacity and translation, and never causes a layout pass, so it
+/// compositor thread, touches only opacity, translation and clipping, and never causes a layout pass, so it
 /// costs nothing on the UI thread and keeps running smoothly while a page is loading. Showing and
 /// hiding stay plain <c>Visibility</c> changes in the rest of the window; the implicit show and
 /// hide animations attached here are what turn those into motion. When Windows' "Animation effects"
@@ -38,6 +38,26 @@ public sealed partial class MainWindow
         _uiSettings.AnimationsEnabled && !Model.ReduceMotion && !ShellPreferences.EfficiencyMode;
 
     private bool _motionAttached;
+    private InsetClip? _sidebarRevealClip;
+
+    private void AnimateSidebarExpansion(double previousWidth, bool expanded)
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(Sidebar);
+        _sidebarRevealClip?.StopAnimation("RightInset");
+        visual.Clip = null;
+        _sidebarRevealClip = null;
+        if (!expanded || previousWidth <= 0 || _compositor is null || !AnimationsEnabled)
+        {
+            return;
+        }
+
+        // Reveal the fully laid-out panel; labels and icons never scale or reflow each frame.
+        _sidebarRevealClip = _compositor.CreateInsetClip();
+        visual.Clip = _sidebarRevealClip;
+        _sidebarRevealClip.StartAnimation("RightInset", Scalar("RightInset",
+            (float)Math.Max(0, Sidebar.Width - previousWidth), 0,
+            TimeSpan.FromMilliseconds(200), _easeOut!));
+    }
 
     private void WireMotion()
     {
@@ -75,6 +95,10 @@ public sealed partial class MainWindow
         }
 
         _motionAttached = enabled;
+        if (!enabled)
+        {
+            _sidebarRevealClip?.StopAnimation("RightInset");
+        }
         AttachShowHide(Sidebar, new Vector3(-20, 0, 0));
         AttachShowHide(SidePanel, new Vector3(28, 0, 0));
         AttachShowHide(QueuePanel, new Vector3(0, 10, 0));

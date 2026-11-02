@@ -528,10 +528,11 @@ public sealed partial class ShellViewModel
     /// <summary>Loads Home, the library, liked music or history from the account, when that is what was asked for.</summary>
     private async Task<bool> TryLoadPersonalRouteAsync(string route)
     {
+        var section = LibrarySections.FirstOrDefault(s => s.BrowseId == _librarySection);
         (string BrowseId, string Title, string Shape)? source = route switch
         {
             "home" when IsSignedIn => ("FEmusic_home", "Home", "shelves"),
-            "library" => (_librarySection, "Library", LibrarySections.FirstOrDefault(s => s.BrowseId == _librarySection)?.Shape ?? "shelves"),
+            "library" => (_librarySection, section?.Title ?? "Library", section?.Shape ?? "shelves"),
             "liked" => ("VLLM", "Liked Music", "tracks"),
             "history" => ("FEmusic_history", "History", "auto"),
             _ => null,
@@ -541,6 +542,7 @@ public sealed partial class ShellViewModel
             return false;
         }
 
+        PageTitle = source.Value.Title;
         if (!IsSignedIn || Personal is null)
         {
             PageSubtitle = "Sign in to see this";

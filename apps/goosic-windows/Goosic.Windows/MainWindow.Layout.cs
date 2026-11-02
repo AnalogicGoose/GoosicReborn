@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
     {
+        _sidebarRevealClip?.StopAnimation("RightInset");
         var next = WindowLayout.Classify(e.NewSize.Width);
         var changed = next != _widthClass;
         _widthClass = next;
@@ -102,8 +103,9 @@ public sealed partial class MainWindow : Window
         var right = RightInset + ContentGutter;
         var compact = ApplyPlayerLayout();
         var clearance = WindowLayout.PlayerEdgeClearance;
-        TitleBarStrip.Margin = new Thickness(LeftInset + 48, 0, 0, 0);
-        BackButton.Margin = new Thickness(LeftInset + 8, 14, 0, 0);
+        // Title-bar controls clear the temporary panel even though the page keeps its rail inset.
+        TitleBarStrip.Margin = new Thickness(Sidebar.Width + 56, 0, 0, 0);
+        BackButton.Margin = new Thickness(Sidebar.Width + 16, 14, 0, 0);
         SearchChrome.Margin = new Thickness(left, 56, right, 0);
         var top = Model.IsSearchPage ? 56 + Math.Max(100, SearchChrome.ActualHeight) + 20 : 56;
         ContentStack.Padding = new Thickness(left, top, right, compact ? 166 : 128);

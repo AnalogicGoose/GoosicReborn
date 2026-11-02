@@ -56,9 +56,7 @@ public sealed partial class MainWindow : Window
         AccountFlyout.Hide();
         if (sender is Button { Tag: string route })
         {
-            DismissOverlaySidebar();
-            await Model.LoadRouteAsync(route);
-            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+            await NavigateAsync(route);
         }
     }
 

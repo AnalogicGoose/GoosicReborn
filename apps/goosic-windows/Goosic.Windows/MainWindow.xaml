@@ -1146,8 +1146,6 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <Border x:Name="SidebarRailSurface" Grid.RowSpan="5" Margin="-7,-8" CornerRadius="13"
-                            Background="{ThemeResource GoosicRailBrush}" Visibility="Collapsed" IsHitTestVisible="False" />
                     <Grid Height="36" Margin="11,0,11,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="26" />
@@ -1308,16 +1306,16 @@
                                           AutomationProperties.Name="Home" ToolTipService.ToolTip="Home">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE80F;" />
                             </ToggleButton>
-                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="discover" Click="OnExpandSidebarGroup"
-                                          AutomationProperties.Name="Discover navigation" ToolTipService.ToolTip="Discover">
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="discover" Click="OnNavigate"
+                                          AutomationProperties.Name="Discover" ToolTipService.ToolTip="Discover">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE774;" />
                             </ToggleButton>
-                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="library" Click="OnExpandSidebarGroup"
-                                          AutomationProperties.Name="Library navigation" ToolTipService.ToolTip="Library">
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="library" Click="OnNavigate"
+                                          AutomationProperties.Name="Library" ToolTipService.ToolTip="Library">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE8F1;" />
                             </ToggleButton>
-                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="playlists" Click="OnExpandSidebarGroup"
-                                          AutomationProperties.Name="Playlists navigation" ToolTipService.ToolTip="Playlists">
+                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="playlists" Click="OnNavigate"
+                                          AutomationProperties.Name="Playlists" ToolTipService.ToolTip="Playlists">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xF0E2;" />
                             </ToggleButton>
                             <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="settings" Click="OnNavigate"

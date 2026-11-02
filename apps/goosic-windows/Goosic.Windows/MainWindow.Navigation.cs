@@ -35,6 +35,12 @@ public sealed partial class MainWindow : Window
 
     private async Task NavigateAsync(string tag)
     {
+        tag = tag switch
+        {
+            "discover" => "explore",
+            "playlists" => "library:FEmusic_liked_playlists",
+            _ => tag,
+        };
         if (tag == "search")
         {
             await OpenSearchAsync();
@@ -43,6 +49,12 @@ public sealed partial class MainWindow : Window
 
         HighlightNavigation(tag);
         DismissOverlaySidebar();
+        if (Model.CurrentSidebarDestination == tag || tag == "library" && Model.IsLibraryPage)
+        {
+            HighlightNavigation(Model.CurrentSidebarDestination);
+            return;
+        }
+
         if (tag.StartsWith("library:", StringComparison.Ordinal))
         {
             await Model.OpenLibrarySectionAsync(tag["library:".Length..]);
@@ -166,6 +178,7 @@ public sealed partial class MainWindow : Window
 
     private void SetSidebarExpanded(bool expanded)
     {
+        var previousWidth = Sidebar.ActualWidth;
         // Move focus before its old control collapses; the renderer and model are untouched.
         if (expanded != _sidebarExpanded)
         {
@@ -180,7 +193,6 @@ public sealed partial class MainWindow : Window
         SidebarNavigation.Visibility = visible;
         AccountDetails.Visibility = visible;
         SidebarRail.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
-        SidebarRailSurface.Visibility = SidebarRail.Visibility;
         SidebarSearchButton.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
         Sidebar.Width = expanded
             ? WindowLayout.SidebarWidth(_widthClass, RootGrid.ActualWidth)
@@ -189,38 +201,12 @@ public sealed partial class MainWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SidebarToggle, label);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(SidebarToggle, "Ctrl+B");
         ToolTipService.SetToolTip(SidebarToggle, $"{label} (Ctrl+B)");
-    }
-
-    private void OnExpandSidebarGroup(object sender, RoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement { Tag: string group })
+        if (expanded)
         {
-            return;
+            SidebarNavigation.ChangeView(null, 0, null, disableAnimation: true);
         }
 
-        if (!_sidebarExpanded)
-        {
-            ToggleSidebar();
-        }
-
-        HighlightNavigation(_navigationTag);
-        // Expansion must be measured before revealing a row that was outside the short viewport.
-        SidebarNavigation.UpdateLayout();
-        var firstTag = group switch
-        {
-            "discover" => "explore",
-            "library" => "liked",
-            _ => "library:FEmusic_liked_playlists",
-        };
-        foreach (var child in SidebarItems.Children)
-        {
-            if (child is ToggleButton { Tag: string tag } item && tag == firstTag)
-            {
-                item.Focus(FocusState.Programmatic);
-                item.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = false });
-                break;
-            }
-        }
+        AnimateSidebarExpansion(previousWidth, expanded);
     }
 
     /// <summary>
