@@ -57,6 +57,10 @@ final class OfficialPlaybackHost: NSObject {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: profile.identifier)
         configuration.preferences.isFraudulentWebsiteWarningEnabled = true
+        // This page exists only to play audio and nobody ever sees it. Lockdown turns off the
+        // JIT and other engine features it does not need, which measured about half the memory
+        // at the same CPU. It is scoped to this renderer; the login and catalog pages are unchanged.
+        configuration.defaultWebpagePreferences.isLockdownModeEnabled = true
         // YouTube Music refuses to run its player under WKWebView's bare user agent and shows
         // "not optimized for your browser" instead. Naming a Safari version makes the default
         // agent a complete Safari string, which is what this engine actually is.
