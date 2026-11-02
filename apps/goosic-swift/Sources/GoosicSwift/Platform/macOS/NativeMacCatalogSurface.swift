@@ -12,46 +12,148 @@ struct NativeMacCatalogPage: SwiftUI.View {
     let model: GoosicAppModel
     /// Space for page-owned floating chrome, inside the scrolling content rather than above it.
     var contentTopInset: CGFloat = 0
+    /// The colour an artist page takes from its banner, once sampled.
+    @SwiftUI.State private var artistTint: SwiftUI.Color?
+    @SwiftUI.State private var pageWidth: CGFloat = 0
+    /// Held in plain state, not observed here, so scrolling redraws only the artist's backdrop.
+    @SwiftUI.State private var artistScroll = NativeMacArtistScroll()
+    @SwiftUI.Environment(\.goosicReduceMotion) private var reduceMotion
+
+    /// An artist page whose header the catalog read opens with a hero instead of a heading.
+    private var artistHeader: (header: GoosicArtistHeader, channelID: String)? {
+        guard case .artist(let channelID) = key, let header = state.page?.artist else { return nil }
+        return (header, channelID)
+    }
+
+    /// Until the banner is sampled the page uses a deep shade of the accent, never another
+    /// picture's colour.
+    private var heroTint: SwiftUI.Color { artistTint ?? SwiftUI.Color(red: 0.24, green: 0.05, blue: 0.12) }
 
     var body: some SwiftUI.View {
+        if let artistHeader {
+            scroller
+                .ignoresSafeArea(.container, edges: .top)
+                // The artist's colour is the whole page's, as in Music, so the page is drawn dark
+                // over it in either appearance.
+                .background(artistBackground(artistHeader.header))
+                .environment(\.colorScheme, .dark)
+                .background(
+                    NativeMacArtistTintReader(
+                        cache: model.artwork,
+                        url: artistHeader.header.banner ?? artistHeader.header.portrait
+                    ) { tint in artistTint = tint }
+                )
+                .onChange(of: key) { _, _ in
+                    artistTint = nil
+                    artistScroll.update(0)
+                }
+        } else {
+            scroller
+                // The page fades under the title bar, so a scrolled title never runs into the
+                // window's buttons.
+                .mask(
+                    SwiftUI.VStack(spacing: 0) {
+                        SwiftUI.LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 52)
+                        SwiftUI.Rectangle().fill(SwiftUI.Color.black)
+                    }
+                    .ignoresSafeArea()
+                )
+        }
+    }
+
+    /// The artist's colour under the whole page, settling to a darker shade of it further down,
+    /// with the artist's picture fixed at its top while the page scrolls over it.
+    private func artistBackground(_ header: GoosicArtistHeader) -> some SwiftUI.View {
+        let heroWidth = max(pageWidth - leadingInset, 0)
+        // The page keeps the hero's colour for as tall as the hero is, so the hero's foot meets the
+        // same colour wherever it has scrolled to, and only darkens further down.
+        return SwiftUI.ZStack(alignment: .topLeading) {
+            SwiftUI.VStack(spacing: 0) {
+                heroTint.frame(height: CGFloat(ArtistHero.height(forWidth: Double(heroWidth))))
+                SwiftUI.LinearGradient(
+                    colors: [.clear, .black.opacity(0.55)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .background(heroTint)
+            }
+            .ignoresSafeArea()
+            // Only the top edge is ignored, exactly as the scroller ignores it, so the picture
+            // lines up with the hero that scrolls over it.
+            NativeMacArtistBackdrop(header: header, tint: heroTint, width: heroWidth, scroll: artistScroll)
+                .padding(.leading, leadingInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .ignoresSafeArea(.container, edges: .top)
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: artistTint)
+    }
+
+    /// The hero of a loaded artist page, which sits outside the lazy stack: a lazy stack lets go of
+    /// a view once it has scrolled away, and the hero has to keep reporting how far it has gone
+    /// for the backdrop to stay blurred.
+    @SwiftUI.ViewBuilder
+    private var artistHero: some SwiftUI.View {
+        if let artistHeader, !state.isLoading, state.failure == nil, let page = state.page,
+           !page.isEmpty, pageWidth > leadingInset {
+            SwiftUI.VStack(alignment: .leading, spacing: 12) {
+                NativeMacArtistHero(
+                    header: artistHeader.header,
+                    name: heading,
+                    channelID: artistHeader.channelID,
+                    tracks: shownTracks(page),
+                    source: source(page),
+                    key: key,
+                    width: pageWidth - leadingInset,
+                    scroll: artistScroll,
+                    model: model
+                )
+                .padding(.leading, leadingInset)
+                if !page.tracks.isEmpty {
+                    SwiftUI.Text("Top Songs")
+                        .font(.title3.weight(.semibold))
+                        .padding(.leading, leadingInset + 24)
+                }
+            }
+            .padding(.bottom, -16)
+        }
+    }
+
+    private var scroller: some SwiftUI.View {
         SwiftUI.ScrollView {
-            SwiftUI.LazyVStack(alignment: .leading, spacing: 28) {
-                if showsHeading {
-                    SwiftUI.HStack(alignment: .firstTextBaseline, spacing: 16) {
-                        SwiftUI.VStack(alignment: .leading, spacing: 4) {
-                            SwiftUI.Text(heading).font(.system(size: 30, weight: .bold))
-                            // A page's own name says enough; Music adds no tagline under it.
-                            if case .route = key {} else {
-                                SwiftUI.Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+            SwiftUI.VStack(alignment: .leading, spacing: 28) {
+                artistHero
+                SwiftUI.LazyVStack(alignment: .leading, spacing: 28) {
+                    if showsHeading && artistHeader == nil {
+                        SwiftUI.HStack(alignment: .firstTextBaseline, spacing: 16) {
+                            SwiftUI.VStack(alignment: .leading, spacing: 4) {
+                                SwiftUI.Text(heading).font(.system(size: 30, weight: .bold))
+                                // A page's own name says enough; Music adds no tagline under it.
+                                if case .route = key {} else {
+                                    SwiftUI.Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                                }
+                            }
+                            SwiftUI.Spacer()
+                            if case .artist(let channelID) = key, model.activeAccount != nil {
+                                subscribeButton(channelID: channelID)
                             }
                         }
-                        SwiftUI.Spacer()
-                        if case .artist(let channelID) = key, model.activeAccount != nil {
-                            subscribeButton(channelID: channelID)
-                        }
+                        .padding(.leading, leadingInset + 24)
+                        .padding(.trailing, 24)
                     }
-                    .padding(.leading, leadingInset + 24)
-                    .padding(.trailing, 24)
-                }
 
-                content
+                    content
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.vertical, 24)
+            .padding(.vertical, artistHeader == nil ? 24 : 0)
+            .padding(.bottom, artistHeader == nil ? 0 : 24)
             .padding(.top, contentTopInset)
             .padding(.bottom, playerClearance)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .modifier(NativeMacScrollActivity())
-        // The page fades under the title bar, so a scrolled title never runs into the window's
-        // buttons.
-        .mask(
-            SwiftUI.VStack(spacing: 0) {
-                SwiftUI.LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 52)
-                SwiftUI.Rectangle().fill(SwiftUI.Color.black)
-            }
-            .ignoresSafeArea()
-        )
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
     }
 
     private var skeletonShape: NativeMacCatalogSkeleton.Shape {
