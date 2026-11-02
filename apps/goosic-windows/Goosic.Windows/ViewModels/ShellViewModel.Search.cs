@@ -11,7 +11,19 @@ public sealed partial class ShellViewModel
     private string _searchFilter = "all";
 
     /// <summary>The editable draft survives navigation separately from the submitted query.</summary>
-    public string SearchText { get => _searchText; set => Set(ref _searchText, value); }
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (Set(ref _searchText, value))
+            {
+                OnPropertyChanged(nameof(CanSubmitSearch));
+            }
+        }
+    }
+
+    public bool CanSubmitSearch => !string.IsNullOrWhiteSpace(SearchText);
 
     public string SearchFilter { get => _searchFilter; private set => Set(ref _searchFilter, value); }
 
@@ -61,7 +73,7 @@ public sealed partial class ShellViewModel
         SetPageTruncated(false);
         PageTitle = "Search";
         PageSubtitle = "Find songs, albums, artists and playlists";
-        ShowPageHeader = true;
+        ShowPageHeader = false;
         Status = "";
         PageState = PageState.Content;
     }

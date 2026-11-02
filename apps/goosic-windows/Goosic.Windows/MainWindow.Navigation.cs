@@ -252,6 +252,7 @@ public sealed partial class MainWindow : Window
             {
                 Model.ShowSearchLanding();
                 UpdateRecentSearches();
+                ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
                 UpdateBackButton();
             }
 
@@ -269,6 +270,12 @@ public sealed partial class MainWindow : Window
 
     private static void ShowRecentSearches(AutoSuggestBox box)
     {
+        if (string.IsNullOrWhiteSpace(box.Text))
+        {
+            box.IsSuggestionListOpen = false;
+            return;
+        }
+
         var matches = RecentSearches.Suggest(ShellPreferences.RecentSearches, box.Text);
         box.ItemsSource = matches;
         box.IsSuggestionListOpen = matches.Count > 0;
@@ -287,6 +294,20 @@ public sealed partial class MainWindow : Window
         sender.Text = query;
         sender.IsSuggestionListOpen = false;
         await SubmitSearchAsync(query);
+    }
+
+    private async void OnSearchSubmitButton(object sender, RoutedEventArgs e)
+    {
+        SearchQuery.IsSuggestionListOpen = false;
+        await SubmitSearchAsync(SearchQuery.Text);
+    }
+
+    private void OnClearRecentSearches(object sender, RoutedEventArgs e)
+    {
+        ShellPreferences.RecentSearches = Array.Empty<string>();
+        SearchQuery.ItemsSource = null;
+        SearchQuery.IsSuggestionListOpen = false;
+        UpdateRecentSearches();
     }
 
     private async Task SubmitSearchAsync(string query)
@@ -313,7 +334,7 @@ public sealed partial class MainWindow : Window
 
     private async void OnSearchCategoryChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (Model.IsSearchPage && sender is ComboBox { SelectedValue: string filter })
+        if (Model.IsSearchPage && sender is Selector { SelectedValue: string filter })
         {
             await Model.RefilterSearchAsync(filter);
             ContentScroller.ChangeView(null, 0, null, disableAnimation: true);

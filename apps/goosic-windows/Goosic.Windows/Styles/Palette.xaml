@@ -5,6 +5,11 @@
 
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
+            <LinearGradientBrush x:Key="GoosicSearchExploreBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#326CB3" Offset="0" /><GradientStop Color="#008FFF" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="GoosicSearchChartsBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#BD722F" Offset="0" /><GradientStop Color="#FF922A" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="GoosicSearchMoodsBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#A92FB3" Offset="0" /><GradientStop Color="#D929EE" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="GoosicSearchReleasesBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#B82E52" Offset="0" /><GradientStop Color="#FF2D61" Offset="1" /></LinearGradientBrush>
+            <SolidColorBrush x:Key="GoosicSearchCardTextBrush" Color="White" />
             <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#FF0552" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemBaseHighColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#202020" />
@@ -28,6 +33,11 @@
             </LinearGradientBrush>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
+            <LinearGradientBrush x:Key="GoosicSearchExploreBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#326CB3" Offset="0" /><GradientStop Color="#008FFF" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="GoosicSearchChartsBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#BD722F" Offset="0" /><GradientStop Color="#FF922A" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="GoosicSearchMoodsBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#A92FB3" Offset="0" /><GradientStop Color="#D929EE" Offset="1" /></LinearGradientBrush>
+            <LinearGradientBrush x:Key="GoosicSearchReleasesBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#B82E52" Offset="0" /><GradientStop Color="#FF2D61" Offset="1" /></LinearGradientBrush>
+            <SolidColorBrush x:Key="GoosicSearchCardTextBrush" Color="White" />
             <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#FF0552" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemBaseHighColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#FBFBFD" />
@@ -55,6 +65,11 @@
             and acrylic give way to solid ones, which is what those themes promise to deliver.
         -->
         <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="GoosicSearchExploreBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicSearchChartsBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicSearchMoodsBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicSearchReleasesBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicSearchCardTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
