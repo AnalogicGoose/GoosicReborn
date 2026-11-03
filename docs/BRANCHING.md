@@ -307,6 +307,10 @@ A deployment is `development` → `main`, and nothing else reaches `main`. Befor
 `make test` passes, the three platform branches have been synced down and none is mid-port
 in a way the release claims otherwise, and the README's "What works today" and "Migration
 phases" describe what actually ships. Tag the merge commit on `main` with the version.
+[RELEASING.md](RELEASING.md) describes the release itself: freezing the version with
+`tools/bump-version.sh` before the deploy pull request opens, and queueing the promotion and
+deploy merges with `gh pr merge --auto --merge` so none of them waits on a person once CI is
+green.
 
 A hotfix is the single exception to "nothing is cut from `main`": cut `hotfix/<slug>` from
 `main`, fix the one thing, merge it to `main`, and then merge `main` back into
