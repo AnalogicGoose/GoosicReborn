@@ -23,6 +23,7 @@
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
 //! | [`lyrics`] | `Models.swift` | which line is current |
 //! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key |
+//! | [`hero`] | `ArtistHero.swift` | an artist hero's height and the colour its page takes |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
 
 use std::time::Duration;
@@ -32,6 +33,7 @@ pub mod bridge;
 pub mod catalog;
 pub mod client;
 pub mod framing;
+pub mod hero;
 pub mod login;
 pub mod lyrics;
 pub mod media;

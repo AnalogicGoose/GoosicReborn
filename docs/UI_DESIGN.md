@@ -222,6 +222,40 @@ belong to collection browsing and must not silently change the playback queue. S
 remain honest about partial data, including a '+' where completeness is unknown. Continuation
 pages append with their real cursor rather than presenting the first page as the whole list.
 
+An artist page opens with a hero, in the manner of an Apple Music artist page. The artist's
+banner fills the content area edge to edge, under the floating toolbar, cropped to fill rather
+than stretched and anchored at its top, where faces are. Its height follows the window's width
+within a floor and a ceiling, so a narrow window keeps the name and actions on screen and a wide
+one does not become all picture. A scrim darkens the banner's foot into the artist's colour,
+sampled from that foot and darkened until white text reads over it, so the picture ends in the
+page rather than at an edge. The whole page takes that colour and is drawn in the dark
+appearance over it, whatever the app's theme: the colour runs unchanged for the hero's height,
+so the hero's foot meets the same colour wherever it has scrolled to, and only then deepens
+toward black down the page. The artist's colour belongs to the page, not only to the rectangle
+the picture occupies. The picture stays where it is while the page scrolls over it: as the hero
+scrolls away the picture blurs, fully by the time half of it has gone, and then dissolves into
+the page colour, so once the hero has left the page is the artist's colour alone. Reduced
+transparency keeps the dissolve and drops the blur. The name is centred near the hero's foot in a large bold weight, with
+upstream's audience line under it when there is one. Under those sit three round buttons: About
+(the description, audience and subscriber count, in a popover) to the left, a larger white Play
+in the middle that plays the top songs in order and pauses them when they are already playing,
+and Subscribe to the right, filled when the account follows the artist and shown only with an
+account; without one its place stays empty so Play remains centred. Share and More stay in the
+window toolbar, as on every page, and on an artist page More adds Shuffle beside Play Next and
+Start Radio. A "Top Songs" heading and the shelves follow.
+
+The banner and every fact come from the artist header the catalog reads, the `artist` field of
+an artist page, and from nowhere else. When the header has a square portrait and no banner, the
+hero shows the portrait as a circle near its top over the page colour, sampled from the portrait
+instead, as the previous Goosic did; the circle is sized so it never meets the name. With no
+picture at all the hero is a deep default colour, never a song's cover or a video still. Missing
+audience, description or subscriber count leave their place empty rather than being estimated,
+and About is dimmed when there is nothing to show in it. Reduced transparency replaces the
+scrim with an opaque band of the page colour, reduced motion removes the colour change's
+animation, and increased contrast strengthens the scrim; the name and the three buttons stay
+readable over any picture. [ARTIST_PAGE.md](ARTIST_PAGE.md) is the implementation guide for
+each shell.
+
 Owned-playlist operations expose create, rename, description, privacy, remove/reorder songs,
 add to playlist and deletion according to actual capability and account state. Destructive,
 unrecoverable deletion is confirmed. Reversible queue edits can offer Undo. An unimplemented
