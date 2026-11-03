@@ -48,7 +48,7 @@ public sealed partial class ShellViewModel
         PageSubtitle = "";
         ShowPageHeader = route != "home";
         Status = "";
-        PageState = PageState.Loading;
+        PageState = global::Goosic.Windows.Presentation.PageState.Loading;
     }
 
     /// <summary>Fetch without changing route, visible collections, title, queue or playback.</summary>

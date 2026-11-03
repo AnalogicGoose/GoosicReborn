@@ -1681,6 +1681,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
         NextCursor = page.NextCursor;
         AllTracksId = page.AllTracksId;
+        // Only an artist page carries a header, and a cached copy of one keeps it.
+        PageArtistHeader = page.Artist;
         foreach (var track in Listed(page.Tracks))
         {
             var row = new TrackViewModel(track);
@@ -1692,7 +1694,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             }
         }
 
-        foreach (var shelf in ListedShelves(page.Shelves))
+        // Artist answers may carry the top songs both as tracks and as a shelf.
+        // Render that content once in the numbered list, preserving other shelves.
+        foreach (var shelf in ArtistContentShelves(ListedShelves(page.Shelves)))
         {
             var model = new ShelfViewModel(shelf);
             Shelves.Add(model);
@@ -1872,6 +1876,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(IsPageLoading));
                 OnPropertyChanged(nameof(ShowPageSkeleton));
                 OnPropertyChanged(nameof(ShowsPageStatePanel));
+                OnPropertyChanged(nameof(HasArtistHero));
+                OnPropertyChanged(nameof(ShowsStandardHeader));
             }
         }
     }
@@ -1904,6 +1910,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private int ClearPageArtwork()
     {
         PageArtwork = null;
+        PageArtistHeader = null;
         return ++_pageArtworkVersion;
     }
 
@@ -1960,6 +1967,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (Set(ref _pageKind, value))
             {
                 OnPropertyChanged(nameof(PageHeroCornerRadius));
+                OnPropertyChanged(nameof(HasArtistHero));
+                OnPropertyChanged(nameof(ShowsStandardHeader));
                 PresentTracks();
             }
         }

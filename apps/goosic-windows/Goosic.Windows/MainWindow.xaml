@@ -38,14 +38,115 @@
                 -->
                 <!-- No scroll anchoring: a page replaces its skeleton wholesale, and anchoring would
                      carry the old offset into the new content instead of starting at the top. -->
+                <!--
+                    An artist page's picture and colour, behind the page and fixed while it scrolls:
+                    the hero's name and buttons scroll up over the banner, which blurs and then
+                    dissolves into the artist's colour. See MainWindow.ArtistHero.cs.
+                -->
+                <Grid x:Name="ArtistBackdrop" Visibility="Collapsed" IsHitTestVisible="False"
+                      AutomationProperties.AccessibilityView="Raw">
+                    <Rectangle>
+                        <Rectangle.Fill>
+                            <SolidColorBrush x:Name="ArtistPageColour" Color="#FF3D0D1F" />
+                        </Rectangle.Fill>
+                    </Rectangle>
+                    <!-- The colour runs unchanged for the hero's height, then deepens down the page. -->
+                    <Rectangle x:Name="ArtistPageShade">
+                        <Rectangle.Fill>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#00000000" Offset="0" />
+                                <GradientStop Color="#8C000000" Offset="1" />
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                    </Rectangle>
+                    <Grid x:Name="ArtistPicture" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <!-- Composition draws the banner here, cropped from its top and blurred. -->
+                        <Border x:Name="ArtistBannerHost" />
+                        <!-- Used only where Composition effects are unavailable. -->
+                        <Image x:Name="ArtistBannerFallback" Stretch="UniformToFill" VerticalAlignment="Top"
+                               Visibility="Collapsed" />
+                        <Border x:Name="ArtistPortrait" VerticalAlignment="Top" HorizontalAlignment="Center"
+                                Margin="0,52,0,0" Background="#14FFFFFF" Visibility="Collapsed">
+                            <Image x:Name="ArtistPortraitImage" Stretch="UniformToFill" />
+                        </Border>
+                        <Rectangle x:Name="ArtistScrim" />
+                    </Grid>
+                </Grid>
+
                 <!-- Holds the page and the shape it is faded through, and nothing else: see FadeMask. -->
                 <Grid x:Name="ContentMaskHost">
                 <ScrollViewer x:Name="ContentScroller" ViewChanged="OnContentViewChanged"
                               VerticalAnchorRatio="NaN">
                     <StackPanel x:Name="ContentStack" Spacing="22" Padding="314,56,34,128">
+                        <!--
+                            The artist hero, in place of the heading on an artist page: the picture
+                            itself is ArtistBackdrop, behind the page, so this is only the name and
+                            the three buttons over the foot of it. Its margins reach out of the
+                            page's padding to the content area's edges and the window's top.
+                        -->
+                        <Grid x:Name="ArtistHeroPanel" Visibility="{x:Bind Model.HasArtistHero, Mode=OneWay}"
+                              RequestedTheme="Dark">
+                            <StackPanel VerticalAlignment="Bottom" HorizontalAlignment="Center" Spacing="10"
+                                        Margin="32,0,32,30">
+                                <TextBlock Text="{x:Bind Model.PageTitle, Mode=OneWay}" Foreground="White"
+                                           FontSize="52" FontWeight="Bold" TextAlignment="Center"
+                                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                                           AutomationProperties.HeadingLevel="Level1" />
+                                <TextBlock x:Name="ArtistAudience" Foreground="#CCFFFFFF" FontSize="14"
+                                           FontWeight="SemiBold" TextAlignment="Center" />
+                                <StackPanel Orientation="Horizontal" Spacing="26" HorizontalAlignment="Center"
+                                            Margin="0,14,0,0">
+                                    <Button x:Name="ArtistAboutButton" Style="{StaticResource ArtistRoundButtonStyle}"
+                                            ToolTipService.ToolTip="About" AutomationProperties.Name="About">
+                                        <FontIcon Glyph="&#xE946;" FontSize="17" />
+                                        <Button.Flyout>
+                                            <Flyout Placement="Bottom">
+                                                <ScrollViewer MaxHeight="460" Width="420">
+                                                    <StackPanel Spacing="10" Padding="8">
+                                                        <TextBlock Text="{x:Bind Model.PageTitle, Mode=OneWay}"
+                                                                   FontSize="22" FontWeight="Bold" TextWrapping="Wrap" />
+                                                        <TextBlock x:Name="ArtistFacts" TextWrapping="Wrap"
+                                                                   Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                                        <TextBlock x:Name="ArtistDescription" TextWrapping="Wrap"
+                                                                   IsTextSelectionEnabled="True" />
+                                                    </StackPanel>
+                                                </ScrollViewer>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button Click="OnPlayPage" Style="{StaticResource ArtistPlayButtonStyle}"
+                                            IsEnabled="{x:Bind Model.HasTracks, Mode=OneWay}"
+                                            ToolTipService.ToolTip="{x:Bind Model.PagePlayLabel, Mode=OneWay}"
+                                            AutomationProperties.Name="{x:Bind Model.PagePlayLabel, Mode=OneWay}">
+                                        <FontIcon Glyph="{x:Bind Model.PagePlayGlyph, Mode=OneWay}" FontSize="28" />
+                                        <!-- The page's own Shuffle, which the usual heading shows as a button. -->
+                                        <Button.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Shuffle" Click="OnShufflePage">
+                                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B1;" /></MenuFlyoutItem.Icon>
+                                                </MenuFlyoutItem>
+                                            </MenuFlyout>
+                                        </Button.ContextFlyout>
+                                    </Button>
+                                    <!-- The slot stays without an account, so Play remains centred. -->
+                                    <Grid Width="46" Height="46">
+                                        <Button Style="{StaticResource ArtistRoundButtonStyle}" Click="OnFollowPageArtist"
+                                                Visibility="{x:Bind Model.CanFollowPageArtist, Mode=OneWay}"
+                                                IsEnabled="{x:Bind Model.IsSubscriptionIdle, Mode=OneWay}"
+                                                ToolTipService.ToolTip="{x:Bind Model.SubscribeLabel, Mode=OneWay}"
+                                                AutomationProperties.Name="{x:Bind Model.SubscribeLabel, Mode=OneWay}">
+                                            <FontIcon Glyph="{x:Bind Model.SubscribeGlyph, Mode=OneWay}" FontSize="17" />
+                                        </Button>
+                                    </Grid>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock x:Name="ArtistTopSongs" Text="Top Songs" FontSize="20" FontWeight="SemiBold"
+                                   AutomationProperties.HeadingLevel="Level2" Visibility="Collapsed" />
+
                         <!-- No ColumnSpacing: it stays applied when the artwork collapses, and pushes the title
                              out of line with the shelves. The artwork carries the gap instead. -->
-                        <Grid Visibility="{x:Bind Model.ShowPageHeader, Mode=OneWay}"
+                        <Grid Visibility="{x:Bind Model.ShowsStandardHeader, Mode=OneWay}"
                               MaxWidth="{x:Bind Model.PageHeaderMaxWidth, Mode=OneWay}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -580,7 +681,7 @@
 
                         <ItemsControl ItemsSource="{x:Bind Model.Tracks, Mode=OneWay}"
                                       Visibility="{x:Bind Model.HasTracks, Mode=OneWay}"
-                                      MaxWidth="1120" HorizontalAlignment="Stretch">
+                                      MaxWidth="1120" HorizontalAlignment="Left">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:TrackViewModel">
                                     <!-- The More button shows on hover or focus; it stays in the tab order and the
@@ -872,7 +973,7 @@
                            AutomationProperties.AccessibilityView="Raw">
                     <Rectangle.Fill>
                         <LinearGradientBrush MappingMode="Absolute" StartPoint="0,0" EndPoint="0,52">
-                            <GradientStop Color="#00000000" Offset="0" />
+                            <GradientStop x:Name="ContentMaskTop" Color="#00000000" Offset="0" />
                             <GradientStop Color="#FF000000" Offset="1" />
                         </LinearGradientBrush>
                     </Rectangle.Fill>
@@ -882,6 +983,17 @@
                      effects turned off. It is a gradient of the background's own colour. -->
                 <Rectangle x:Name="TitleFade" Height="48" VerticalAlignment="Top" IsHitTestVisible="False"
                            Fill="{ThemeResource GoosicTitleFadeBrush}" />
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="0,52,34,0" Spacing="8" RequestedTheme="Dark"
+                            Visibility="{x:Bind Model.HasArtistHero, Mode=OneWay}">
+                    <Button Click="OnCopyArtistLink" ToolTipService.ToolTip="Copy artist link" AutomationProperties.Name="Copy artist link">
+                        <FontIcon Glyph="&#xE72D;" FontSize="16" />
+                    </Button>
+                    <Button Click="OnArtistPageMenu" ToolTipService.ToolTip="More" AutomationProperties.Name="More artist actions">
+                        <FontIcon Glyph="&#xE712;" FontSize="16" />
+                    </Button>
+                </StackPanel>
 
                 <!-- Search controls float above the full-height results viewport. -->
                 <StackPanel x:Name="SearchChrome" VerticalAlignment="Top" Margin="314,56,34,0"

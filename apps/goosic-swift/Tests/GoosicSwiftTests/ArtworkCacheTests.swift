@@ -146,6 +146,28 @@ final class RadioPageTests: XCTestCase {
         XCTAssertNil(page.tracks[1].thumbnail, "artwork is optional on a queue row")
     }
 
+    /// Same case as `an_artist_header_survives_the_page_view_and_its_continuation` in Rust.
+    func testAnArtistHeaderSurvivesThePageViewAndItsContinuation() throws {
+        let wire = """
+        {"protocolVersion":"0.4.0","requestId":"swift-1","ok":true,"payload":{"catalog":{\
+        "id":"UCartist","title":"Omar Courtz","artist":{\
+        "banner":"https://lh3.googleusercontent.com/banner=w2880-h1200",\
+        "audience":"28.9M monthly audience"}}}}
+        """
+        let response = try JSONDecoder().decode(GoosicResponse.self, from: Data(wire.utf8))
+        let page = CatalogPageView(wire: try XCTUnwrap(response.payload?.catalog))
+        let header = GoosicArtistHeader(
+            banner: "https://lh3.googleusercontent.com/banner=w2880-h1200",
+            audience: "28.9M monthly audience"
+        )
+        XCTAssertEqual(page.artist, header)
+        let more = CatalogPageView(
+            id: "continuation", title: "", subtitle: "", shelves: [], tracks: [],
+            nextCursor: nil, allTracksID: nil, truncated: false
+        )
+        XCTAssertEqual(page.appending(more).artist, header)
+    }
+
     func testARadioPageThatCameBackEmptyIsTreatedAsNothingToPlay() throws {
         let wire = """
         {"protocolVersion":"0.4.0","requestId":"swift-1","ok":true,\
