@@ -420,7 +420,13 @@ struct NativeMacFullPlayer: View {
                                 Button("Import Timed Lyrics…", systemImage: "text.badge.plus") {
                                     NativeMacLyricsImport.open(model: model)
                                 }
-                                NativeMacTrackMenuItems(track: track, model: model, includePlay: false)
+                                NativeMacTrackMenuItems(
+                                    track: track, model: model, includePlay: false,
+                                    onNavigate: compact ? {
+                                        openWindow(id: "main")
+                                        dismissWindow(id: NativeMacMiniPlayer.windowID)
+                                    } : nil
+                                )
                                 if compact {
                                     Divider()
                                     Button(model.shuffle ? "Turn shuffle off" : "Turn shuffle on", action: model.toggleShuffle)
@@ -637,6 +643,9 @@ struct NativeMacFullPlayerVolume: View {
 }
 
 /// AppKit's own `NSSlider`, which on macOS 26 draws the system Liquid Glass track and knob.
+///
+/// `value` and `onChange` are gains; the knob works in positions on the shared audio taper
+/// (`VolumeTaper`), so half way up is quiet rather than nearly full volume.
 struct NativeMacVolumeSlider: NSViewRepresentable {
     let value: Double
     let isEnabled: Bool
@@ -646,7 +655,7 @@ struct NativeMacVolumeSlider: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSSlider {
         let slider = ScrollableVolumeSlider(
-            value: value,
+            value: VolumeTaper.position(forGain: value),
             minValue: 0,
             maxValue: 1,
             target: context.coordinator,
@@ -662,23 +671,63 @@ struct NativeMacVolumeSlider: NSViewRepresentable {
     func updateNSView(_ slider: NSSlider, context: Context) {
         context.coordinator.onChange = onChange
         slider.isEnabled = isEnabled
-        // The model echoes each step of a drag back here; only move the knob for a change that
-        // came from somewhere else, such as mute or the player bar.
-        if abs(slider.doubleValue - value) > 0.001 {
-            slider.doubleValue = value
+        // While the knob is held it belongs to the hand: the model's echo of an earlier step, or
+        // the player's report of its own volume, would otherwise pull it back mid-drag.
+        guard !context.coordinator.isHeld else { return }
+        let position = VolumeTaper.position(forGain: value)
+        if abs(slider.doubleValue - position) > 0.001 {
+            slider.doubleValue = position
         }
     }
 
     @MainActor
     final class Coordinator: NSObject {
         var onChange: (Double) -> Void
+        private(set) var isDragging = false
+        private var lastSent = Date.distantPast
+        private var pending: Double?
+        /// How often a drag reaches the player. Every step used to publish the model, run
+        /// JavaScript in the web player and schedule a save, which is what made the knob lag.
+        private static let interval: TimeInterval = 1.0 / 30.0
 
         init(onChange: @escaping (Double) -> Void) {
             self.onChange = onChange
         }
 
         @objc func changed(_ sender: NSSlider) {
-            onChange(sender.doubleValue)
+            let gain = VolumeTaper.gain(atPosition: sender.doubleValue)
+            let released = NSApp.currentEvent?.type == .leftMouseUp
+            isDragging = NSApp.currentEvent?.type == .leftMouseDragged
+                || NSApp.currentEvent?.type == .leftMouseDown
+            // A click, a key or the wheel lands at once, and so does the end of a drag.
+            guard isDragging, !released else {
+                isDragging = false
+                pending = nil
+                send(gain)
+                return
+            }
+            let wait = Self.interval - Date().timeIntervalSince(lastSent)
+            if wait <= 0 {
+                send(gain)
+                return
+            }
+            let scheduled = pending != nil
+            pending = gain
+            guard !scheduled else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self, let pending = self.pending else { return }
+                self.send(pending)
+            }
+        }
+
+        /// Whether the knob is still held; also true of nothing once the button is up, in case
+        /// the slider ends a drag without a final action.
+        var isHeld: Bool { isDragging && NSEvent.pressedMouseButtons & 1 != 0 }
+
+        private func send(_ gain: Double) {
+            pending = nil
+            lastSent = Date()
+            onChange(gain)
         }
     }
 }
