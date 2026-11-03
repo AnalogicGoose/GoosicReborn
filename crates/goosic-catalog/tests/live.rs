@@ -172,3 +172,28 @@ fn filtered_search_continues_with_more_rows_under_the_same_shelf() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires network access to music.youtube.com"]
+fn artist_from_search_carries_its_own_header() {
+    let catalog = Catalog::new();
+    let results = catalog
+        .search("daft punk", "artists")
+        .expect("search succeeds");
+    let artist = results
+        .shelves
+        .iter()
+        .flat_map(|shelf| &shelf.items)
+        .find(|item| item.kind == CatalogItemKind::Artist)
+        .expect("an artist result");
+    let page = catalog.artist(&artist.id).expect("artist loads");
+    let header = page.artist.expect("the artist page has a header");
+    println!("{header:#?}");
+    let picture = header
+        .banner
+        .as_deref()
+        .or(header.portrait.as_deref())
+        .expect("the header has a picture");
+    assert!(picture.contains("googleusercontent.com"), "{picture}");
+    assert!(header.description.is_some() || header.audience.is_some());
+}
