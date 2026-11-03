@@ -9,7 +9,7 @@ on:
             tag:
                 description: Existing release tag to package
                 required: true
-                default: v0.2.9
+                default: v0.2.10
             windows_run_id:
                 description: Successful Windows artifact run for the same tag
                 required: true
@@ -125,7 +125,7 @@ jobs:
                   prerelease: false
                   name: Goosic ${{ env.RELEASE_TAG }}
                   tag_name: ${{ env.RELEASE_TAG }}
-                  body_path: docs/RELEASE_0.2.9.md
+                  body_path: docs/RELEASE_0.2.10.md
                   fail_on_unmatched_files: true
                   files: |
                       downloads/macos/*.zip
