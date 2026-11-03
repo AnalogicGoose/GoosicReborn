@@ -43,6 +43,8 @@ namespace Goosic.Windows;
 public sealed partial class MainWindow
 {
     private ArtistHeader? _heroHeader;
+    // Reserve the final hero geometry before the catalog's artist header arrives.
+    private static readonly ArtistHeader LoadingArtistHeader = new();
     private int _heroVersion;
     private Color _heroTint = DefaultHeroTint;
     private CompositionPropertySet? _heroScroll;
@@ -65,13 +67,38 @@ public sealed partial class MainWindow
 
     private double HeroWidth => Math.Max(0, RootGrid.ActualWidth - LeftInset);
 
+    private void OnCopyArtistLink(object sender, RoutedEventArgs e)
+    {
+        if (Model.PageArtistId is { } id)
+            CopyLink("https://music.youtube.com/channel/" + Uri.EscapeDataString(id));
+    }
+
+    private void OnArtistPageMenu(object sender, RoutedEventArgs e)
+    {
+        var menu = new Microsoft.UI.Xaml.Controls.MenuFlyout();
+        Add(menu, "Play", "\uE768", () => OnPlayPage(sender, e));
+        Add(menu, "Shuffle", "\uE8B1", () => OnShufflePage(sender, e));
+        if (Model.Tracks.Count > 0)
+        {
+            var first = Model.Tracks[0];
+            Add(menu, "Start radio", "\uEC05", async () => await PlayEntryAsync(Model.StartStation(first)));
+            Add(menu, "Play next", "\uE7AC", () =>
+            {
+                for (var index = Model.Tracks.Count - 1; index >= 0; index--)
+                    Model.Enqueue(Model.Tracks[index], next: true);
+            });
+        }
+        Add(menu, "Copy artist link", "\uE71B", () => OnCopyArtistLink(sender, e));
+        menu.ShowAt((FrameworkElement)sender);
+    }
+
     private void WireArtistHero()
     {
         Model.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(ShellViewModel.PageArtistHeader))
+            if (args.PropertyName is nameof(ShellViewModel.PageArtistHeader) or nameof(ShellViewModel.HasArtistHero))
             {
-                ShowArtistHero(Model.PageArtistHeader);
+                ShowArtistHero(Model.PageArtistHeader ?? (Model.HasArtistHero ? LoadingArtistHeader : null));
             }
             else if (args.PropertyName == nameof(ShellViewModel.HasTracks))
             {
@@ -81,7 +108,17 @@ public sealed partial class MainWindow
             }
         };
         _uiSettings.AdvancedEffectsEnabledChanged += (_, _) => DispatcherQueue.TryEnqueue(ApplyHeroEffects);
-        _accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(ApplyHeroEffects);
+        try
+        {
+            _accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(ApplyHeroEffects);
+        }
+        catch (System.Runtime.InteropServices.COMException error)
+            when (error.HResult == unchecked((int)0x80070490))
+        {
+            // Some unpackaged desktops cannot register this accessibility event.
+            // Theme colour changes still let the hero recheck the contrast setting.
+            _uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(ApplyHeroEffects);
+        }
     }
 
     /// <summary>Puts the hero up for an artist's header, or takes it down for any other page.</summary>

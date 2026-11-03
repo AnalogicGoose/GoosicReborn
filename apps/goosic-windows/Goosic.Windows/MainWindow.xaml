@@ -681,7 +681,7 @@
 
                         <ItemsControl ItemsSource="{x:Bind Model.Tracks, Mode=OneWay}"
                                       Visibility="{x:Bind Model.HasTracks, Mode=OneWay}"
-                                      MaxWidth="1120" HorizontalAlignment="Stretch">
+                                      MaxWidth="1120" HorizontalAlignment="Left">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:TrackViewModel">
                                     <!-- The More button shows on hover or focus; it stays in the tab order and the
@@ -983,6 +983,17 @@
                      effects turned off. It is a gradient of the background's own colour. -->
                 <Rectangle x:Name="TitleFade" Height="48" VerticalAlignment="Top" IsHitTestVisible="False"
                            Fill="{ThemeResource GoosicTitleFadeBrush}" />
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="0,52,34,0" Spacing="8" RequestedTheme="Dark"
+                            Visibility="{x:Bind Model.HasArtistHero, Mode=OneWay}">
+                    <Button Click="OnCopyArtistLink" ToolTipService.ToolTip="Copy artist link" AutomationProperties.Name="Copy artist link">
+                        <FontIcon Glyph="&#xE72D;" FontSize="16" />
+                    </Button>
+                    <Button Click="OnArtistPageMenu" ToolTipService.ToolTip="More" AutomationProperties.Name="More artist actions">
+                        <FontIcon Glyph="&#xE712;" FontSize="16" />
+                    </Button>
+                </StackPanel>
 
                 <!-- Search controls float above the full-height results viewport. -->
                 <StackPanel x:Name="SearchChrome" VerticalAlignment="Top" Margin="314,56,34,0"
