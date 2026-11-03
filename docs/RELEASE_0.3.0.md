@@ -1,4 +1,4 @@
-# Goosic 0.2.10
+# Goosic 0.3.0
 
 Artists, front and center.
 
