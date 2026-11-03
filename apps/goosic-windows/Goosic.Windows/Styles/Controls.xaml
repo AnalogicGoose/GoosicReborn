@@ -261,6 +261,51 @@
         <Setter Property="Background" Value="Transparent" />
     </Style>
 
+    <!--
+        The round buttons over an artist's banner. Their colours are the hero's own, white on a
+        picture, so hover and press dim the circle rather than swapping in the theme's button
+        colours, which would turn the white Play grey.
+    -->
+    <Style x:Key="ArtistRoundButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="46" />
+        <Setter Property="Height" Value="46" />
+        <Setter Property="CornerRadius" Value="23" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="#29FFFFFF" />
+        <Setter Property="BorderBrush" Value="#2EFFFFFF" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Circle" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}"
+                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                        <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Circle.Opacity" Value="0.85" /></VisualState.Setters></VisualState>
+                                <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Circle.Opacity" Value="0.65" /></VisualState.Setters></VisualState>
+                                <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="Circle.Opacity" Value="0.4" /></VisualState.Setters></VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="ArtistPlayButtonStyle" TargetType="Button" BasedOn="{StaticResource ArtistRoundButtonStyle}">
+        <Setter Property="Width" Value="72" />
+        <Setter Property="Height" Value="72" />
+        <Setter Property="CornerRadius" Value="36" />
+        <Setter Property="Background" Value="White" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="Black" />
+    </Style>
+
     <!-- Native buttons retain their gradient on hover; focus and activation remain native. -->
     <Style x:Key="SearchBrowseCardStyle" TargetType="Button">
         <Setter Property="UseSystemFocusVisuals" Value="True" />
@@ -513,6 +558,29 @@
         <Setter Property="CornerRadius" Value="9" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
         <Setter Property="VerticalContentAlignment" Value="Top" />
+    </Style>
+
+    <!--
+        Menus, drawn closer to macOS's: a rounder panel, tighter rows, each row its own rounded
+        highlight in Goosic's colour. The macOS shell's menus are the reference (the same items,
+        names and order), so a song's menu reads as one product on both. The highlight colours
+        live in App.xaml beside the slider's, since they replace system theme resources.
+    -->
+    <Style TargetType="MenuFlyoutPresenter" BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}">
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="0,5" />
+    </Style>
+
+    <Style TargetType="MenuFlyoutItem" BasedOn="{StaticResource DefaultMenuFlyoutItemStyle}">
+        <Setter Property="Padding" Value="10,5,12,6" />
+        <Setter Property="Margin" Value="5,0" />
+        <Setter Property="CornerRadius" Value="5" />
+    </Style>
+
+    <Style TargetType="MenuFlyoutSubItem" BasedOn="{StaticResource DefaultMenuFlyoutSubItemStyle}">
+        <Setter Property="Padding" Value="10,5,12,6" />
+        <Setter Property="Margin" Value="5,0" />
+        <Setter Property="CornerRadius" Value="5" />
     </Style>
 
 </ResourceDictionary>
