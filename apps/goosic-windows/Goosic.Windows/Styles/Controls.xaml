@@ -517,8 +517,8 @@
 
     <!--
         Menus, drawn closer to macOS's: a rounder panel, tighter rows, each row its own rounded
-        highlight in Goosic's colour. The macOS shell's menus are the reference -- the same items,
-        names and order -- so a song's menu reads as one product on both. The highlight colours
+        highlight in Goosic's colour. The macOS shell's menus are the reference (the same items,
+        names and order), so a song's menu reads as one product on both. The highlight colours
         live in App.xaml beside the slider's, since they replace system theme resources.
     -->
     <Style TargetType="MenuFlyoutPresenter" BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}">
