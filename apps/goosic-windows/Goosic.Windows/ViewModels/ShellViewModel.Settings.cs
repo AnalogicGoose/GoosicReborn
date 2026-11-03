@@ -88,7 +88,17 @@ public sealed partial class ShellViewModel
     private bool _showPageHeader;
 
     /// <summary>Whether the page has a heading; Home does not.</summary>
-    public bool ShowPageHeader { get => _showPageHeader; private set => Set(ref _showPageHeader, value); }
+    public bool ShowPageHeader
+    {
+        get => _showPageHeader;
+        private set
+        {
+            if (Set(ref _showPageHeader, value))
+            {
+                OnPropertyChanged(nameof(ShowsStandardHeader));
+            }
+        }
+    }
 
     /// <summary>What the sidebar's account row says under the name.</summary>
     public string ConnectionLabel => IsAccountBusy ? "Switchingâ€¦" : IsSignedIn ? "Connected" : "Guest";
@@ -264,6 +274,7 @@ public sealed partial class ShellViewModel
         Tracks.Clear();
         NextCursor = null;
         ForgetPersonalPage();
+        PageArtistHeader = null;
         PageTitle = "Settings";
         ShowPageHeader = true;
         PageSubtitle = "Playback, appearance and accounts";

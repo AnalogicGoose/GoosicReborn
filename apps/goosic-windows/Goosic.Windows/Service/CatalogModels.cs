@@ -75,6 +75,34 @@ internal sealed record CatalogPage
     /// one of the invariants, not a detail of presentation.
     /// </remarks>
     [JsonPropertyName("truncated")] public bool Truncated { get; init; }
+
+    /// <summary>What an artist page's own header says about the artist; absent on every other page.</summary>
+    [JsonPropertyName("artist")] public ArtistHeader? Artist { get; init; }
+}
+
+/// <summary>
+/// The pictures and facts at the top of an artist page, as YouTube Music's header gives them.
+/// </summary>
+/// <remarks>
+/// Every member is optional, and a missing one is left out of the page rather than guessed. The
+/// text is upstream's own, already formatted for display. The first page of an artist carries it
+/// and its continuations do not, so the page keeps the first one's.
+/// </remarks>
+internal sealed record ArtistHeader
+{
+    /// <summary>The wide picture, asked of the image host at 2880 by 1200.</summary>
+    [JsonPropertyName("banner")] public string? Banner { get; init; }
+
+    /// <summary>A square picture, for an artist with no banner.</summary>
+    [JsonPropertyName("portrait")] public string? Portrait { get; init; }
+
+    /// <summary>Such as "28.9M monthly audience".</summary>
+    [JsonPropertyName("audience")] public string? Audience { get; init; }
+
+    [JsonPropertyName("description")] public string? Description { get; init; }
+
+    /// <summary>The subscriber count alone, such as "1.62M".</summary>
+    [JsonPropertyName("subscribers")] public string? Subscribers { get; init; }
 }
 
 /// <summary>The wrapper the service puts a catalog page inside.</summary>

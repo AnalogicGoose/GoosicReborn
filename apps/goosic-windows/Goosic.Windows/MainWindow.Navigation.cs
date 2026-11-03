@@ -43,12 +43,11 @@ public sealed partial class MainWindow : Window
 
         HighlightNavigation(tag);
         DismissOverlaySidebar();
-        // Choosing the page already shown only cancels a pending navigation, unless that
-        // navigation has already cleared the page; then the destination has to load again.
-        if (!Model.PageClearedForPendingNavigation
-            && (Model.CurrentSidebarDestination == tag || tag == "library" && Model.IsLibraryPage))
+        // Choosing the page already shown keeps it and cancels a pending navigation, unless
+        // nothing would leave it complete; then the destination has to load again.
+        if ((Model.CurrentSidebarDestination == tag || tag == "library" && Model.IsLibraryPage)
+            && Model.KeepCurrentPageOnReselect())
         {
-            Model.CancelPendingNavigation();
             HighlightNavigation(Model.CurrentSidebarDestination);
             return;
         }
@@ -358,6 +357,9 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenAsync(string kind, string id, string title)
     {
+        // The full player, and the mini player that is its compact form, cover the page this
+        // opens; without stepping aside, Go to Artist from either seemed to do nothing.
+        SetFullPlayerOpen(false);
         HighlightNavigation(null);
         await Model.OpenEntityAsync(kind, id, title);
         // Some entities open a route of their own, such as Liked Music; its sidebar row lights up.
