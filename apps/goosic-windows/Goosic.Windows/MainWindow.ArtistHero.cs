@@ -138,6 +138,8 @@ public sealed partial class MainWindow
         ArtistDescription.Text = header.Description ?? "";
         ArtistAboutButton.IsEnabled = header.Description is not null || header.Subscribers is not null;
         LayOutArtistHero();
+        // The blur outlives the page, so it is brought up to the current effect settings each time.
+        ApplyHeroEffects();
 
         if (header.Banner is { } banner)
         {
@@ -325,7 +327,7 @@ public sealed partial class MainWindow
         expression.SetReferenceParameter("hero", _heroScroll);
     }
 
-    /// <summary>Follows Windows' transparency and contrast settings.</summary>
+    /// <summary>Follows Windows' transparency and contrast settings and Goosic's Efficiency mode.</summary>
     private void ApplyHeroEffects()
     {
         _heroScroll?.InsertScalar("MaxBlur", (float)ArtistHero.Blur(1, transparencyEffects: !PlainEffects));
