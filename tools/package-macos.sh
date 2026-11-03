@@ -26,7 +26,7 @@ fi
 # Sparkle offers an update only when CFBundleVersion is higher than the installed one, so it is
 # derived from the version rather than typed: MAJOR*10000 + MINOR*100 + PATCH, which makes 0.3.1
 # build 301. Every release that raises the version raises the build, and it already beats the
-# hand-numbered builds 1 to 7 that came before it. docs/RELEASING.md explains the scheme.
+# hand-numbered builds 1 to 8 that came before it. docs/RELEASING.md explains the scheme.
 major=${bundle_version%%.*}
 patch=${bundle_version##*.}
 minor=${bundle_version#*.}

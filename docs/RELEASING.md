@@ -69,13 +69,14 @@ opened from the Finder; the Windows shell has always looked beside its own execu
 
 Sparkle offers an update only when its `sparkle:version` is higher than the installed app's
 `CFBundleVersion`, so that number has to rise with every release. It used to be typed into the
-release workflow, and nobody raised it after 0.2.9: 0.2.10 and 0.3.0 both shipped as build 7, the
-same as 0.2.9, and 0.3.0 could not be offered through the feed at all.
+release workflow, and nobody raised it after 0.2.9: 0.2.10 and 0.3.0 both came out of CI as
+build 7, the same as 0.2.9, so the feed could not offer 0.3.0 until its Mac ZIP was rebuilt by
+hand from the tag as build 8 and replaced on the release.
 
 `tools/package-macos.sh` now derives it from the version as MAJOR × 10000 + MINOR × 100 + PATCH,
 so 0.3.1 is build 301 and 1.0.0 is build 10000. A higher version always gives a higher build, the
 same tag always gives the same build, so a retried workflow run produces an identical app, and
-every derived number is above the hand-numbered builds 1 to 7 already in the feed. The scheme
+every derived number is above the hand-numbered builds 1 to 8 already in the feed. The scheme
 holds while minor and patch stay below 100, and the script refuses a version that breaks that
 rather than producing a number that could go backwards. A commit count was the alternative, but
 it depends on how much history a checkout has and says nothing a person can read back to a
