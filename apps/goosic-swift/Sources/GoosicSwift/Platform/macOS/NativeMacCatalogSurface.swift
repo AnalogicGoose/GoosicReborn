@@ -91,11 +91,13 @@ struct NativeMacCatalogPage: SwiftUI.View {
 
     /// The hero of a loaded artist page, which sits outside the lazy stack: a lazy stack lets go of
     /// a view once it has scrolled away, and the hero has to keep reporting how far it has gone
-    /// for the backdrop to stay blurred.
+    /// for the backdrop to stay blurred. It does not depend on the page having songs or shelves:
+    /// an artist whose music is unavailable can still be read about and followed, and Play
+    /// disables itself.
     @SwiftUI.ViewBuilder
     private var artistHero: some SwiftUI.View {
         if let artistHeader, !state.isLoading, state.failure == nil, let page = state.page,
-           !page.isEmpty, pageWidth > leadingInset {
+           pageWidth > leadingInset {
             SwiftUI.VStack(alignment: .leading, spacing: 12) {
                 NativeMacArtistHero(
                     header: artistHeader.header,
