@@ -1681,6 +1681,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
         NextCursor = page.NextCursor;
         AllTracksId = page.AllTracksId;
+        // Only an artist page carries a header, and a cached copy of one keeps it.
+        PageArtistHeader = page.Artist;
         foreach (var track in Listed(page.Tracks))
         {
             var row = new TrackViewModel(track);
@@ -1904,6 +1906,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private int ClearPageArtwork()
     {
         PageArtwork = null;
+        PageArtistHeader = null;
         return ++_pageArtworkVersion;
     }
 

@@ -66,6 +66,7 @@ public sealed partial class MainWindow : Window
         WireFullPlayer();
         WireLyrics();
         WireMotion();
+        WireArtistHero();
         WireUpdates();
         WireShellSettings();
         HighlightNavigation("home");

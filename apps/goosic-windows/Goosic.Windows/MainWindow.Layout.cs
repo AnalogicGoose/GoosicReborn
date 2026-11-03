@@ -109,6 +109,7 @@ public sealed partial class MainWindow : Window
         SearchChrome.Margin = new Thickness(left, 56, right, 0);
         var top = Model.IsSearchPage ? 56 + Math.Max(100, SearchChrome.ActualHeight) + 48 : 56;
         ContentStack.Padding = new Thickness(left, top, right, compact ? 166 : 128);
+        LayOutArtistHero();
         FitSearchBrowseCards(left, right);
         if (RootGrid.ActualWidth > 0)
         {
