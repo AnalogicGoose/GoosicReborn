@@ -415,6 +415,7 @@ public sealed partial class MainWindow : Window
             ShellPreferences.EfficiencyMode = EfficiencyToggle.IsOn;
             EfficiencyMode.Apply(EfficiencyToggle.IsOn);
             ApplyMotion();
+            ApplyHeroEffects();
         }
     }
 }
