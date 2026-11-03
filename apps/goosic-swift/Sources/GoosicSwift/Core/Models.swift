@@ -553,6 +553,34 @@ final class GoosicAppModel: Combine.ObservableObject {
         if debugSidebarFixture { installDebugSidebarFixture() }
     }
 
+    /// An artist page with a full header, for the hero. Its banner is a real one, so the artwork
+    /// cache fetches it anonymously like any cover; the page itself is local. The banner can be
+    /// replaced through `GOOSIC_UI_FIXTURE_BANNER`, or removed with an empty value to see the
+    /// portrait, and the portrait through `GOOSIC_UI_FIXTURE_PORTRAIT`.
+    private func installArtistFixture() {
+        let environment = ProcessInfo.processInfo.environment
+        let banner = environment["GOOSIC_UI_FIXTURE_BANNER"] ?? "https://lh3.googleusercontent.com/Pv9rzAkKxKnCVe0AMsldl2m5vTXw1dJCABk8tuCUZqfDO2JDUVLW5D4mlx6Pb6j0_UYt_PiGgr8juC4=w2880-h1200-p-l90-rj"
+        let portrait = environment["GOOSIC_UI_FIXTURE_PORTRAIT"]
+        let tracks = (1...5).map { index in
+            GoosicTrack(id: "fixture-artist-track-\(index)", title: "Fixture top song \(index)",
+                subtitle: "Fixture artist", artist: "Fixture artist",
+                artistID: "fixture-artist", album: "Fixture album", albumID: nil, duration: "3:00",
+                videoID: "fixture-artist-video-\(index)", explicit: index == 2)
+        }
+        let key = CatalogKey.entity(.artist("fixture-artist"))
+        pages[key] = .loaded(CatalogPageView(id: "fixture-artist", title: "Omar Courtz",
+            subtitle: "", shelves: [], tracks: tracks, nextCursor: nil,
+            allTracksID: "VLfixture-all", truncated: false,
+            artist: GoosicArtistHeader(
+                banner: banner.isEmpty ? nil : banner,
+                portrait: portrait,
+                audience: "28.9M monthly audience",
+                description: "A fixture description long enough to wrap onto several lines, so the About popover shows how a real biography reads.",
+                subscribers: "1.62M"
+            )))
+        detail = .artist("fixture-artist")
+    }
+
     /// A dense, local-only sidebar makes visual and accessibility regressions reproducible
     /// without a YouTube request, account login, or Rust child process.
     private func installDebugSidebarFixture() {
@@ -597,6 +625,9 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         if ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] == "perf" {
             installPerformanceFixture()
+        }
+        if ProcessInfo.processInfo.environment["GOOSIC_UI_FIXTURE"] == "artist" {
+            installArtistFixture()
         }
     }
 

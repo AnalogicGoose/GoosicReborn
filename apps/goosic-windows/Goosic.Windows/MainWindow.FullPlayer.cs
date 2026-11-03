@@ -211,6 +211,19 @@ public sealed partial class MainWindow : Window
 
     private void OnCloseFullPlayer(object sender, RoutedEventArgs e) => SetFullPlayerOpen(false);
 
+    /// <summary>The full player's own song menu, beside Like, as the macOS full player has.</summary>
+    private void OnFullPlayerMore(object sender, RoutedEventArgs e)
+    {
+        if (Model.ConfirmedTrack is not { } track)
+        {
+            Model.ReportStatus("Nothing is playing.");
+            return;
+        }
+
+        BuildNowPlayingMenu(track, inFullPlayer: true)
+            .ShowAt(FullPlayerMoreButton, new FlyoutShowOptions { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight });
+    }
+
     private void OnNowPlayingDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         if (Model.HasPlayback)

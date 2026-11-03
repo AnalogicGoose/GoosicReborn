@@ -522,7 +522,9 @@ mod tests {
             ("ytm-theme", utf16("dark")),
             (
                 "ytm-playback",
-                utf16(r#"{"state":{"volume":0.4,"muted":true,"autoRadio":false,"shuffle":true,"repeat":"all"},"version":2}"#),
+                utf16(
+                    r#"{"state":{"volume":0.4,"muted":true,"autoRadio":false,"shuffle":true,"repeat":"all"},"version":2}"#,
+                ),
             ),
             (
                 "ytm-layout",

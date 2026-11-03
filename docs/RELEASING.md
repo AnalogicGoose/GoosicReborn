@@ -13,7 +13,7 @@ The native shells are now integrated on development; releases no longer tag a pl
 
 Merge the coherent platform changes into development, run the required tests, and deploy
 by merging development into main. Tag that deployment commit with a numeric version such as
-`v0.2.9` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
+`v0.3.0` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
 builds the Windows installer and portable ZIP and the universal macOS app, verifies the Mac
 bundle signature and architectures, and attaches both checksum files to a draft release.
 
@@ -63,6 +63,54 @@ Applications first keeps it out of the quarantine that a Downloads folder applie
 **Windows** shows SmartScreen's blue "Windows protected your PC" box on the first run: More info →
 Run anyway. Unzip the folder somewhere permanent before running it, because Windows runs a program
 from inside a zip in a temporary copy that is thrown away, taking the account's sign-in with it.
+
+## What 1.0 requires
+
+A 0.x number tells a person that things may still move under them. 1.0 withdraws that warning,
+so it is earned by evidence that the warning is no longer needed, not by a date or a feature
+count. Green CI is necessary and nowhere near sufficient: CI proves the code compiles and its
+rules hold, and every gate below is something CI cannot see.
+
+**Every platform the release names has passed acceptance.** For macOS that means the acceptance
+matrix in [UI_DESIGN.md](UI_DESIGN.md) inspected on a packaged build, after which the download
+stops being called an alpha. Linux is either accepted, which means the open rows in
+[LINUX_SHELL.md](LINUX_SHELL.md) that belong to "a person" are closed and the release workflow
+builds the Flatpak, or the 1.0 notes say plainly that Linux is not part of it. Shipping 1.0 with
+Linux left out is honest; implying it is included is not. The rule is the one a deployment
+already follows: a release claims only the platforms it has evidence for.
+
+**No known bug is open against a platform the release names.** An issue labelled `bug` is either
+fixed on `development`, or moved to a later milestone with a sentence in the release notes
+saying what it does and how to avoid it. A fix sitting in an unmerged pull request counts as
+open.
+
+**The trunk has been quiet.** The last 0.x release before 1.0 is used for two weeks without a
+new `bug` issue against a named platform. A new bug restarts the period after its fix lands.
+Releases a few days apart are the sign this has not happened yet, because each one is a
+correction of the last.
+
+**An existing installation updates to it.** On a machine running the previous release, the
+Windows updater offers 1.0 and installs it, and Sparkle does the same on a Mac, with the account
+still signed in afterwards. This is checked on real installs, because the Mac half depends on
+the hand-signed feed described above, which nothing in CI exercises. The feed is named
+`macos-alpha.xml` and every installed copy reads it by that path, so dropping the alpha label
+must not rename or move it: a copy that cannot find its feed never hears of another release.
+If a new feed name is wanted, a release first ships the new address and the old feed keeps
+pointing at that release.
+
+**Signing is a recorded decision.** Either the builds are signed with paid certificates, so
+neither Gatekeeper nor SmartScreen interrupts the first run, or 1.0 ships unsigned and its notes
+carry the instructions under *What a tester has to click*. Both are defensible; finding out from
+a user's "damaged app" report is not.
+
+**One version everywhere.** The tag, the GitHub release, the version the app reports, and the
+workspace `version` in `Cargo.toml` all read `1.0.0`, and the notes live in `RELEASE_1.0.0.md`
+beside the earlier ones.
+
+Not every piece of open work is a gate. Moving the macOS and Windows shells onto
+`goosic-shell-support` instead of their own copies of the shared rules, and the features under
+*Worth doing next* in [FEATURE_PARITY.md](FEATURE_PARITY.md), can follow 1.0, because their absence
+does not make the app behave differently from what its notes promise.
 
 ## Version names
 

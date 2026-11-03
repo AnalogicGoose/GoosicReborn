@@ -19,10 +19,11 @@
 //! | [`bridge`] | `OfficialBridge.swift` | whether a web player's report is trustworthy |
 //! | [`media`] | `SystemMediaPlayback.swift` | what the system media controls show and allow |
 //! | [`catalog`] | `Catalog.swift` | which rows are playable and how a page is shaped |
-//! | [`playback`] | `Models.swift` | what plays next, clamps, seek settling, preference saves |
+//! | [`playback`] | `Models.swift`, `VolumeTaper.swift` | what plays next, clamps, the volume taper, seek settling, preference saves |
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
 //! | [`lyrics`] | `Models.swift` | which line is current |
 //! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key |
+//! | [`hero`] | `ArtistHero.swift` | an artist hero's height and the colour its page takes |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
 
 use std::time::Duration;
@@ -32,6 +33,7 @@ pub mod bridge;
 pub mod catalog;
 pub mod client;
 pub mod framing;
+pub mod hero;
 pub mod login;
 pub mod lyrics;
 pub mod media;
@@ -151,14 +153,23 @@ mod tests {
                 actual: "0.5.0".into(),
             },
         ] {
-            assert!(error.invalidates_connection(), "{error} should end the channel");
+            assert!(
+                error.invalidates_connection(),
+                "{error} should end the channel"
+            );
         }
     }
 
     #[test]
     fn a_refusal_is_described_by_the_service_and_anything_else_as_transport() {
-        let refusal = TransportError::Remote { code: "catalogEmpty".into(), message: "none".into() };
-        assert_eq!(refusal.describe(), ("catalogEmpty".to_owned(), "none".to_owned()));
+        let refusal = TransportError::Remote {
+            code: "catalogEmpty".into(),
+            message: "none".into(),
+        };
+        assert_eq!(
+            refusal.describe(),
+            ("catalogEmpty".to_owned(), "none".to_owned())
+        );
         let (code, message) = TransportError::TimedOut.describe();
         assert_eq!(code, "transport");
         assert_eq!(message, "the service did not respond before the timeout");

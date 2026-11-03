@@ -1379,7 +1379,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
         if (route == "downloads")
         {
-            Remember("route" + KeySeparator + route, rememberCurrentRoute);
+            Remember("route" + KeySeparator + route, rememberCurrentRoute, requestVersion);
             Shelves.Clear();
             Tracks.Clear();
             NextCursor = null;
@@ -1417,7 +1417,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
-        Remember("route" + KeySeparator + route, rememberCurrentRoute);
+        Remember("route" + KeySeparator + route, rememberCurrentRoute, requestVersion);
         if (StartRoute.IsRemembered(route) && route != LastRoute)
         {
             // Rust keeps it, so "start on the page I was on last" survives a restart.
@@ -1546,10 +1546,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Records the page being left, then makes <paramref name="key"/> current.</summary>
-    private void Remember(string key, bool remember)
+    /// <param name="requestVersion">The request that will fill the page, when it still has to load.</param>
+    private void Remember(string key, bool remember, int requestVersion = -1)
     {
         ++_pageContentRevision;
         PageClearedForPendingNavigation = false;
+        _currentPageRequestVersion = requestVersion;
         if (remember && !string.Equals(key, _currentRoute, StringComparison.Ordinal))
         {
             _routeHistory.Push(_currentRoute);
@@ -1591,7 +1593,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
-        Remember(string.Join(KeySeparator, "entity", kind, id, title), remember);
+        Remember(string.Join(KeySeparator, "entity", kind, id, title), remember, requestVersion);
         PageKind = DetailLayout.FromEntity(kind);
         SetPageTruncated(false);
         var hasEntityArtwork = SetEntityArtworkAsync(kind, id, artworkVersion);
@@ -1681,6 +1683,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
         NextCursor = page.NextCursor;
         AllTracksId = page.AllTracksId;
+        // Only an artist page carries a header, and a cached copy of one keeps it.
+        PageArtistHeader = page.Artist;
         foreach (var track in Listed(page.Tracks))
         {
             var row = new TrackViewModel(track);
@@ -1692,7 +1696,9 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             }
         }
 
-        foreach (var shelf in ListedShelves(page.Shelves))
+        // Artist answers may carry the top songs both as tracks and as a shelf.
+        // Render that content once in the numbered list, preserving other shelves.
+        foreach (var shelf in ArtistContentShelves(ListedShelves(page.Shelves)))
         {
             var model = new ShelfViewModel(shelf);
             Shelves.Add(model);
@@ -1728,7 +1734,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         _searchRequestVersion = requestVersion;
         ClearPageArtwork();
 
-        Remember(string.Join(KeySeparator, "search", trimmed, filter), remember);
+        Remember(string.Join(KeySeparator, "search", trimmed, filter), remember, requestVersion);
         ShowPageHeader = true;
         PageTitle = $"Results for “{trimmed}”";
         PageSubtitle = filter == "all" ? "Everything matching" : $"Matching {filter}";
@@ -1872,6 +1878,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(IsPageLoading));
                 OnPropertyChanged(nameof(ShowPageSkeleton));
                 OnPropertyChanged(nameof(ShowsPageStatePanel));
+                OnPropertyChanged(nameof(HasArtistHero));
+                OnPropertyChanged(nameof(ShowsStandardHeader));
             }
         }
     }
@@ -1904,6 +1912,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     private int ClearPageArtwork()
     {
         PageArtwork = null;
+        PageArtistHeader = null;
         return ++_pageArtworkVersion;
     }
 
@@ -1960,6 +1969,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             if (Set(ref _pageKind, value))
             {
                 OnPropertyChanged(nameof(PageHeroCornerRadius));
+                OnPropertyChanged(nameof(HasArtistHero));
+                OnPropertyChanged(nameof(ShowsStandardHeader));
                 PresentTracks();
             }
         }

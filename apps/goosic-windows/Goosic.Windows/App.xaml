@@ -17,6 +17,20 @@
             <SolidColorBrush x:Key="SliderThumbBackground" Color="White" />
             <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="White" />
             <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#EEEEEE" />
+            <!-- A menu row under the pointer fills with the brand colour and turns white, as a
+                 macOS menu's selection does with the accent colour. -->
+            <StaticResource x:Key="MenuFlyoutItemBackgroundPointerOver" ResourceKey="GoosicAccentBrush" />
+            <StaticResource x:Key="MenuFlyoutItemBackgroundPressed" ResourceKey="GoosicAccentBrush" />
+            <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="White" />
+            <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="White" />
+            <StaticResource x:Key="MenuFlyoutSubItemBackgroundPointerOver" ResourceKey="GoosicAccentBrush" />
+            <StaticResource x:Key="MenuFlyoutSubItemBackgroundPressed" ResourceKey="GoosicAccentBrush" />
+            <StaticResource x:Key="MenuFlyoutSubItemBackgroundSubMenuOpened" ResourceKey="GoosicAccentBrush" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundPointerOver" Color="White" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundPressed" Color="White" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundSubMenuOpened" Color="White" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="White" />
+            <SolidColorBrush x:Key="MenuFlyoutSubItemChevronSubMenuOpened" Color="White" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

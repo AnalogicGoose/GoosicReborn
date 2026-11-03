@@ -205,12 +205,56 @@ playing state has a stable marker that differs from hover. Context menus and key
 expose the same meaningful operations as the visible row. Do not hide an essential operation
 behind pointer hover alone.
 
+A song's menu has the same items, names and order on every platform, wherever the song
+appears: Play, Play Next, Add to Queue and Start Radio (Remove from Queue on a queue row); then
+Like and Dislike with an account; then Go to Artist and Go to Album; then Add to Playlist and,
+on an owned playlist, Remove from Playlist; then Copy Link. Every item carries an icon, since a
+menu where only some rows have one reads as ragged, and labels use title case. Go to Artist and
+Go to Album stay in the menu whenever the song names an artist or album and are dimmed when
+the catalog gave no link, so the menu does not change shape from one song to the next. The
+macOS menus are the reference; Windows draws its flyouts with rounded rows highlighted in the
+accent colour, which is the nearest native equivalent.
+
 Album and playlist pages lead with cover art, title, relevant metadata and primary Play/Pause
 and Shuffle actions. The primary action reflects whether that collection is playing. Ordered
 collections launch ordered queues; discovery selections may resolve a station. Sort and Find
 belong to collection browsing and must not silently change the playback queue. Song counts
 remain honest about partial data, including a '+' where completeness is unknown. Continuation
 pages append with their real cursor rather than presenting the first page as the whole list.
+
+An artist page opens with a hero, in the manner of an Apple Music artist page. The artist's
+banner fills the content area edge to edge, under the floating toolbar, cropped to fill rather
+than stretched and anchored at its top, where faces are. Its height follows the window's width
+within a floor and a ceiling, so a narrow window keeps the name and actions on screen and a wide
+one does not become all picture. A scrim darkens the banner's foot into the artist's colour,
+sampled from that foot and darkened until white text reads over it, so the picture ends in the
+page rather than at an edge. The whole page takes that colour and is drawn in the dark
+appearance over it, whatever the app's theme: the colour runs unchanged for the hero's height,
+so the hero's foot meets the same colour wherever it has scrolled to, and only then deepens
+toward black down the page. The artist's colour belongs to the page, not only to the rectangle
+the picture occupies. The picture stays where it is while the page scrolls over it: as the hero
+scrolls away the picture blurs, fully by the time half of it has gone, and then dissolves into
+the page colour, so once the hero has left the page is the artist's colour alone. Reduced
+transparency keeps the dissolve and drops the blur. The name is centred near the hero's foot in a large bold weight, with
+upstream's audience line under it when there is one. Under those sit three round buttons: About
+(the description, audience and subscriber count, in a popover) to the left, a larger white Play
+in the middle that plays the top songs in order and pauses them when they are already playing,
+and Subscribe to the right, filled when the account follows the artist and shown only with an
+account; without one its place stays empty so Play remains centred. Share and More stay in the
+window toolbar, as on every page, and on an artist page More adds Shuffle beside Play Next and
+Start Radio. A "Top Songs" heading and the shelves follow.
+
+The banner and every fact come from the artist header the catalog reads, the `artist` field of
+an artist page, and from nowhere else. When the header has a square portrait and no banner, the
+hero shows the portrait as a circle near its top over the page colour, sampled from the portrait
+instead, as the previous Goosic did; the circle is sized so it never meets the name. With no
+picture at all the hero is a deep default colour, never a song's cover or a video still. Missing
+audience, description or subscriber count leave their place empty rather than being estimated,
+and About is dimmed when there is nothing to show in it. Reduced transparency replaces the
+scrim with an opaque band of the page colour, reduced motion removes the colour change's
+animation, and increased contrast strengthens the scrim; the name and the three buttons stay
+readable over any picture. [ARTIST_PAGE.md](ARTIST_PAGE.md) is the implementation guide for
+each shell.
 
 Owned-playlist operations expose create, rename, description, privacy, remove/reorder songs,
 add to playlist and deletion according to actual capability and account state. Destructive,
@@ -274,6 +318,15 @@ clicks or create duplicate accessibility targets. Restore the original visible c
 Mute remains available through More, a context menu and accessible actions. Volume value is
 synchronized across main, full, mini and system-facing presentations.
 
+Every volume slider follows the same audio taper: the gain is the cube of the slider's position,
+the rule `volume_gain` in `goosic-shell-support` states. Loudness is heard logarithmically, so a
+slider that moved the gain in a straight line was already far too loud half way up. The player
+and the saved preference hold the gain; the slider, its spoken percentage and keyboard or wheel
+steps work in positions, which is what lets a saved volume open at the same place on every
+platform. A drag stays smooth under the pointer: the knob follows the hand, the player hears it
+at a bounded rate, and the player's own report of its volume never pulls the knob back while it
+is held.
+
 ## Lyrics, queue, full player and mini player
 
 Lyrics and Up Next are secondary listening panes. In the normal shell, the toggles identify
@@ -311,8 +364,12 @@ can occupy the trailing column. The timeline and full transport sit below the ar
 and mini-player actions are grouped at the top leading edge, volume at the top trailing edge,
 and Lyrics/Queue in a bottom trailing capsule. Top and bottom chrome share material and
 appearance. Native toolbar backing must not create an extra light plate behind dark capsules.
-Small individual Like and More actions are circular. Switching presentation preserves the
-same session, track, queue, volume, position and mounted playback host.
+Small individual Like and More actions are circular, side by side after the track metadata;
+More opens the playing song's menu. Switching presentation preserves the
+same session, track, queue, volume, position and mounted playback host. Choosing a page from
+the full player's menu, such as Go to Artist, closes the full player before the page opens,
+because the page would otherwise load unseen behind it; from the mini player it also brings
+the main window back.
 
 Mini player is a compact native listening window with cover, metadata, timeline and core
 transport. Large lyric/queue columns can step aside there, with a route back to the full

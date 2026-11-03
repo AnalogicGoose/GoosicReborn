@@ -2,7 +2,9 @@
 //!
 //! Nothing here performs I/O, so every rule below is unit-testable against small fixtures.
 
-use goosic_protocol::{CatalogItem, CatalogItemKind, CatalogPage, CatalogShelf, ShelfLayout};
+use goosic_protocol::{
+    ArtistHeader, CatalogItem, CatalogItemKind, CatalogPage, CatalogShelf, ShelfLayout,
+};
 use serde_json::Value;
 
 use crate::json;
@@ -388,6 +390,7 @@ pub fn radio_page(seed_video_id: &str, response: &Value) -> CatalogPage {
         next_cursor,
         truncated: false,
         all_tracks_id: None,
+        artist: None,
     }
 }
 
@@ -559,6 +562,7 @@ pub fn search_page(query: &str, response: &Value) -> CatalogPage {
         next_cursor: continuation_token(response),
         truncated: false,
         all_tracks_id: None,
+        artist: None,
     }
 }
 
@@ -804,6 +808,7 @@ pub fn browse_page(id: &str, title: &str, response: &Value) -> CatalogPage {
         next_cursor: continuation_token(response),
         truncated: false,
         all_tracks_id: None,
+        artist: None,
     }
 }
 
@@ -850,13 +855,52 @@ fn header_text(response: &Value) -> (String, String) {
     (String::new(), String::new())
 }
 
+/// The artist an album page's header names, read from its linked byline.
+fn header_artist(response: &Value) -> Option<(String, String)> {
+    ["musicResponsiveHeaderRenderer", "musicDetailHeaderRenderer"]
+        .iter()
+        .filter_map(|key| json::first(response, key))
+        .find_map(|header| {
+            let bylines: Vec<&Value> = ["straplineTextOne", "subtitle"]
+                .iter()
+                .filter_map(|field| header.get(*field))
+                .collect();
+            references(&bylines).artist
+        })
+}
+
+/// Fills a row's missing artist or album from the page it was listed on.
+///
+/// An album's rows leave out what the header already says: the album itself always, and the
+/// artist whenever every song is by the album's artist. A song taken from such a page into the
+/// queue would otherwise have nowhere to go from the player's Go to Artist and Go to Album.
+fn inherit(row: &mut CatalogItem, artist: Option<&(String, String)>, album: Option<(&str, &str)>) {
+    if let (None, Some((name, id))) = (&row.artist_id, artist) {
+        row.artist.get_or_insert_with(|| name.clone());
+        row.artist_id = Some(id.clone());
+    }
+    if let (None, Some((name, id))) = (&row.album_id, album) {
+        row.album.get_or_insert_with(|| name.to_owned());
+        row.album_id = Some(id.to_owned());
+    }
+}
+
 /// Builds an ordered track list page for an album or playlist.
 pub fn track_list_page(id: &str, response: &Value) -> CatalogPage {
     let (title, subtitle) = header_text(response);
+    // Only an album's header speaks for its rows; a playlist's byline is its owner, not the
+    // artist of every song on it.
+    let is_album = id.starts_with("MPRE");
+    let artist = is_album.then(|| header_artist(response)).flatten();
+    let album = (is_album && !title.is_empty()).then_some((title.as_str(), id));
     let tracks: Vec<CatalogItem> = json::collect(response, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(responsive_item)
         .filter(|item| item.video_id.is_some())
+        .map(|mut item| {
+            inherit(&mut item, artist.as_ref(), album);
+            item
+        })
         .collect();
     CatalogPage {
         id: id.to_owned(),
@@ -872,16 +916,22 @@ pub fn track_list_page(id: &str, response: &Value) -> CatalogPage {
         next_cursor: None,
         truncated: false,
         all_tracks_id: None,
+        artist: None,
     }
 }
 
 /// Builds an artist page: its header, its top tracks, and its carousels.
 pub fn artist_page(id: &str, response: &Value) -> CatalogPage {
     let (title, subtitle) = header_text(response);
+    let artist = (!title.is_empty()).then(|| (title.clone(), id.to_owned()));
     let tracks: Vec<CatalogItem> = json::collect(response, "musicResponsiveListItemRenderer")
         .into_iter()
         .filter_map(responsive_item)
         .filter(|item| item.video_id.is_some())
+        .map(|mut item| {
+            inherit(&mut item, artist.as_ref(), None);
+            item
+        })
         .collect();
     CatalogPage {
         id: id.to_owned(),
@@ -893,10 +943,138 @@ pub fn artist_page(id: &str, response: &Value) -> CatalogPage {
         subtitle,
         shelves: browse_shelves(response),
         tracks,
-        thumbnail: json::thumbnail(response, THUMBNAIL_BUDGET),
+        // The header's own picture or none. Searching the whole response picked whichever
+        // thumbnail came nearest the budget, which was usually a song or a video still.
+        thumbnail: artist_header_node(response)
+            .and_then(|header| json::thumbnail(header, THUMBNAIL_BUDGET)),
         next_cursor: None,
         all_tracks_id: all_tracks_id(response),
         truncated: false,
+        artist: artist_header(response),
+    }
+}
+
+/// Header renderers an artist page arrives with, newest layout first.
+const ARTIST_HEADERS: [&str; 3] = [
+    "musicImmersiveHeaderRenderer",
+    "musicVisualHeaderRenderer",
+    "musicDetailHeaderRenderer",
+];
+
+/// A square portrait is asked for at this size, enough for a hero on a high-density display.
+const PORTRAIT_SIZE: u64 = 1080;
+/// A banner is asked for at this width, its height following the picture's own proportions.
+/// Some artists list nothing wider than 1080, which is soft across a wide window.
+const BANNER_WIDTH: u64 = 2880;
+
+fn artist_header_node(response: &Value) -> Option<&Value> {
+    let header = response.get("header")?;
+    ARTIST_HEADERS.iter().find_map(|key| header.get(*key))
+}
+
+/// Reads the artist's pictures and facts from the page header, and from nowhere else.
+///
+/// The immersive header has one wide picture. The visual header has a wide one behind a square
+/// portrait. A header whose only picture is square has a portrait and no banner, because
+/// stretching a square across a hero is what made the old page blurry.
+fn artist_header(response: &Value) -> Option<ArtistHeader> {
+    let header = artist_header_node(response)?;
+    let text = |field: &str| {
+        header
+            .get(field)
+            .map(json::runs_text)
+            .map(|text| text.trim().to_owned())
+            .filter(|text| !text.is_empty())
+    };
+    let mut banner = None;
+    let mut portrait = None;
+    if let Some(picture) = header.get("thumbnail").and_then(largest_thumbnail) {
+        if picture.width > picture.height {
+            banner = Some(if picture.width < BANNER_WIDTH {
+                let height = picture.height * BANNER_WIDTH / picture.width;
+                sized(&picture.url, BANNER_WIDTH, height)
+            } else {
+                picture.url
+            });
+        } else {
+            portrait = Some(picture.url);
+        }
+    }
+    if let Some(picture) = header
+        .get("foregroundThumbnail")
+        .and_then(largest_thumbnail)
+    {
+        portrait = Some(picture.url);
+    }
+    let subscribers = json::first(header, "subscribeButtonRenderer")
+        .and_then(|button| button.get("subscriberCountText"))
+        .map(json::runs_text)
+        .filter(|text| !text.is_empty());
+    let found = ArtistHeader {
+        banner,
+        portrait: portrait.map(|url| sized(&url, PORTRAIT_SIZE, PORTRAIT_SIZE)),
+        audience: text("monthlyListenerCount"),
+        description: text("description"),
+        subscribers,
+    };
+    (found != ArtistHeader::default()).then_some(found)
+}
+
+struct Picture {
+    url: String,
+    width: u64,
+    height: u64,
+}
+
+/// The widest entry of a renderer's thumbnail list, with its dimensions.
+fn largest_thumbnail(node: &Value) -> Option<Picture> {
+    json::collect(node, "thumbnails")
+        .into_iter()
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|entry| {
+            Some(Picture {
+                url: entry.get("url")?.as_str()?.to_owned(),
+                width: entry.get("width").and_then(Value::as_u64).unwrap_or(0),
+                height: entry.get("height").and_then(Value::as_u64).unwrap_or(0),
+            })
+        })
+        .max_by_key(|picture| picture.width)
+}
+
+/// Asks Google's image host for a picture `width` by `height`.
+///
+/// The host serves any size named in the URL's last segment: `=w226-h226-...` or `=s226-...`.
+/// Only that leading size token changes, so crop and format options after it are kept. An
+/// `s` token names one edge of a square, so it takes `width`. A URL with neither token is
+/// returned unchanged rather than guessed at.
+fn sized(url: &str, width: u64, height: u64) -> String {
+    let Some((base, options)) = url.rsplit_once('=') else {
+        return url.to_owned();
+    };
+    let (token, rest) = options.split_once('-').unwrap_or((options, ""));
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let replaced = if token.strip_prefix('s').is_some_and(digits) {
+        format!("s{width}")
+    } else if token.strip_prefix('w').is_some_and(digits) {
+        // `w<n>-h<n>` spans two tokens; drop the height that follows the width.
+        let rest = match rest.split_once('-') {
+            Some((height, after)) if height.strip_prefix('h').is_some_and(digits) => after,
+            None if rest.strip_prefix('h').is_some_and(digits) => "",
+            _ => rest,
+        };
+        return join(base, &format!("w{width}-h{height}"), rest);
+    } else {
+        return url.to_owned();
+    };
+    join(base, &replaced, rest)
+}
+
+fn join(base: &str, size: &str, rest: &str) -> String {
+    if rest.is_empty() {
+        format!("{base}={size}")
+    } else {
+        format!("{base}={size}-{rest}")
     }
 }
 
@@ -1439,6 +1617,203 @@ mod tests {
         assert_eq!(page.subtitle, "Signal Fires");
         assert_eq!(page.tracks.len(), 1);
         assert_eq!(page.tracks[0].video_id.as_deref(), Some("abcdefghijk"));
+    }
+
+    fn bare_row(title: &str, video_id: &str) -> Value {
+        json!({"flexColumns": [
+            flex(json!({"runs": [{
+                "text": title,
+                "navigationEndpoint": {"watchEndpoint": {"videoId": video_id}}
+            }]})),
+            flex(json!({"runs": [{"text": "1.2M plays"}]}))
+        ]})
+    }
+
+    fn header_with_artist() -> Value {
+        json!({"musicResponsiveHeaderRenderer": {
+            "title": {"runs": [{"text": "Night Windows"}]},
+            "straplineTextOne": {"runs": [{
+                "text": "Signal Fires",
+                "navigationEndpoint": {"browseEndpoint": {
+                    "browseId": "UCartist",
+                    "browseEndpointContextSupportedConfigs": {
+                        "browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}
+                    }
+                }}
+            }]}
+        }})
+    }
+
+    #[test]
+    fn an_albums_songs_lead_to_its_artist_and_back_to_the_album() {
+        let response = json!({
+            "header": header_with_artist(),
+            "contents": [{"musicResponsiveListItemRenderer": bare_row("Afterglow", "abcdefghijk")}]
+        });
+        let page = track_list_page("MPREalbum", &response);
+        let track = &page.tracks[0];
+        assert_eq!(track.artist.as_deref(), Some("Signal Fires"));
+        assert_eq!(track.artist_id.as_deref(), Some("UCartist"));
+        assert_eq!(track.album.as_deref(), Some("Night Windows"));
+        assert_eq!(track.album_id.as_deref(), Some("MPREalbum"));
+    }
+
+    #[test]
+    fn a_playlists_owner_is_not_taken_for_the_artist_of_its_songs() {
+        let response = json!({
+            "header": header_with_artist(),
+            "contents": [{"musicResponsiveListItemRenderer": bare_row("Afterglow", "abcdefghijk")}]
+        });
+        let page = track_list_page("VLPLplaylist", &response);
+        assert_eq!(page.tracks[0].artist_id, None);
+        assert_eq!(page.tracks[0].album_id, None);
+    }
+
+    #[test]
+    fn an_artists_top_songs_without_a_byline_link_lead_back_to_the_artist() {
+        let response = json!({
+            "header": {"musicImmersiveHeaderRenderer": {"title": {"runs": [{"text": "Signal Fires"}]}}},
+            "contents": [
+                {"musicResponsiveListItemRenderer": bare_row("Afterglow", "abcdefghijk")},
+                {"musicResponsiveListItemRenderer": song_row()}
+            ]
+        });
+        let page = artist_page("UCartist", &response);
+        assert_eq!(page.tracks[0].artist_id.as_deref(), Some("UCartist"));
+        assert_eq!(page.tracks[0].artist.as_deref(), Some("Signal Fires"));
+        assert_eq!(page.tracks[1].album_id.as_deref(), Some("MPREalbum"));
+    }
+
+    /// The header of a real artist page, trimmed to the fields that matter.
+    fn immersive_artist_header() -> Value {
+        let banner = |width: u64, height: u64| {
+            json!({
+                "url": format!("https://lh3.googleusercontent.com/banner=w{width}-h{height}-p-l90-rj"),
+                "width": width,
+                "height": height
+            })
+        };
+        json!({"header": {"musicImmersiveHeaderRenderer": {
+            "title": {"runs": [{"text": "Omar Courtz"}]},
+            "subscriptionButton": {"subscribeButtonRenderer": {
+                "subscriberCountText": {"runs": [{"text": "1.62M"}]},
+                "channelId": "UCchannel"
+            }},
+            "description": {"runs": [{"text": "Known to fans as Ousi."}]},
+            "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                banner(540, 225), banner(2880, 1200), banner(1440, 600)
+            ]}}},
+            "monthlyListenerCount": {"runs": [{"text": "28.9M monthly audience"}]}
+        }},
+        "contents": [{"musicCarouselShelfRenderer": {
+            "header": {"musicCarouselShelfBasicHeaderRenderer": {"title": {"runs": [{"text": "Videos"}]}}},
+            "contents": [{"musicTwoRowItemRenderer": {
+                "title": {"runs": [{"text": "A video"}]},
+                "thumbnailRenderer": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                    {"url": "https://i.ytimg.com/vi/still/hq.jpg", "width": 400, "height": 225}
+                ]}}}
+            }}]
+        }}]})
+    }
+
+    #[test]
+    fn an_artist_header_gives_its_largest_banner_and_its_facts() {
+        let header = artist_page("UCartist", &immersive_artist_header())
+            .artist
+            .unwrap();
+        assert_eq!(
+            header.banner.as_deref(),
+            Some("https://lh3.googleusercontent.com/banner=w2880-h1200-p-l90-rj")
+        );
+        assert_eq!(header.portrait, None);
+        assert_eq!(header.audience.as_deref(), Some("28.9M monthly audience"));
+        assert_eq!(
+            header.description.as_deref(),
+            Some("Known to fans as Ousi.")
+        );
+        assert_eq!(header.subscribers.as_deref(), Some("1.62M"));
+    }
+
+    #[test]
+    fn an_artist_pages_picture_never_comes_from_its_shelves() {
+        let page = artist_page("UCartist", &immersive_artist_header());
+        let thumbnail = page.thumbnail.unwrap();
+        assert!(thumbnail.contains("/banner="), "{thumbnail}");
+
+        let mut bare = immersive_artist_header();
+        bare["header"]["musicImmersiveHeaderRenderer"]
+            .as_object_mut()
+            .unwrap()
+            .remove("thumbnail");
+        let page = artist_page("UCartist", &bare);
+        assert_eq!(page.thumbnail, None);
+        assert_eq!(page.artist.unwrap().banner, None);
+    }
+
+    #[test]
+    fn a_visual_header_has_a_banner_behind_a_large_portrait() {
+        let response = json!({"header": {"musicVisualHeaderRenderer": {
+            "title": {"runs": [{"text": "Signal Fires"}]},
+            "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://lh3.googleusercontent.com/wide=w1440-h600-p", "width": 1440, "height": 600}
+            ]}}},
+            "foregroundThumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://lh3.googleusercontent.com/face=w226-h226-l90-rj", "width": 226, "height": 226}
+            ]}}}
+        }}});
+        let header = artist_page("UCartist", &response).artist.unwrap();
+        assert_eq!(
+            header.banner.as_deref(),
+            // Narrower than the hero, so it is asked for at the hero's width, in proportion.
+            Some("https://lh3.googleusercontent.com/wide=w2880-h1200-p")
+        );
+        assert_eq!(
+            header.portrait.as_deref(),
+            Some("https://lh3.googleusercontent.com/face=w1080-h1080-l90-rj")
+        );
+    }
+
+    #[test]
+    fn a_square_only_header_is_a_portrait_and_not_a_banner() {
+        let response = json!({"header": {"musicImmersiveHeaderRenderer": {
+            "title": {"runs": [{"text": "Signal Fires"}]},
+            "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://yt3.googleusercontent.com/face=s240-c-k", "width": 240, "height": 240}
+            ]}}}
+        }}});
+        let header = artist_page("UCartist", &response).artist.unwrap();
+        assert_eq!(header.banner, None);
+        assert_eq!(
+            header.portrait.as_deref(),
+            Some("https://yt3.googleusercontent.com/face=s1080-c-k")
+        );
+    }
+
+    #[test]
+    fn a_header_with_nothing_to_say_is_left_out() {
+        let response = json!({"header": {"musicImmersiveHeaderRenderer": {
+            "title": {"runs": [{"text": "Signal Fires"}]}
+        }}});
+        assert_eq!(artist_page("UCartist", &response).artist, None);
+    }
+
+    #[test]
+    fn only_the_leading_size_token_of_a_picture_changes() {
+        assert_eq!(
+            sized("https://x/a=w60-h60-l90-rj", 1080, 1080),
+            "https://x/a=w1080-h1080-l90-rj"
+        );
+        assert_eq!(
+            sized("https://x/a=w60-h25", 2880, 1200),
+            "https://x/a=w2880-h1200"
+        );
+        assert_eq!(
+            sized("https://x/a=s88-c-k", 1080, 1080),
+            "https://x/a=s1080-c-k"
+        );
+        assert_eq!(sized("https://x/a=s88", 1080, 1080), "https://x/a=s1080");
+        assert_eq!(sized("https://x/a", 1080, 1080), "https://x/a");
+        assert_eq!(sized("https://x/a=p-l90", 1080, 1080), "https://x/a=p-l90");
     }
 
     #[test]
