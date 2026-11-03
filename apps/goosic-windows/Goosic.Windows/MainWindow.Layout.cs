@@ -109,6 +109,7 @@ public sealed partial class MainWindow : Window
         SearchChrome.Margin = new Thickness(left, 56, right, 0);
         var top = Model.IsSearchPage ? 56 + Math.Max(100, SearchChrome.ActualHeight) + 48 : 56;
         ContentStack.Padding = new Thickness(left, top, right, compact ? 166 : 128);
+        LayOutArtistHero();
         FitSearchBrowseCards(left, right);
         if (RootGrid.ActualWidth > 0)
         {
@@ -175,6 +176,8 @@ public sealed partial class MainWindow : Window
             _carousels.Add(carousel);
             FitCarousel(carousel, LeftInset + ContentGutter, RightInset + ContentGutter);
             carousel.ViewChanged += OnCarouselViewChanged;
+            carousel.AddHandler(UIElement.PointerWheelChangedEvent,
+                new PointerEventHandler(OnCarouselWheelBubble), handledEventsToo: true);
             UpdateCarouselButtons(carousel);
             _ = LoadMoreIfCarouselNearEndAsync(carousel);
         }
@@ -185,6 +188,8 @@ public sealed partial class MainWindow : Window
         if (sender is ScrollViewer carousel)
         {
             carousel.ViewChanged -= OnCarouselViewChanged;
+            carousel.RemoveHandler(UIElement.PointerWheelChangedEvent,
+                new PointerEventHandler(OnCarouselWheelBubble));
             _carousels.Remove(carousel);
         }
     }
@@ -239,25 +244,26 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Scrolls the page, not the row, when the wheel turns over a row of cards.
-    /// </summary>
-    /// <remarks>
-    /// A scroller that can only move sideways turns a vertical wheel into sideways movement, so
-    /// scrolling down the page stalled on every shelf and slid its cards instead. A plain wheel is
-    /// handed to the page here, before the row sees it; a horizontal wheel or Shift+wheel still
-    /// moves the row, and so do its arrows, touch and the touchpad.
-    /// </remarks>
+    private static bool IsVerticalPageWheel(PointerRoutedEventArgs e, UIElement relativeTo) =>
+        !e.GetCurrentPoint(relativeTo).Properties.IsHorizontalMouseWheel
+        && (e.KeyModifiers & VirtualKeyModifiers.Shift) == 0;
+
     private void OnCarouselWheel(object sender, PointerRoutedEventArgs e)
     {
-        var point = e.GetCurrentPoint(ContentScroller);
-        var shift = (e.KeyModifiers & VirtualKeyModifiers.Shift) != 0;
-        if (point.Properties.IsHorizontalMouseWheel || shift)
+        if (IsVerticalPageWheel(e, ContentScroller))
         {
-            return;
+            // Skip the shelf's native conversion of a vertical wheel into horizontal motion.
+            e.Handled = true;
         }
+    }
 
-        e.Handled = true;
-        ContentScroller.ChangeView(null, ContentScroller.VerticalOffset - point.Properties.MouseWheelDelta, null);
+    private void OnCarouselWheelBubble(object sender, PointerRoutedEventArgs e)
+    {
+        if (IsVerticalPageWheel(e, ContentScroller))
+        {
+            // The shelf's class handler has now been skipped. Resume bubbling to the page,
+            // which retains native wheel distance, animation and rapid-tick accumulation.
+            e.Handled = false;
+        }
     }
 }

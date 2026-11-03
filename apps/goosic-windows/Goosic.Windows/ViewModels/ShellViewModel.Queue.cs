@@ -949,7 +949,7 @@ public sealed partial class ShellViewModel
                 _ = row.LoadArtworkAsync(_artwork);
             }
 
-            foreach (var shelf in ListedShelves(page.Shelves))
+            foreach (var shelf in ArtistContentShelves(ListedShelves(page.Shelves)))
             {
                 if (Shelves.Count > 0 && Shelves[Shelves.Count - 1] is var shown
                     && ShelfColumns.Continues(shown.Id, shown.Heading, shelf.Id, shelf.Title))
