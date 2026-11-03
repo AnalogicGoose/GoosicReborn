@@ -1511,7 +1511,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             }
             .frame(width: 110)
             .accessibilityLabel("Volume")
-            .accessibilityValue("\(Int((model.isMuted ? 0 : model.volume) * 100)) percent")
+            .accessibilityValue("\(Int((VolumeTaper.position(forGain: model.isMuted ? 0 : model.volume) * 100).rounded())) percent")
             .disabled(!canAdjustVolume)
             volumeToggle
         }

@@ -1241,6 +1241,17 @@ struct NativeMacTrackMenuItems: SwiftUI.View {
     var container: GoosicEntityReference? = nil
     /// The row's position in the queue, when the menu belongs to a queue row.
     var queueIndex: Int? = nil
+    /// Runs after Go to Artist or Go to Album, for a menu outside the main window -- the mini
+    /// player's brings the main window forward so the page is seen.
+    var onNavigate: (() -> Void)? = nil
+
+    /// Opens a page from the menu. The full player covers the page it would open, so it slides
+    /// away first, as Music's does.
+    private func go(to entity: GoosicEntityReference) {
+        model.setFullPlayerOpen(false)
+        model.show(entity)
+        onNavigate?()
+    }
 
     // Menus are built from their own content, so the icon style is set here rather than
     // inherited from the window; without it macOS drops every menu icon.
@@ -1279,14 +1290,18 @@ struct NativeMacTrackMenuItems: SwiftUI.View {
                 model.toggleDislike(track)
             }
         }
-        if track.artistID != nil || track.albumID != nil {
+        // Both stay in the menu whenever the song names an artist or album, and are only dimmed
+        // when the catalog gave no link, so the menu keeps its shape from song to song.
+        if !track.artist.isEmpty || !track.album.isEmpty || track.artistID != nil || track.albumID != nil {
             SwiftUI.Divider()
-        }
-        if let id = track.artistID {
-            SwiftUI.Button("Go to Artist", systemImage: "music.mic") { model.show(.artist(id)) }
-        }
-        if let id = track.albumID {
-            SwiftUI.Button("Go to Album", systemImage: "square.stack") { model.show(.album(id)) }
+            SwiftUI.Button("Go to Artist", systemImage: "music.mic") {
+                if let id = track.artistID { go(to: .artist(id)) }
+            }
+            .disabled(track.artistID == nil)
+            SwiftUI.Button("Go to Album", systemImage: "square.stack") {
+                if let id = track.albumID { go(to: .album(id)) }
+            }
+            .disabled(track.albumID == nil)
         }
         if model.activeAccount != nil {
             SwiftUI.Divider()
