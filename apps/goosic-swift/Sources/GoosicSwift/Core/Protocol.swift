@@ -255,6 +255,22 @@ struct GoosicCatalogPage: Codable {
     var allTracksId: String?
     /// True when the service clamped the upstream page to fit one protocol frame.
     var truncated: Bool?
+    /// What an artist page's own header says. Only artist pages carry it.
+    var artist: GoosicArtistHeader?
+}
+
+/// An artist page's header, read from that header alone; any field may be missing, and a
+/// missing picture is never filled with another one from the page.
+struct GoosicArtistHeader: Codable, Hashable {
+    /// The wide picture behind the name.
+    var banner: String?
+    /// A square portrait, when the header has one.
+    var portrait: String?
+    /// Upstream's audience line as written, such as "28.9M monthly audience".
+    var audience: String?
+    var description: String?
+    /// The subscriber count as upstream abbreviates it, such as "1.62M".
+    var subscribers: String?
 }
 
 struct GoosicResponsePayload: Codable {
