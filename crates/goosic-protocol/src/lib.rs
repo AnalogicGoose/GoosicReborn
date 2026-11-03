@@ -421,6 +421,34 @@ pub struct CatalogPage {
     /// True when the service clamped the upstream result set to stay inside the frame budget.
     #[serde(default, skip_serializing_if = "is_false")]
     pub truncated: bool,
+    /// What an artist page's own header says about the artist. Only artist pages carry it, and
+    /// a shell that does not read it shows the page as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist: Option<ArtistHeader>,
+}
+
+/// An artist page's header, read from that header alone.
+///
+/// Every field is optional because upstream omits any of them for some artists, and a missing
+/// one is shown as missing: a shell never fills the banner with another picture from the page,
+/// which is how a music-video still once stood in for the artist.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, Hash)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistHeader {
+    /// The wide picture behind the artist's name, at the largest size the header offers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner: Option<String>,
+    /// A square portrait, when the header has one; requested large enough for a hero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portrait: Option<String>,
+    /// Upstream's audience line as written, such as "28.9M monthly audience".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The channel's subscriber count as upstream abbreviates it, such as "1.62M".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscribers: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
