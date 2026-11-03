@@ -35,4 +35,20 @@ public class FeedNavigationCommitTests
     [Fact]
     public void TheAccountOperationsOwnLoadStillLands() =>
         Assert.True(FeedNavigationCommitRules.CanCommit(4, 4, "account-b", "account-b", true, accountBusyAtStart: true));
+
+    [Fact]
+    public void ReselectingADestinationStillLoadingLeavesItsRequestToFinish() =>
+        Assert.Equal(ReselectOutcome.Keep, FeedNavigationCommitRules.Reselect(false, true, 5, 5));
+
+    [Fact]
+    public void ReselectingACompletePageCancelsTheLaterNavigation() =>
+        Assert.Equal(ReselectOutcome.CancelPending, FeedNavigationCommitRules.Reselect(false, false, 6, 5));
+
+    [Fact]
+    public void ReselectingALoadingPageAnotherNavigationOvertookLoadsItAgain() =>
+        Assert.Equal(ReselectOutcome.Reload, FeedNavigationCommitRules.Reselect(false, true, 6, 5));
+
+    [Fact]
+    public void ReselectingAPageClearedForANavigationLoadsItAgain() =>
+        Assert.Equal(ReselectOutcome.Reload, FeedNavigationCommitRules.Reselect(true, false, 5, 5));
 }
