@@ -100,9 +100,34 @@ struct CatalogPageView: Hashable {
 
     var isEmpty: Bool { shelves.isEmpty && tracks.isEmpty }
 
+    /// The page's songs as one list. An artist answer can carry its top songs twice, as `tracks`
+    /// and again as a list shelf, the latter sometimes in a continuation; that shelf's songs join
+    /// the list once, in order, and the shelf itself is not shown. Any other page is unchanged.
+    var listedTracks: [GoosicTrack] { mergedTopSongs.tracks }
+
+    /// The page's shelves without a list shelf that repeats its songs. See `listedTracks`.
+    var listedShelves: [GoosicShelf] { mergedTopSongs.shelves }
+
+    private var mergedTopSongs: (tracks: [GoosicTrack], shelves: [GoosicShelf]) {
+        guard artist != nil, !tracks.isEmpty else { return (tracks, shelves) }
+        var merged = tracks
+        var seen = Set(tracks.map(\.videoID))
+        var kept: [GoosicShelf] = []
+        for shelf in shelves {
+            // Only a list of songs that shares one with the list is the same list; albums,
+            // singles, videos and related artists are left alone.
+            if shelf.isList, let rows = shelf.playableRows, rows.contains(where: { seen.contains($0.videoID) }) {
+                for row in rows where seen.insert(row.videoID).inserted { merged.append(row) }
+            } else {
+                kept.append(shelf)
+            }
+        }
+        return (merged, kept)
+    }
+
     /// Every playable row on the page, in display order, for queueing.
     var playableTracks: [GoosicTrack] {
-        tracks + shelves.flatMap { shelf in
+        listedTracks + listedShelves.flatMap { shelf in
             shelf.cards.compactMap { card in
                 if case .play(let track) = card.action { return track }
                 return nil
