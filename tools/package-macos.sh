@@ -23,7 +23,20 @@ if ! printf '%s\n' "$bundle_version" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]
     echo "Expected a semantic version such as v0.2.3-alpha.1" >&2
     exit 2
 fi
-build_version=${GOOSIC_MACOS_BUILD_VERSION:-$bundle_version}
+# Sparkle offers an update only when CFBundleVersion is higher than the installed one, so it is
+# derived from the version rather than typed: MAJOR*10000 + MINOR*100 + PATCH, which makes 0.3.1
+# build 301. Every release that raises the version raises the build, and it already beats the
+# hand-numbered builds 1 to 8 that came before it. docs/RELEASING.md explains the scheme.
+major=${bundle_version%%.*}
+patch=${bundle_version##*.}
+minor=${bundle_version#*.}
+minor=${minor%.*}
+if [ "$minor" -ge 100 ] || [ "$patch" -ge 100 ]; then
+    echo "Minor and patch must stay below 100 for the derived build number" >&2
+    exit 2
+fi
+derived_build=$((major * 10000 + minor * 100 + patch))
+build_version=${GOOSIC_MACOS_BUILD_VERSION:-$derived_build}
 if ! printf '%s\n' "$build_version" | /usr/bin/grep -Eq '^[0-9]+(\.[0-9]+){0,2}$'; then
     echo "Expected a numeric macOS build version" >&2
     exit 2
