@@ -11,6 +11,16 @@ The native shells are now integrated on development; releases no longer tag a pl
 
 ## Making one
 
+Start by freezing the version, before anything is promoted. Write `docs/RELEASE_<x.y.z>.md`,
+then run `sh tools/bump-version.sh <x.y.z>` on a `feature/` branch cut from development. It moves
+every default a release reads — the workspace version in `Cargo.toml` and the workspace's entries
+in `Cargo.lock`, the release workflow's default tag and notes file, the Windows and macOS
+packaging defaults, and the example tag below — refuses to finish if the notes file is missing,
+and lists every line that still mentions the old version so a missed default is visible. What it
+leaves is the README's prose and the protocol's own version, which shares numbers with a release
+but is not one. 0.3.0 was renamed late, after the deploy pull request had opened, and the rename
+cost a second full round of CI; freezing first means the deployment carries the final number.
+
 Merge the coherent platform changes into development, run the required tests, and deploy
 by merging development into main. Tag that deployment commit with a numeric version such as
 `v0.3.0` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
@@ -23,8 +33,13 @@ is complete.
 
 Publishing does not reach a Mac. Every installed copy reads `updates/macos-alpha.xml` from
 `development`, and CI cannot sign that feed, so a release is not finished until someone on the
-release Mac has run Sparkle's `sign_update` on the published ZIP, added an item with a higher
-`sparkle:version` to the top of the feed, and landed it on `development`. Skipping this looks like
+release Mac has run Sparkle's `sign_update` on the published ZIP, added an item to the top of the
+feed, and landed it on `development`. The item's `sparkle:version` must equal the built app's
+`CFBundleVersion`, read from the downloaded ZIP with
+`/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Goosic.app/Contents/Info.plist`, and
+`sparkle:shortVersionString` the release version. Sparkle decides by the build number alone: an
+item whose `sparkle:version` is higher than the app inside it makes every Mac download the update,
+install it, and be offered it again. Skipping this looks like
 nothing at all: the feed stayed at 0.2.4 through later releases, and every Mac went on reporting
 0.2.4 as the newest version, even one already running something newer. Because the feed is read live, the
 correction reaches copies already installed without anyone reinstalling. Without the private
@@ -49,6 +64,54 @@ The two halves are built by scripts that also work locally, which is how they ar
 Each carries its own copy of the service because that is how the shells find it. The macOS shell
 looks beside its executable when `GOOSIC_SERVICE_PATH` is unset, which is the case for anything
 opened from the Finder; the Windows shell has always looked beside its own executable first.
+
+## The macOS build number
+
+Sparkle offers an update only when its `sparkle:version` is higher than the installed app's
+`CFBundleVersion`, so that number has to rise with every release. It used to be typed into the
+release workflow, and nobody raised it after 0.2.9: 0.2.10 and 0.3.0 both came out of CI as
+build 7, the same as 0.2.9, so the feed could not offer 0.3.0 until its Mac ZIP was rebuilt by
+hand from the tag as build 8 and replaced on the release.
+
+`tools/package-macos.sh` now derives it from the version as MAJOR × 10000 + MINOR × 100 + PATCH,
+so 0.3.1 is build 301 and 1.0.0 is build 10000. A higher version always gives a higher build, the
+same tag always gives the same build, so a retried workflow run produces an identical app, and
+every derived number is above the hand-numbered builds 1 to 8 already in the feed. The scheme
+holds while minor and patch stay below 100, and the script refuses a version that breaks that
+rather than producing a number that could go backwards. A commit count was the alternative, but
+it depends on how much history a checkout has and says nothing a person can read back to a
+release.
+
+The release workflow then compares the packaged app's `CFBundleVersion` with the highest
+`sparkle:version` in `updates/macos-alpha.xml` and fails if it is not above it, so a collision
+stops the run instead of surfacing after publication. `GOOSIC_MACOS_BUILD_VERSION` still
+overrides the derivation for the one case it cannot cover: two macOS builds of the same version,
+such as a second `-macos-alpha` of one base version, where the later one needs a number above the
+derived one.
+
+## Keeping the release moving
+
+A release is a chain of pull requests — feature into `development`, any platform promotions,
+then the deploy pull request into `main` — and each waits 15 to 20 minutes for CI. 0.3.0 took
+about an hour and fifty minutes from start to draft, and almost none of that was work: it was
+CI running one pull request after another, and green pull requests sitting unmerged until
+someone looked. Three habits remove most of it.
+
+Freeze the version first, as above, so no rename reopens a pull request that has already passed.
+
+Queue each merge instead of watching for it. `gh pr merge <number> --auto --merge` merges a pull
+request the moment its required checks pass, so the next one in the chain can open straight
+away rather than whenever someone next looks. Use it on the promotion pull requests and on the
+deploy pull request; `--merge` keeps the merge commit that `main`'s history is built from. It
+needs auto-merge enabled in the repository's settings (General → Pull Requests → Allow
+auto-merge), which only an administrator can switch on; until it is, the command is refused and
+the merge stays a manual click.
+
+Treat a late review finding as the next patch unless it blocks the release. A finding that
+arrives after the deploy pull request is green, and does not break what the release notes
+promise, goes into a `fix/` branch for the following version. Reopening the deployment for it
+costs another full round of CI on every pull request in the chain, which is what added two
+rounds to 0.3.0.
 
 ## What a tester has to click
 
