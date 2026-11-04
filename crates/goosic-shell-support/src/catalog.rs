@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use goosic_protocol::{ArtistHeader, CatalogItem, CatalogItemKind, CatalogPage};
+use goosic_protocol::{ArtistHeader, CatalogItem, CatalogItemKind, CatalogPage, ShelfLayout};
 
 use crate::navigation::EntityReference;
 use crate::text::trim_spaces;
@@ -137,6 +137,8 @@ pub struct Shelf {
     pub id: String,
     pub title: String,
     pub cards: Vec<Card>,
+    /// Upstream sent the shelf as rows of songs rather than a row of cards.
+    pub is_list: bool,
 }
 
 impl Shelf {
@@ -195,6 +197,7 @@ impl PageView {
                     id,
                     title: shelf.title.clone(),
                     cards: Shelf::uniqued(shelf.items.iter().map(Card::from_catalog).collect()),
+                    is_list: shelf.layout == ShelfLayout::List,
                 }
             })
             .collect();
@@ -256,13 +259,50 @@ impl PageView {
         }
     }
 
+    /// The page's songs as one list. An artist answer can carry its top songs twice, as `tracks`
+    /// and again as a list shelf, the latter sometimes in a continuation; that shelf's songs join
+    /// the list once, in order, and the shelf itself is not shown. Any other page is unchanged.
+    pub fn listed_tracks(&self) -> Vec<Track> {
+        self.merged_top_songs().0
+    }
+
+    /// The page's shelves without a list shelf that repeats its songs. See `listed_tracks`.
+    pub fn listed_shelves(&self) -> Vec<Shelf> {
+        self.merged_top_songs().1
+    }
+
+    fn merged_top_songs(&self) -> (Vec<Track>, Vec<Shelf>) {
+        if self.artist.is_none() || self.tracks.is_empty() {
+            return (self.tracks.clone(), self.shelves.clone());
+        }
+        let mut tracks = self.tracks.clone();
+        let mut seen: HashSet<String> = tracks.iter().map(|t| t.video_id.clone()).collect();
+        let mut shelves = Vec::new();
+        for shelf in &self.shelves {
+            // Only a list of songs that shares one with the list is the same list; albums,
+            // singles, videos and related artists are left alone.
+            match shelf.track_list() {
+                Some(rows)
+                    if shelf.is_list && rows.iter().any(|row| seen.contains(&row.video_id)) =>
+                {
+                    for row in rows {
+                        if seen.insert(row.video_id.clone()) {
+                            tracks.push(row);
+                        }
+                    }
+                }
+                _ => shelves.push(shelf.clone()),
+            }
+        }
+        (tracks, shelves)
+    }
+
     /// Every playable row on the page, in display order, for queueing.
     pub fn playable_tracks(&self) -> Vec<Track> {
-        self.tracks
-            .iter()
-            .cloned()
+        self.listed_tracks()
+            .into_iter()
             .chain(
-                self.shelves
+                self.listed_shelves()
                     .iter()
                     .flat_map(|shelf| shelf.cards.iter().filter_map(Card::track).cloned()),
             )
@@ -543,11 +583,13 @@ mod tests {
             id: "s".into(),
             title: "Songs".into(),
             cards: [&song, &other].map(Card::from_catalog).to_vec(),
+            is_list: false,
         };
         let mixed = Shelf {
             id: "m".into(),
             title: "Mixed".into(),
             cards: [&song, &album].map(Card::from_catalog).to_vec(),
+            is_list: false,
         };
         assert_eq!(songs.track_list().map(|tracks| tracks.len()), Some(2));
         assert_eq!(mixed.track_list(), None);
@@ -610,6 +652,101 @@ mod tests {
             .map(|t| t.id)
             .collect();
         assert_eq!(ids, ["a", "b"]);
+    }
+
+    fn artist_page(tracks: &[&str], shelves: Vec<CatalogShelf>, artist: bool) -> PageView {
+        let song = |id: &&str| item(CatalogItemKind::Song, id, id, Some(id));
+        PageView::from_wire(&CatalogPage {
+            id: "UCartist".into(),
+            title: "Signal Fires".into(),
+            shelves,
+            tracks: tracks.iter().map(song).collect(),
+            artist: artist.then(ArtistHeader::default),
+            ..Default::default()
+        })
+    }
+
+    fn song_shelf(id: &str, ids: &[&str], layout: ShelfLayout) -> CatalogShelf {
+        CatalogShelf {
+            id: id.into(),
+            title: id.into(),
+            items: ids
+                .iter()
+                .map(|video| item(CatalogItemKind::Song, video, video, Some(video)))
+                .collect(),
+            layout,
+        }
+    }
+
+    fn album_shelf(id: &str) -> CatalogShelf {
+        CatalogShelf {
+            id: id.into(),
+            title: id.into(),
+            items: vec![item(CatalogItemKind::Album, &format!("MPRE{id}"), id, None)],
+            layout: ShelfLayout::Cards,
+        }
+    }
+
+    fn ids(tracks: Vec<Track>) -> Vec<String> {
+        tracks.into_iter().map(|t| t.id).collect()
+    }
+
+    fn shelf_ids(shelves: Vec<Shelf>) -> Vec<String> {
+        shelves.into_iter().map(|s| s.id).collect()
+    }
+
+    // The same four cases as the Swift `ArtistTopSongsTests`.
+    #[test]
+    fn a_repeated_top_song_shelf_joins_the_list_once() {
+        let page = artist_page(
+            &["a", "b"],
+            vec![
+                song_shelf("Top songs", &["b", "c"], ShelfLayout::List),
+                album_shelf("Albums"),
+            ],
+            true,
+        );
+        assert_eq!(ids(page.listed_tracks()), ["a", "b", "c"]);
+        assert_eq!(shelf_ids(page.listed_shelves()), ["Albums"]);
+        assert_eq!(ids(page.playable_tracks()), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn unrelated_song_shelves_and_carousels_stay() {
+        let page = artist_page(
+            &["a"],
+            vec![
+                song_shelf("Singles", &["x", "y"], ShelfLayout::List),
+                song_shelf("Videos", &["a"], ShelfLayout::Cards),
+            ],
+            true,
+        );
+        assert_eq!(ids(page.listed_tracks()), ["a"]);
+        assert_eq!(shelf_ids(page.listed_shelves()), ["Singles", "Videos"]);
+    }
+
+    #[test]
+    fn other_pages_keep_their_shelves() {
+        let page = artist_page(
+            &["a"],
+            vec![song_shelf("Top songs", &["a", "b"], ShelfLayout::List)],
+            false,
+        );
+        assert_eq!(ids(page.listed_tracks()), ["a"]);
+        assert_eq!(shelf_ids(page.listed_shelves()), ["Top songs"]);
+    }
+
+    #[test]
+    fn a_continuation_that_repeats_the_songs_is_merged_too() {
+        let first = artist_page(&["a", "b"], vec![], true);
+        let next = artist_page(
+            &[],
+            vec![song_shelf("Top songs", &["a", "b", "c"], ShelfLayout::List)],
+            false,
+        );
+        let joined = first.appending(&next);
+        assert_eq!(ids(joined.listed_tracks()), ["a", "b", "c"]);
+        assert!(joined.listed_shelves().is_empty());
     }
 
     /// A radio page is tracks-only, unlike the shelf pages the browse routes return.
