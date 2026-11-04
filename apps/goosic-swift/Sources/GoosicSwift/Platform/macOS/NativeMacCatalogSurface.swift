@@ -14,6 +14,8 @@ struct NativeMacCatalogPage: SwiftUI.View {
     var contentTopInset: CGFloat = 0
     /// The colour an artist page takes from its banner, once sampled.
     @SwiftUI.State private var artistTint: SwiftUI.Color?
+    /// The scroller's width, for the artist backdrop behind it only. Nothing inside the scroller may
+    /// be sized from it: see `NativeMacArtistHero`.
     @SwiftUI.State private var pageWidth: CGFloat = 0
     /// Held in plain state, not observed here, so scrolling redraws only the artist's backdrop.
     @SwiftUI.State private var artistScroll = NativeMacArtistScroll()
@@ -25,22 +27,31 @@ struct NativeMacCatalogPage: SwiftUI.View {
         return (header, channelID)
     }
 
+    /// What the artist chrome is drawn from: the loaded header, or an empty one while an artist page
+    /// loads, so the page opens at the hero's final geometry and the standard heading never flashes
+    /// up before the banner arrives.
+    private var artistChrome: GoosicArtistHeader? {
+        if let artistHeader { return artistHeader.header }
+        if case .artist = key, state.isLoading { return GoosicArtistHeader() }
+        return nil
+    }
+
     /// Until the banner is sampled the page uses a deep shade of the accent, never another
     /// picture's colour.
     private var heroTint: SwiftUI.Color { artistTint ?? SwiftUI.Color(red: 0.24, green: 0.05, blue: 0.12) }
 
     var body: some SwiftUI.View {
-        if let artistHeader {
+        if let artistChrome {
             scroller
                 .ignoresSafeArea(.container, edges: .top)
                 // The artist's colour is the whole page's, as in Music, so the page is drawn dark
                 // over it in either appearance.
-                .background(artistBackground(artistHeader.header))
+                .background(artistBackground(artistChrome))
                 .environment(\.colorScheme, .dark)
                 .background(
                     NativeMacArtistTintReader(
                         cache: model.artwork,
-                        url: artistHeader.header.banner ?? artistHeader.header.portrait
+                        url: artistChrome.banner ?? artistChrome.portrait
                     ) { tint in artistTint = tint }
                 )
                 .onChange(of: key) { _, _ in
@@ -96,8 +107,7 @@ struct NativeMacCatalogPage: SwiftUI.View {
     /// disables itself.
     @SwiftUI.ViewBuilder
     private var artistHero: some SwiftUI.View {
-        if let artistHeader, !state.isLoading, state.failure == nil, let page = state.page,
-           pageWidth > leadingInset {
+        if let artistHeader, !state.isLoading, state.failure == nil, let page = state.page {
             SwiftUI.VStack(alignment: .leading, spacing: 12) {
                 NativeMacArtistHero(
                     header: artistHeader.header,
@@ -106,18 +116,21 @@ struct NativeMacCatalogPage: SwiftUI.View {
                     tracks: shownTracks(page),
                     source: source(page),
                     key: key,
-                    width: pageWidth - leadingInset,
                     scroll: artistScroll,
                     model: model
                 )
                 .padding(.leading, leadingInset)
-                if !page.tracks.isEmpty {
+                if !page.listedTracks.isEmpty {
                     SwiftUI.Text("Top Songs")
                         .font(.title3.weight(.semibold))
                         .padding(.leading, leadingInset + 24)
                 }
             }
             .padding(.bottom, -16)
+        } else if artistChrome != nil, state.isLoading {
+            NativeMacArtistHeroPlaceholder(name: heading)
+                .padding(.leading, leadingInset)
+                .padding(.bottom, -16)
         }
     }
 
@@ -126,7 +139,7 @@ struct NativeMacCatalogPage: SwiftUI.View {
             SwiftUI.VStack(alignment: .leading, spacing: 28) {
                 artistHero
                 SwiftUI.LazyVStack(alignment: .leading, spacing: 28) {
-                    if showsHeading && artistHeader == nil {
+                    if showsHeading && artistChrome == nil {
                         SwiftUI.HStack(alignment: .firstTextBaseline, spacing: 16) {
                             SwiftUI.VStack(alignment: .leading, spacing: 4) {
                                 SwiftUI.Text(heading).font(.system(size: 30, weight: .bold))
@@ -148,8 +161,8 @@ struct NativeMacCatalogPage: SwiftUI.View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.vertical, artistHeader == nil ? 24 : 0)
-            .padding(.bottom, artistHeader == nil ? 0 : 24)
+            .padding(.vertical, artistChrome == nil ? 24 : 0)
+            .padding(.bottom, artistChrome == nil ? 0 : 24)
             .padding(.top, contentTopInset)
             .padding(.bottom, playerClearance)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -209,7 +222,7 @@ struct NativeMacCatalogPage: SwiftUI.View {
 
     /// The rows on screen, in the order on screen. Play and a clicked row queue exactly these.
     private func shownTracks(_ page: CatalogPageView) -> [GoosicTrack] {
-        model.trackSortOrder.sorted(model.visible(page.tracks)).filter { TrackSortOrder.matches($0, model.trackFindText) }
+        model.trackSortOrder.sorted(model.visible(page.listedTracks)).filter { TrackSortOrder.matches($0, model.trackFindText) }
     }
 
     private func source(_ page: CatalogPageView) -> QueueSource {
@@ -295,7 +308,7 @@ struct NativeMacCatalogPage: SwiftUI.View {
             .padding(.trailing, 48)
             .padding(.bottom, 8)
         }
-        if !page.tracks.isEmpty {
+        if !page.listedTracks.isEmpty {
             NativeMacTrackList(
                 tracks: tracks,
                 model: model,
@@ -330,7 +343,7 @@ struct NativeMacCatalogPage: SwiftUI.View {
             .padding(.leading, leadingInset + 24)
             .padding(.trailing, 24)
         } else {
-            SwiftUI.ForEach(page.shelves) { shelf in
+            SwiftUI.ForEach(page.listedShelves) { shelf in
                 NativeMacShelf(
                     shelf: shelf, model: model,
                     presentation: .preferred(for: key, shelf: shelf),
@@ -1307,7 +1320,13 @@ struct NativeMacTrackMenuItems: SwiftUI.View {
         }
         if model.activeAccount != nil {
             SwiftUI.Divider()
-            NativeMacAddToPlaylistMenu(track: track, model: model)
+            NativeMacAddToPlaylistMenu(
+                track: track,
+                playlists: model.userPlaylists,
+                state: model.userPlaylistsState,
+                model: model
+            )
+            .equatable()
             if let container, model.canRemove(from: container) {
                 SwiftUI.Button(
                     container.isLikedMusic ? "Remove from Liked Music" : "Remove from Playlist",
@@ -1324,12 +1343,22 @@ struct NativeMacTrackMenuItems: SwiftUI.View {
 
 /// The destinations a track can be added to.
 ///
-/// The list is read when the submenu opens rather than kept for the session: the destinations are
-/// the entire point of the menu, and a playlist made in another client — or here, a moment ago —
-/// missing from it is indistinguishable from that playlist not existing.
-private struct NativeMacAddToPlaylistMenu: SwiftUI.View {
+/// The list is loaded the first time the submenu opens and kept, so a playlist made here appears
+/// at once, and Try Again re-reads it.
+///
+/// Its inputs are values and it is compared on them alone. Every view that hosts a song menu
+/// observes the whole app model, which republishes several times a second while music plays;
+/// without the comparison each of those rebuilt this submenu, and macOS redrew the open submenu
+/// under the pointer until a playlist could only be chosen between two flashes.
+private struct NativeMacAddToPlaylistMenu: SwiftUI.View, Equatable {
     let track: GoosicTrack
+    let playlists: [PersonalPlaylistSummary]
+    let state: CatalogContinuationState
     let model: GoosicAppModel
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.track.id == rhs.track.id && lhs.playlists == rhs.playlists && lhs.state == rhs.state
+    }
 
     // Menus are built from their own content, so the icon style is set here rather than
     // inherited from the window; without it macOS drops every menu icon.
@@ -1343,15 +1372,15 @@ private struct NativeMacAddToPlaylistMenu: SwiftUI.View {
             SwiftUI.Button("New Playlist…", systemImage: "plus") {
                 model.beginNewPlaylist(for: track)
             }
-            switch model.userPlaylistsState {
+            switch state {
             case .loading:
                 SwiftUI.Text("Loading your playlists…")
             case .failed(let message):
                 SwiftUI.Text(message)
                 SwiftUI.Button("Try Again", systemImage: "arrow.clockwise") { model.loadUserPlaylists(force: true) }
             case .idle:
-                if !model.userPlaylists.isEmpty { SwiftUI.Divider() }
-                SwiftUI.ForEach(model.userPlaylists) { playlist in
+                if !playlists.isEmpty { SwiftUI.Divider() }
+                SwiftUI.ForEach(playlists) { playlist in
                     SwiftUI.Button(playlist.title, systemImage: "music.note.list") {
                         model.addTrackToPlaylist(track, playlist: playlist)
                     }
