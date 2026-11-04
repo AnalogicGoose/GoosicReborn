@@ -23,6 +23,11 @@ final class NativeMacArtistScroll: ObservableObject {
 /// The banner itself is `NativeMacArtistBackdrop`, which stays where it is behind the page while
 /// this scrolls over it. Everything shown comes from the page's `artist` header, and
 /// `ArtistHero` decides the height and the colour, the same way on every platform.
+///
+/// Its width is whatever the page offers and its height follows from that width, through
+/// `NativeMacArtistHeroFrame`. It must never be given a width measured from the page: the window
+/// computes its minimum size from the page's content, so a fixed width taken from the page's own
+/// geometry makes that minimum depend on itself, and SwiftUI lays the window out forever.
 struct NativeMacArtistHero: SwiftUI.View {
     let header: GoosicArtistHeader
     let name: String
@@ -31,14 +36,12 @@ struct NativeMacArtistHero: SwiftUI.View {
     let tracks: [GoosicTrack]
     let source: QueueSource
     let key: CatalogKey
-    let width: CGFloat
     let scroll: NativeMacArtistScroll
     let model: GoosicAppModel
 
     @SwiftUI.Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @SwiftUI.State private var showsAbout = false
 
-    private var height: CGFloat { CGFloat(ArtistHero.height(forWidth: Double(width))) }
     private var playingHere: Bool { model.isPlayingFrom(key) }
     private var showsPause: Bool { playingHere && !model.isPaused }
 
@@ -60,9 +63,11 @@ struct NativeMacArtistHero: SwiftUI.View {
         .foregroundStyle(.white)
         .padding(.horizontal, 32)
         .padding(.bottom, 30)
-        .frame(width: width, height: height, alignment: .bottom)
-        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { top in
-            scroll.update(-top / height)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .modifier(NativeMacArtistHeroFrame())
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .scrollView) } action: { frame in
+            guard frame.height > 0 else { return }
+            scroll.update(-frame.minY / frame.height)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(name)
@@ -159,6 +164,58 @@ struct NativeMacArtistHero: SwiftUI.View {
 /// time the hero has gone the page is the artist's colour alone, as in Music. Without a banner
 /// the header's portrait is a circle near the top, as the previous Goosic showed it, and with
 /// neither it is the page colour alone; a song's cover is never used in their place.
+/// The hero's place while an artist page loads: the name where it will sit, at the height the
+/// hero will have, over the default colour, so nothing moves when the banner and buttons arrive.
+struct NativeMacArtistHeroPlaceholder: SwiftUI.View {
+    let name: String
+
+    var body: some SwiftUI.View {
+        SwiftUI.VStack(spacing: 10) {
+            SwiftUI.Text(name)
+                .font(.system(size: 52, weight: .bold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+                .multilineTextAlignment(.center)
+                .shadow(color: .black.opacity(0.25), radius: 12, y: 2)
+            // The buttons' row, kept empty so the name does not drop when they appear.
+            SwiftUI.Color.clear.frame(height: 72).padding(.top, 14)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 32)
+        .padding(.bottom, 30)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .modifier(NativeMacArtistHeroFrame())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(name.isEmpty ? "Loading artist" : "Loading \(name)")
+    }
+}
+
+/// Takes the width offered and answers `ArtistHero.height` for it, without asking the hero's
+/// content. A query for the minimum or ideal size therefore costs nothing and contributes no
+/// width, so the hero cannot hold the window open at the width it was last drawn at.
+private struct NativeMacArtistHeroFrame: SwiftUI.ViewModifier {
+    func body(content: Content) -> some SwiftUI.View {
+        Layout { content }
+    }
+
+    private struct Layout: SwiftUI.Layout {
+        func sizeThatFits(proposal: SwiftUI.ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            // An unspecified width is a question about the ideal size, answered with none; an
+            // infinite one is a question about the maximum, answered with the tallest hero.
+            let width = proposal.width ?? 0
+            return CGSize(width: width, height: CGFloat(ArtistHero.height(forWidth: Double(width))))
+        }
+
+        func placeSubviews(
+            in bounds: CGRect, proposal: SwiftUI.ProposedViewSize, subviews: Subviews, cache: inout ()
+        ) {
+            for subview in subviews {
+                subview.place(at: bounds.origin, proposal: SwiftUI.ProposedViewSize(bounds.size))
+            }
+        }
+    }
+}
+
 struct NativeMacArtistBackdrop: SwiftUI.View {
     let header: GoosicArtistHeader
     let tint: SwiftUI.Color
