@@ -9,7 +9,7 @@ on:
             tag:
                 description: Existing release tag to package
                 required: true
-                default: v0.3.0
+                default: v0.3.1
             windows_run_id:
                 description: Successful Windows artifact run for the same tag
                 required: true
@@ -39,9 +39,16 @@ jobs:
             - name: Package and verify the app
               run: |
                   version="${RELEASE_TAG#v}"
-                  GOOSIC_MACOS_BUILD_VERSION=7 sh tools/package-macos.sh "$version"
+                  # The build number is derived from the version by the script; see RELEASING.md.
+                  sh tools/package-macos.sh "$version"
                   unzip -q "dist/Goosic-$version-macos-universal.zip" -d dist/verify
                   app=dist/verify/Goosic.app
+                  # Sparkle offers nothing whose build is not above the feed's newest item, so
+                  # a collision fails here instead of after the release is published.
+                  build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")
+                  newest=$(sed -n 's:.*<sparkle\:version>\([0-9]*\)</sparkle\:version>.*:\1:p' updates/macos-alpha.xml | sort -n | tail -1)
+                  echo "CFBundleVersion $build; newest in the feed ${newest:-none}"
+                  test "$build" -gt "${newest:-0}"
                   codesign --verify --deep --strict "$app"
                   lipo "$app/Contents/MacOS/Goosic" -verify_arch arm64 x86_64
                   lipo "$app/Contents/MacOS/goosic-service" -verify_arch arm64 x86_64
@@ -125,7 +132,7 @@ jobs:
                   prerelease: false
                   name: Goosic ${{ env.RELEASE_TAG }}
                   tag_name: ${{ env.RELEASE_TAG }}
-                  body_path: docs/RELEASE_0.3.0.md
+                  body_path: docs/RELEASE_0.3.1.md
                   fail_on_unmatched_files: true
                   files: |
                       downloads/macos/*.zip
