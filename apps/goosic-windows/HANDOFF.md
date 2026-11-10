@@ -203,7 +203,10 @@ A rule that decides something belongs in `Presentation/`, where a test can reach
 `MainWindow.*.cs` partials only apply its answer to controls.
 
 If the app is running, the exe is locked: build with `-p:OutDir=<another folder>\` or close it.
-Logs: `%LOCALAPPDATA%\Goosic\logs\bridge.log` (host and path only, never credentials).
+Logs: `%LOCALAPPDATA%\Goosic\logs\bridge.log` (host and path only, never credentials). When it
+passes 512 KB it is kept as `bridge.log.1` and a new one is started, so a failed play is still
+there after the next few songs. A playing track is logged on every change of state and otherwise
+once every five seconds, not for every sample.
 
 ## Traps that will cost you a day
 

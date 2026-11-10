@@ -817,11 +817,38 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     public bool HasLyricLines => _lyricsState.HasLines;
     public string AccountStatus { get => _accountStatus; private set => Set(ref _accountStatus, value); }
     public double PlaybackPosition { get => _playbackPosition; private set => Set(ref _playbackPosition, value); }
-    public double PlaybackDuration { get => _playbackDuration; private set => Set(ref _playbackDuration, value); }
+    public double PlaybackDuration
+    {
+        get => _playbackDuration;
+        private set
+        {
+            if (Set(ref _playbackDuration, value))
+            {
+                RefreshSeekable();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Announces <see cref="IsSeekable"/> when it has changed, from the two things it depends on.
+    /// </summary>
+    /// <remarks>
+    /// It used to be announced with every sample, several times a second, and not at all when a
+    /// new track reset the length, which left the position line drawn as seekable over nothing.
+    /// </remarks>
+    private void RefreshSeekable()
+    {
+        if (IsSeekable != _reportedSeekable)
+        {
+            _reportedSeekable = IsSeekable;
+            OnPropertyChanged(nameof(IsSeekable));
+        }
+    }
     /// <summary>Seeking needs a real length, and is never offered during an advertisement.</summary>
     public bool IsSeekable => PlaybackDuration > 0 && !_isAdvertisement;
 
     private bool _isAdvertisement;
+    private bool _reportedSeekable;
 
     /// <summary>Whether the official player is showing an advertisement right now.</summary>
     public bool IsAdvertisement
@@ -831,7 +858,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         {
             if (Set(ref _isAdvertisement, value))
             {
-                OnPropertyChanged(nameof(IsSeekable));
+                RefreshSeekable();
                 OnPropertyChanged(nameof(CanSkip));
             }
         }
@@ -1055,7 +1082,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         Volume = Math.Clamp(sample.Volume, 0, 1);
         IsMuted = sample.Muted;
         IsPlaying = sample.State == "playing";
-        OnPropertyChanged(nameof(IsSeekable));
         if (!sample.IsAdvertisement && _pendingTrack is { } pending && IsPendingVideo(sample.VideoId))
         {
             var changed = !ReferenceEquals(_confirmedTrack, pending);
