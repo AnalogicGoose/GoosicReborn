@@ -217,8 +217,16 @@ public sealed partial class MainWindow : Window
 
     private async Task PlayEntryAsync(TrackViewModel? entry)
     {
-        if (entry?.VideoId is not { Length: > 0 } videoId)
+        if (entry is null)
         {
+            // Nothing was chosen, and whatever declined to choose has said why.
+            return;
+        }
+
+        if (entry.VideoId is not { Length: > 0 } videoId)
+        {
+            BridgeLog.Write("play refused: the row has no video id");
+            Model.ReportStatus($"“{entry.Title}” can’t be played.");
             return;
         }
 
