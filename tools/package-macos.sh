@@ -14,7 +14,7 @@ set -eu
 
 test "$(uname -s)" = Darwin || { echo "macOS app bundles are built on macOS" >&2; exit 2; }
 
-version=${1:-0.3.1}
+version=${1:-0.3.2}
 version=${version#v}
 # Finder's bundle versions are numeric, even when the release tag is a prerelease.
 bundle_version=${version%%-*}
