@@ -25,7 +25,19 @@ import SwiftUI
 enum NowPlayingPaletteLoader {
     /// Survives the player closing, so reopening it fades in the finished background. Sampling
     /// again meant the field first appeared partway through the fade, the costliest moment for it.
-    @MainActor static var last: (file: URL, palette: [MeshSample])?
+    @MainActor static var last: (file: URL, palette: [MeshSample])? = perfFixture
+
+    /// The perf fixture's covers are never fetched, so `GOOSIC_PERF_PAGE=player` supplies the
+    /// colours a cover would have; without them that page would measure a player with no backdrop.
+    private static var perfFixture: (file: URL, palette: [MeshSample])? {
+        guard ProcessInfo.processInfo.environment["GOOSIC_PERF_PAGE"] == "player" else { return nil }
+        return (URL(fileURLWithPath: "/dev/null"), [
+            MeshSample(red: 214, green: 68, blue: 122, weight: 1),
+            MeshSample(red: 52, green: 88, blue: 196, weight: 0.7),
+            MeshSample(red: 238, green: 170, blue: 64, weight: 0.5),
+            MeshSample(red: 28, green: 30, blue: 54, weight: 0.4),
+        ])
+    }
 
     static func palette(at file: URL) -> [MeshSample]? {
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
@@ -63,16 +75,24 @@ enum NowPlayingPaletteLoader {
 /// which is what made the player's opening fade stutter; this takes 27% and looks the same.
 struct NowPlayingMeshBackground: View {
     private static let rasterDivisor: CGFloat = 8
+    /// The drift moves the field well under a point per frame even at this rate, so half the
+    /// frames of 30 a second look the same and cost about half as much of the main thread.
+    private static let framesPerSecond = 15.0
 
     let palette: [MeshSample]
     /// Held still while the player slides, so the move only repositions a finished image.
     var still = false
     @Environment(\.goosicReduceMotion) private var reduceMotion
+    @Environment(\.goosicWindowHidden) private var windowHidden
+    @Environment(\.goosicLowPower) private var lowPower
 
     var body: some View {
         let cells = NowPlayingMesh.cells(for: palette)
         GeometryReader { proxy in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || still)) { timeline in
+            // Paused, the field keeps the frame it last drew: unseen behind a hidden window, and
+            // a still backdrop in Low Power Mode, where decorative motion is not worth the battery.
+            TimelineView(.animation(minimumInterval: 1.0 / Self.framesPerSecond,
+                                    paused: reduceMotion || still || windowHidden || lowPower)) { timeline in
                 field(cells: cells, size: proxy.size, time: timeline.date.timeIntervalSinceReferenceDate)
             }
         }

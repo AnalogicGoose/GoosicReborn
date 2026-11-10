@@ -158,6 +158,7 @@ struct NativeMacMiniPlayer: SwiftUI.View {
         .preferredColorScheme(store.model.theme.colorScheme)
         .environment(\.goosicArtworkModel, store.model)
         .environment(\.goosicReduceMotion, systemReduceMotion || store.model.reduceMotion)
+        .modifier(NativeMacWindowActivity())
     }
 }
 
@@ -429,6 +430,7 @@ private struct NativeMacRootView: SwiftUI.View {
         .animation(reduceMotion ? nil : .spring(duration: 0.3), value: model.notice)
         .environment(\.goosicArtworkModel, model)
         .environment(\.goosicReduceMotion, reduceMotion)
+        .modifier(NativeMacWindowActivity())
         .preferredColorScheme(model.theme.colorScheme)
     }
 

@@ -677,6 +677,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         isPaused = false
         duration = 240
         queueVisible = ProcessInfo.processInfo.environment["GOOSIC_PERF_PAGE"] == "queue"
+        fullPlayerOpen = ProcessInfo.processInfo.environment["GOOSIC_PERF_PAGE"] == "player"
         // The official player reports every 500 ms and the model publishes the position once
         // its displayed second changes, exactly as `receive(_: OfficialPlaybackEvent)` does.
         var position = 0.0

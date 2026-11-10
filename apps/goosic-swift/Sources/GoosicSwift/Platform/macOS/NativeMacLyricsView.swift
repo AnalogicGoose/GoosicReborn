@@ -9,6 +9,7 @@ struct NativeMacLyricsView: View {
     @ObservedObject var clock: PlaybackClock
     let immersive: Bool
     @Environment(\.goosicReduceMotion) private var reduceMotion
+    @Environment(\.goosicWindowHidden) private var windowHidden
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var followsPlayback = true
     @State private var positionSample = Date()
@@ -115,7 +116,7 @@ struct NativeMacLyricsView: View {
     private func lineLabel(_ line: GoosicLyricsLine, index: Int, active: Bool, synced: Bool) -> some View {
         if active && synced && !(line.words ?? []).isEmpty && followsPlayback && !reduceMotion && contrast != .increased {
             // Only the active line redraws at display cadence. Never advance the playback model.
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: model.isPaused || model.isAdvertisement || !model.serviceConnected || model.playbackTransition != .idle)) { context in
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: windowHidden || model.isPaused || model.isAdvertisement || !model.serviceConnected || model.playbackTransition != .idle)) { context in
                 let elapsed = model.isPaused || model.isAdvertisement || !model.serviceConnected || model.playbackTransition != .idle ? 0
                     : min(1, max(0, context.date.timeIntervalSince(positionSample)))
                 lineText(line, index: index, active: active, synced: synced,
