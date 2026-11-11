@@ -121,6 +121,14 @@ internal sealed class GoosicServiceClient : IAsyncDisposable
 
         try
         {
+            // The conversation can end between the check above and the line that registered this
+            // request. Close has then already failed everything it could see, and this one would
+            // otherwise wait out its whole timeout for an answer that cannot come.
+            if (_closedReason is { } ended)
+            {
+                throw new ServiceUnavailableException(ended);
+            }
+
             await WriteAsync(envelope, cancellationToken).ConfigureAwait(false);
 
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
