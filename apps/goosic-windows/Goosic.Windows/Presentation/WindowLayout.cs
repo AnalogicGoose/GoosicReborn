@@ -57,9 +57,44 @@ public static class WindowLayout
     public static double SidePanelWidth(WindowWidthClass widthClass, double windowWidth) =>
         widthClass == WindowWidthClass.Wide ? 360 : Math.Max(280, Math.Min(340, windowWidth - 24));
 
-    /// <summary>The temporary navigation panel overlays the page; only the rail reserves space.</summary>
-    public static double NavigationInset(WindowWidthClass widthClass, bool expanded, double expandedWidth) =>
-        PanelGap + SidebarRailWidth;
+    /// <summary>
+    /// From this width the expanded sidebar is docked: it is open by default and reserves its
+    /// width, so the page and player reflow beside it. Below it the rail is the default and the
+    /// expanded panel is a temporary overlay. 1008 is WinUI's own adaptive navigation breakpoint
+    /// (<c>NavigationView</c> with <c>PaneDisplayMode="Auto"</c>).
+    /// </summary>
+    public const double DockedSidebarFrom = 1008;
+
+    /// <summary>
+    /// Whether a window this wide docks the expanded sidebar, given how much the side panel
+    /// (Lyrics or Up Next) takes from the right edge.
+    /// </summary>
+    /// <remarks>
+    /// A docked sidebar and an open side panel both take room from the player. Just past the
+    /// breakpoint there is not enough for both and the two-row pill, so the sidebar gives way and
+    /// becomes the rail until the panel closes; otherwise the player's buttons would clip, and the
+    /// player's essential actions are not something a layout may drop.
+    /// </remarks>
+    public static bool SidebarDocks(double windowWidth, double sidePanelInset = 0) =>
+        windowWidth >= DockedSidebarFrom
+        && windowWidth - SidebarWidth(Classify(windowWidth), windowWidth) - sidePanelInset
+            - 2 * PlayerEdgeClearance >= PlayerTwoRowMinimum;
+
+    /// <summary>
+    /// Whether the sidebar is expanded after the window is resized. The listener's own choice
+    /// holds while the window stays on the same side of the breakpoint; crossing it restores
+    /// that side's default, expanded when docked and the rail otherwise.
+    /// </summary>
+    public static bool SidebarExpandedAfterResize(bool wasDocked, bool nowDocked, bool expanded) =>
+        wasDocked == nowDocked ? expanded : nowDocked;
+
+    /// <summary>
+    /// How far the page is pushed in by navigation. A docked, expanded sidebar sits flush against
+    /// the window's edge and reserves exactly its width; the overlay panel never pushes the page,
+    /// and the floating rail reserves its own width plus the gap around it.
+    /// </summary>
+    public static double NavigationInset(bool docked, bool expanded, double expandedWidth) =>
+        docked && expanded ? expandedWidth : PanelGap + SidebarRailWidth;
 
     /// <summary>
     /// Where the pill sits and how wide it is, from the window's left edge.

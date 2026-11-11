@@ -5,7 +5,6 @@ members = [
     "crates/goosic-core",
     "crates/goosic-catalog",
     "crates/goosic-settings",
-    "crates/goosic-downloads",
     "crates/goosic-lyrics",
     "crates/goosic-accounts",
     "crates/goosic-service",
@@ -16,7 +15,7 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.3.2"
+version = "0.4.0"
 rust-version = "1.88"
 
 [workspace.dependencies]

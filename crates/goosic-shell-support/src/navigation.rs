@@ -17,12 +17,11 @@ pub enum Route {
     Charts,
     MoodsAndGenres,
     NewReleases,
-    Downloads,
     Settings,
 }
 
 impl Route {
-    pub const ALL: [Route; 9] = [
+    pub const ALL: [Route; 8] = [
         Route::Home,
         Route::Explore,
         Route::Search,
@@ -30,7 +29,6 @@ impl Route {
         Route::Charts,
         Route::MoodsAndGenres,
         Route::NewReleases,
-        Route::Downloads,
         Route::Settings,
     ];
 
@@ -44,7 +42,6 @@ impl Route {
             Route::Charts => "charts",
             Route::MoodsAndGenres => "moodsAndGenres",
             Route::NewReleases => "newReleases",
-            Route::Downloads => "downloads",
             Route::Settings => "settings",
         }
     }
@@ -57,7 +54,7 @@ impl Route {
 
     /// The `catalog.browse` route name, for routes backed by a live catalog surface.
     ///
-    /// Search has its own command; Library, Downloads, and Settings are local surfaces that no
+    /// Search has its own command; Library and Settings are local surfaces that no
     /// guest catalog read can answer.
     pub fn catalog_route(self) -> Option<&'static str> {
         match self {
@@ -66,7 +63,7 @@ impl Route {
             Route::Charts => Some("charts"),
             Route::MoodsAndGenres => Some("moodsAndGenres"),
             Route::NewReleases => Some("newReleases"),
-            Route::Search | Route::Library | Route::Downloads | Route::Settings => None,
+            Route::Search | Route::Library | Route::Settings => None,
         }
     }
 }
@@ -246,7 +243,6 @@ mod tests {
         );
         assert_eq!(Route::Search.catalog_route(), None);
         assert_eq!(Route::Library.catalog_route(), None);
-        assert_eq!(Route::Downloads.catalog_route(), None);
         assert_eq!(Route::Settings.catalog_route(), None);
     }
 
@@ -257,6 +253,11 @@ mod tests {
         }
         assert_eq!(Route::from_raw("charts"), Some(Route::Charts));
         assert_eq!(Route::from_raw("nowhere"), None);
+        assert_eq!(
+            Route::from_raw("downloads"),
+            None,
+            "the removed page is not restored"
+        );
     }
 
     #[test]

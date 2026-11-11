@@ -158,9 +158,9 @@ shelf as before.
 Some features every one of those apps has are out of reach by design, and should be declined
 rather than half-built:
 
-- **Downloading playlists for offline listening.** Reborn has no downloader, and
-  `goosic-downloads` must not grow one (see [AGENTS.md](../AGENTS.md)). *Downloads* imports
-  files the previous Goosic finalised.
+- **Downloading playlists for offline listening.** Reborn plays online only. It has no
+  downloader and no offline library, and since protocol 0.5.0 it no longer imports the files the
+  previous Goosic finalised either (see [AGENTS.md](../AGENTS.md)).
 - **Crossfade, gapless playback, an equaliser and a sound-quality choice.** Official playback is
   YouTube Music's own web player running inside the account's web view. The shell reports on it
   and asks it to play, pause, seek and change volume; it does not own the audio pipeline these

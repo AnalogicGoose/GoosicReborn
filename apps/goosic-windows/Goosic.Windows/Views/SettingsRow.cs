@@ -37,6 +37,26 @@ public sealed partial class SettingsRow : ContentControl
         ShowDescription();
     }
 
+    // A setting card brightens under the pointer, as Windows Settings' cards do, so the eye can
+    // follow which card a switch belongs to.
+    protected override void OnPointerEntered(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        base.OnPointerEntered(e);
+        VisualStateManager.GoToState(this, "PointerOver", true);
+    }
+
+    protected override void OnPointerExited(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        base.OnPointerExited(e);
+        VisualStateManager.GoToState(this, "Normal", true);
+    }
+
+    protected override void OnPointerCaptureLost(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        VisualStateManager.GoToState(this, "Normal", true);
+    }
+
     /// <summary>An empty line would still take its height and push the name off centre.</summary>
     private void ShowDescription()
     {

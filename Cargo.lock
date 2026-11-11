@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-accounts"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "goosic-protocol",
  "libc",
@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-catalog"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "goosic-protocol",
  "serde",
@@ -269,28 +269,15 @@ dependencies = [
 
 [[package]]
 name = "goosic-core"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "goosic-protocol",
- "thiserror",
-]
-
-[[package]]
-name = "goosic-downloads"
-version = "0.3.2"
-dependencies = [
- "goosic-protocol",
- "matroska-demuxer",
- "opus-pure",
- "serde",
- "serde_json",
- "tempfile",
  "thiserror",
 ]
 
 [[package]]
 name = "goosic-lyrics"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "goosic-protocol",
  "serde",
@@ -302,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-protocol"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -310,12 +297,11 @@ dependencies = [
 
 [[package]]
 name = "goosic-service"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "goosic-accounts",
  "goosic-catalog",
  "goosic-core",
- "goosic-downloads",
  "goosic-lyrics",
  "goosic-protocol",
  "goosic-settings",
@@ -327,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-settings"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "goosic-protocol",
  "rusqlite",
@@ -339,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-shell-support"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "goosic-protocol",
  "serde",
@@ -351,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "goosic-shell-support-ffi"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "goosic-shell-support",
  "serde",
@@ -584,12 +570,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
-name = "matroska-demuxer"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cbf36668475a45a46bf8710e927e7458b7c387e7c46ddb5457ae0c71cf5e817"
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -616,12 +596,6 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "opus-pure"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de6a3cef053e1fdea38a5e50edb0789590a31184c5a59f6cd5e462fe844793e7"
 
 [[package]]
 name = "percent-encoding"

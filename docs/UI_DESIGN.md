@@ -115,7 +115,7 @@ compact arrangement; opening a temporary control must not select a different arr
 
 The leading navigation presents Search and Home first, followed by Discover, Library and
 Playlists groups. Discover contains Explore, Charts, Moods & genres and New releases.
-Library exposes Liked Music, Artists, Albums, History and Downloads. Playlists contains All
+Library exposes Liked Music, Artists, Albums and History. Playlists contains All
 Playlists and account playlist entries with their artwork. Account identity and account actions
 anchor the bottom of navigation. Where Settings opens differs by platform: Windows keeps it as
 the last navigation destination, while on macOS it is not a navigation row and opens from the
@@ -131,7 +131,7 @@ the search shortcut opens that page and focuses its floating field, preserving t
 category when returning. The compact Search icon opens the same page without expanding the
 sidebar. Compact navigation keeps named, keyboard-reachable icons with tooltips. Windows rail
 shortcuts mirror the expanded destinations in the same order: Home; Explore, Charts, Moods &
-genres, New releases; Liked Music, Artists, Albums, History, Downloads; All Playlists; Settings.
+genres, New releases; Liked Music, Artists, Albums, History; All Playlists; Settings.
 Search stays above Home. These are individual icon actions with matching glyphs, names and
 tooltips, rather than aggregate Discover or Library buttons. Collapsed icons use uniform spacing
 without the expanded sidebar's section-heading gaps. New playlist remains available as a named plus icon
@@ -147,19 +147,53 @@ when navigation collapses to icons. Long labels truncate inside their available
 column, with the full name accessible. Collapsing navigation changes presentation only: it preserves
 the route, query, account, queue, playback position and mounted renderer.
 
-Windows adapts this with WinUI buttons, Fluent glyphs and theme-aware Acrylic, a 64-logical-pixel
-rail and an expanded panel of about 280 pixels. The rail is the default on every launch. The
-expanded panel opens only through the explicit menu action, overlays the canvas at
-every window width, and returns to the rail after a destination is chosen, an outside click,
-or Escape. Expansion is temporary and is not restored with window placement. Content and the
-player keep their rail-layout positions while the panel is open. The rail reserves enough content
-space to keep the player's essential actions reachable. Goosic's Discover and Library groups
-retain their actual destinations, and account playlists and creation remain accessible through
-the expanded panel. The reference does not add Apple Music destinations or replace the current
-floating search and player treatment. Both sidebar states share the same theme-aware Acrylic
-and solid accessibility fallback. Expansion uses a brief compositor reveal without stretching
-icons or moving the page/player; system Reduce Motion, app Reduce Motion and Efficiency mode
-disable it. Adoption on macOS and GTK remains pending.
+Windows adapts this with WinUI buttons and Fluent glyphs, a 64-logical-pixel rail and an expanded
+panel of about 236 to 280 pixels, and it sizes the sidebar to the window as Apple Music for Windows
+does. This reverses the earlier rule that the rail was the default at every width. From 1,008
+effective pixels, which is WinUI's own adaptive navigation breakpoint, the sidebar is expanded and
+docked: it reserves its width, and the page and player reflow beside it. Below that the rail is
+the default, and the menu action opens the expanded panel as a temporary overlay that returns to
+the rail after a destination is chosen, an outside click, or Escape. The listener's own choice
+holds while the window stays on the same side of the breakpoint; crossing it restores that side's
+default. The choice is not remembered across launches, so a restart takes the default for the
+window's width. Apple does not document its widths, so 1,008 is a starting point to check against
+Apple Music for Windows by hand. Crossing the breakpoint changes presentation only. The rail
+reserves enough content space to keep the player's essential actions reachable, and a docked
+sidebar at the breakpoint still leaves the player on one row. Lyrics or Up Next take room from the same
+player, so just past the breakpoint an open side panel and a docked sidebar do not both fit: the
+sidebar gives way to the rail while the panel is open and docks again when it closes, rather than
+letting the player's buttons clip.
+
+Docked, the sidebar is a column flush against the window's left edge, with square outer corners
+and a hairline where it meets the page; the rail and the overlay panel keep their floating,
+rounded form. Every state keeps Goosic's theme-aware Acrylic over the page, with a solid fallback
+for accessibility, and rows of cards still slide beneath it. The window's Mica is deliberately
+not shown through the sidebar: the wallpaper tint Apple Music lets through was tried and
+rejected. The dark page is #1C1C1C with #282828 cards, sampled from Apple Music for Windows.
+Expansion uses a brief compositor reveal without stretching icons; system Reduce Motion, app
+Reduce Motion and Efficiency mode disable it.
+
+On Windows the listener sets how see-through that material is. Settings › General › Appearance
+has a Material transparency slider from Solid to fully clear, in steps of 5, and it retints the
+sidebar, the floating search and player bars and the menus together, in light and dark. The
+midpoint is the material as designed, so nobody's window changes until they move it. Below the
+midpoint each tint closes toward opaque; above it, each opens toward 15 percent of its designed
+opacity and no further, because labels over bare album art would stop being readable. The choice
+is kept with the Windows shell's local preferences. Where Windows draws acrylic solid (transparency
+effects off, or a contrast theme), the slider is disabled and says why rather than moving nothing.
+macOS and GTK take the system material's own transparency and have no equivalent control; that is
+a recorded platform difference, not a precedent.
+
+The listener can customize the Windows sidebar. A Sidebar actions button beside the menu action
+(and a Sidebar row in Settings › General) opens Edit Sidebar, where each Discover and Library
+destination and All Playlists can be shown or hidden. Search, Home and Settings are never offered
+for hiding, so the way back is always there. A heading with nothing left under it disappears, and
+the rail mirrors the expanded list. Playlists, albums, artists and songs can be pinned from their
+menus with Pin Playlist, Pin Album and so on, and unpinned the same way. Pins appear under a Pins
+heading below Home, can be reordered by dragging or with Move Up and Move Down (the keyboard path)
+in each pin's menu and in Edit Sidebar, and are capped at 30. The hidden set and the pins are kept
+in the Windows shell's local preferences (ids and titles only) until `goosic-shell-support` owns
+the list of hideable destinations for every shell. Adoption on macOS and GTK remains pending.
 
 Selection uses a restrained rounded row highlight and readable emphasis. Distinguish selected
 navigation from hover and keyboard focus. The navigation list may scroll while its account
@@ -385,6 +419,14 @@ main window, so changing one never takes the user away from what is playing. It 
 Settings window, reached with ⌘, and from the account menu: a toolbar of tabs
 (General, Playback, Accounts, Advanced) over right-aligned group labels with checkboxes and
 pop-up menus, as Music's is, with Goosic's accent on the checkmarks only.
+
+On Windows, Settings is laid out as Apple Music for Windows lays it out, in the manner of the
+Windows 11 Settings app: an index of full-width category cards (Account, General, Playback,
+Windows, Updates, Advanced), each with an icon, a one-line description and a chevron, and each
+opening its own page of setting cards. The title is a breadcrumb, "Settings › General", and
+clicking "Settings" in it, or Back, returns to the categories; opening Settings from navigation
+always lands on them. Cards brighten on hover and press with Windows' 83 ms fill fade, and a
+category page slides in from the side it comes from, which the motion settings above disable.
 
 Settings use readable groups with a label, concise explanation and native control.
 Organize by connection/updates, playback, appearance or startup behavior, integrations,

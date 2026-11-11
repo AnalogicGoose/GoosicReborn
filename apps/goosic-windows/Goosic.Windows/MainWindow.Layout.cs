@@ -24,7 +24,7 @@ public sealed partial class MainWindow : Window
     private bool PanelsOverlayContent => WindowLayout.PanelsOverlayContent(_widthClass);
 
     private double LeftInset =>
-        WindowLayout.NavigationInset(_widthClass, _sidebarExpanded,
+        WindowLayout.NavigationInset(_sidebarDocked == true, _sidebarExpanded,
             WindowLayout.SidebarWidth(_widthClass, RootGrid.ActualWidth));
 
     private double RightInset =>
@@ -32,17 +32,40 @@ public sealed partial class MainWindow : Window
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        _sidebarRevealClip?.StopAnimation("RightInset");
+        // A reveal stopped part-way leaves its inset where it stopped and cuts the sidebar off, so
+        // the clip goes entirely rather than being paused.
+        ClearSidebarRevealClip();
         var next = WindowLayout.Classify(e.NewSize.Width);
         var changed = next != _widthClass;
         _widthClass = next;
         SidePanel.Width = WindowLayout.SidePanelWidth(next, e.NewSize.Width);
-        if (changed && next == WindowWidthClass.Narrow)
+        RefreshSidebarDocking(e.NewSize.Width, changed);
+    }
+
+    /// <summary>
+    /// Docks or undocks the sidebar for the window's width and the side panel's, from a resize or
+    /// from the side panel opening or closing. The first layout takes the default for its width;
+    /// later ones keep the listener's choice until docking changes. Only presentation changes here.
+    /// </summary>
+    private void RefreshSidebarDocking(double windowWidth, bool widthClassChanged = false)
+    {
+        var next = _widthClass;
+        var changed = widthClassChanged;
+        var docked = WindowLayout.SidebarDocks(windowWidth, RightInset);
+        var previouslyDocked = _sidebarDocked;
+        var expanded = previouslyDocked is { } wasDocked
+            ? WindowLayout.SidebarExpandedAfterResize(wasDocked, docked, _sidebarExpanded)
+            : docked;
+        _sidebarDocked = docked;
+        // Docking changes the sidebar's form even when it stays expanded: an overlay panel opened
+        // below the breakpoint must lose its floating margins and its dismiss layer once the window
+        // grows past it, or that layer keeps swallowing clicks on a page laid out beside a dock.
+        if (expanded != _sidebarExpanded || changed || previouslyDocked != docked)
         {
-            SetSidebarExpanded(false);
+            SetSidebarExpanded(expanded, moveFocus: false);
         }
 
-        Sidebar.Width = _sidebarExpanded ? WindowLayout.SidebarWidth(next, e.NewSize.Width) : WindowLayout.SidebarRailWidth;
+        Sidebar.Width = _sidebarExpanded ? WindowLayout.SidebarWidth(next, windowWidth) : WindowLayout.SidebarRailWidth;
         ApplyInsets();
     }
 

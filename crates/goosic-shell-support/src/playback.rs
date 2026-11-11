@@ -503,7 +503,7 @@ mod tests {
             !is_seekable(200.0, Owner::OfficialWebView, true),
             "advertisements never seek"
         );
-        assert!(is_seekable(200.0, Owner::LocalDownloadedFile, false));
+        assert!(is_seekable(200.0, Owner::OfficialWebView, false));
     }
 
     #[test]
@@ -587,7 +587,7 @@ mod tests {
             &sample(4, "v", 10.0)
         ));
         assert!(!believes_sample(
-            Owner::LocalDownloadedFile,
+            Owner::None,
             &official,
             Some("v"),
             &sample(4, "v", 10.0)

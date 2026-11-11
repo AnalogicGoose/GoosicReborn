@@ -59,13 +59,8 @@ final class GoosicServiceClient: @unchecked Sendable {
     /// Catalog commands reach a third-party service, so they get a wait long enough to cover the
     /// service's own upstream timeout instead of failing a request that is still coming.
     private static let catalogResponseTimeout: TimeInterval = 20
-    /// A first play may decode a full WebM/Opus file into the local WAV cache. That work is
-    /// intentionally off the UI thread but can exceed the ordinary command timeout on large
-    /// tracks; later plays reuse the cache and return immediately.
-    private static let downloadPreparationTimeout: TimeInterval = 120
 
     private static func timeout(for command: String) -> TimeInterval {
-        if command == "downloads.prepare" { return downloadPreparationTimeout }
         if command.hasPrefix("catalog.") || command.hasPrefix("lyrics.") {
             return catalogResponseTimeout
         }
