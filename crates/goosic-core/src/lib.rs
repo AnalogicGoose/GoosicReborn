@@ -148,8 +148,9 @@ mod tests {
         assert_eq!(claimed.owner, Owner::OfficialWebView);
         assert_eq!(claimed.generation, 1);
         assert_eq!(
-            authority.claim(Owner::LocalDownloadedFile, 1),
-            Err(CoreError::OwnerConflict)
+            authority.claim(Owner::OfficialWebView, 1),
+            Err(CoreError::OwnerConflict),
+            "a second claim while the lease is held is refused even with the current generation"
         );
         assert_eq!(
             authority.release(Owner::OfficialWebView, 0),
@@ -164,9 +165,9 @@ mod tests {
     #[test]
     fn account_change_resets_owner_generation_and_sequence() {
         let mut authority = PlaybackAuthority::new();
-        let claimed = authority.claim(Owner::LocalDownloadedFile, 0).unwrap();
+        let claimed = authority.claim(Owner::OfficialWebView, 0).unwrap();
         authority
-            .sample(Owner::LocalDownloadedFile, claimed.generation, 9, None)
+            .sample(Owner::OfficialWebView, claimed.generation, 9, None)
             .unwrap();
         let reset = authority
             .change_account(Some("account-2".into()), claimed.generation)
@@ -192,11 +193,11 @@ mod tests {
             .release(Owner::OfficialWebView, first.generation)
             .unwrap();
         let second = authority
-            .claim(Owner::LocalDownloadedFile, released.generation)
+            .claim(Owner::OfficialWebView, released.generation)
             .unwrap();
         assert_eq!(
             authority
-                .sample(Owner::LocalDownloadedFile, second.generation, 1, None)
+                .sample(Owner::OfficialWebView, second.generation, 1, None)
                 .unwrap()
                 .sample_sequence,
             1

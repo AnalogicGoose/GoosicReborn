@@ -44,7 +44,6 @@ public static class SidebarCustomization
         ("library:FEmusic_library_corpus_track_artists", "Artists", "Library"),
         ("library:FEmusic_liked_albums", "Albums", "Library"),
         ("history", "History", "Library"),
-        ("downloads", "Downloads", "Library"),
         ("library:FEmusic_liked_playlists", "All Playlists", "Playlists"),
     ];
 

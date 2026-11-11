@@ -94,4 +94,11 @@ public class SidebarCustomizationTests
         });
         Assert.Equal(["PL1"], pins.Select(pin => pin.Id));
     }
+
+    [Fact]
+    public void TheRemovedDownloadsPageIsNoLongerOffered()
+    {
+        Assert.False(SidebarCustomization.IsHideable("downloads"));
+        Assert.Empty(SidebarCustomization.Sanitize(["downloads"]));
+    }
 }
