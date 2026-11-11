@@ -19,7 +19,12 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
-        UnhandledException += (_, error) => BridgeLog.Write($"UI unhandled: {error.Exception}");
+        UnhandledException += (_, error) =>
+        {
+            BridgeLog.Write($"UI unhandled: {error.Exception}");
+            // The process may be about to end, and this is the line that says why.
+            BridgeLog.Flush();
+        };
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
