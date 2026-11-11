@@ -14,11 +14,11 @@ is worse than none, because it is believed.
 
 | Shell | Status | Protocol | Service pairing |
 | --- | --- | --- | --- |
-| `apps/goosic-swift` (macOS) | unreleased, in-tree | `0.4.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.4.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-swift` (Windows) | stubs only | `0.4.0` exactly | none bundled; resolved at launch |
-| `apps/goosic-linux` (GTK 4) | designed, not started | `0.4.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
-| `apps/goosic-windows` (WinUI 3) | 0.2.3 Windows x64 setup and ZIP | `0.4.0` exactly | private service and rules DLL bundled beside the executable |
+| `apps/goosic-swift` (macOS) | unreleased, in-tree | `0.5.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-swift` (Linux) | unreleased, in-tree | `0.5.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-swift` (Windows) | stubs only | `0.5.0` exactly | none bundled; resolved at launch |
+| `apps/goosic-linux` (GTK 4) | designed, not started | `0.5.0` exactly, through `goosic-shell-support` | its own, bundled in the Flatpak at `/app/bin` |
+| `apps/goosic-windows` (WinUI 3) | 0.2.3 Windows x64 setup and ZIP | `0.5.0` exactly | private service and rules DLL bundled beside the executable |
 
 Product version is `0.2.3`, from the Cargo workspace. Windows is the first packaged platform.
 The release includes SHA-256 checksums for the installer, ZIP, service and rules DLL. Its source
@@ -26,6 +26,17 @@ is identified by the release tag; all bundled application binaries are built fro
 The
 `1.4.0+3` scheme in [the migration plan](NATIVE_SHELL_MIGRATION.md) describes where this table
 is going, not what it holds.
+
+## What changed in 0.5.0
+
+`0.5.0` removes downloads. Goosic now plays online only, so the wire loses everything that served
+local files: the `downloads.list`, `downloads.importLegacy` and `downloads.prepare` commands, the
+`downloads` and `localFile` response fields, and the `localDownloadedFile` owner. `officialWebView`
+is the one owner a shell can claim. Nothing was added. Removing an owner is not additive, since a
+0.4.0 shell could still send it, so the version moved and every shell's constant moved with it:
+`ServiceProtocol.Version` on Windows and `goosicProtocolVersion` in the Swift shell both say
+`0.5.0`. The GTK shell on `platform/linux` still plays downloaded files through that owner, and has
+to drop it when it next takes `development`.
 
 ## What changed in 0.4.0
 
@@ -54,8 +65,8 @@ is still showing "Connecting" rather than halfway through a session.
 
 The plan asks for a declared protocol *range* per shell, and this manifest declares a single
 version instead. That is deliberate: the code implements equality, and a manifest that declared
-`>=0.4.0, <0.5.0` would be describing a tolerance no line of code provides. A shell handed a
-`0.5.0` service today refuses it, correctly, and would refuse it just as flatly if this document
+`>=0.5.0, <0.6.0` would be describing a tolerance no line of code provides. A shell handed a
+`0.6.0` service today refuses it, correctly, and would refuse it just as flatly if this document
 promised otherwise.
 
 There is also nothing yet to be tolerant of. A range earns its complexity when two supported

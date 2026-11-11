@@ -29,7 +29,7 @@ unknown-publisher warning. Download it from
 [GitHub Releases](https://github.com/AnalogicGoose/GoosicReborn/releases).
 The Swift package now builds only the native macOS application. The native Windows shell
 supports official WebView2 playback, sign-in, personal catalog, queue, lyrics and media controls;
-local downloaded-file playback and legacy preference import remain unavailable. Only Windows
+legacy preference import remains unavailable. Only Windows
 x64 binaries are distributed in the stable 0.3.2 release. The
 [0.3.2 macOS alpha](docs/RELEASE_0.3.2.md) provides a universal macOS download
 with the native UI and lyrics improvements. Windows gains matching player transitions, playback corrections and single-instance activation
@@ -56,31 +56,29 @@ Compilation does not establish live playback or visual acceptance.
 
 - **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
 - **Personal content.** On macOS and in the GTK Linux shell, signed-in Home and Library read inside the active account's WebKit profile. Linux adds playlist creation and management, song likes, save-to-library and add-to-playlist. A native live read of Home, playlists, liked songs and the owned-playlist list passed. A user completed sign-in in the Flatpak after its account storage was made writable; restart, authenticated reads and mutations still need a packaged live check. Cookies never cross the service protocol. See [the content parity map](docs/CONTENT_PARITY.md) and [the feature parity audit](docs/FEATURE_PARITY.md).
-- **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single web host — WKWebView on macOS, WebKitGTK on Linux. Advertisements are reported as informational markers and are never bypassed. The GTK Linux shell has been heard playing official and local audio; its packaged build still needs a full account and hidden-window session check.
+- **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single web host — WKWebView on macOS, WebKitGTK on Linux. Advertisements are reported as informational markers and are never bypassed. The GTK Linux shell has been heard playing official audio; its packaged build still needs a full account and hidden-window session check.
 - **A real transport.** Elapsed and total time, seeking, volume and mute, and autoplay to the next queued track — all reflecting what the player confirms, never what was requested. Goosic's queue overrides the official app's own "up next", so it never plays something you did not choose.
 - **Preferences that persist.** Volume, mute, autoplay, shuffle, repeat, the queue panel, and the screen you were on are stored by Rust and restored on launch. Preferences from a previous Goosic install can be imported; the old data is read, never changed, and credentials are never carried over.
-- **Enforced ownership.** `goosic-core` allows one playback owner at a time, scopes transitions to a generation, and requires strictly increasing sample sequences. Switching to a downloaded file quiesces the official host first; switching away stops the local renderer first.
+- **Enforced ownership.** `goosic-core` allows one playback owner at a time, scopes transitions to a generation, and requires strictly increasing sample sequences.
 - **Appearance.** System, light, or dark, applied through each native toolkit and survives a restart. Imported from a previous Goosic install along with the rest of the preferences.
 - **Lyrics.** Synced lyrics from LRCLIB, with the current line highlighted as the track plays, falling back to plain text and saying plainly when a track has none.
 - **Shuffle and repeat.** Off / all / one, plus shuffle that never picks the track it is already on. Both persist, and both are carried over from a previous Goosic install.
 - **Radio.** When a queue runs out, playback continues with the radio that follows the last track, and any playing track can seed a new one. This is the previous Goosic's "auto radio", and the imported preference maps onto autoplay, so it stays off for anyone who had it off.
 - **Artwork.** Albums, playlists, artists, and tracks show their real cover art, fetched and cached by the shell over an anonymous, host-restricted HTTPS session.
 - **Native material.** The sidebar, queue, and now-playing surfaces sit on a real platform material: `NSGlassEffectView` on macOS 26+, `NSVisualEffectView` on macOS 14–25, and a plain background anywhere else. It is a background leaf that never wraps the controls, so buttons and their accessibility stay native.
-- **Legacy downloads.** The Downloads screen can import finalized `.webm` files from the previous Goosic install without copying or deleting them. Rust decodes them into a private WAV cache and the local host plays only that decoded file — AVFoundation on macOS, GStreamer on Linux; no downloader, yt-dlp, or account cookie is involved.
 
 ## Crates and apps
 
-- `goosic-protocol` — the Codable/serde-compatible 0.3.0 request, response, catalog, settings, downloads, accounts, and event envelopes, and the conformance fixtures every shell is held to: canonical lines, lines that must be refused, lines that must be tolerated, and whole conversations with the service.
+- `goosic-protocol` — the Codable/serde-compatible 0.5.0 request, response, catalog, settings, accounts, and event envelopes, and the conformance fixtures every shell is held to: canonical lines, lines that must be refused, lines that must be tolerated, and whole conversations with the service.
 - `goosic-core` — the playback authority: one owner, lease generations, increasing sample sequences, account-change resets, harmless advertisement markers.
 - `goosic-catalog` — read-only YouTube Music access, split into a pure parser and a guest-only HTTP client. It answers what exists, never who may play.
 - `goosic-settings` — durable preferences, and the reversible, credential-free import from a previous Goosic install.
 - `goosic-accounts` — durable account profiles, metadata only: no WebKit, cookie, or credential integration.
 - `goosic-lyrics` — LRCLIB lookups and LRC parsing; no account, no key, no credentials.
-- `goosic-downloads` — read-only legacy media indexing plus WebM/Opus-to-WAV decode caching; it contains no downloader or account-cookie path.
 - `goosic-service` — one request per stdin line, one response per stdout line, with no diagnostics on stdout.
 - `goosic-shell-support` — the NDJSON client and platform-neutral rules for sign-in navigation, bridge validation, media projection, catalog conversion and queue selection. The GTK Linux shell consumes it; the Swift shell keeps copies held to the same tests. It links no UI, WebView, cookie, audio or secure-storage dependency.
-- `apps/goosic-linux` — the native GTK shell on Linux, with official WebKitGTK playback, GStreamer local playback, account profiles, MPRIS, background mode and a Flatpak manifest.
-- `apps/goosic-swift` — the native macOS SwiftUI/AppKit shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, WKWebView official playback, AVFoundation local playback, secure account profiles, and system media controls.
+- `apps/goosic-linux` — the native GTK shell on Linux, with official WebKitGTK playback, account profiles, MPRIS, background mode and a Flatpak manifest.
+- `apps/goosic-swift` — the native macOS SwiftUI/AppKit shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, WKWebView official playback, secure account profiles, and system media controls.
 
 ## Architecture
 
@@ -148,17 +146,15 @@ To drive the authority without a shell at all, feed it compact JSON lines. Its s
 
 ```sh
 cargo build -p goosic-service
-echo '{"protocolVersion":"0.4.0","requestId":"1","command":"catalog.search","payload":{"query":"daft punk","filter":"songs"}}' \
+echo '{"protocolVersion":"0.5.0","requestId":"1","command":"catalog.search","payload":{"query":"daft punk","filter":"songs"}}' \
   | ./target/debug/goosic-service
 ```
 
 ## Current limitations
 
 - **Linux account writes need live validation.** The GTK shell's read-only Home, playlist, liked-song and owned-playlist calls passed against an existing signed-in profile. Playlist creation, saving, renaming, privacy, deletion, likes and add-to-playlist are wired to the same reader but have not been tried against a real account. Exact playlist-entry removal and reordering still need the upstream per-entry identifier in the catalog projection.
-- **No new downloads.** This migration deliberately imports and plays only finalized legacy files. Explicit Premium-only downloading is not implemented, so the app never claims to create a new offline file.
-- **The packaged Linux player needs full-session checks.** The GTK shell has played official and local audio on a live desktop, and the Flatpak builds offline, runs its tests, and connects to its bundled service. A complete sign-in, a track ending while the window is hidden, and playback on other desktop and graphics setups remain unverified.
-- **Decoded audio is stored as data, not cache.** Rust's WAV cache sits in the per-user data directory rather than the cache directory, so it is swept into backups and ignored by tools that free cache space. The move is planned for every platform in one change; see [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
-- **Windows local playback is unavailable.** The native WinUI shell uses WebView2 for official playback under Rust authority; it has no local-file playback host yet.
+- **Online only.** Goosic has no downloads: it neither creates offline files nor imports the ones a previous Goosic saved, which stay untouched where they are. Everything plays through the official web player.
+- **The packaged Linux player needs full-session checks.** The GTK shell has played official audio on a live desktop, and the Flatpak builds offline, runs its tests, and connects to its bundled service. A complete sign-in, a track ending while the window is hidden, and playback on other desktop and graphics setups remain unverified.
 - **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
 - **Windows distribution is x64.** Native ARM64 packaging has not been validated for this release.
 - Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
@@ -173,7 +169,7 @@ The rewrite from the previous Goosic:
 2. **Done** — the official WebView host and its origin-checked bridge: WKWebView on macOS and WebKitGTK in the native Linux shell.
 3. **Done** — the live catalog, search, and real playback from the catalog.
 4. **Done** — durable preferences and the legacy preference import.
-5. **Done** — read-only legacy downloaded-media import, Rust decode cache, and local-file playback: AVFoundation on macOS, GStreamer on Linux.
+5. **Removed** — the legacy downloaded-media import, Rust decode cache and local-file playback were built, then dropped in protocol 0.5.0; Goosic plays online only.
 6. **Done (macOS and Linux)** — account profiles with isolated WebKit stores and system media controls; native platform material on macOS.
 7. **Done** — catalog artwork.
 8. **Built (macOS and native Linux)** — authenticated Home and Library reads through the active WebKit profile; native Linux reads passed a credentialed live check.

@@ -16,7 +16,7 @@ public sealed class StartRouteTests
 
     [Theory]
     [InlineData("last", "settings")]
-    [InlineData("last", "downloads")]
+    [InlineData("last", "downloads")] // removed page an older build may have remembered
     [InlineData("last", "somethingNewer")]
     [InlineData("last", null)]
     [InlineData(null, "charts")]
