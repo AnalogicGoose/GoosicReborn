@@ -323,14 +323,137 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Settings, grouped the way iOS Settings is: a small heading, then a rounded list of
-                             rows, each an icon tile, a name with one line of explanation, and its control. -->
-                        <StackPanel MaxWidth="680" HorizontalAlignment="Center"
-                                    Visibility="{x:Bind Model.IsSettingsPage, Mode=OneWay}">
+                        <!-- Settings, laid out as Apple Music for Windows lays it out: an index of category cards,
+                             each opening its own page of setting cards titled "Settings > Category". -->
+                        <!-- A star column capped at 976 keeps the cards left-aligned under the title, as Apple's are. -->
+                        <Grid Visibility="{x:Bind Model.IsSettingsPage, Mode=OneWay}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MaxWidth="976" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                        <StackPanel x:Name="SettingsRoot" Margin="0,4,0,24">
 
+                            <!-- The title is a breadcrumb, as in Windows Settings: "Settings > General", where
+                                 clicking "Settings" goes back to the categories. -->
+                            <BreadcrumbBar x:Name="SettingsBreadcrumb" Margin="0,0,0,22" ItemClicked="OnSettingsBreadcrumb"
+                                           AutomationProperties.HeadingLevel="Level1">
+                                <BreadcrumbBar.Resources>
+                                    <x:Double x:Key="BreadcrumbBarItemThemeFontSize">32</x:Double>
+                                    <x:Double x:Key="BreadcrumbBarChevronFontSize">16</x:Double>
+                                    <FontWeight x:Key="BreadcrumbBarItemFontWeight">SemiBold</FontWeight>
+                                </BreadcrumbBar.Resources>
+                            </BreadcrumbBar>
+
+                            <Grid x:Name="SettingsPages">
+                            <StackPanel x:Name="SettingsIndex" Spacing="6">
+                                <Button Style="{StaticResource SettingsCategoryCardStyle}" Tag="account" Click="OnSettingsCategory"
+                                        AutomationProperties.Name="Account">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE77B;" FontSize="18" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                            <TextBlock Text="Account" FontSize="14" />
+                                            <TextBlock Text="Sign in, add another account, or sign out" FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        </StackPanel>
+                                        <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource SettingsCategoryCardStyle}" Tag="general" Click="OnSettingsCategory"
+                                        AutomationProperties.Name="General">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE713;" FontSize="18" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                            <TextBlock Text="General" FontSize="14" />
+                                            <TextBlock Text="Choose the start page, explicit songs, and how Goosic looks" FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        </StackPanel>
+                                        <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource SettingsCategoryCardStyle}" Tag="playback" Click="OnSettingsCategory"
+                                        AutomationProperties.Name="Playback">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE768;" FontSize="18" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                            <TextBlock Text="Playback" FontSize="14" />
+                                            <TextBlock Text="Autoplay, shuffle and repeat" FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        </StackPanel>
+                                        <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource SettingsCategoryCardStyle}" Tag="windows" Click="OnSettingsCategory"
+                                        AutomationProperties.Name="Windows">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE737;" FontSize="18" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                            <TextBlock Text="Windows" FontSize="14" />
+                                            <TextBlock Text="Tray, startup, notifications, Discord and power use" FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        </StackPanel>
+                                        <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource SettingsCategoryCardStyle}" Tag="updates" Click="OnSettingsCategory"
+                                        AutomationProperties.Name="Updates">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE895;" FontSize="18" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                            <TextBlock Text="Updates" FontSize="14" />
+                                            <TextBlock Text="Check for and install new versions" FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        </StackPanel>
+                                        <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource SettingsCategoryCardStyle}" Tag="advanced" Click="OnSettingsCategory"
+                                        AutomationProperties.Name="Advanced">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xEBE8;" FontSize="18" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                            <TextBlock Text="Advanced" FontSize="14" />
+                                            <TextBlock Text="Debug mode, the log, and keyboard shortcuts" FontSize="12" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                        </StackPanel>
+                                        <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="12" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Button>
+                            </StackPanel>
+
+                            <StackPanel x:Name="SettingsAccountSection" Visibility="Collapsed" Spacing="0">
                             <!-- The account comes first, as the Apple ID does. -->
-                            <Border Style="{StaticResource SettingsGroupStyle}" Margin="0,4,0,0">
-                                <Grid Padding="14,14,16,14" ColumnSpacing="14">
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <Grid Padding="20,16,18,16" ColumnSpacing="16">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
@@ -358,6 +481,56 @@
                             <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
                                        Text="Sign-in data stays inside each account's own WebView2 profile and never enters the playback service." />
 
+                                                        </StackPanel>
+                            <StackPanel x:Name="SettingsGeneralSection" Visibility="Collapsed" Spacing="0">
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Browsing" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE80F;" Tile="#FF0A84FF" Title="Open Goosic on"
+                                                       Description="The page you see when Goosic starts">
+                                        <ComboBox x:Name="StartPageChoice" MinWidth="200"
+                                                  AutomationProperties.Name="Open Goosic on"
+                                                  SelectionChanged="OnStartPageChanged" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE72E;" Tile="#FFFF453A" Title="Hide explicit songs"
+                                                       Description="Leave them out of pages, searches and radio">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Hide explicit songs"
+                                                      IsOn="{x:Bind Model.HideExplicit, Mode=OneWay}"
+                                                      Toggled="OnHideExplicitToggled" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
+                                       Text="Hiding explicit songs applies to pages opened after you change it." />
+                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Appearance" />
+                            <Border Style="{StaticResource SettingsGroupStyle}">
+                                <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE700;" Title="Sidebar"
+                                                       Description="Choose which destinations the sidebar shows, and reorder your pins">
+                                        <Button Content="Edit…" Click="OnEditSidebar" AutomationProperties.Name="Edit sidebar" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE790;" Tile="#FFFF375F" Title="Album art background"
+                                                       Description="Fill the window with the playing cover's colours">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Album art background"
+                                                      IsOn="{x:Bind Model.ArtworkBackground, Mode=OneWay}"
+                                                      Toggled="OnArtworkBackgroundToggled" />
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE945;" Tile="#FF40C8E0" Title="Reduce motion"
+                                                       Description="Show pages and panels without animating">
+                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
+                                                      AutomationProperties.Name="Reduce motion"
+                                                      IsOn="{x:Bind Model.ReduceMotion, Mode=OneWay}"
+                                                      Toggled="OnReduceMotionToggled" />
+                                    </views:SettingsRow>
+                                </StackPanel>
+                            </Border>
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsPlaybackSection" Visibility="Collapsed" Spacing="0">
                             <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Playback" />
                             <Border Style="{StaticResource SettingsGroupStyle}">
                                 <StackPanel>
@@ -382,50 +555,8 @@
                                     </views:SettingsRow>
                                 </StackPanel>
                             </Border>
-
-                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Browsing" />
-                            <Border Style="{StaticResource SettingsGroupStyle}">
-                                <StackPanel>
-                                    <views:SettingsRow Glyph="&#xE80F;" Tile="#FF0A84FF" Title="Open Goosic on"
-                                                       Description="The page you see when Goosic starts">
-                                        <ComboBox x:Name="StartPageChoice" MinWidth="200"
-                                                  AutomationProperties.Name="Open Goosic on"
-                                                  SelectionChanged="OnStartPageChanged" />
-                                    </views:SettingsRow>
-                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
-                                    <views:SettingsRow Glyph="&#xE72E;" Tile="#FFFF453A" Title="Hide explicit songs"
-                                                       Description="Leave them out of pages, searches and radio">
-                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
-                                                      AutomationProperties.Name="Hide explicit songs"
-                                                      IsOn="{x:Bind Model.HideExplicit, Mode=OneWay}"
-                                                      Toggled="OnHideExplicitToggled" />
-                                    </views:SettingsRow>
-                                </StackPanel>
-                            </Border>
-                            <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
-                                       Text="Hiding explicit songs applies to pages opened after you change it." />
-
-                            <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Appearance" />
-                            <Border Style="{StaticResource SettingsGroupStyle}">
-                                <StackPanel>
-                                    <views:SettingsRow Glyph="&#xE790;" Tile="#FFFF375F" Title="Album art background"
-                                                       Description="Fill the window with the playing cover's colours">
-                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
-                                                      AutomationProperties.Name="Album art background"
-                                                      IsOn="{x:Bind Model.ArtworkBackground, Mode=OneWay}"
-                                                      Toggled="OnArtworkBackgroundToggled" />
-                                    </views:SettingsRow>
-                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
-                                    <views:SettingsRow Glyph="&#xE945;" Tile="#FF40C8E0" Title="Reduce motion"
-                                                       Description="Show pages and panels without animating">
-                                        <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
-                                                      AutomationProperties.Name="Reduce motion"
-                                                      IsOn="{x:Bind Model.ReduceMotion, Mode=OneWay}"
-                                                      Toggled="OnReduceMotionToggled" />
-                                    </views:SettingsRow>
-                                </StackPanel>
-                            </Border>
-
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsWindowsSection" Visibility="Collapsed" Spacing="0">
                             <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Windows" />
                             <Border Style="{StaticResource SettingsGroupStyle}">
                                 <StackPanel>
@@ -473,7 +604,8 @@
                                     </views:SettingsRow>
                                 </StackPanel>
                             </Border>
-
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsUpdatesSection" Visibility="Collapsed" Spacing="0">
                             <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Updates" />
                             <Border Style="{StaticResource SettingsGroupStyle}">
                                 <StackPanel>
@@ -486,7 +618,7 @@
                                                     Visibility="Collapsed" Click="OnInstallUpdate" />
                                         </StackPanel>
                                     </views:SettingsRow>
-                                    <StackPanel Padding="60,0,16,12" Spacing="6">
+                                    <StackPanel Padding="56,8,16,4" Spacing="6">
                                         <TextBlock x:Name="UpdateVersionText" FontSize="12"
                                                    Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
                                         <TextBlock x:Name="UpdateStatusText" FontSize="12" TextWrapping="Wrap"
@@ -495,7 +627,8 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
-
+                            </StackPanel>
+                            <StackPanel x:Name="SettingsAdvancedSection" Visibility="Collapsed" Spacing="0">
                             <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Advanced" />
                             <Border Style="{StaticResource SettingsGroupStyle}">
                                 <StackPanel>
@@ -514,9 +647,8 @@
                             </Border>
                             <TextBlock Style="{StaticResource SettingsGroupFooterStyle}"
                                        Text="The log stays on this computer. It never records passwords, cookies or tokens." />
-
                             <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Keyboard shortcuts" />
-                            <Border Style="{StaticResource SettingsGroupStyle}" Margin="0,0,0,24">
+                            <Border Style="{StaticResource SettingsCardStyle}">
                                 <ItemsControl x:Name="ShortcutList" Margin="0,6">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:ShortcutEntry">
@@ -533,7 +665,10 @@
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </Border>
+                            </StackPanel>
+                        </Grid>
                         </StackPanel>
+                        </Grid>
 
                         <!-- Loading: the shape of a page rather than a sentence about one. -->
                         <StackPanel x:Name="PageSkeleton" Spacing="26" Opacity="0.9"
@@ -1382,6 +1517,21 @@
                             Content="&#xE700;" HorizontalAlignment="Left" Width="48" Height="44" FontSize="16"
                             ToolTipService.ToolTip="Collapse sidebar (Ctrl+B)"
                             AutomationProperties.Name="Collapse sidebar" Click="OnToggleSidebar" />
+                    <!-- Sidebar actions, Goosic's version of Apple Music's: edit what the sidebar shows. -->
+                    <Button x:Name="SidebarMoreButton" Grid.Row="1" Style="{StaticResource SidebarGlyphStyle}"
+                            Content="&#xE712;" HorizontalAlignment="Right" Width="44" Height="44" FontSize="16"
+                            ToolTipService.ToolTip="Sidebar actions" AutomationProperties.Name="Sidebar actions">
+                        <Button.Flyout>
+                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuFlyoutItem Text="Edit Sidebar…" Click="OnEditSidebar">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE70F;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Settings" Tag="settings" Click="OnNavigate">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE713;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
                     <ToggleButton x:Name="SidebarSearchButton" Grid.Row="2" Style="{StaticResource SidebarRailItemStyle}"
                                   Tag="search" Margin="0,0,0,4" Visibility="Collapsed"
                                   ToolTipService.ToolTip="Search (Ctrl+F)" AutomationProperties.Name="Search" Click="OnNavigate">
@@ -1406,6 +1556,45 @@
                                     <TextBlock Grid.Column="1" Text="Home" TextTrimming="CharacterEllipsis" />
                                 </Grid>
                             </ToggleButton>
+
+                            <!-- Pins: reorderable by dragging, and by Move Up / Move Down in each pin's menu. -->
+                            <TextBlock x:Name="SidebarPinsHeader" Style="{StaticResource SidebarHeaderStyle}" Text="Pins" Visibility="Collapsed" />
+                            <ListView x:Name="SidebarPinList" SelectionMode="None" IsItemClickEnabled="True"
+                                      CanDragItems="True" CanReorderItems="True" AllowDrop="True"
+                                      ItemClick="OnSidebarPinClick" DragItemsCompleted="OnSidebarPinsReordered"
+                                      ContextRequested="OnSidebarPinContextRequested"
+                                      ScrollViewer.VerticalScrollMode="Disabled" Padding="0"
+                                      AutomationProperties.Name="Pins">
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                                        <Setter Property="Padding" Value="12,0" />
+                                        <Setter Property="Margin" Value="0" />
+                                        <Setter Property="MinHeight" Value="40" />
+                                        <Setter Property="CornerRadius" Value="8" />
+                                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SidebarPinItem">
+                                        <Grid ColumnSpacing="10" AutomationProperties.Name="{x:Bind Title}"
+                                              ToolTipService.ToolTip="{x:Bind Title}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="24" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="24" Height="24" CornerRadius="{x:Bind ArtworkCornerRadius}"
+                                                    Background="{ThemeResource GoosicRaisedStrongBrush}">
+                                                <Grid>
+                                                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="12" />
+                                                    <Image Source="{x:Bind Artwork}" Stretch="UniformToFill" />
+                                                </Grid>
+                                            </Border>
+                                            <TextBlock Grid.Column="1" Text="{x:Bind Title}" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
 
                             <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Discover" />
                             <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="explore" Click="OnNavigate" AutomationProperties.Name="Explore" ToolTipService.ToolTip="Explore">
@@ -1529,6 +1718,24 @@
                                           AutomationProperties.Name="Home" ToolTipService.ToolTip="Home">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE80F;" />
                             </ToggleButton>
+                            <!-- The rail mirrors the pins, as artwork with the title as its tooltip. -->
+                            <ItemsControl x:Name="SidebarRailPins">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SidebarPinItem">
+                                        <Button Style="{StaticResource SidebarGlyphStyle}" Width="48" Height="44" Padding="0"
+                                                Tag="{x:Bind}" Click="OnSidebarRailPin"
+                                                AutomationProperties.Name="{x:Bind Title}" ToolTipService.ToolTip="{x:Bind Title}">
+                                            <Border Width="24" Height="24" CornerRadius="{x:Bind ArtworkCornerRadius}"
+                                                    Background="{ThemeResource GoosicRaisedStrongBrush}">
+                                                <Grid>
+                                                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="12" />
+                                                    <Image Source="{x:Bind Artwork}" Stretch="UniformToFill" />
+                                                </Grid>
+                                            </Border>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                             <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="explore" Click="OnNavigate"
                                           AutomationProperties.Name="Explore" ToolTipService.ToolTip="Explore">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE774;" />

@@ -68,20 +68,27 @@
         <Setter Property="HorizontalAlignment" Value="Center" />
     </Style>
 
-    <!-- ===== Settings, grouped the way iOS Settings groups them ===== -->
+    <!-- ===== Settings, as setting cards in the Windows manner Apple Music for Windows follows ===== -->
 
-    <!-- A group: rounded, and holding its rows edge to edge, separated by thin inset lines. -->
+    <!-- A group is only a column: each row is its own card, with a small gap between cards. -->
     <Style x:Key="SettingsGroupStyle" TargetType="Border">
-        <Setter Property="Background" Value="{ThemeResource GoosicRaisedBrush}" />
-        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Padding" Value="0" />
     </Style>
 
-    <!-- The small grey name above a group. -->
+    <!-- A free-standing card for content that is not a single row (the account, the shortcut list). -->
+    <Style x:Key="SettingsCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource GoosicRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+
+    <!-- The name above a group of cards inside one category. -->
     <Style x:Key="SettingsGroupHeaderStyle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="13" />
-        <Setter Property="Foreground" Value="{ThemeResource GoosicSecondaryTextBrush}" />
-        <Setter Property="Margin" Value="16,18,0,6" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="2,20,0,8" />
     </Style>
 
     <!-- The note under a group. -->
@@ -89,22 +96,77 @@
         <Setter Property="FontSize" Value="12" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{ThemeResource GoosicSecondaryTextBrush}" />
-        <Setter Property="Margin" Value="16,6,16,0" />
+        <Setter Property="Margin" Value="2,8,16,0" />
     </Style>
 
-    <!-- The line between two rows starts after the icon, as iOS draws it. -->
+    <!-- Between two cards: a gap, not a line. -->
     <Style x:Key="SettingsSeparatorStyle" TargetType="Rectangle">
-        <Setter Property="Height" Value="1" />
-        <Setter Property="Margin" Value="60,0,0,0" />
-        <Setter Property="Fill" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+        <Setter Property="Height" Value="6" />
+        <Setter Property="Fill" Value="Transparent" />
     </Style>
 
-    <!-- A switch with no words beside it; the row says what it does. -->
+    <!-- A switch with no words beside it; the card says what it does. -->
     <Style x:Key="SettingsSwitchStyle" TargetType="ToggleSwitch">
         <Setter Property="OnContent" Value="" />
         <Setter Property="OffContent" Value="" />
         <Setter Property="MinWidth" Value="0" />
         <Setter Property="Margin" Value="0,0,-12,0" />
+    </Style>
+
+    <!-- A category on the Settings index: a full-width card that opens its page. Hover and press
+         fade the card's fill in 83 ms, the timing Windows 11's own setting cards use. -->
+    <Style x:Key="SettingsCategoryCardStyle" TargetType="Button">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="MinHeight" Value="64" />
+        <Setter Property="Padding" Value="20,12,18,12" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="FocusVisualMargin" Value="-3" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid x:Name="RootGrid">
+                        <Border x:Name="CardFill" CornerRadius="{TemplateBinding CornerRadius}" BorderThickness="1"
+                                Background="{ThemeResource GoosicRaisedBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                            <Border.BackgroundTransition>
+                                <BrushTransition Duration="0:0:0.083" />
+                            </Border.BackgroundTransition>
+                        </Border>
+                        <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Padding="{TemplateBinding Padding}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          Foreground="{TemplateBinding Foreground}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="CardFill.Background" Value="{ThemeResource GoosicRaisedStrongBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="CardFill.Background" Value="{ThemeResource GoosicRaisedBrush}" />
+                                        <Setter Target="ContentPresenter.Opacity" Value="0.78" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="ContentPresenter.Opacity" Value="0.4" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="views:SettingsRow">
@@ -113,25 +175,39 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="views:SettingsRow">
-                    <Grid MinHeight="56" Padding="14,8,16,8" ColumnSpacing="14">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Border Width="32" Height="32" CornerRadius="8" VerticalAlignment="Center"
-                                Background="{TemplateBinding Tile}">
-                            <FontIcon Glyph="{TemplateBinding Glyph}" FontSize="16" Foreground="White" />
-                        </Border>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                            <TextBlock Text="{TemplateBinding Title}" FontSize="14" TextTrimming="CharacterEllipsis" />
-                            <TextBlock x:Name="DescriptionText" Text="{TemplateBinding Description}" FontSize="12"
-                                       TextWrapping="Wrap"
-                                       Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
-                        </StackPanel>
-                        <ContentPresenter Grid.Column="2" VerticalAlignment="Center"
-                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
-                    </Grid>
+                    <Border x:Name="CardFill" MinHeight="64" Padding="20,10,18,10" CornerRadius="6" BorderThickness="1"
+                            Background="{ThemeResource GoosicRaisedBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+                        <Border.BackgroundTransition>
+                            <BrushTransition Duration="0:0:0.083" />
+                        </Border.BackgroundTransition>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="CardFill.Background" Value="{ThemeResource GoosicRaisedStrongBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <FontIcon Glyph="{TemplateBinding Glyph}" FontSize="18" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                <TextBlock Text="{TemplateBinding Title}" FontSize="14" TextTrimming="CharacterEllipsis" />
+                                <TextBlock x:Name="DescriptionText" Text="{TemplateBinding Description}" FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                            </StackPanel>
+                            <ContentPresenter Grid.Column="2" VerticalAlignment="Center"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" />
+                        </Grid>
+                    </Border>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -569,6 +645,12 @@
     <Style TargetType="MenuFlyoutPresenter" BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}">
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Padding" Value="0,5" />
+        <Setter Property="Background" Value="{ThemeResource GoosicMenuAcrylicBrush}" />
+    </Style>
+
+    <!-- Plain flyouts (the account panel) take the same acrylic as menus. -->
+    <Style TargetType="FlyoutPresenter" BasedOn="{StaticResource DefaultFlyoutPresenterStyle}">
+        <Setter Property="Background" Value="{ThemeResource GoosicMenuAcrylicBrush}" />
     </Style>
 
     <Style TargetType="MenuFlyoutItem" BasedOn="{StaticResource DefaultMenuFlyoutItemStyle}">
