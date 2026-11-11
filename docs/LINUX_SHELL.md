@@ -28,7 +28,8 @@ Downloaded files used to play through a GStreamer pipeline of their own, under t
 `localDownloadedFile` lease. Protocol 0.5.0 removed downloads from Goosic on every platform, so that
 pipeline, the Downloads screen and the lease switching between page and file are to be deleted from
 `platform/linux` when it next takes `development`; until then the branch will not build against it,
-because the owner it claims no longer exists.
+because the owner it claims no longer exists. The work is tracked in
+[#145](https://github.com/AnalogicGoose/GoosicReborn/issues/145).
 
 Accounts are real on Linux now, which the Swift port never managed. Add account releases whatever
 plays and opens Google's sign-in in a window of its own, whose cookies land in a staging directory
@@ -467,7 +468,7 @@ not the transport slider. They do not fail the fixture or establish compositor a
 | Word-timed lyrics, listening effects and session-only timing import | `platform/linux`, after development is synchronized | The shared service accepts LRCLIB Lyricsfile; GTK rendering/import remain pending. See [the lyrics handoff](LYRICS_TIMING.md) |
 | Saved queues and a native mini player | `platform/linux` | Queue editing and the full player are present; queue persistence and a separate compact window are not |
 | Window and playlist context menus | `platform/linux` | Track actions and a checked owned-playlist manager are present; the native window menu is still pending |
-| Local playback removed: `local_host.rs`, the Downloads screen and the `localDownloadedFile` lease switching | `platform/linux`, when it next takes development | Protocol 0.5.0 dropped downloads on every platform; until this lands the branch does not build against development |
+| Local playback removed: `local_host.rs`, the Downloads screen and the `localDownloadedFile` lease switching | `platform/linux`, when it next takes development | Protocol 0.5.0 dropped downloads on every platform; until this lands the branch does not build against development. Tracked in [#145](https://github.com/AnalogicGoose/GoosicReborn/issues/145) |
 | The `goosic-paths` crate from `rescue/native-mac-shell-and-paths` | `development` | Never merged, so path rules are still duplicated per crate |
 
 The credentialed Flatpak mutation/playback and renderer-level lease checks still gate the first
