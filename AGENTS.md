@@ -86,8 +86,9 @@ task seems to require breaking one, stop and say so instead of working around it
   other invariants: ported fetch code runs where the cookies already live, inside the account's
   WebKit profile, never through the service protocol. The legacy import reads old data and
   never modifies or deletes it, and never carries credentials over.
-- **No downloader.** `goosic-downloads` imports finalized legacy files and decodes them. It
-  contains no yt-dlp path and no account-cookie path, and must not grow one.
+- **No downloads.** Goosic plays online only. There is no downloader, no offline library, no
+  `downloads.*` command and no local-file playback owner; the legacy downloads import was removed
+  in protocol 0.5.0. Do not reintroduce any of it, and never a yt-dlp or account-cookie path.
 - **A clamped catalog page says so.** Never present a partial list as complete. A page with
   more shelves than one frame holds is paged, not clamped: the service sends what fits and a
   cursor for the rest. A list that is still partial says so in its count ("100+ songs"); the
@@ -136,7 +137,7 @@ decides anything — a command from the bus is rechecked against
 `SystemMediaCommandAvailability` before it reaches the model, so a remote client cannot ask for
 a transition the app itself would refuse.
 
-The GTK shell has played official and local audio on a live desktop. Its packaged account and
+The GTK shell has played official audio on a live desktop. Its packaged account and
 hidden-window acceptance checks remain documented in `docs/LINUX_SHELL.md`; compilation alone
 must never be reported as a live playback check.
 

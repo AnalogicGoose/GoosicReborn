@@ -12,7 +12,7 @@ namespace Goosic.Windows.Service;
 /// </remarks>
 internal static class ServiceProtocol
 {
-    internal const string Version = "0.4.0";
+    internal const string Version = "0.5.0";
 
     internal static readonly JsonSerializerOptions Json = new()
     {
@@ -25,12 +25,10 @@ internal static class ServiceProtocol
     /// A client rule rather than a protocol one, kept identical to
     /// <c>goosic_shell_support::timeout_for</c>. Catalog and lyrics commands reach a
     /// third-party host, so they get a wait long enough to cover the service's own upstream
-    /// timeout instead of tearing the child down mid-request; a first download decodes a whole
-    /// file into the WAV cache and needs far longer still.
+    /// timeout instead of tearing the child down mid-request.
     /// </remarks>
     internal static TimeSpan TimeoutFor(string command) => command switch
     {
-        "downloads.prepare" => TimeSpan.FromSeconds(120),
         _ when command.StartsWith("catalog.", StringComparison.Ordinal)
             || command.StartsWith("lyrics.", StringComparison.Ordinal) => TimeSpan.FromSeconds(20),
         _ => TimeSpan.FromSeconds(5),
