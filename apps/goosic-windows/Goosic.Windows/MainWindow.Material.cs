@@ -29,7 +29,17 @@ public sealed partial class MainWindow : Window
         ApplyMaterialTransparency(ShellPreferences.MaterialTransparency);
         ShowMaterialAvailability();
         _uiSettings.AdvancedEffectsEnabledChanged += (_, _) => DispatcherQueue.TryEnqueue(ShowMaterialAvailability);
-        _accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(ShowMaterialAvailability);
+        try
+        {
+            _accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(ShowMaterialAvailability);
+        }
+        catch (System.Runtime.InteropServices.COMException error)
+            when (error.HResult == unchecked((int)0x80070490))
+        {
+            // Unpackaged desktops can refuse this event (the artist hero meets the same thing);
+            // a contrast theme also changes the system colours, so that is the signal instead.
+            _uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(ShowMaterialAvailability);
+        }
     }
 
     private void OnMaterialTransparencyChanged(object sender, RangeBaseValueChangedEventArgs e)
