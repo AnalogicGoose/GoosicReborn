@@ -19,6 +19,9 @@ namespace Goosic.Windows;
 public sealed partial class MainWindow : Window
 {
     private bool _sidebarExpanded;
+
+    /// <summary>Whether the window is wide enough to dock the sidebar; null before the first layout.</summary>
+    private bool? _sidebarDocked;
     private string? _navigationTag = "home";
     // ---- Navigation -------------------------------------------------------------------------
 
@@ -49,6 +52,14 @@ public sealed partial class MainWindow : Window
             && Model.KeepCurrentPageOnReselect())
         {
             HighlightNavigation(Model.CurrentSidebarDestination);
+            // Opening Settings always lands on its categories, so choosing it again from inside a
+            // category goes back to them, as the breadcrumb's "Settings" does.
+            if (tag == "settings" && Model.SettingsSection is not null)
+            {
+                Model.OpenSettingsSection(null, null);
+                ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+            }
+
             return;
         }
 
@@ -151,7 +162,9 @@ public sealed partial class MainWindow : Window
     }
 
     private void UpdateBackButton() =>
-        BackButton.Visibility = Model.CanGoBack ? Visibility.Visible : Visibility.Collapsed;
+        BackButton.Visibility = Model.CanGoBack || Model.SettingsSection is not null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
     /// <summary>Switches between the compact rail and the expanded navigation panel.</summary>
     private void OnToggleSidebar(object sender, RoutedEventArgs e) => ToggleSidebar();
@@ -162,19 +175,29 @@ public sealed partial class MainWindow : Window
         ApplyInsets();
     }
 
-    private void SetSidebarExpanded(bool expanded)
+    private void SetSidebarExpanded(bool expanded, bool moveFocus = true)
     {
         var previousWidth = Sidebar.ActualWidth;
-        // Move focus before its old control collapses; the renderer and model are untouched.
-        if (expanded != _sidebarExpanded)
+        // Move focus before its old control collapses; the renderer and model are untouched. A
+        // resize does not take focus from wherever the listener left it.
+        if (moveFocus && expanded != _sidebarExpanded)
         {
             SidebarToggle.Focus(FocusState.Programmatic);
         }
 
         _sidebarExpanded = expanded;
-        SidebarDismissLayer.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        // A docked sidebar sits beside the page, so there is nothing to click away from.
+        var floating = expanded && _sidebarDocked != true;
+        SidebarDismissLayer.Visibility = floating ? Visibility.Visible : Visibility.Collapsed;
+        // Docked, the sidebar is a column against the window's edge rather than a floating panel:
+        // no gap around it, square outer corners, and only a hairline where it meets the page.
+        var docked = expanded && _sidebarDocked == true;
+        Sidebar.Margin = docked ? new Thickness(0) : new Thickness(8);
+        Sidebar.CornerRadius = docked ? new CornerRadius(0) : new CornerRadius(14);
+        Sidebar.BorderThickness = docked ? new Thickness(0, 0, 1, 0) : new Thickness(1);
         var visible = expanded ? Visibility.Visible : Visibility.Collapsed;
         SidebarBrandName.Visibility = visible;
+        SidebarMoreButton.Visibility = visible;
         SidebarSearchTab.Visibility = visible;
         SidebarNavigation.Visibility = visible;
         AccountDetails.Visibility = visible;
@@ -196,11 +219,12 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Expansion is temporary at every width; choosing a destination restores the rail.
+    /// Below the docking width the expanded panel is temporary: choosing a destination restores
+    /// the rail. A docked sidebar stays open.
     /// </summary>
     private void DismissOverlaySidebar()
     {
-        if (_sidebarExpanded)
+        if (_sidebarExpanded && _sidebarDocked != true)
         {
             ToggleSidebar();
         }
@@ -349,6 +373,14 @@ public sealed partial class MainWindow : Window
     private async Task GoBackAsync()
     {
         DismissOverlaySidebar();
+        // A Settings category page steps back to the Settings index before leaving Settings.
+        if (Model.IsSettingsPage && Model.SettingsSection is not null)
+        {
+            Model.OpenSettingsSection(null, null);
+            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+            UpdateBackButton();
+            return;
+        }
         await Model.GoBackAsync();
         HighlightNavigation(Model.CurrentSidebarDestination);
         ContentScroller.ChangeView(null, 0, null, disableAnimation: true);

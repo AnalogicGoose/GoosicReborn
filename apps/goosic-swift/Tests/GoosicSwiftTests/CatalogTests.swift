@@ -237,7 +237,7 @@ final class CatalogRoutingTests: XCTestCase {
         XCTAssertEqual(GoosicRoute.moodsAndGenres.catalogRoute, "moodsAndGenres")
         XCTAssertNil(GoosicRoute.search.catalogRoute)
         XCTAssertNil(GoosicRoute.library.catalogRoute)
-        XCTAssertNil(GoosicRoute.downloads.catalogRoute)
+        XCTAssertNil(GoosicRoute(rawValue: "downloads"), "the removed page is not restored")
         XCTAssertNil(GoosicRoute.settings.catalogRoute)
     }
 

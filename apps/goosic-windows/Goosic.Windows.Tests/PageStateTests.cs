@@ -61,19 +61,4 @@ public class PageStateTests
         Assert.True(PageState.SignInRequired.CanSignIn);
         Assert.False(PageState.SignInRequired.CanRetry);
     }
-
-    [Fact]
-    public void DownloadsDistinguishUnreadableEmptyAndUnplayable()
-    {
-        Assert.Equal(PageStateKind.Failed, PageState.Downloads(null).Kind);
-        Assert.True(PageState.Downloads(null).CanRetry);
-        Assert.Equal(PageStateKind.Empty, PageState.Downloads(0).Kind);
-        Assert.False(PageState.Downloads(0).CanRetry);
-
-        var some = PageState.Downloads(3);
-        Assert.Equal(PageStateKind.NotSupported, some.Kind);
-        Assert.False(some.CanRetry);
-        Assert.StartsWith("3 downloaded tracks are", some.Message);
-        Assert.StartsWith("1 downloaded track is", PageState.Downloads(1).Message);
-    }
 }
