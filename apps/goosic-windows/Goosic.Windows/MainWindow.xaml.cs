@@ -95,6 +95,8 @@ public sealed partial class MainWindow : Window
             Model.Playback = _playback;
             Model.Personal = _personal;
             _playback.Status += message => Model.ReportDetail(message);
+            // A track that cannot start is said to the listener, not only to the log.
+            _playback.Failed += message => Model.ReportStatus(message);
             _playback.IsSubstitute = Model.AcceptSubstitute;
             _playback.PageRefused += Model.ReportRefused;
             _playback.PageMovedOn += videoId =>
