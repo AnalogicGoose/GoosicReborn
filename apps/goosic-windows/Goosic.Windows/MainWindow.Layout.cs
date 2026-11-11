@@ -24,7 +24,7 @@ public sealed partial class MainWindow : Window
     private bool PanelsOverlayContent => WindowLayout.PanelsOverlayContent(_widthClass);
 
     private double LeftInset =>
-        WindowLayout.NavigationInset(_widthClass, _sidebarExpanded,
+        WindowLayout.NavigationInset(_sidebarDocked == true, _sidebarExpanded,
             WindowLayout.SidebarWidth(_widthClass, RootGrid.ActualWidth));
 
     private double RightInset =>
@@ -32,14 +32,23 @@ public sealed partial class MainWindow : Window
 
     private void OnRootSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        _sidebarRevealClip?.StopAnimation("RightInset");
+        // A reveal stopped part-way leaves its inset where it stopped and cuts the sidebar off, so
+        // the clip goes entirely rather than being paused.
+        ClearSidebarRevealClip();
         var next = WindowLayout.Classify(e.NewSize.Width);
         var changed = next != _widthClass;
         _widthClass = next;
         SidePanel.Width = WindowLayout.SidePanelWidth(next, e.NewSize.Width);
-        if (changed && next == WindowWidthClass.Narrow)
+        // The first layout takes the default for its width; later ones keep the listener's choice
+        // until the window crosses the docking breakpoint. Only presentation changes here.
+        var docked = WindowLayout.SidebarDocks(e.NewSize.Width);
+        var expanded = _sidebarDocked is { } wasDocked
+            ? WindowLayout.SidebarExpandedAfterResize(wasDocked, docked, _sidebarExpanded)
+            : docked;
+        _sidebarDocked = docked;
+        if (expanded != _sidebarExpanded || changed)
         {
-            SetSidebarExpanded(false);
+            SetSidebarExpanded(expanded, moveFocus: false);
         }
 
         Sidebar.Width = _sidebarExpanded ? WindowLayout.SidebarWidth(next, e.NewSize.Width) : WindowLayout.SidebarRailWidth;

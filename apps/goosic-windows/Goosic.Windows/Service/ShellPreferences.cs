@@ -49,6 +49,76 @@ internal static class ShellPreferences
     /// </summary>
     internal static bool DebugMode { get => Read("debugMode", false); set => Write("debugMode", value); }
 
+    /// <summary>
+    /// How see-through the sidebar, floating bars and menus are, 0 (solid) to 100. See
+    /// <see cref="Presentation.MaterialTransparency"/>; the default is the material as designed.
+    /// </summary>
+    internal static int MaterialTransparency
+    {
+        get
+        {
+            try
+            {
+                return Presentation.MaterialTransparency.Sanitize(Store.Value["materialTransparency"]?.GetValue<int>());
+            }
+            catch (Exception error) when (error is InvalidOperationException or FormatException)
+            {
+                return Presentation.MaterialTransparency.Default;
+            }
+        }
+        set
+        {
+            Store.Value["materialTransparency"] = Presentation.MaterialTransparency.Sanitize(value);
+            Save();
+        }
+    }
+
+    /// <summary>
+    /// Sidebar destinations the listener hid. Kept here rather than in the shared settings store
+    /// until <c>goosic-shell-support</c> owns the list of hideable destinations for every shell.
+    /// </summary>
+    internal static System.Collections.Generic.IReadOnlyList<string> HiddenSidebarItems
+    {
+        get
+        {
+            try
+            {
+                return Presentation.SidebarCustomization.Sanitize(Store.Value["hiddenSidebarItems"]?.Deserialize<string[]>());
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
+        }
+        set
+        {
+            Store.Value["hiddenSidebarItems"] = JsonSerializer.SerializeToNode(value);
+            Save();
+        }
+    }
+
+    /// <summary>What the listener pinned to the top of the sidebar, in their order. Ids and titles only.</summary>
+    internal static System.Collections.Generic.IReadOnlyList<Presentation.SidebarPin> SidebarPins
+    {
+        get
+        {
+            try
+            {
+                return Presentation.SidebarCustomization.Sanitize(
+                    Store.Value["sidebarPins"]?.Deserialize<Presentation.SidebarPin?[]>());
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
+        }
+        set
+        {
+            Store.Value["sidebarPins"] = JsonSerializer.SerializeToNode(value);
+            Save();
+        }
+    }
+
     /// <summary>The last few searches, newest first, offered when the search box opens.</summary>
     internal static System.Collections.Generic.IReadOnlyList<string> RecentSearches
     {

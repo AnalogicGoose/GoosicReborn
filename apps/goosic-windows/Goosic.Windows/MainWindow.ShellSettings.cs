@@ -7,12 +7,104 @@ using Goosic.Windows.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Windows.Graphics;
 
 namespace Goosic.Windows;
 
 public sealed partial class MainWindow : Window
 {
+    private static readonly (string Key, string Title)[] SettingsCategories =
+    [
+        ("account", "Account"), ("general", "General"), ("playback", "Playback"),
+        ("windows", "Windows"), ("updates", "Updates"), ("advanced", "Advanced"),
+    ];
+
+    private string? _shownSettingsSection;
+
+    /// <summary>Shows the index or the one category page the model names.</summary>
+    private void WireSettingsSections()
+    {
+        ShowSettingsSection(null);
+        Model.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ShellViewModel.SettingsSection))
+            {
+                ShowSettingsSection(Model.SettingsSection);
+                UpdateBackButton();
+            }
+        };
+    }
+
+    private void ShowSettingsSection(string? key)
+    {
+        var forward = key is not null && _shownSettingsSection is null;
+        var backward = key is null && _shownSettingsSection is not null;
+        _shownSettingsSection = key;
+        SettingsIndex.Visibility = key is null ? Visibility.Visible : Visibility.Collapsed;
+        SettingsAccountSection.Visibility = Show(key == "account");
+        SettingsGeneralSection.Visibility = Show(key == "general");
+        SettingsPlaybackSection.Visibility = Show(key == "playback");
+        SettingsWindowsSection.Visibility = Show(key == "windows");
+        SettingsUpdatesSection.Visibility = Show(key == "updates");
+        SettingsAdvancedSection.Visibility = Show(key == "advanced");
+
+        var crumbs = new System.Collections.Generic.List<string> { "Settings" };
+        if (key is not null)
+        {
+            crumbs.Add(Array.Find(SettingsCategories, c => c.Key == key).Title ?? key);
+        }
+
+        SettingsBreadcrumb.ItemsSource = crumbs;
+        if (forward || backward)
+        {
+            AnimateSettingsPage(forward);
+        }
+
+        static Visibility Show(bool on) => on ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Slides the new page in from the side it comes from, as Windows Settings does when it
+    /// drills into a category and back out of it: a short decelerating slide with a fade.
+    /// </summary>
+    private void AnimateSettingsPage(bool forward)
+    {
+        if (_compositor is null || !AnimationsEnabled)
+        {
+            return;
+        }
+
+        ElementCompositionPreview.SetIsTranslationEnabled(SettingsPages, true);
+        var visual = ElementCompositionPreview.GetElementVisual(SettingsPages);
+        var duration = TimeSpan.FromMilliseconds(300);
+        var from = new System.Numerics.Vector3(forward ? 56 : -56, 0, 0);
+        visual.StartAnimation("Translation", Vector("Translation", from, System.Numerics.Vector3.Zero, duration, _easeOut!));
+        visual.StartAnimation("Opacity", Scalar("Opacity", 0, 1, TimeSpan.FromMilliseconds(200), _easeOut!));
+    }
+
+    /// <summary>Clicking "Settings" in the breadcrumb goes back to the categories.</summary>
+    private void OnSettingsBreadcrumb(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
+    {
+        if (args.Index == 0 && Model.SettingsSection is not null)
+        {
+            Model.OpenSettingsSection(null, null);
+            ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+        }
+    }
+
+    /// <summary>A category card on the Settings index opens that category's page.</summary>
+    private void OnSettingsCategory(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not string key)
+        {
+            return;
+        }
+        var title = Array.Find(SettingsCategories, c => c.Key == key).Title ?? key;
+        Model.OpenSettingsSection(key, title);
+        ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+    }
+
     /// <summary>Opens the folder holding the log, so it can be attached to a bug report.</summary>
     private void OnOpenLogFolder(object sender, RoutedEventArgs e)
     {
@@ -298,6 +390,7 @@ public sealed partial class MainWindow : Window
 
         StartPageChoice.SelectedIndex = StartRoute.IndexOf(Model.StartPage);
         ShortcutList.ItemsSource = ShortcutEntry.All;
+        WireMaterialTransparency();
         Model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ShellViewModel.StartPage))

@@ -82,7 +82,7 @@ public sealed partial class MainWindow : Window
                 {
                     SetFullPlayerOpen(false);
                 }
-                else if (_sidebarExpanded)
+                else if (_sidebarExpanded && _sidebarDocked != true)
                 {
                     ToggleSidebar();
                 }
