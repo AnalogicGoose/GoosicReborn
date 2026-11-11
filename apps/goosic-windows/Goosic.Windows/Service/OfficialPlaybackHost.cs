@@ -55,7 +55,23 @@ internal sealed class OfficialPlaybackHost
     private ulong _lastSequence;
     private bool _ready;
     private bool _observerPending;
+
+    /// <summary>The navigation that carries the requested track; only its document gets the observer.</summary>
+    private ulong _observerNavigation;
+
+    /// <summary>The id the listener asked for, which stays the same when the page swaps in another version.</summary>
+    private string _requestedVideoId = "";
+
+    /// <summary>A load has been asked for and has not been heard playing, failed or given up on yet.</summary>
+    private bool _awaitingStart;
+    private bool _heardPlaying;
+    private bool _listenerTookOver;
+    private long _startWatch;
     private long _playRequest;
+
+    /// <summary>The request the current load belongs to, and when it began.</summary>
+    private long _loadRequest;
+    private DateTime _loadBegan = DateTime.MinValue;
     private readonly System.Threading.SemaphoreSlim _playGate = new(1, 1);
 
     internal OfficialPlaybackHost(Microsoft.UI.Xaml.Controls.Panel container, GoosicServiceClient client)
@@ -90,7 +106,12 @@ internal sealed class OfficialPlaybackHost
     {
         _token = "";
         _videoId = "";
+        _requestedVideoId = "";
         _observerPending = false;
+        _awaitingStart = false;
+        _startWatch++;
+        // The primer was registered with the renderer being discarded; its id means nothing to the next.
+        _volumePrimerId = null;
         if (_ready)
         {
             _view.CoreWebView2.WebMessageReceived -= OnWebMessage;
@@ -119,6 +140,8 @@ internal sealed class OfficialPlaybackHost
     internal Func<string, string, string, bool>? IsSubstitute;
 
     private string _lastState = "";
+    private DateTime _lastSampleLogged = DateTime.MinValue;
+    private bool _lastLoggedAd;
 
     /// <summary>
     /// Says so when YouTube Music paused the track to ask whether anyone is still listening.
@@ -153,6 +176,7 @@ internal sealed class OfficialPlaybackHost
     private bool _heardRequested;
 
     private int _strayReports;
+    private string? _lastRejection;
 
     /// <summary>The volume and mute the listener last chose, or null before they chose one.</summary>
     private double? _preferredVolume;
@@ -162,8 +186,17 @@ internal sealed class OfficialPlaybackHost
     private DateTime _lastVolumeFix = DateTime.MinValue;
     private bool _movedOnHandled;
 
-    /// <summary>Raised with anything worth saying on screen.</summary>
+    /// <summary>Raised with a notice about how playback works inside; shown only in debug mode.</summary>
     internal event Action<string>? Status;
+
+    /// <summary>
+    /// Raised when a track the listener asked for cannot start, with words meant for them.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Status"/> is a diagnostic and stays hidden outside debug mode, so a failure
+    /// reported only there looked like a click that did nothing.
+    /// </remarks>
+    internal event Action<string>? Failed;
 
     /// <summary>Whether this host currently owns a loaded official document.</summary>
     internal bool HasLoadedTrack => _ready && _videoId.Length > 0;
@@ -177,14 +210,33 @@ internal sealed class OfficialPlaybackHost
     /// </remarks>
     internal async Task PlayAsync(string videoId)
     {
-        BridgeLog.Write("play requested");
         if (!ShellSupport.IsValidVideoId(videoId))
         {
             BridgeLog.Write("play refused: not a video id");
-            Status?.Invoke("That is not a playable track.");
+            Failed?.Invoke("That song can\u2019t be played.");
             return;
         }
 
+        BridgeLog.Write($"play requested {videoId}");
+
+        // Clicking a row again while it loads used to abort the load and start it over, so an
+        // impatient second click made a slow start slower and a stuck one look like a failure.
+        // Only while that load is still the latest request, and only for as long as a load can
+        // reasonably take: a different track chosen since, or a load that hung, is not waited on.
+        if (_awaitingStart && videoId == _requestedVideoId && _playRequest == _loadRequest
+            && DateTime.UtcNow - _loadBegan < TimeSpan.FromSeconds(30))
+        {
+            BridgeLog.Write("play ignored: that track is already loading");
+            return;
+        }
+
+        await StartAsync(videoId, videoId).ConfigureAwait(true);
+    }
+
+    /// <param name="loadId">The id the page is sent to.</param>
+    /// <param name="requestedId">The id the listener chose, which differs when the page plays it under another.</param>
+    private async Task StartAsync(string loadId, string requestedId)
+    {
         // Loads are serialised, and only the most recent request survives the wait. Two that ran
         // together would each read the lease, each release it, and each claim it -- leaving one
         // renderer holding a generation the other just released.
@@ -198,7 +250,22 @@ internal sealed class OfficialPlaybackHost
                 return;
             }
 
-            await LoadAsync(videoId).ConfigureAwait(true);
+            _loadRequest = request;
+            _loadBegan = DateTime.UtcNow;
+            await LoadAsync(loadId, requestedId).ConfigureAwait(true);
+        }
+        catch (Exception error)
+        {
+            // Reached from a click handler, where an exception that escapes ends the process. The
+            // lease may have been claimed for a renderer that never loaded; nothing reports under
+            // it, and the next request releases it as it would any other.
+            BridgeLog.Write($"play failed: {error.GetType().Name}: {error.Message}");
+            _token = "";
+            _videoId = "";
+            _observerPending = false;
+            _awaitingStart = false;
+            _startWatch++;
+            Failed?.Invoke("The player couldn\u2019t start. Try the song again.");
         }
         finally
         {
@@ -206,7 +273,7 @@ internal sealed class OfficialPlaybackHost
         }
     }
 
-    private async Task LoadAsync(string videoId)
+    private async Task LoadAsync(string videoId, string requestedId)
     {
         // The page being replaced keeps posting until it unloads. Its reports are refused from
         // this moment rather than after the new claim: between Rust releasing the old lease and
@@ -214,6 +281,15 @@ internal sealed class OfficialPlaybackHost
         // rejected with "no playback owner is active".
         _token = "";
         _videoId = "";
+        // Nor may the page being replaced be given the next track's observer: its load can still
+        // complete while the lease is being claimed, and an observer for this request inside that
+        // document reports the old song as a stray one, which skipped the track just chosen.
+        _observerPending = false;
+        _requestedVideoId = requestedId;
+        _awaitingStart = true;
+        _heardPlaying = false;
+        _listenerTookOver = false;
+        _startWatch++;
 
         try
         {
@@ -251,12 +327,16 @@ internal sealed class OfficialPlaybackHost
         {
             BridgeLog.Write($"claim refused: {refused.Code} {refused.Message}");
             // Rust refused the transition. That is an answer, not a failure to be worked around.
+            _awaitingStart = false;
             Status?.Invoke($"Rust refused the claim: {refused.Message}");
+            Failed?.Invoke("That song couldn\u2019t be started. Try it again.");
             return;
         }
         catch (ServiceUnavailableException unavailable)
         {
+            _awaitingStart = false;
             Status?.Invoke(unavailable.Message);
+            Failed?.Invoke("Goosic stopped responding. Reopen the app and try again.");
             return;
         }
 
@@ -274,11 +354,23 @@ internal sealed class OfficialPlaybackHost
         await EnsureReadyAsync().ConfigureAwait(true);
         BridgeLog.Write("WebView2 ready");
 
-        // The observer for this load is installed once the page has finished loading; see
-        // InstallObserverAsync for why it is not a document-created script.
-        _observerPending = true;
-        BridgeLog.Write($"claimed generation={_generation}; loading requested track");
+        var token = _token;
         await PrimeVolumeAsync(_view.CoreWebView2);
+        // The renderer was discarded, or the account changed, while this load was being prepared.
+        if (token != _token || !_ready)
+        {
+            BridgeLog.Write("load abandoned: the renderer was replaced while it was prepared");
+            _awaitingStart = false;
+            return;
+        }
+
+        // The observer for this load is installed once the page has finished loading; see
+        // InstallObserverAsync for why it is not a document-created script. It is promised only
+        // here, with nothing awaited before the navigation, so the only document that can claim
+        // it is the one this navigation produces.
+        _observerPending = true;
+        _observerNavigation = 0;
+        BridgeLog.Write($"claimed generation={_generation}; loading requested track");
         _view.CoreWebView2.Navigate($"https://{ShellSupport.AllowedHost}/watch?v={Uri.EscapeDataString(videoId)}");
     }
 
@@ -380,12 +472,42 @@ internal sealed class OfficialPlaybackHost
                 + $"at {BridgeLog.Describe(core.Source)}");
             if (!args.IsSuccess)
             {
+                // A load that was replaced by the next request is not a failure of anything.
+                if (args.WebErrorStatus is CoreWebView2WebErrorStatus.ConnectionAborted
+                    or CoreWebView2WebErrorStatus.OperationCanceled)
+                {
+                    return;
+                }
+
                 Status?.Invoke($"The official player did not load ({args.WebErrorStatus}).");
+                if (_observerPending && args.NavigationId == _observerNavigation)
+                {
+                    _observerPending = false;
+                    _awaitingStart = false;
+                    Failed?.Invoke("The player couldn\u2019t load. Check your connection and try again.");
+                }
+
                 return;
             }
 
+            // A document that finished loading before the latest request navigated away from it
+            // completes here too. It is not the requested track's, so it gets no observer.
+            if (!_observerPending || args.NavigationId != _observerNavigation)
+            {
+                BridgeLog.Write("navigation completed for a superseded document; no observer installed");
+                return;
+            }
+
+            var token = _token;
             await ProbePageAsync(core);
+            if (token != _token)
+            {
+                return;
+            }
+
             await InstallObserverAsync(core);
+            // Runs beside the Automix check rather than after it; it ends itself.
+            var watching = WatchStartAsync(token);
             await KeepAutomixOffAsync(core);
         };
 
@@ -398,6 +520,12 @@ internal sealed class OfficialPlaybackHost
             if (!allowed)
             {
                 args.Cancel = true;
+            }
+            else if (_observerPending)
+            {
+                // The latest navigation begun since the request, so a redirect the page makes
+                // on the way to the track still ends in the document that is observed.
+                _observerNavigation = args.NavigationId;
             }
         };
 
@@ -475,6 +603,77 @@ internal sealed class OfficialPlaybackHost
         {
             BridgeLog.Write($"observer install failed: {error.Message}");
             Status?.Invoke($"Could not attach to the official player: {error.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Watches a loaded page until the requested track is heard, and gives up on one that never starts.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="Presentation.StartWatch"/> for the rule. Giving up takes the same path as a
+    /// track the page replaced without playing: the listener is told, the row is marked, and the
+    /// queue moves on. Whatever stopped the page is left exactly as it is -- a prompt inside the
+    /// page is never answered from here; the play request is the one the listener's click made.
+    /// </remarks>
+    private async Task WatchStartAsync(string token)
+    {
+        var watch = ++_startWatch;
+        var started = DateTime.UtcNow;
+        var nudged = false;
+        while (true)
+        {
+            await Task.Delay(500);
+            if (watch != _startWatch || token != _token)
+            {
+                return;
+            }
+
+            switch (Presentation.StartWatch.Decide(DateTime.UtcNow - started, _heardPlaying, _listenerTookOver, nudged))
+            {
+                case Presentation.StartWatchAction.Done:
+                    _awaitingStart = false;
+                    return;
+                case Presentation.StartWatchAction.Nudge:
+                    nudged = true;
+                    await NudgePlayAsync();
+                    break;
+                case Presentation.StartWatchAction.GiveUp:
+                    _awaitingStart = false;
+                    _movedOnHandled = true;
+                    BridgeLog.Write($"the requested track never started ({_requestedVideoId}, page at {_videoId}); treating it as unplayable");
+                    await ProbePageAsync(_view.CoreWebView2);
+                    if (watch != _startWatch || token != _token)
+                    {
+                        return;
+                    }
+
+                    PageRefused?.Invoke(_requestedVideoId);
+                    StopMovedOnPage();
+                    return;
+            }
+        }
+    }
+
+    /// <summary>Asks the page to play a track it loaded and left paused.</summary>
+    private async Task NudgePlayAsync()
+    {
+        try
+        {
+            var outcome = await _view.CoreWebView2.ExecuteScriptAsync("""
+                (() => {
+                  const media = document.querySelector('audio,video');
+                  const player = document.getElementById('movie_player');
+                  if (media && !media.paused) return 'already playing';
+                  if (player && typeof player.playVideo === 'function') { player.playVideo(); return 'asked the player'; }
+                  if (media) { void media.play(); return 'asked the media element'; }
+                  return 'no media';
+                })();
+                """);
+            BridgeLog.Write($"the page loaded without starting; play nudge: {outcome}");
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"play nudge failed: {error.GetType().Name}");
         }
     }
 
@@ -566,6 +765,10 @@ internal sealed class OfficialPlaybackHost
             Status?.Invoke("Choose a track to begin.");
             return;
         }
+
+        // From here a silent page is the listener's choice, not a track that failed to start.
+        _listenerTookOver = true;
+        _awaitingStart = false;
 
         try
         {
@@ -828,7 +1031,6 @@ internal sealed class OfficialPlaybackHost
 
     private void OnWebMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
-        BridgeLog.Write($"message arrived from {BridgeLog.Describe(args.Source)}");
         string body;
         try
         {
@@ -858,12 +1060,24 @@ internal sealed class OfficialPlaybackHost
         {
             // Kept quiet on screen: a superseded document reports for a moment after every load,
             // and saying so each time would be noise rather than information.
-            BridgeLog.Write($"message rejected: {verdict.Reason}");
+            if (verdict.Reason != _lastRejection)
+            {
+                _lastRejection = verdict.Reason;
+                BridgeLog.Write($"message rejected: {verdict.Reason}");
+            }
+
             NoticeStrayTrack(verdict.Reason);
             return;
         }
 
         _strayReports = 0;
+        if (verdict.Event.State == "playing")
+        {
+            // An advertisement counts: the page is working, and the track follows it.
+            _heardPlaying = true;
+            _awaitingStart = false;
+        }
+
         if (verdict.Event is { State: "playing", Duration: > 0, IsAdvertisement: false })
         {
             _heardRequested = true;
@@ -874,10 +1088,20 @@ internal sealed class OfficialPlaybackHost
             _ = NoticeIdlePromptAsync();
         }
 
-        _lastState = verdict.Event.State;
+        // A playing page reports about six times a second. Every change of state is recorded, and
+        // otherwise one sample every few seconds, which is enough to follow a play without the
+        // log filling, and turning over, within minutes.
+        var now = DateTime.UtcNow;
+        if (verdict.Event.State != _lastState || verdict.Event.IsAdvertisement != _lastLoggedAd
+            || now - _lastSampleLogged >= TimeSpan.FromSeconds(5))
+        {
+            _lastSampleLogged = now;
+            _lastLoggedAd = verdict.Event.IsAdvertisement;
+            BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
+                + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement} vol={verdict.Event.Volume:F2}");
+        }
 
-        BridgeLog.Write($"sample accepted seq={verdict.Event.Sequence} state={verdict.Event.State} "
-            + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement} vol={verdict.Event.Volume:F2}");
+        _lastState = verdict.Event.State;
         _lastSequence = verdict.Event.Sequence;
         _lastMuted = verdict.Event.Muted;
         KeepPreferredVolume(verdict.Event);
@@ -950,17 +1174,22 @@ internal sealed class OfficialPlaybackHost
             return;
         }
 
-        if (IsSubstitute?.Invoke(requested, described, title) == true)
+        // Only the listener's own choice may be swapped, and only once: a substitute that is
+        // itself replaced is the page wandering, not another version of the song.
+        if (requested == _requestedVideoId && IsSubstitute?.Invoke(requested, described, title) == true)
         {
-            BridgeLog.Write("the page swapped the requested song for another version of it; keeping it");
-            _videoId = described;
-            _strayReports = 0;
-            _movedOnHandled = false;
+            // The substitute is loaded afresh, under its own id and a new lease. Adopting it in
+            // place could never play: the observer in this document was built for the id first
+            // asked for, and pauses anything else the moment it starts -- which is its job, and
+            // is why an accepted substitute used to sit paused at 0:00 for as long as it was left.
+            BridgeLog.Write($"the page swapped the requested song for another version of it ({described}); loading that version");
+            _lastRejection = null;
+            await StartAsync(described, requested).ConfigureAwait(true);
             return;
         }
 
         BridgeLog.Write($"the page replaced a track that never played with {described} (\"{title}\"); treating it as unplayable");
-        PageRefused?.Invoke(requested);
+        PageRefused?.Invoke(_requestedVideoId);
         StopMovedOnPage();
     }
 
