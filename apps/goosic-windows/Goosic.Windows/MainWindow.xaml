@@ -1466,13 +1466,6 @@
                                     <TextBlock Grid.Column="1" Text="History" TextTrimming="CharacterEllipsis" />
                                 </Grid>
                             </ToggleButton>
-                            <ToggleButton Style="{StaticResource SidebarNavigationStyle}" Tag="downloads" Click="OnNavigate" AutomationProperties.Name="Downloads" ToolTipService.ToolTip="Downloads">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE896;" />
-                                    <TextBlock Grid.Column="1" Text="Downloads" TextTrimming="CharacterEllipsis" />
-                                </Grid>
-                            </ToggleButton>
 
                             <Grid Margin="0,0,4,0">
                                 <TextBlock Style="{StaticResource SidebarHeaderStyle}" Text="Playlists" />
@@ -1560,10 +1553,6 @@
                             <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="history" Click="OnNavigate"
                                           AutomationProperties.Name="History" ToolTipService.ToolTip="History">
                                 <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE81C;" />
-                            </ToggleButton>
-                            <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="downloads" Click="OnNavigate"
-                                          AutomationProperties.Name="Downloads" ToolTipService.ToolTip="Downloads">
-                                <FontIcon Style="{StaticResource SidebarIconStyle}" Glyph="&#xE896;" />
                             </ToggleButton>
                             <ToggleButton Style="{StaticResource SidebarRailItemStyle}" Tag="library:FEmusic_liked_playlists" Click="OnNavigate"
                                           AutomationProperties.Name="All Playlists" ToolTipService.ToolTip="All Playlists">
