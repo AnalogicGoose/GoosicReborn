@@ -1,11 +1,10 @@
 import Foundation
 
-let goosicProtocolVersion = "0.4.0"
+let goosicProtocolVersion = "0.5.0"
 
 enum GoosicOwner: String, Codable {
     case none
     case officialWebView
-    case localDownloadedFile
 }
 
 struct GoosicRequestPayload: Codable {
@@ -283,26 +282,7 @@ struct GoosicResponsePayload: Codable {
     var catalog: GoosicCatalogPage?
     var settings: GoosicSettings?
     var accounts: GoosicAccountsSnapshot?
-    /// Tracks already present on disk. The service resolves availability for every list request.
-    var downloads: [GoosicDownloadedTrack]?
-    /// The decoded cache path returned only after Rust has prepared a local track.
-    var localFile: String?
     var lyrics: GoosicLyrics?
-}
-
-struct GoosicDownloadedTrack: Codable, Identifiable, Hashable {
-    var videoId: String
-    var title: String
-    var artist: String
-    var bytes: UInt64
-    var available: Bool
-    var imported: Bool
-
-    var id: String { videoId }
-    var subtitle: String {
-        let parts = [artist].filter { !$0.isEmpty }
-        return parts.isEmpty ? "Downloaded file" : parts.joined(separator: " · ")
-    }
 }
 
 struct GoosicSettings: Codable {
