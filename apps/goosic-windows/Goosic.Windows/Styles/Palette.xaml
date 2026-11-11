@@ -12,23 +12,30 @@
             <SolidColorBrush x:Key="GoosicSearchCardTextBrush" Color="White" />
             <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#FF0552" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemBaseHighColor}" />
-            <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#202020" />
+            <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#1C1C1C" />
             <SolidColorBrush x:Key="GoosicRailBrush" Color="#211B30" />
             <SolidColorBrush x:Key="GoosicChromeBrush" Color="#1A1A20" />
-            <SolidColorBrush x:Key="GoosicRaisedBrush" Color="#FFFFFF" Opacity="0.06" />
-            <SolidColorBrush x:Key="GoosicRaisedStrongBrush" Color="#FFFFFF" Opacity="0.11" />
+            <SolidColorBrush x:Key="GoosicRaisedBrush" Color="#FFFFFF" Opacity="0.055" />
+            <SolidColorBrush x:Key="GoosicRaisedStrongBrush" Color="#FFFFFF" Opacity="0.10" />
             <SolidColorBrush x:Key="GoosicSecondaryTextBrush" Color="#9E9EA7" />
             <SolidColorBrush x:Key="GoosicHairlineBrush" Color="#FFFFFF" Opacity="0.09" />
-            <AcrylicBrush x:Key="GoosicSidebarAcrylicBrush" TintColor="#000000" TintOpacity="0.45"
-                          TintLuminosityOpacity="0.55" FallbackColor="#000000" />
-            <AcrylicBrush x:Key="GoosicPillAcrylicBrush" TintColor="#000000" TintOpacity="0.3"
-                          TintLuminosityOpacity="0.45" FallbackColor="#E6000000" />
+            <!--
+                Apple Music for Windows' dark greys, sampled from its window: a #1C1C1C page with
+                #282828 cards. The sidebar keeps Goosic's own glass over the page, and floating bars
+                sit a step lighter than the page so they read as raised.
+            -->
+            <AcrylicBrush x:Key="GoosicSidebarAcrylicBrush" TintColor="#252525" TintOpacity="0.78"
+                          TintLuminosityOpacity="0.6" FallbackColor="#252525" />
+            <AcrylicBrush x:Key="GoosicPillAcrylicBrush" TintColor="#333333" TintOpacity="0.6"
+                          TintLuminosityOpacity="0.5" FallbackColor="#E6303030" />
+            <AcrylicBrush x:Key="GoosicMenuAcrylicBrush" TintColor="#2C2C2C" TintOpacity="0.7"
+                          TintLuminosityOpacity="0.7" FallbackColor="#F0282828" />
             <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="#FFFFFF" Opacity="0.14" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="#FFFFFF" Opacity="0.10" />
             <!-- Fades the page out under the title bar, so scrolled titles never run into the window buttons. -->
             <LinearGradientBrush x:Key="GoosicTitleFadeBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#F5181818" Offset="0" />
-                <GradientStop Color="#E6181818" Offset="0.6" />
+                <GradientStop Color="#F51C1C1C" Offset="0" />
+                <GradientStop Color="#E61C1C1C" Offset="0.6" />
                 <GradientStop Color="#00000000" Offset="1" />
             </LinearGradientBrush>
         </ResourceDictionary>
@@ -51,6 +58,8 @@
                           TintLuminosityOpacity="0.7" FallbackColor="#F1F1F5" />
             <AcrylicBrush x:Key="GoosicPillAcrylicBrush" TintColor="#FFFFFF" TintOpacity="0.45"
                           TintLuminosityOpacity="0.6" FallbackColor="#F2FFFFFF" />
+            <AcrylicBrush x:Key="GoosicMenuAcrylicBrush" TintColor="#F3F3F6" TintOpacity="0.55"
+                          TintLuminosityOpacity="0.7" FallbackColor="#F1F1F5" />
             <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="#000000" Opacity="0.10" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="#000000" Opacity="0.08" />
             <!-- Fades the page out under the title bar, so scrolled titles never run into the window buttons. -->
@@ -82,6 +91,7 @@
             <SolidColorBrush x:Key="GoosicHairlineBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="GoosicSidebarAcrylicBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicPillAcrylicBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="GoosicMenuAcrylicBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicPillBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
         </ResourceDictionary>

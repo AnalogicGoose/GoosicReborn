@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Goosic.Windows.Service;
 using Goosic.Windows.ViewModels;
 using Microsoft.UI.Xaml;
@@ -136,6 +137,7 @@ public sealed partial class MainWindow : Window
                 AddAccountTrackItems(menu, track.VideoId, track.Title);
                 AddNavigation(menu, track.ArtistId, track.AlbumId, track.Artist, track.Album);
                 AddPlaylistItems(menu, track.VideoId, track.Title);
+                AddPinItem(menu, new SidebarPin("song", track.VideoId!, track.Title, track.Artist ?? "", track.Thumbnail));
                 if (Model.IsSignedIn && Model.IsOwnedPlaylistPage && !string.IsNullOrEmpty(track.EntryId))
                 {
                     Add(menu, "Remove from Playlist", MenuGlyphs.Delete, async () => await Model.RemoveFromPagePlaylistAsync(track));
@@ -152,6 +154,7 @@ public sealed partial class MainWindow : Window
                 AddAccountTrackItems(menu, card.VideoId, card.Title);
                 AddNavigation(menu, card.ArtistId, card.AlbumId, card.Artist, card.Album);
                 AddPlaylistItems(menu, card.VideoId, card.Title);
+                AddPinItem(menu, new SidebarPin("song", card.VideoId!, card.Title, card.Subtitle, card.Thumbnail));
                 AddLink(menu, ShellViewModel.LinkFor(card));
                 break;
 
@@ -163,6 +166,7 @@ public sealed partial class MainWindow : Window
                 });
                 Add(menu, "Play", MenuGlyphs.Play, async () => await PlayEntryAsync(await Model.PlayEntityAsync(card.Kind, card.Id, shuffle: false)));
                 Add(menu, "Shuffle", MenuGlyphs.Shuffle, async () => await PlayEntryAsync(await Model.PlayEntityAsync(card.Kind, card.Id, shuffle: true)));
+                AddPinItem(menu, new SidebarPin(card.Kind, card.Id, card.Title, card.Subtitle, card.Thumbnail));
                 if (Model.IsSignedIn && card.Kind == "playlist")
                 {
                     menu.Items.Add(new MenuFlyoutSeparator());
