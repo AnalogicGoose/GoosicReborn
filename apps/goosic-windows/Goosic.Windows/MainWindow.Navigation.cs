@@ -52,6 +52,14 @@ public sealed partial class MainWindow : Window
             && Model.KeepCurrentPageOnReselect())
         {
             HighlightNavigation(Model.CurrentSidebarDestination);
+            // Opening Settings always lands on its categories, so choosing it again from inside a
+            // category goes back to them, as the breadcrumb's "Settings" does.
+            if (tag == "settings" && Model.SettingsSection is not null)
+            {
+                Model.OpenSettingsSection(null, null);
+                ContentScroller.ChangeView(null, 0, null, disableAnimation: true);
+            }
+
             return;
         }
 
