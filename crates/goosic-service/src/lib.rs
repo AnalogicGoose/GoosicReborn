@@ -1,6 +1,5 @@
 pub mod accounts;
 pub mod catalog;
-pub mod downloads;
 pub mod lyrics;
 pub mod settings;
 
@@ -15,7 +14,6 @@ pub fn handle_request(
     authority: &mut PlaybackAuthority,
     catalog: &Catalog,
     settings: &mut settings::Settings,
-    downloads: &mut downloads::Downloads,
     accounts: &mut accounts::Accounts,
     lyrics: &LyricsClient,
     request: RequestEnvelope,
@@ -42,17 +40,6 @@ pub fn handle_request(
     }
     // Lyrics are another read-only lookup, so they too are answered before the authority.
     if let Some(response) = lyrics::handle(lyrics, &request.command, &request_id, &payload) {
-        return response;
-    }
-    // Reading the download index and decoding a file likewise decide nothing about ownership;
-    // playing one still requires claiming `localDownloadedFile` from the authority.
-    if let Some(response) = downloads::handle(
-        downloads,
-        authority.state(),
-        &request.command,
-        &request_id,
-        &payload,
-    ) {
         return response;
     }
     if let Some(response) =
@@ -190,16 +177,6 @@ mod tests {
         Catalog::new()
     }
 
-    /// Downloads pointed at a throwaway path, so tests never read or write the real index.
-    fn downloads() -> downloads::Downloads {
-        let base = std::env::temp_dir().join(format!(
-            "goosic-service-downloads-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        downloads::Downloads::at(base.join("downloads.json"), base.join("decoded"), None)
-    }
-
     fn accounts() -> accounts::Accounts {
         let base = std::env::temp_dir().join(format!(
             "goosic-service-accounts-{}-{:?}",
@@ -235,14 +212,13 @@ mod tests {
             &mut authority,
             &catalog(),
             &mut settings(),
-            &mut downloads(),
             &mut accounts(),
             &LyricsClient::new(),
             request("1", "hello", RequestPayload::default()),
         );
         assert!(response.ok);
         let wire = serde_json::to_string(&response).unwrap();
-        assert!(wire.contains("\"protocolVersion\":\"0.4.0\""));
+        assert!(wire.contains("\"protocolVersion\":\"0.5.0\""));
         let decoded: ResponseEnvelope = serde_json::from_str(&wire).unwrap();
         assert_eq!(decoded.request_id, "1");
     }
@@ -254,7 +230,6 @@ mod tests {
             &mut authority,
             &catalog(),
             &mut settings(),
-            &mut downloads(),
             &mut accounts(),
             &LyricsClient::new(),
             request(
@@ -272,7 +247,6 @@ mod tests {
             &mut authority,
             &catalog(),
             &mut settings(),
-            &mut downloads(),
             &mut accounts(),
             &LyricsClient::new(),
             request(
@@ -299,7 +273,6 @@ mod tests {
             &mut authority,
             &catalog(),
             &mut settings(),
-            &mut downloads(),
             &mut accounts(),
             &LyricsClient::new(),
             request(

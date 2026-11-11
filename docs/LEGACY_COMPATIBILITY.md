@@ -10,7 +10,7 @@ The app identity remains `goosic`: storage directories and the media-player bus 
 
 ## What the import actually does
 
-The Downloads screen can also import finalized `.webm` files from the legacy `offline-media/stream` directory. It references those files in place, skips empty or explicitly invalid entries, and never deletes or copies the previous media. A request to play one must first hold Rust's `localDownloadedFile` lease; Rust decodes the WebM/Opus source into its own WAV cache, and the local host — AVFoundation on macOS, GStreamer on Linux — opens only the returned decoded path. This build does not implement new downloads, yt-dlp, or cookie-backed extraction.
+Downloaded media is not imported. Earlier builds could list and play the finalized `.webm` files in the legacy `offline-media/stream` directory; Goosic now plays online only, so that import was removed in protocol 0.5.0. Those files are left exactly where they are, never read, copied or deleted. There are no new downloads, no yt-dlp, and no cookie-backed extraction.
 
 The previous app kept its preferences in the web view's `localStorage`, which on macOS and Linux is a WebKit SQLite database. `goosic-settings` reads it as follows:
 
@@ -33,5 +33,5 @@ Migration reads legacy state without deleting it, writes the new representation 
 - Playback has exactly one owner at a time; owner transitions are generation-scoped.
 - Samples are strictly increasing within each generation; stale generations cannot control playback.
 - Advertisement markers are normal metadata and never errors or teardown.
-- Explicit local downloads are separate from online playback; account cookies never enter download tooling.
+- There is no download tooling of any kind; account cookies never leave the account's web profile.
 - Credentials, cookies, bridge secrets, and signing material are never committed, logged, or sent on the service stdout protocol.

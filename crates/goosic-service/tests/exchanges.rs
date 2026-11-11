@@ -11,7 +11,7 @@ use goosic_core::PlaybackAuthority;
 use goosic_lyrics::LyricsClient;
 use goosic_protocol::conformance::exchange_cases;
 use goosic_protocol::RequestEnvelope;
-use goosic_service::{accounts, downloads, handle_request, settings};
+use goosic_service::{accounts, handle_request, settings};
 
 /// A throwaway directory per exchange, so replaying one never reads or writes real user data
 /// and two exchanges cannot see each other's state.
@@ -34,8 +34,6 @@ fn every_scripted_conversation_produces_the_recorded_answers() {
         let catalog = Catalog::new();
         let base = scratch(&exchange.name);
         let mut settings = settings::Settings::at(base.join("settings.json"), None);
-        let mut downloads =
-            downloads::Downloads::at(base.join("downloads.json"), base.join("decoded"), None);
         let mut accounts = accounts::Accounts::at(base.join("accounts.json"));
         let lyrics = LyricsClient::new();
 
@@ -49,7 +47,6 @@ fn every_scripted_conversation_produces_the_recorded_answers() {
                 &mut authority,
                 &catalog,
                 &mut settings,
-                &mut downloads,
                 &mut accounts,
                 &lyrics,
                 request,
