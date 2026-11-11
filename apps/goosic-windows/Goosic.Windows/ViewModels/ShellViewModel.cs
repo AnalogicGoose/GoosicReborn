@@ -31,7 +31,6 @@ public sealed record RouteEntry(string Route, string Title, string Glyph)
         new("library", "Library", ""),
         new("liked", "Liked Music", "\uEB51"),
         new("history", "History", "\uE81C"),
-        new("downloads", "Downloads", ""),
         new("settings", "Settings", "\uE713"),
     ];
 }
@@ -1379,7 +1378,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         var scope = CacheScope;
         var startedDuringAccountChange = IsAccountBusy;
         PreparedFeed? prepared = null;
-        if (route is not ("settings" or "downloads"))
+        if (route != "settings")
         {
             var preparing = PrepareFeedAsync(route, librarySection);
             // A quick answer replaces the page once; a slow one shows the loading state first,
@@ -1400,46 +1399,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         if (route == "settings")
         {
             ShowSettingsPage();
-            return;
-        }
-
-        if (route == "downloads")
-        {
-            Remember("route" + KeySeparator + route, rememberCurrentRoute, requestVersion);
-            Shelves.Clear();
-            Tracks.Clear();
-            NextCursor = null;
-            AllTracksId = null;
-            ForgetPersonalPage();
-            PageTitle = "Downloads";
-            PageSubtitle = "Tracks saved by a previous Goosic";
-            ShowPageHeader = true;
-            Status = "";
-            PageState = PageState.Loading;
-            int? count;
-            try
-            {
-                var listed = await _client.RequestAsync("downloads.list").ConfigureAwait(true);
-                count = listed?["downloads"] is JsonArray downloads ? downloads.Count : 0;
-            }
-            catch (ServiceUnavailableException error)
-            {
-                if (requestVersion == _pageRequestVersion)
-                {
-                    PageState = FailureState(error, PageTitle);
-                }
-                return;
-            }
-            catch (Exception error)
-            {
-                Describe(error);
-                count = null;
-            }
-
-            if (requestVersion == _pageRequestVersion)
-            {
-                PageState = PageState.Downloads(count);
-            }
             return;
         }
 

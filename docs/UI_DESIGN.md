@@ -115,7 +115,7 @@ compact arrangement; opening a temporary control must not select a different arr
 
 The leading navigation presents Search and Home first, followed by Discover, Library and
 Playlists groups. Discover contains Explore, Charts, Moods & genres and New releases.
-Library exposes Liked Music, Artists, Albums, History and Downloads. Playlists contains All
+Library exposes Liked Music, Artists, Albums and History. Playlists contains All
 Playlists and account playlist entries with their artwork. Account identity and account actions
 anchor the bottom of navigation. Where Settings opens differs by platform: Windows keeps it as
 the last navigation destination, while on macOS it is not a navigation row and opens from the
@@ -131,7 +131,7 @@ the search shortcut opens that page and focuses its floating field, preserving t
 category when returning. The compact Search icon opens the same page without expanding the
 sidebar. Compact navigation keeps named, keyboard-reachable icons with tooltips. Windows rail
 shortcuts mirror the expanded destinations in the same order: Home; Explore, Charts, Moods &
-genres, New releases; Liked Music, Artists, Albums, History, Downloads; All Playlists; Settings.
+genres, New releases; Liked Music, Artists, Albums, History; All Playlists; Settings.
 Search stays above Home. These are individual icon actions with matching glyphs, names and
 tooltips, rather than aggregate Discover or Library buttons. Collapsed icons use uniform spacing
 without the expanded sidebar's section-heading gaps. New playlist remains available as a named plus icon

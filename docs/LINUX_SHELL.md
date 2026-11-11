@@ -24,14 +24,12 @@ the Swift port never had to face: on a fresh profile YouTube Music loads the tra
 waits. The shell therefore answers the first paused report of a load it was asked to play with a
 single play request, once, so a pause the user makes afterwards is kept.
 
-Downloaded files play through a GStreamer pipeline of their own, under the `localDownloadedFile`
-lease: the Downloads screen lists and imports the previous Goosic's finalized files, the service
-decodes one when it is chosen, and the shell switches the lease between the official page and the
-file in either direction, quiescing or stopping one renderer before the other may claim. That path
-has been exercised end to end too, against a scratch legacy folder: the import found the file, the
-service decoded it under the lease, GStreamer played it, and PipeWire showed the stream. A unit test
-opens a generated WAV paused and reads its length back, which needs neither a display nor a sound
-card.
+Downloaded files used to play through a GStreamer pipeline of their own, under the
+`localDownloadedFile` lease. Protocol 0.5.0 removed downloads from Goosic on every platform, so that
+pipeline, the Downloads screen and the lease switching between page and file are to be deleted from
+`platform/linux` when it next takes `development`; until then the branch will not build against it,
+because the owner it claims no longer exists. The work is tracked in
+[#145](https://github.com/AnalogicGoose/GoosicReborn/issues/145).
 
 Accounts are real on Linux now, which the Swift port never managed. Add account releases whatever
 plays and opens Google's sign-in in a window of its own, whose cookies land in a staging directory
@@ -221,8 +219,6 @@ variables rather than spelling out a path.
 | What | Where | Written by |
 | --- | --- | --- |
 | Settings and account metadata | `$XDG_CONFIG_HOME/goosic/` | the service |
-| Download index | `$XDG_DATA_HOME/goosic/downloads.json` | the service |
-| Decoded WAV cache | `$XDG_DATA_HOME/goosic/decoded` today; moving to `$XDG_CACHE_HOME/goosic/decoded` | the service |
 | Web profiles, one per account | `$XDG_DATA_HOME/goosic/profiles/<uuid>` | the shell |
 | Sign-in staging profiles | `$XDG_DATA_HOME/goosic/staging/<uuid>` | the shell |
 | Web engine cache, one per profile | `$XDG_CACHE_HOME/goosic/web/<uuid>` | the shell |
@@ -230,13 +226,6 @@ variables rather than spelling out a path.
 
 Web profiles hold cookies and are user data, never a cache: clearing a cache must not sign anybody
 out. Their HTTP cache is a cache, so it lives apart from them.
-
-The decoded WAV cache is in the wrong place, and its own code says so: it describes the directory as
-reproducible from the source files, which is the definition of a cache. Decoded audio is large, so
-where it sits matters — under data it is swept into backups and ignored by every tool that frees
-cache space. The move belongs in `goosic-downloads`, which makes it shared work on `development`, and
-it applies to macOS (`~/Library/Caches`) and Windows (`%LOCALAPPDATA%`) in the same change. Nothing in
-the old directory needs migrating, since all of it can be decoded again.
 
 Inside the Flatpak those variables point into `~/.var/app/io.github.analogicgoose.Goosic/`. Because
 no crate hard-codes a path, the same code lands there with no Flatpak-specific branch. It also
@@ -258,7 +247,7 @@ Talking to `org.kde.StatusNotifierWatcher`, for the status icon. And read-only a
 Goosic's directory, for the legacy import. There is no access to the home directory and none to the
 host filesystem.
 
-Local playback plays WAV and needs no codec. The official player gets whatever the runtime's
+The official player gets whatever the runtime's
 GStreamer can decode, so the GNOME 50 runtime was inspected rather than assumed: it carries GTK
 4.22, WebKitGTK 6.0 and GStreamer 1.26, with the Opus, Matroska, VP9, AV1, MP4 and `libav`
 plugins. That covers both the Opus-in-WebM and the AAC-in-MP4 streams YouTube Music serves,
@@ -348,7 +337,7 @@ apps/goosic-linux/
         personal_host.rs   signed-in catalog reader inside the active account's profile
         login_host.rs      sign-in window under the shared navigation policy
         web_profile.rs     profile and staging storage, and the main-frame navigation guard
-        local_host.rs      GStreamer playbin for decoded files
+        local_host.rs      GStreamer playbin for decoded files; to be deleted (protocol 0.5.0)
         mpris.rs           org.mpris.MediaPlayer2 over gio
         status_icon.rs     StatusNotifierItem and its dbusmenu, where a watcher exists
         background.rs      hiding on close, holding the app, Ctrl+Q, inhibit, the Background portal
@@ -473,14 +462,13 @@ not the transport slider. They do not fail the fixture or establish compositor a
 | An end-to-end test proving neither host can sound without Rust's lease | `platform/linux` | The exact owner/generation guard has a unit test and runs before host calls; the renderer-level refusal still needs a harness |
 | Account persistence and authenticated reads after a fresh Flatpak sign-in | a person | A user completed sign-in with writable sandbox storage; restart and account-page checks are still open |
 | A whole track ending with the window hidden | a person | WebKitGTK may throttle timers in a hidden view; end of track is expected to survive, unobserved |
-| An import from a real previous Goosic install | a person | Only a scratch `.webm` has been imported and played |
 | NVIDIA hardware, and GNOME, Xfce and COSMIC sessions | a person | Every live check ran on Plasma with Intel graphics |
 | Account-scoped mutations with a real account | a person | Read-only Home, playlists, liked songs and the owned-playlist list passed a live native test; mutations are built but have not been exercised against that account |
 | Exact owned-playlist item edits | `platform/linux` | Rename, privacy and delete are present; removing or moving one entry needs its per-entry `setVideoId`, which the current catalog projection drops |
 | Word-timed lyrics, listening effects and session-only timing import | `platform/linux`, after development is synchronized | The shared service accepts LRCLIB Lyricsfile; GTK rendering/import remain pending. See [the lyrics handoff](LYRICS_TIMING.md) |
 | Saved queues and a native mini player | `platform/linux` | Queue editing and the full player are present; queue persistence and a separate compact window are not |
 | Window and playlist context menus | `platform/linux` | Track actions and a checked owned-playlist manager are present; the native window menu is still pending |
-| The decoded WAV cache moved from data to cache, on every platform | `development` | Unchanged; see Where things are stored |
+| Local playback removed: `local_host.rs`, the Downloads screen and the `localDownloadedFile` lease switching | `platform/linux`, when it next takes development | Protocol 0.5.0 dropped downloads on every platform; until this lands the branch does not build against development. Tracked in [#145](https://github.com/AnalogicGoose/GoosicReborn/issues/145) |
 | The `goosic-paths` crate from `rescue/native-mac-shell-and-paths` | `development` | Never merged, so path rules are still duplicated per crate |
 
 The credentialed Flatpak mutation/playback and renderer-level lease checks still gate the first
