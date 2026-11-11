@@ -59,8 +59,27 @@ public sealed partial class ShellViewModel
         }
     }
 
-    /// <summary>Settings is a centered column, so its title narrows to that column and stays above it.</summary>
-    public double PageHeaderMaxWidth => _isSettingsPage ? 616 : double.PositiveInfinity;
+    /// <summary>Settings keeps its title left-aligned above its cards, like every other page.</summary>
+    public double PageHeaderMaxWidth => double.PositiveInfinity;
+
+    private string? _settingsSection;
+
+    /// <summary>
+    /// The Settings subpage on screen, or null for the index of categories. Opening Settings again
+    /// from navigation always returns to the index, as Apple Music's Settings does.
+    /// </summary>
+    public string? SettingsSection { get => _settingsSection; private set => Set(ref _settingsSection, value); }
+
+    /// <summary>Opens one category of Settings, titled as a breadcrumb under "Settings".</summary>
+    internal void OpenSettingsSection(string? key, string? title)
+    {
+        if (!_isSettingsPage)
+        {
+            return;
+        }
+        SettingsSection = key;
+        PageTitle = key is null ? "Settings" : "Settings › " + title;
+    }
 
     public bool IsServiceConnected => string.IsNullOrEmpty(_status) || !_status.Contains("service", StringComparison.OrdinalIgnoreCase);
 
@@ -276,7 +295,9 @@ public sealed partial class ShellViewModel
         ForgetPersonalPage();
         PageArtistHeader = null;
         PageTitle = "Settings";
-        ShowPageHeader = true;
+        SettingsSection = null;
+        // Settings draws its own title, a breadcrumb that leads back to the categories.
+        ShowPageHeader = false;
         PageSubtitle = "Playback, appearance and accounts";
         Status = "";
         PageState = PageState.Content;
