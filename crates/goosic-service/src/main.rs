@@ -66,7 +66,7 @@ fn read_frame<R: BufRead>(reader: &mut R, frame: &mut Vec<u8>) -> io::Result<Fra
 /// The test for membership is not "is it slow" but "what can it touch". These two families take
 /// their client by shared reference, hold their own interior state behind a mutex, and are
 /// dispatched before the playback authority precisely because they cannot alter ownership,
-/// generation, or sequence. Everything else — settings, downloads, accounts, and the authority
+/// generation, or sequence. Everything else — settings, accounts, and the authority
 /// itself — needs `&mut` to state that only the main loop owns, and stays there.
 fn is_upstream_read(command: &str) -> bool {
     command.starts_with("catalog.") || command.starts_with("lyrics.")
@@ -133,7 +133,6 @@ fn main() {
     // Preferences are opened once; a failure is reported per request rather than at startup,
     // because a missing settings file must not stop playback from working.
     let mut settings = goosic_service::settings::Settings::new();
-    let mut downloads = goosic_service::downloads::Downloads::new();
     // One lyrics client for the process lifetime, so its one-document cache survives scrubbing.
     let lyrics = Arc::new(goosic_lyrics::LyricsClient::new());
     let mut accounts = goosic_service::accounts::Accounts::new();
@@ -232,7 +231,6 @@ fn main() {
                                 &mut authority,
                                 &catalog,
                                 &mut settings,
-                                &mut downloads,
                                 &mut accounts,
                                 &lyrics,
                                 request,
@@ -305,7 +303,6 @@ mod tests {
             "hello",
             "account.change",
             "settings.get",
-            "downloads.prepare",
         ] {
             assert!(!is_upstream_read(command), "{command} must stay serial");
         }
