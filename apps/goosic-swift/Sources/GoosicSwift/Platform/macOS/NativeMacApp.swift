@@ -715,9 +715,6 @@ private struct NativeMacRootView: SwiftUI.View {
                 NativeMacSearchView(store: store)
             case .library:
                 NativeMacLibraryPage(store: store)
-            case .downloads:
-                NativeMacDownloadsView(store: store)
-                    .padding(.leading, leadingInset)
             case .settings:
                 // Settings has its own window now; a route saved by an earlier version lands on
                 // Home instead of an empty page.
@@ -941,7 +938,6 @@ private struct NativeMacSidebar: SwiftUI.View {
                 libraryRow(.albums, title: "Albums", icon: "square.stack")
                 row(.history, icon: "clock.arrow.circlepath")
                     .disabled(model.activeAccount == nil)
-                row(.downloads, icon: "arrow.down.circle")
             }
             SwiftUI.Section("Playlists") {
                 libraryRow(.playlists, title: "All Playlists", icon: "square.grid.2x2")
@@ -2278,51 +2274,6 @@ private struct NativeMacNowPlayingPanelSurface: SwiftUI.ViewModifier {
                     .frame(width: 1)
             }
             .shadow(color: .black.opacity(0.16), radius: 18, x: -8)
-    }
-}
-
-private struct NativeMacDownloadsView: SwiftUI.View {
-    @SwiftUI.Environment(\.nativeMacPlayerClearance) private var playerClearance
-    @ObservedObject var store: NativeMacModelStore
-
-    private var model: GoosicAppModel { store.model }
-
-    var body: some SwiftUI.View {
-        SwiftUI.ScrollView {
-            SwiftUI.LazyVStack(alignment: .leading, spacing: 12) {
-                SwiftUI.Text("Downloads").font(.largeTitle.bold())
-                SwiftUI.HStack {
-                    SwiftUI.Button("Refresh", action: model.loadDownloads)
-                    SwiftUI.Button("Import previous Goosic files", action: model.importLegacyDownloads)
-                }
-                .disabled(model.downloadsLoading || !model.serviceConnected)
-                if let failure = model.downloadsFailure {
-                    SwiftUI.Label(failure, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.secondary)
-                }
-                if model.downloadsLoading {
-                    SwiftUI.ProgressView("Reading imported files…")
-                } else if model.downloadedTracks.isEmpty && model.downloadsFailure == nil {
-                    SwiftUI.ContentUnavailableView("No imported music", systemImage: "music.note",
-                        description: Text("Import finalized files from your previous Goosic library to listen here."))
-                }
-                SwiftUI.ForEach(model.downloadedTracks) { track in
-                    SwiftUI.HStack {
-                        SwiftUI.Image(systemName: track.available ? "music.note" : "exclamationmark.triangle")
-                        SwiftUI.VStack(alignment: .leading) {
-                            SwiftUI.Text(track.title)
-                            SwiftUI.Text(track.subtitle).font(.caption).foregroundStyle(.secondary)
-                        }
-                        SwiftUI.Spacer()
-                        SwiftUI.Button("Play") { model.playDownloaded(track) }
-                            .disabled(!track.available)
-                    }
-                    SwiftUI.Divider()
-                }
-            }
-            .padding(24)
-            .padding(.bottom, playerClearance)
-        }
     }
 }
 

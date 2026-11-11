@@ -147,7 +147,6 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Media keys / OS overlay | Browser media session | ✅ SMTC |
 | Full-screen player with lyrics | Yes | ✅ window-filling, optional OS full screen |
 | Accounts: sign in, switch, sign out | Yes | ✅ (sign-in run once by the user) |
-| Downloads / offline | Mobile only | ❌ Downloads page is a placeholder; local-file host not built |
 | Video mode (song ↔ video) | Yes | ❌ player is a 1 px renderer by design |
 | Advertisements | Played | ✅ reported as markers, never skipped (invariant) |
 
@@ -173,15 +172,12 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 2. **Real like state.** Read `likeStatus` for the playing track in the signed-in profile. This
    needs `PersonalCatalog.js` to grow a read (e.g. from the `next` endpoint) — a cross-platform
    change on `development`, mirrored in the Swift shell.
-3. **Downloads.** Local decoded-file host: claim owner `localDownloadedFile`, `downloads.prepare`,
-   play the returned path with `MediaPlayer`, report samples like the official host. Route the
-   transport to whichever host owns the lease. See `LocalPlaybackHost+macOS.swift`.
-4. **Playlist reorder and description**, **save album** (needs the album's audio playlist id from
+3. **Playlist reorder and description**, **save album** (needs the album's audio playlist id from
    the catalog), **artist shuffle/radio** buttons, **remove from history**, **library sort**.
-5. **Search suggestions** and **shelf "More"** — both need protocol additions on `development`.
-6. **Like/dislike shortcuts**, **Related** tab, **song credits**.
-7. **Packaging:** MSIX with `goosic-service.exe` beside the app; run the protocol fixtures.
-8. The completion script in `AccountLoginWindow.cs` mirrors the macOS one; replace the stale
+4. **Search suggestions** and **shelf "More"** — both need protocol additions on `development`.
+5. **Like/dislike shortcuts**, **Related** tab, **song credits**.
+6. **Packaging:** MSIX with `goosic-service.exe` beside the app; run the protocol fixtures.
+7. The completion script in `AccountLoginWindow.cs` mirrors the macOS one; replace the stale
    copy in `goosic-shell-support` on `development` and export it through the FFI.
 
 ## Build and run

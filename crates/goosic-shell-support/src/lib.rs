@@ -55,16 +55,11 @@ pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 
 /// How long a command may take before the shell stops waiting for it.
 ///
-/// Three tiers, and each is a fact about the work rather than a preference. Catalog and lyrics
+/// Two tiers, and each is a fact about the work rather than a preference. Catalog and lyrics
 /// reads reach a third-party service, so their wait has to cover that service's own upstream
-/// timeout instead of failing a request that is still coming. Preparing a download may decode a
-/// whole WebM/Opus file into the local WAV cache on first play, which is off the UI thread but
-/// slow on a long track; later plays reuse the cache and return at once. Everything else is local
-/// work.
+/// timeout instead of failing a request that is still coming. Everything else is local work.
 pub fn timeout_for(command: &str) -> Duration {
-    if command == "downloads.prepare" {
-        Duration::from_secs(120)
-    } else if command.starts_with("catalog.") || command.starts_with("lyrics.") {
+    if command.starts_with("catalog.") || command.starts_with("lyrics.") {
         Duration::from_secs(20)
     } else {
         Duration::from_secs(5)
@@ -130,9 +125,7 @@ mod tests {
         assert_eq!(timeout_for("catalog.home"), Duration::from_secs(20));
         assert_eq!(timeout_for("catalog.search"), Duration::from_secs(20));
         assert_eq!(timeout_for("lyrics.get"), Duration::from_secs(20));
-        assert_eq!(timeout_for("downloads.prepare"), Duration::from_secs(120));
-        // Neighbouring commands must not inherit the long decode wait by prefix.
-        assert_eq!(timeout_for("downloads.list"), Duration::from_secs(5));
+        assert_eq!(timeout_for("settings.get"), Duration::from_secs(5));
     }
 
     #[test]
@@ -149,8 +142,8 @@ mod tests {
             TransportError::EndOfFile,
             TransportError::ResponseTooLarge,
             TransportError::ProtocolVersionMismatch {
-                expected: "0.4.0".into(),
-                actual: "0.5.0".into(),
+                expected: "0.5.0".into(),
+                actual: "0.6.0".into(),
             },
         ] {
             assert!(
