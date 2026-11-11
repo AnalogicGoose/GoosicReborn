@@ -674,14 +674,20 @@ for thread in threads:
     #[test]
     fn a_service_speaking_another_protocol_version_closes_the_client() {
         let stub = Stub::new();
-        let client = spawn_stub(|| ServiceClientBuilder::new(stub.with_delay(0.0)).spawn());
+        // Not a test of timing: a busy runner can take longer than the default wait to start the
+        // stub, and a timeout would hide the answer this test is about.
+        let client = spawn_stub(|| {
+            ServiceClientBuilder::new(stub.with_delay(0.0))
+                .timeouts(|_| Duration::from_secs(60))
+                .spawn()
+        });
         let error = client
             .request("foreign.hello", RequestPayload::default())
             .unwrap_err();
-        assert!(matches!(
-            error,
-            TransportError::ProtocolVersionMismatch { .. }
-        ));
+        assert!(
+            matches!(error, TransportError::ProtocolVersionMismatch { .. }),
+            "expected a protocol version mismatch, got {error:?}"
+        );
         assert!(client.closed_reason().is_some());
     }
 
