@@ -39,9 +39,19 @@ public sealed partial class MainWindow : Window
         var changed = next != _widthClass;
         _widthClass = next;
         SidePanel.Width = WindowLayout.SidePanelWidth(next, e.NewSize.Width);
-        // The first layout takes the default for its width; later ones keep the listener's choice
-        // until the window crosses the docking breakpoint. Only presentation changes here.
-        var docked = WindowLayout.SidebarDocks(e.NewSize.Width);
+        RefreshSidebarDocking(e.NewSize.Width, changed);
+    }
+
+    /// <summary>
+    /// Docks or undocks the sidebar for the window's width and the side panel's, from a resize or
+    /// from the side panel opening or closing. The first layout takes the default for its width;
+    /// later ones keep the listener's choice until docking changes. Only presentation changes here.
+    /// </summary>
+    private void RefreshSidebarDocking(double windowWidth, bool widthClassChanged = false)
+    {
+        var next = _widthClass;
+        var changed = widthClassChanged;
+        var docked = WindowLayout.SidebarDocks(windowWidth, RightInset);
         var previouslyDocked = _sidebarDocked;
         var expanded = previouslyDocked is { } wasDocked
             ? WindowLayout.SidebarExpandedAfterResize(wasDocked, docked, _sidebarExpanded)
@@ -55,7 +65,7 @@ public sealed partial class MainWindow : Window
             SetSidebarExpanded(expanded, moveFocus: false);
         }
 
-        Sidebar.Width = _sidebarExpanded ? WindowLayout.SidebarWidth(next, e.NewSize.Width) : WindowLayout.SidebarRailWidth;
+        Sidebar.Width = _sidebarExpanded ? WindowLayout.SidebarWidth(next, windowWidth) : WindowLayout.SidebarRailWidth;
         ApplyInsets();
     }
 
