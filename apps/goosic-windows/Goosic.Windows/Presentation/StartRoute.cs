@@ -7,7 +7,7 @@ namespace Goosic.Windows.Presentation;
 public static class StartRoute
 {
     /// <summary>
-    /// Pages worth reopening. Settings and Downloads are places you visit, not places to start,
+    /// Pages worth reopening. Settings is a place you visit, not places to start,
     /// and a remembered route from a newer or older build that this one does not know is ignored.
     /// </summary>
     public static IReadOnlySet<string> Reopenable { get; } = new HashSet<string>

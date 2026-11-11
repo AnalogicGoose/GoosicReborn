@@ -61,32 +61,6 @@ public sealed record PageState(PageStateKind Kind, string Title, string Message,
         "Sign in with your Google account to see your library, liked music and history.", Glyphs.Account);
 
     /// <summary>
-    /// Downloads made by the previous Goosic are imported and decoded by the service, but the
-    /// Windows shell has no local playback host to play them through yet.
-    /// </summary>
-    public static PageState DownloadsNotSupported(int trackCount) => new(PageStateKind.NotSupported,
-        "Downloads aren’t playable here yet",
-        (trackCount == 1 ? "1 downloaded track is" : $"{trackCount} downloaded tracks are")
-            + " safe and unchanged. Playing them needs a local player the Windows app doesn’t have yet.",
-        Glyphs.Download);
-
-    public static PageState DownloadsEmpty { get; } = new(PageStateKind.Empty, "No downloads",
-        "Tracks saved by a previous Goosic appear here once they’ve been imported.", Glyphs.Download);
-
-    /// <summary>The download index could not be opened; the files themselves are untouched.</summary>
-    public static PageState DownloadsUnavailable { get; } = new(PageStateKind.Failed, "Downloads unavailable",
-        "Goosic couldn’t open its list of downloads. Your files haven’t been changed. Try again.", Glyphs.Download);
-
-    /// <summary>What the Downloads page shows for a <c>downloads.list</c> answer.</summary>
-    /// <param name="trackCount">The tracks listed, or null when the list could not be read.</param>
-    public static PageState Downloads(int? trackCount) => trackCount switch
-    {
-        null => DownloadsUnavailable,
-        0 => DownloadsEmpty,
-        var count => DownloadsNotSupported(count.Value),
-    };
-
-    /// <summary>
     /// The failure screen. Titles follow <c>failure_text</c> in <c>goosic-shell-support</c>, so
     /// every shell names a failure the same way; until the FFI exports that rule, a change to
     /// its wording is a change here too.
@@ -137,7 +111,6 @@ public sealed record PageState(PageStateKind Kind, string Title, string Message,
         public const string Library = "\uE8F1";
         public const string Music = "\uEC4F";
         public const string Account = "\uE77B";
-        public const string Download = "\uE896";
         public const string Warning = "\uE7BA";
         public const string Offline = "\uF384";
     }

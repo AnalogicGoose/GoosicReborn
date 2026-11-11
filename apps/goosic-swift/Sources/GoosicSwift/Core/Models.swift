@@ -11,7 +11,6 @@ enum GoosicRoute: String, CaseIterable, Hashable {
     case charts
     case moodsAndGenres
     case newReleases
-    case downloads
     case settings
 
     var title: String {
@@ -24,7 +23,6 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         case .charts: return "Charts"
         case .moodsAndGenres: return "Moods & genres"
         case .newReleases: return "New releases"
-        case .downloads: return "Downloads"
         case .settings: return "Settings"
         }
     }
@@ -39,7 +37,6 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         case .charts: return "▥"
         case .moodsAndGenres: return "♫"
         case .newReleases: return "✚"
-        case .downloads: return "⇩"
         case .settings: return "⚙"
         }
     }
@@ -71,7 +68,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         switch self {
         case .search, .home: return .primary
         case .explore, .charts, .moodsAndGenres, .newReleases: return .discover
-        case .library, .history, .downloads: return .collection
+        case .library, .history: return .collection
         case .settings: return .utility
         }
     }
@@ -85,7 +82,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         switch section {
         case .primary: ordered = [.search, .home]
         case .discover: ordered = [.explore, .charts, .moodsAndGenres, .newReleases]
-        case .collection: ordered = [.library, .history, .downloads]
+        case .collection: ordered = [.library, .history]
         case .utility: ordered = [.settings]
         }
         assert(
@@ -97,7 +94,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
 
     /// The `catalog.browse` route name, for routes backed by a live catalog surface.
     ///
-    /// Search has its own command; Library, Downloads, and Settings are local surfaces that no
+    /// Search has its own command; Library, History, and Settings are local surfaces that no
     /// guest catalog read can answer.
     var catalogRoute: String? {
         switch self {
@@ -106,7 +103,7 @@ enum GoosicRoute: String, CaseIterable, Hashable {
         case .charts: return "charts"
         case .moodsAndGenres: return "moodsAndGenres"
         case .newReleases: return "newReleases"
-        case .search, .library, .history, .downloads, .settings: return nil
+        case .search, .library, .history, .settings: return nil
         }
     }
 }
@@ -155,7 +152,6 @@ enum RepeatMode: String, CaseIterable, Equatable {
 enum PlaybackTransition: String, Equatable {
     case idle
     case claiming
-    case preparingLocal
     case releasing
 }
 
@@ -409,12 +405,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published var playbackLabVideoID = ""
     @Combine.Published private(set) var hostStatus = "No official video loaded."
     @Combine.Published private(set) var hostDiagnostics = "No page loaded."
-    @Combine.Published private(set) var downloadedTracks: [GoosicDownloadedTrack] = []
     @Combine.Published private(set) var accounts: [GoosicAccountSummary] = []
     @Combine.Published private(set) var activeAccountId: String?
     @Combine.Published private(set) var accountSnapshotEpoch: UInt64 = 0
-    @Combine.Published private(set) var downloadsLoading = false
-    @Combine.Published private(set) var downloadsFailure: String?
     /// Every catalog page this session has requested, keyed so a late response cannot land on
     /// the wrong screen.
     @Combine.Published private(set) var pages: [CatalogKey: CatalogLoadState] = [:]
@@ -450,9 +443,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
     /// snaps back to the live position between a drag and the next bridge event.
     private var pendingSeek: (position: Double, requestedAt: Date)?
-    /// The downloaded file the local renderer was given, kept so Play can reclaim it after the
-    /// service is lost. Cleared by every track change.
-    private var downloadedTrackInPlay: GoosicDownloadedTrack?
     /// The video whose end has already advanced the queue, so the player's repeated `ended`
     /// polls cannot skip several tracks at once.
     private var endedVideoID: String?
@@ -471,7 +461,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     private var pendingPreferenceSave: GoosicPreferencesPatch?
     private var preferenceSaveToken: UInt64 = 0
     let officialPlaybackHost: OfficialPlaybackHost
-    let localPlaybackHost: LocalPlaybackHost
     let personalCatalogHost: PersonalCatalogHost
     private var systemMediaControls: SystemMediaControls?
     private var accountLoginHost: AccountLoginHost?
@@ -489,7 +478,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// The track the loaded lyrics belong to, so a stale answer cannot land on a new song.
     private var lyricsVideoID: String?
     private var lyricsRequestInFlight = false
-    private var lastLocalEventState: String?
     /// Bumped when artwork arrives. Views read it so a late thumbnail re-renders its card.
     @Combine.Published private(set) var artworkVersion: UInt64 = 0
     private var lastPublishedArtwork: URL?
@@ -513,7 +501,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     init(debugSidebarFixture: Bool = false) {
         usesDebugSidebarFixture = debugSidebarFixture
         officialPlaybackHost = OfficialPlaybackHost()
-        localPlaybackHost = LocalPlaybackHost()
         personalCatalogHost = PersonalCatalogHost()
         artwork.onArtworkLoaded = { [weak self] in
             guard let self, let thumbnail = self.currentTrack?.thumbnail,
@@ -535,15 +522,6 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         officialPlaybackHost.onStatus = { [weak self] message in
             self?.hostStatus = message
-        }
-        localPlaybackHost.onEvent = { [weak self] event in
-            self?.receive(event)
-        }
-        localPlaybackHost.onStatus = { [weak self] message in
-            self?.hostStatus = message
-            if self?.playbackState.owner == .localDownloadedFile {
-                self?.status = message
-            }
         }
         systemMediaControls = SystemMediaControls(model: self)
         updateSystemMediaControls()
@@ -697,14 +675,13 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     func navigate(to route: GoosicRoute) {
         // A second click on the selected tab used to republish the whole model, rebuild the
-        // catalog tree, write preferences, and refresh Downloads. On a dense page that was
+        // catalog tree, and write preferences. On a dense page that was
         // enough to trigger macOS's beach ball even though nothing had changed.
         guard self.route != route || detail != nil else { return }
         hasNavigatedSinceLaunch = true
         self.route = route
         detail = nil
         loadRoute(route)
-        if route == .downloads { loadDownloads() }
         savePreferences(GoosicPreferencesPatch(lastRoute: route.rawValue))
     }
 
@@ -1164,8 +1141,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         let release: @MainActor () -> Void = { [weak self] in
             guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
             let owner = self.playbackState.owner
-            if owner == .localDownloadedFile { self.localPlaybackHost.stop() }
-            else { self.officialPlaybackHost.invalidateExpectations() }
+            self.officialPlaybackHost.invalidateExpectations()
             self.send(command: "playback.release", payload: GoosicRequestPayload(owner: owner, generation: self.playbackState.generation)) { [weak self] response in
                 guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
                 self.apply(response)
@@ -1325,11 +1301,9 @@ final class GoosicAppModel: Combine.ObservableObject {
             // `self.route` deliberately, not the restored value: if the user navigated while this
             // was in flight, the screen to load is the one they are looking at.
             self.loadRoute(self.route)
-            if self.route == .downloads { self.loadDownloads() }
         } failure: { [weak self] _ in
             guard let self else { return }
             self.loadRoute(self.route)
-            if self.route == .downloads { self.loadDownloads() }
         }
     }
 
@@ -1524,52 +1498,6 @@ final class GoosicAppModel: Combine.ObservableObject {
         merged.startPage = update.startPage ?? merged.startPage
         merged.reduceMotion = update.reduceMotion ?? merged.reduceMotion
         return merged
-    }
-
-    // MARK: - Downloads
-
-    func loadDownloads() {
-        guard client != nil else {
-            status = "Connect to the Rust service to read downloaded files."
-            return
-        }
-        guard !downloadsLoading else { return }
-        downloadsFailure = nil
-        downloadsLoading = true
-        send(command: "downloads.list") { [weak self] response in
-            guard let self else { return }
-            self.downloadsLoading = false
-            self.downloadedTracks = response.payload?.downloads ?? []
-        } failure: { [weak self] error in
-            guard let self else { return }
-            self.downloadsLoading = false
-            self.downloadsFailure = "Could not read imported files. Try again."
-            self.status = "Could not read downloaded files: \(Self.describe(error).message)"
-        }
-    }
-
-    /// Imports only finalized files already present in the previous Goosic media directory.
-    /// Rust leaves those files in place and does not invoke a downloader.
-    func importLegacyDownloads() {
-        guard client != nil else {
-            status = "Connect to the Rust service before importing downloaded files."
-            return
-        }
-        guard !downloadsLoading else { return }
-        downloadsFailure = nil
-        downloadsLoading = true
-        status = "Reading finalized files from the previous Goosic…"
-        send(command: "downloads.importLegacy") { [weak self] response in
-            guard let self else { return }
-            self.downloadsLoading = false
-            self.downloadedTracks = response.payload?.downloads ?? self.downloadedTracks
-            self.status = response.payload?.message ?? "Imported downloaded files from the previous Goosic."
-        } failure: { [weak self] error in
-            guard let self else { return }
-            self.downloadsLoading = false
-            self.downloadsFailure = "Could not import previous Goosic files. Try again."
-            self.status = "Could not import downloaded files: \(Self.describe(error).message)"
-        }
     }
 
     // MARK: - Catalog
@@ -2369,9 +2297,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         guard evenIfPaused || !isPaused else { return }
         // A timer pause is intentional even when the renderer is near the natural end.
         listenerPaused = true
-        if playbackState.owner == .localDownloadedFile {
-            localPlaybackHost.pause()
-        } else if officialPlaybackHost.loadedVideoID != nil {
+        if officialPlaybackHost.loadedVideoID != nil {
             officialPlaybackHost.pause()
         }
         status = "Sleep timer paused the music."
@@ -2867,11 +2793,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         let clamped = min(max(position, 0), duration)
         pendingSeek = (clamped, Date())
-        if playbackState.owner == .localDownloadedFile {
-            localPlaybackHost.seek(to: clamped)
-        } else {
-            officialPlaybackHost.seek(to: clamped)
-        }
+        officialPlaybackHost.seek(to: clamped)
     }
 
     func setVolume(_ newVolume: Double) {
@@ -2882,12 +2804,8 @@ final class GoosicAppModel: Combine.ObservableObject {
         requestedVolume = clamped
         isMuted = false
         volumeAppliedForLoad = true
-        if playbackState.owner == .localDownloadedFile {
-            localPlaybackHost.setVolume(clamped)
-        } else {
-            officialPlaybackHost.setVolume(clamped)
-            officialPlaybackHost.setMuted(false)
-        }
+        officialPlaybackHost.setVolume(clamped)
+        officialPlaybackHost.setMuted(false)
         savePreferences(GoosicPreferencesPatch(volume: clamped, muted: false))
     }
 
@@ -2895,11 +2813,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         guard allowPlaybackInteraction() else { return }
         isMuted.toggle()
         volumeAppliedForLoad = true
-        if playbackState.owner == .localDownloadedFile {
-            localPlaybackHost.setMuted(isMuted)
-        } else {
-            officialPlaybackHost.setMuted(isMuted)
-        }
+        officialPlaybackHost.setMuted(isMuted)
         savePreferences(GoosicPreferencesPatch(muted: isMuted))
     }
 
@@ -2914,16 +2828,8 @@ final class GoosicAppModel: Combine.ObservableObject {
             status = "Playback command pending; wait for Rust to finish before choosing another action."
             return
         }
-        if playbackState.owner == .localDownloadedFile {
-            status = "This catalog track is online. Release local playback before using officialWebView."
-            return
-        }
         guard !isAdvertisement else {
             status = "Track changes are unavailable while the official player is showing an advertisement."
-            return
-        }
-        guard playbackState.owner != .localDownloadedFile else {
-            status = "Playback conflict: a local downloaded file owns playback. Release it before using officialWebView."
             return
         }
         guard client != nil else {
@@ -2976,152 +2882,6 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
     }
 
-    /// Plays an imported local file after Rust grants the localDownloadedFile lease and returns a
-    /// decoded cache path. A catalog/official renderer is always quiesced before that claim.
-    func playDownloaded(_ track: GoosicDownloadedTrack) {
-        guard allowPlaybackInteraction() else { return }
-        guard track.available else {
-            status = "This downloaded file is missing from disk. Refresh Downloads to recheck it."
-            return
-        }
-        guard !isAdvertisement else {
-            status = "Downloaded-file playback is unavailable while the official player is showing an advertisement."
-            return
-        }
-        guard playbackTransition == .idle else {
-            status = "Playback command pending; wait for Rust to finish before choosing another action."
-            return
-        }
-        guard client != nil else {
-            status = "Connect to the Rust service before playing a downloaded file."
-            return
-        }
-        if playbackState.owner == .localDownloadedFile {
-            // A local track replacement is also a renderer switch: stop the old file before
-            // asking Rust for the next decoded path, even though the owner stays local.
-            localPlaybackHost.stopForReplacement()
-            currentTrack = nil
-            beginTrack()
-            prepareLocalTrack(track, token: beginPlaybackTransition(.preparingLocal))
-            return
-        }
-        if playbackState.owner == .officialWebView {
-            hasConfirmedPlaybackSample = false
-            updateSystemMediaControls()
-            let token = beginPlaybackTransition(.releasing)
-            status = "Quiescing official playback before switching to the local file…"
-            officialPlaybackHost.quiesce { [weak self] in
-                guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
-                self.officialPlaybackHost.invalidateExpectations()
-                self.send(command: "playback.release", payload: GoosicRequestPayload(
-                    owner: .officialWebView,
-                    generation: self.playbackState.generation
-                )) { [weak self] response in
-                    guard let self, self.isCurrentPlaybackTransition(token, kind: .releasing) else { return }
-                    self.apply(response)
-                    self.currentTrack = nil
-                    self.beginTrack()
-                    self.finishPlaybackTransition(token)
-                    self.claimLocalTrack(track)
-                } failure: { [weak self] _ in
-                    self?.finishPlaybackTransition(token)
-                }
-            }
-            return
-        }
-        claimLocalTrack(track)
-    }
-
-    private func claimLocalTrack(_ track: GoosicDownloadedTrack) {
-        let token = beginPlaybackTransition(.claiming)
-        status = "Requesting localDownloadedFile playback claim from Rust…"
-        send(command: "playback.claim", payload: GoosicRequestPayload(
-            owner: .localDownloadedFile,
-            generation: playbackState.generation
-        )) { [weak self] response in
-            guard let self, self.isCurrentPlaybackTransition(token, kind: .claiming) else { return }
-            self.apply(response)
-            guard self.playbackState.owner == .localDownloadedFile else {
-                self.finishPlaybackTransition(token)
-                self.status = "Rust did not grant the localDownloadedFile playback claim."
-                return
-            }
-            self.finishPlaybackTransition(token)
-            self.prepareLocalTrack(track, token: self.beginPlaybackTransition(.preparingLocal))
-        } failure: { [weak self] _ in
-            self?.finishPlaybackTransition(token)
-        }
-    }
-
-    private func prepareLocalTrack(_ track: GoosicDownloadedTrack, token: UInt64) {
-        guard playbackState.owner == .localDownloadedFile else {
-            finishPlaybackTransition(token)
-            status = "Local playback lease was lost before preparation."
-            return
-        }
-        status = "Preparing decoded local audio for \(track.title)…"
-        send(command: "downloads.prepare", payload: GoosicRequestPayload(
-            owner: .localDownloadedFile,
-            generation: playbackState.generation,
-            catalogId: track.videoId
-        )) { [weak self] response in
-            guard let self, self.isCurrentPlaybackTransition(token, kind: .preparingLocal) else { return }
-            guard let path = response.payload?.localFile, !path.isEmpty else {
-                self.failLocalPlayback(token, message: "Rust did not return a decoded cache path.")
-                return
-            }
-            do {
-                try self.localPlaybackHost.prepare(localFile: path, videoID: track.videoId, generation: self.playbackState.generation)
-            } catch {
-                self.failLocalPlayback(token, message: "AVFoundation could not open the decoded file: \(error.localizedDescription)")
-                return
-            }
-            self.queue = GoosicQueue(tracks: [], currentIndex: 0)
-            self.currentTrack = GoosicTrack(
-                id: track.videoId,
-                title: track.title,
-                subtitle: track.subtitle,
-                artist: track.artist,
-                artistID: nil,
-                album: "",
-                albumID: nil,
-                duration: "",
-                videoID: track.videoId,
-                explicit: false
-            )
-            self.beginTrack()
-            self.downloadedTrackInPlay = track
-            guard self.localPlaybackHost.play() else {
-                self.failLocalPlayback(token, message: "AVFoundation did not confirm local playback.")
-                return
-            }
-            self.finishPlaybackTransition(token)
-            self.status = "Local playback confirmed for \(track.title)."
-        } failure: { [weak self] error in
-            guard let self else { return }
-            self.failLocalPlayback(token, message: "Could not prepare downloaded audio: \(Self.describe(error).message)")
-        }
-    }
-
-    private func failLocalPlayback(_ token: UInt64, message: String) {
-        guard isCurrentPlaybackTransition(token, kind: .preparingLocal) else { return }
-        localPlaybackHost.stop()
-        currentTrack = nil
-        beginTrack()
-        send(command: "playback.release", payload: GoosicRequestPayload(
-            owner: .localDownloadedFile,
-            generation: playbackState.generation
-        )) { [weak self] response in
-            guard let self, self.isCurrentPlaybackTransition(token, kind: .preparingLocal) else { return }
-            self.apply(response)
-            self.finishPlaybackTransition(token)
-            self.status = message
-        } failure: { [weak self] _ in
-            self?.finishPlaybackTransition(token)
-            self?.status = message
-        }
-    }
-
     func togglePause() {
         guard allowPlaybackInteraction() else { return }
         guard playbackTransition == .idle else {
@@ -3134,21 +2894,6 @@ final class GoosicAppModel: Combine.ObservableObject {
             } else {
                 pauseOfficialVideo()
             }
-            return
-        }
-        if playbackState.owner == .localDownloadedFile, localPlaybackHost.isLoaded {
-            if isPaused {
-                guard localPlaybackHost.play() else { return }
-                status = "Local play requested; waiting for the next confirmed sample."
-            } else {
-                localPlaybackHost.pause()
-            }
-            return
-        }
-        // A downloaded file plays with an empty queue, so after a lost service it is the only
-        // record of what was playing; Play claims a fresh local lease for it.
-        if let track = downloadedTrackInPlay, playbackState.owner == .none {
-            playDownloaded(track)
             return
         }
         guard let track = queue.current ?? queue.tracks.first else {
@@ -3212,24 +2957,6 @@ final class GoosicAppModel: Combine.ObservableObject {
         updateSystemMediaControls()
         let operationToken = beginPlaybackTransition(.releasing)
         status = "Releasing playback…"
-        if playbackState.owner == .localDownloadedFile {
-            // Stop synchronously first; no timer callback may race the lease release.
-            localPlaybackHost.stop()
-            send(command: "playback.release", payload: GoosicRequestPayload(
-                owner: .localDownloadedFile,
-                generation: playbackState.generation
-            )) { [weak self] response in
-                guard let self, self.isCurrentPlaybackTransition(operationToken, kind: .releasing) else { return }
-                self.apply(response)
-                self.currentTrack = nil
-                self.beginTrack()
-                self.finishPlaybackTransition(operationToken)
-                self.status = "Playback released by Rust authority."
-            } failure: { [weak self] _ in
-                self?.finishPlaybackTransition(operationToken)
-            }
-            return
-        }
         officialPlaybackHost.quiesce { [weak self] in
             guard let self else { return }
             guard self.isCurrentPlaybackTransition(operationToken, kind: .releasing) else { return }
@@ -3263,10 +2990,6 @@ final class GoosicAppModel: Combine.ObservableObject {
         let videoID = playbackLabVideoID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !videoID.isEmpty else {
             status = "Enter a real YouTube Music video ID before loading the official player."
-            return
-        }
-        guard playbackState.owner != .localDownloadedFile else {
-            status = "Playback conflict: a local downloaded file owns playback. Release it first."
             return
         }
         if playbackState.owner == .officialWebView {
@@ -3387,7 +3110,6 @@ final class GoosicAppModel: Combine.ObservableObject {
         // Every in-flight transition belonged to the old service; none of its answers will come.
         playbackTransitionToken &+= 1
         playbackTransition = .idle
-        localPlaybackHost.stop()
         // Invalidated first, so a sample the page sends while pausing is not forwarded.
         officialPlaybackHost.invalidateExpectations()
         officialPlaybackHost.quiesce {}
@@ -3426,7 +3148,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Clears everything the previous track confirmed, so no stale position or end marker is
     /// carried into the next one.
     private func beginTrack() {
-        downloadedTrackInPlay = nil
         // A new track invalidates the loaded lyrics; the next render asks for the right ones.
         lyrics = nil
         lyricsVideoID = nil
@@ -3438,7 +3159,6 @@ final class GoosicAppModel: Combine.ObservableObject {
         listenerPaused = false
         adRecovery = AdPlaybackRecovery()
         isAdvertisement = false
-        lastLocalEventState = nil
         hasConfirmedPlaybackSample = false
         volumeAppliedForLoad = false
         requestedVolume = nil
@@ -3581,68 +3301,6 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
     }
 
-    private func receive(_ event: LocalPlaybackEvent) {
-        guard !accountOperationInProgress else { return }
-        guard playbackState.owner == .localDownloadedFile,
-              event.generation == playbackState.generation,
-              event.videoID == localPlaybackHost.loadedVideoID else {
-            return
-        }
-        guard event.currentTime.isFinite, event.currentTime >= 0,
-              event.duration.isFinite, event.duration >= 0 else {
-            return
-        }
-        var presentationChanged = false
-        if !hasConfirmedPlaybackSample {
-            hasConfirmedPlaybackSample = true
-            presentationChanged = true
-        }
-        let nextPaused = event.state != "playing"
-        if isPaused != nextPaused { isPaused = nextPaused; presentationChanged = true }
-        if isAdvertisement { isAdvertisement = false; presentationChanged = true }
-        if pendingSeek != nil || abs(currentTime - event.currentTime) >= 0.9 || event.state == "ended" {
-            currentTime = event.currentTime
-            presentationChanged = true
-        }
-        if abs(duration - event.duration) >= 0.1 { duration = event.duration; presentationChanged = true }
-        if isMuted != event.isMuted { isMuted = event.isMuted; presentationChanged = true }
-        if !event.isMuted, case .adopt(let reported) = VolumeSync.reconcile(
-            reported: event.volume, current: volume, requested: requestedVolume
-        ) {
-            volume = reported
-            presentationChanged = true
-            savePreferences(GoosicPreferencesPatch(volume: reported))
-        }
-        if let pending = pendingSeek,
-           abs(event.currentTime - pending.position) < 1.5
-            || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
-            pendingSeek = nil
-        }
-        if lastLocalEventState != event.state {
-            let nextStatus = event.state == "ended"
-                ? "Local playback ended."
-                : "Local playback confirmed \(event.state) for \(event.videoID)."
-            if status != nextStatus { status = nextStatus; presentationChanged = true }
-            lastLocalEventState = event.state
-        }
-        if presentationChanged { updateSystemMediaControls() }
-        send(
-            command: "playback.sample",
-            payload: GoosicRequestPayload(
-                owner: .localDownloadedFile,
-                generation: event.generation,
-                sequence: event.sequence,
-                marker: "audio"
-            )
-        ) { [weak self] response in
-            self?.applyState(response)
-        }
-        if event.state == "ended", endedVideoID != event.videoID {
-            endedVideoID = event.videoID
-            advanceAfterEnd()
-        }
-    }
-
     /// The official app followed its own queue. Treat the requested track as finished and let
     /// Goosic's queue decide, so the app never plays something the user did not choose.
     private func officialPlayerMovedOn(from finishedVideoID: String) {
@@ -3751,7 +3409,7 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     private func launchStation(_ track: GoosicTrack) {
         guard allowPlaybackInteraction(), playbackTransition == .idle,
-              !isAdvertisement, playbackState.owner != .localDownloadedFile, client != nil else { return }
+              !isAdvertisement, client != nil else { return }
         // Start the selected song immediately, while recommendations load independently.
         play(track, in: [track], source: .radio(track))
         radioExtensionInFlight = true
