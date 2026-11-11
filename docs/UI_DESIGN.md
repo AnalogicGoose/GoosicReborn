@@ -159,7 +159,10 @@ default. The choice is not remembered across launches, so a restart takes the de
 window's width. Apple does not document its widths, so 1,008 is a starting point to check against
 Apple Music for Windows by hand. Crossing the breakpoint changes presentation only. The rail
 reserves enough content space to keep the player's essential actions reachable, and a docked
-sidebar at the breakpoint still leaves the player on one row.
+sidebar at the breakpoint still leaves the player on one row. Lyrics or Up Next take room from the same
+player, so just past the breakpoint an open side panel and a docked sidebar do not both fit: the
+sidebar gives way to the rail while the panel is open and docks again when it closes, rather than
+letting the player's buttons clip.
 
 Docked, the sidebar is a column flush against the window's left edge, with square outer corners
 and a hairline where it meets the page; the rail and the overlay panel keep their floating,
