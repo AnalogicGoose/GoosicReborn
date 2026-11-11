@@ -512,6 +512,19 @@
                                         <Button Content="Edit…" Click="OnEditSidebar" AutomationProperties.Name="Edit sidebar" />
                                     </views:SettingsRow>
                                     <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
+                                    <views:SettingsRow Glyph="&#xE771;" Tile="#FF8E8E93" Title="Material transparency"
+                                                       Description="How much shows through the sidebar, player bar and menus">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <TextBlock x:Name="MaterialTransparencyValue" VerticalAlignment="Center" MinWidth="52"
+                                                       TextAlignment="Right" Foreground="{ThemeResource GoosicSecondaryTextBrush}" />
+                                            <Slider x:Name="MaterialTransparencySlider" Width="200" VerticalAlignment="Center"
+                                                    Minimum="0" Maximum="100" StepFrequency="5" SmallChange="5" LargeChange="10"
+                                                    TickFrequency="50" TickPlacement="Outside"
+                                                    AutomationProperties.Name="Material transparency"
+                                                    ValueChanged="OnMaterialTransparencyChanged" />
+                                        </StackPanel>
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
                                     <views:SettingsRow Glyph="&#xE790;" Tile="#FFFF375F" Title="Album art background"
                                                        Description="Fill the window with the playing cover's colours">
                                         <ToggleSwitch Style="{StaticResource SettingsSwitchStyle}"
@@ -529,6 +542,8 @@
                                     </views:SettingsRow>
                                 </StackPanel>
                             </Border>
+                            <TextBlock x:Name="MaterialTransparencyFooter" Style="{StaticResource SettingsGroupFooterStyle}"
+                                       Text="With Windows' transparency effects off, or a contrast theme on, these surfaces stay solid." />
                             </StackPanel>
                             <StackPanel x:Name="SettingsPlaybackSection" Visibility="Collapsed" Spacing="0">
                             <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Playback" />

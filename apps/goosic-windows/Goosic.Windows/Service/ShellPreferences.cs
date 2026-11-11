@@ -50,6 +50,30 @@ internal static class ShellPreferences
     internal static bool DebugMode { get => Read("debugMode", false); set => Write("debugMode", value); }
 
     /// <summary>
+    /// How see-through the sidebar, floating bars and menus are, 0 (solid) to 100. See
+    /// <see cref="Presentation.MaterialTransparency"/>; the default is the material as designed.
+    /// </summary>
+    internal static int MaterialTransparency
+    {
+        get
+        {
+            try
+            {
+                return Presentation.MaterialTransparency.Sanitize(Store.Value["materialTransparency"]?.GetValue<int>());
+            }
+            catch (Exception error) when (error is InvalidOperationException or FormatException)
+            {
+                return Presentation.MaterialTransparency.Default;
+            }
+        }
+        set
+        {
+            Store.Value["materialTransparency"] = Presentation.MaterialTransparency.Sanitize(value);
+            Save();
+        }
+    }
+
+    /// <summary>
     /// Sidebar destinations the listener hid. Kept here rather than in the shared settings store
     /// until <c>goosic-shell-support</c> owns the list of hideable destinations for every shell.
     /// </summary>

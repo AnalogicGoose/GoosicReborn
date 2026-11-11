@@ -390,6 +390,7 @@ public sealed partial class MainWindow : Window
 
         StartPageChoice.SelectedIndex = StartRoute.IndexOf(Model.StartPage);
         ShortcutList.ItemsSource = ShortcutEntry.All;
+        WireMaterialTransparency();
         Model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ShellViewModel.StartPage))

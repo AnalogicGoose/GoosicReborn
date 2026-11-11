@@ -170,6 +170,17 @@ rejected. The dark page is #1C1C1C with #282828 cards, sampled from Apple Music 
 Expansion uses a brief compositor reveal without stretching icons; system Reduce Motion, app
 Reduce Motion and Efficiency mode disable it.
 
+On Windows the listener sets how see-through that material is. Settings › General › Appearance
+has a Material transparency slider from Solid to fully clear, in steps of 5, and it retints the
+sidebar, the floating search and player bars and the menus together, in light and dark. The
+midpoint is the material as designed, so nobody's window changes until they move it. Below the
+midpoint each tint closes toward opaque; above it, each opens toward 15 percent of its designed
+opacity and no further, because labels over bare album art would stop being readable. The choice
+is kept with the Windows shell's local preferences. Where Windows draws acrylic solid (transparency
+effects off, or a contrast theme), the slider is disabled and says why rather than moving nothing.
+macOS and GTK take the system material's own transparency and have no equivalent control; that is
+a recorded platform difference, not a precedent.
+
 The listener can customize the Windows sidebar. A Sidebar actions button beside the menu action
 (and a Sidebar row in Settings › General) opens Edit Sidebar, where each Discover and Library
 destination and All Playlists can be shown or hidden. Search, Home and Settings are never offered
