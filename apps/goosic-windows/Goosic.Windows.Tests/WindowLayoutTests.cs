@@ -45,30 +45,58 @@ public class WindowLayoutTests
     }
 
     [Theory]
-    [InlineData(WindowWidthClass.Narrow, true)]
-    [InlineData(WindowWidthClass.Narrow, false)]
-    [InlineData(WindowWidthClass.Medium, false)]
-    [InlineData(WindowWidthClass.Medium, true)]
-    [InlineData(WindowWidthClass.Wide, false)]
-    [InlineData(WindowWidthClass.Wide, true)]
-    public void TheRailAlwaysKeepsContentAndEssentialPlayerActionsReachable(WindowWidthClass widthClass, bool expanded)
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TheOverlayPanelNeverPushesThePage(bool expanded)
     {
-        var inset = WindowLayout.NavigationInset(widthClass, expanded, 280);
+        var inset = WindowLayout.NavigationInset(docked: false, expanded, 280);
         Assert.Equal(WindowLayout.PanelGap + WindowLayout.SidebarRailWidth, inset);
         var available = WindowLayout.MinimumWidth - inset - 2 * WindowLayout.PlayerEdgeClearance;
         Assert.True(available >= WindowLayout.PlayerTwoRowMinimum);
     }
 
-    [Theory]
-    [InlineData(WindowWidthClass.Medium)]
-    [InlineData(WindowWidthClass.Wide)]
-    public void OpeningNavigationDoesNotMoveOrResizeThePlayer(WindowWidthClass widthClass)
+    [Fact]
+    public void OpeningTheOverlayPanelDoesNotMoveOrResizeThePlayer()
     {
-        var closed = WindowLayout.NavigationInset(widthClass, false, 280);
-        var open = WindowLayout.NavigationInset(widthClass, true, 280);
-        Assert.Equal(WindowLayout.PlayerPlacement(1250, closed, 348),
-            WindowLayout.PlayerPlacement(1250, open, 348));
+        var closed = WindowLayout.NavigationInset(docked: false, false, 236);
+        var open = WindowLayout.NavigationInset(docked: false, true, 236);
+        Assert.Equal(WindowLayout.PlayerPlacement(900, closed, 0), WindowLayout.PlayerPlacement(900, open, 0));
     }
+
+    [Fact]
+    public void ADockedSidebarReservesItsWidth()
+    {
+        Assert.Equal(280, WindowLayout.NavigationInset(docked: true, true, 280));
+        Assert.Equal(WindowLayout.PanelGap + WindowLayout.SidebarRailWidth,
+            WindowLayout.NavigationInset(docked: true, false, 280));
+    }
+
+    [Theory]
+    [InlineData(1007, false)]
+    [InlineData(1008, true)]
+    [InlineData(1600, true)]
+    [InlineData(WindowLayout.MinimumWidth, false)]
+    public void TheSidebarDocksFromWinUIsBreakpoint(double width, bool docks) =>
+        Assert.Equal(docks, WindowLayout.SidebarDocks(width));
+
+    [Fact]
+    public void ADockedSidebarStillLeavesThePlayerOneRow()
+    {
+        var width = WindowLayout.DockedSidebarFrom;
+        var sidebar = WindowLayout.SidebarWidth(WindowLayout.Classify(width), width);
+        var inset = WindowLayout.NavigationInset(docked: true, true, sidebar);
+        Assert.False(WindowLayout.PlayerUsesTwoRows(width - inset - 2 * WindowLayout.PlayerEdgeClearance));
+    }
+
+    [Theory]
+    [InlineData(false, true, false, true)]   // widening past the breakpoint expands
+    [InlineData(true, false, true, false)]   // narrowing past it returns to the rail
+    [InlineData(true, true, false, false)]   // a collapse at a wide width is kept
+    [InlineData(false, false, true, true)]   // an overlay left open stays open
+    [InlineData(true, true, true, true)]
+    public void TheListenersChoiceHoldsUntilTheWindowCrossesTheBreakpoint(
+        bool wasDocked, bool nowDocked, bool expanded, bool expected) =>
+        Assert.Equal(expected, WindowLayout.SidebarExpandedAfterResize(wasDocked, nowDocked, expanded));
 
     [Fact]
     public void ThePlayerSitsInTheMiddleOfThePageBesideTheSidebar()
