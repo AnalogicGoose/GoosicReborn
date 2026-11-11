@@ -65,8 +65,20 @@ public static class WindowLayout
     /// </summary>
     public const double DockedSidebarFrom = 1008;
 
-    /// <summary>Whether a window this wide docks the expanded sidebar.</summary>
-    public static bool SidebarDocks(double windowWidth) => windowWidth >= DockedSidebarFrom;
+    /// <summary>
+    /// Whether a window this wide docks the expanded sidebar, given how much the side panel
+    /// (Lyrics or Up Next) takes from the right edge.
+    /// </summary>
+    /// <remarks>
+    /// A docked sidebar and an open side panel both take room from the player. Just past the
+    /// breakpoint there is not enough for both and the two-row pill, so the sidebar gives way and
+    /// becomes the rail until the panel closes; otherwise the player's buttons would clip, and the
+    /// player's essential actions are not something a layout may drop.
+    /// </remarks>
+    public static bool SidebarDocks(double windowWidth, double sidePanelInset = 0) =>
+        windowWidth >= DockedSidebarFrom
+        && windowWidth - SidebarWidth(Classify(windowWidth), windowWidth) - sidePanelInset
+            - 2 * PlayerEdgeClearance >= PlayerTwoRowMinimum;
 
     /// <summary>
     /// Whether the sidebar is expanded after the window is resized. The listener's own choice
