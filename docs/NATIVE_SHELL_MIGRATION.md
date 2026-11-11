@@ -4,7 +4,7 @@
 
 GoosicReborn has removed SwiftCrossUI in favor of three native shells and retains one Rust backend. The macOS shell uses SwiftUI and AppKit, the Linux shell GTK 4 written in Rust, and the Windows shell WinUI 3 and WebView2. They are three renderers for one product, not three product forks. Every shell starts one private `goosic-service` child and speaks the existing versioned NDJSON protocol over inherited stdin and stdout.
 
-This is not a rewrite of `goosic-core`, `goosic-service`, or the catalog, settings, downloads, lyrics, and accounts crates. Rust remains the playback authority: a shell may request a transition but Rust decides whether it is valid. The current lease, generation, monotonic sample, advertisement, anonymous-catalog, and credential-boundary invariants remain unchanged.
+This is not a rewrite of `goosic-core`, `goosic-service`, or the catalog, settings, lyrics, and accounts crates. Rust remains the playback authority: a shell may request a transition but Rust decides whether it is valid. The current lease, generation, monotonic sample, advertisement, anonymous-catalog, and credential-boundary invariants remain unchanged.
 
 Removing SwiftCrossUI does not remove native platform work. Each shell owns its window, controls, accessibility, secure account profile, WebView, local audio, media keys, packaging, and signing. Cookies and raw account responses remain in platform profile storage and never traverse the service protocol.
 

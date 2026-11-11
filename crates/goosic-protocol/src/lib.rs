@@ -7,14 +7,13 @@ use serde::{Deserialize, Serialize};
 
 pub mod conformance;
 
-pub const PROTOCOL_VERSION: &str = "0.4.0";
+pub const PROTOCOL_VERSION: &str = "0.5.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Owner {
     None,
     OfficialWebView,
-    LocalDownloadedFile,
 }
 
 impl Owner {
@@ -111,12 +110,6 @@ pub struct ResponsePayload {
     /// Present only for `accounts.*` responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accounts: Option<AccountsSnapshot>,
-    /// Present only for `downloads.*` responses.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub downloads: Option<Vec<DownloadedTrack>>,
-    /// The decoded file a downloaded track should be played from.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub local_file: Option<String>,
     /// Present only for `lyrics.*` responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lyrics: Option<LyricsDocument>,
@@ -161,21 +154,6 @@ pub struct AccountsSnapshot {
     pub accounts: Vec<AccountSummary>,
     pub active_account_id: Option<String>,
     pub epoch: u64,
-}
-
-/// One track the user has already downloaded.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DownloadedTrack {
-    pub video_id: String,
-    pub title: String,
-    pub artist: String,
-    pub bytes: u64,
-    /// Whether the file is present right now. Imported files are referenced where they are, so
-    /// this is resolved per request rather than remembered.
-    pub available: bool,
-    /// Whether this record came from a previous Goosic install.
-    pub imported: bool,
 }
 
 /// The preferences the shell reads and writes.
@@ -531,7 +509,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&request).unwrap(),
-            r#"{"protocolVersion":"0.4.0","requestId":"r-1","command":"playback.sample","payload":{"owner":"officialWebView","generation":3,"sequence":8,"marker":"advertisement"}}"#
+            r#"{"protocolVersion":"0.5.0","requestId":"r-1","command":"playback.sample","payload":{"owner":"officialWebView","generation":3,"sequence":8,"marker":"advertisement"}}"#
         );
         let decoded: RequestEnvelope =
             serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
