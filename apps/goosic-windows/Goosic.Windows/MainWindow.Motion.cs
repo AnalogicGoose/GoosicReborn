@@ -42,12 +42,17 @@ public sealed partial class MainWindow
 
     private InsetClip? _sidebarRevealClip;
 
+    private void ClearSidebarRevealClip()
+    {
+        _sidebarRevealClip?.StopAnimation("RightInset");
+        _sidebarRevealClip = null;
+        ElementCompositionPreview.GetElementVisual(Sidebar).Clip = null;
+    }
+
     private void AnimateSidebarExpansion(double previousWidth, bool expanded)
     {
         var visual = ElementCompositionPreview.GetElementVisual(Sidebar);
-        _sidebarRevealClip?.StopAnimation("RightInset");
-        visual.Clip = null;
-        _sidebarRevealClip = null;
+        ClearSidebarRevealClip();
         if (!expanded || previousWidth <= 0 || _compositor is null || !AnimationsEnabled)
         {
             return;
