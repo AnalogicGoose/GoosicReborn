@@ -79,6 +79,34 @@ public class WindowLayoutTests
     public void TheSidebarDocksFromWinUIsBreakpoint(double width, bool docks) =>
         Assert.Equal(docks, WindowLayout.SidebarDocks(width));
 
+    [Theory]
+    [InlineData(1008)]
+    [InlineData(1100)]
+    [InlineData(1199)]
+    [InlineData(1200)]
+    [InlineData(1600)]
+    public void AnOpenSidePanelNeverSqueezesThePlayerBelowItsMinimum(double width)
+    {
+        var widthClass = WindowLayout.Classify(width);
+        var panel = WindowLayout.Inset(widthClass, panelVisible: true, WindowLayout.SidePanelWidth(widthClass, width));
+        var docked = WindowLayout.SidebarDocks(width, panel);
+        var navigation = WindowLayout.NavigationInset(docked, expanded: true,
+            WindowLayout.SidebarWidth(widthClass, width));
+        var player = width - navigation - panel - 2 * WindowLayout.PlayerEdgeClearance;
+        Assert.True(player >= WindowLayout.PlayerTwoRowMinimum,
+            $"at {width} px the player gets {player} px with the side panel open");
+    }
+
+    [Fact]
+    public void JustPastTheBreakpointTheSidebarGivesWayToAnOpenPanel()
+    {
+        var width = WindowLayout.DockedSidebarFrom;
+        var widthClass = WindowLayout.Classify(width);
+        var panel = WindowLayout.Inset(widthClass, panelVisible: true, WindowLayout.SidePanelWidth(widthClass, width));
+        Assert.False(WindowLayout.SidebarDocks(width, panel), "both would leave the player 384 px");
+        Assert.True(WindowLayout.SidebarDocks(width), "closing the panel docks it again");
+    }
+
     [Fact]
     public void ADockedSidebarStillLeavesThePlayerOneRow()
     {

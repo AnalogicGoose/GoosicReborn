@@ -166,6 +166,13 @@ public sealed partial class MainWindow : Window
         {
             SidePanel.Visibility = visibility;
             GlidePlayerOnce();
+            // Opening a panel can leave too little room beside a docked sidebar for the player,
+            // and closing it can give that room back; docking is decided again either way.
+            if (RootGrid.ActualWidth > 0)
+            {
+                RefreshSidebarDocking(RootGrid.ActualWidth);
+                return;
+            }
         }
 
         ApplyInsets();
