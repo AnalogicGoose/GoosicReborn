@@ -42,11 +42,15 @@ public sealed partial class MainWindow : Window
         // The first layout takes the default for its width; later ones keep the listener's choice
         // until the window crosses the docking breakpoint. Only presentation changes here.
         var docked = WindowLayout.SidebarDocks(e.NewSize.Width);
-        var expanded = _sidebarDocked is { } wasDocked
+        var previouslyDocked = _sidebarDocked;
+        var expanded = previouslyDocked is { } wasDocked
             ? WindowLayout.SidebarExpandedAfterResize(wasDocked, docked, _sidebarExpanded)
             : docked;
         _sidebarDocked = docked;
-        if (expanded != _sidebarExpanded || changed)
+        // Docking changes the sidebar's form even when it stays expanded: an overlay panel opened
+        // below the breakpoint must lose its floating margins and its dismiss layer once the window
+        // grows past it, or that layer keeps swallowing clicks on a page laid out beside a dock.
+        if (expanded != _sidebarExpanded || changed || previouslyDocked != docked)
         {
             SetSidebarExpanded(expanded, moveFocus: false);
         }
