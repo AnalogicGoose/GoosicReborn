@@ -289,8 +289,8 @@ pub fn two_row_item(node: &Value) -> Option<CatalogItem> {
         subtitle,
         artist: refs.artist.as_ref().map(|(name, _)| name.clone()),
         artist_id: refs.artist.as_ref().map(|(_, id)| id.clone()),
-        album: None,
-        album_id: None,
+        album: refs.album.as_ref().map(|(name, _)| name.clone()),
+        album_id: refs.album.as_ref().map(|(_, id)| id.clone()),
         duration: None,
         thumbnail: json::thumbnail(node, THUMBNAIL_BUDGET),
         video_id,
@@ -1164,6 +1164,23 @@ mod tests {
             Some("https://example.test/art.jpg")
         );
         assert!(item.explicit);
+    }
+
+    #[test]
+    fn a_song_cards_byline_links_its_artist_and_album() {
+        // The card's byline is the same run shape as a row's second column.
+        let byline = song_row()["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]
+            ["text"]
+            .clone();
+        let card = json!({
+            "title": {"runs": [{"text": "Afterglow"}]},
+            "subtitle": byline,
+            "navigationEndpoint": {"watchEndpoint": {"videoId": "abcdefghijk"}}
+        });
+        let item = two_row_item(&card).expect("card parses");
+        assert_eq!(item.artist_id.as_deref(), Some("UCartist"));
+        assert_eq!(item.album.as_deref(), Some("Night Windows"));
+        assert_eq!(item.album_id.as_deref(), Some("MPREalbum"));
     }
 
     #[test]

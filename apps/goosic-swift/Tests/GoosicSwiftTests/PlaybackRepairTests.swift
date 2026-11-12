@@ -124,6 +124,42 @@ final class PlaybackJavaScriptTests: XCTestCase {
         XCTAssertEqual(page.nextCursor, "owned")
     }
 
+    func testRadioRowsKeepTheirArtistAndAlbumLinks() throws {
+        let js = try context()
+        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/GoosicSwift/Resources/PersonalCatalog.js")
+        js.evaluateScript(try String(contentsOf: source, encoding: .utf8))
+        let answer = js.evaluateScript("""
+        (() => {
+          const link = (text, id, type) => ({text, navigationEndpoint: {browseEndpoint: {browseId: id,
+            browseEndpointContextSupportedConfigs: {browseEndpointContextMusicConfig: {pageType: type}}}}});
+          const linked = {playlistPanelVideoRenderer: {videoId: 'bbbbbbbbbbb', title: {simpleText: 'Linked'},
+            shortBylineText: {runs: [{text: 'Signal Fires'}]},
+            longBylineText: {runs: [link('Signal Fires', 'UCartist', 'MUSIC_PAGE_TYPE_ARTIST'), {text: ' • '},
+              link('Night Windows', 'MPREalbum', 'MUSIC_PAGE_TYPE_ALBUM'), {text: ' • '}, {text: '2024'}]}}};
+          const plain = {playlistPanelVideoRenderer: {videoId: 'ccccccccccc', title: {simpleText: 'Plain'},
+            shortBylineText: {runs: [{text: 'Somebody'}]}, longBylineText: {runs: [{text: 'Somebody'}]}}};
+          return JSON.stringify(GoosicPersonalCatalog.parseRadio({
+            continuationContents: {playlistPanelContinuation: {contents: [linked, plain]}}
+          }, 'aaaaaaaaaaa'));
+        })()
+        """)
+        XCTAssertNil(js.exception)
+        let data = try XCTUnwrap(answer?.toString()?.data(using: .utf8))
+        let page = try JSONDecoder().decode(GoosicCatalogPage.self, from: data)
+        let tracks = page.tracks ?? []
+        XCTAssertEqual(tracks.count, 2)
+        XCTAssertEqual(tracks[0].artist, "Signal Fires")
+        XCTAssertEqual(tracks[0].artistId, "UCartist")
+        XCTAssertEqual(tracks[0].album, "Night Windows")
+        XCTAssertEqual(tracks[0].albumId, "MPREalbum")
+        // A byline without links keeps the name it shows and claims no destination.
+        XCTAssertEqual(tracks[1].artist, "Somebody")
+        XCTAssertNil(tracks[1].artistId)
+        XCTAssertNil(tracks[1].albumId)
+    }
+
     func testBootstrapGuardsFirstPlayReplacementResetAndAdHandoff() throws {
         let js = try context()
         js.evaluateScript("""
