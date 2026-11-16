@@ -22,6 +22,7 @@
 //! | [`playback`] | `Models.swift`, `VolumeTaper.swift` | what plays next, clamps, the volume taper, seek settling, preference saves |
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
 //! | [`lyrics`] | `Models.swift` | which line is current |
+//! | [`lyrics_motion`] | `LyricsTiming.swift`, C# lyrics rules | drawing spans, rests, interludes and row motion |
 //! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key |
 //! | [`hero`] | `ArtistHero.swift` | an artist hero's height and the colour its page takes |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
@@ -36,6 +37,7 @@ pub mod framing;
 pub mod hero;
 pub mod login;
 pub mod lyrics;
+pub mod lyrics_motion;
 pub mod media;
 pub mod navigation;
 pub mod playback;
