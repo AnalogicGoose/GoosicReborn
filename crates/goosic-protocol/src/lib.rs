@@ -265,6 +265,10 @@ pub struct LyricsLine {
     pub words: Vec<LyricsWord>,
     /// Milliseconds into the track, or negative when the lyrics are not synced.
     pub at_ms: i64,
+    /// Where the line stops being sung, when the provider says. Absent means unknown, and a
+    /// shell must then treat the line as current until the next one starts: it never guesses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_ms: Option<i64>,
     pub text: String,
 }
 
