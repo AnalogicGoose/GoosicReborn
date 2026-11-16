@@ -180,6 +180,7 @@ pub(crate) fn parse(source: &str) -> Option<LyricsDocument> {
                 source: "LRCLIB".into(),
                 synced: false,
                 lines: vec![LyricsLine {
+                    end_ms: None,
                     at_ms: -1,
                     text: "♪ Instrumental".into(),
                     words: vec![],
@@ -204,6 +205,7 @@ pub(crate) fn parse(source: &str) -> Option<LyricsDocument> {
         .iter()
         .map(|line| LyricsLine {
             at_ms: line.start_ms,
+            end_ms: line.end_ms.filter(|end| *end > line.start_ms),
             text: line.text.clone(),
             words: words(line),
         })
@@ -242,6 +244,13 @@ lines:
         assert_eq!(words[0].at_ms, 1000);
         assert_eq!(words[0].end_ms, Some(1800));
         assert_eq!(words[1].text, "world");
+        // The line's own end travels too, and a line without one adds nothing to the wire.
+        assert_eq!(document.lines[0].end_ms, Some(3000));
+        let open = parse(&WORDS.replace("    end_ms: 3000\n", "")).unwrap();
+        assert_eq!(open.lines[0].end_ms, None);
+        assert!(!serde_json::to_string(&open.lines[0])
+            .unwrap()
+            .contains("\"endMs\":3000"));
         let wire = serde_json::to_vec(&document).unwrap();
         assert_eq!(
             serde_json::from_slice::<LyricsDocument>(&wire).unwrap(),
@@ -261,7 +270,9 @@ lines:
             .words
             .iter()
             .all(|word| word.end_ms.is_none()));
-        let encoded = serde_json::to_string(&document).unwrap();
+        // The line keeps the end the provider gave it; no word gains one.
+        assert_eq!(document.lines[0].end_ms, Some(3000));
+        let encoded = serde_json::to_string(&document.lines[0].words).unwrap();
         assert!(!encoded.contains("endMs"));
     }
 

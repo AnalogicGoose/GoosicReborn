@@ -301,6 +301,7 @@ impl LyricsClient {
                 source: "LRCLIB".into(),
                 synced: false,
                 lines: vec![goosic_protocol::LyricsLine {
+                    end_ms: None,
                     words: Vec::new(),
                     at_ms: -1,
                     text: "♪ Instrumental".into(),
