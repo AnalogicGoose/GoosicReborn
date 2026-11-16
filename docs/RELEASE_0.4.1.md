@@ -47,6 +47,5 @@ The universal macOS ZIP supports Apple silicon and Intel Macs. Move Goosic to Ap
 The app is signed ad hoc; after the first refused launch, use System Settings → Privacy &
 Security → Open Anyway. SHA-256 checksums accompany the Mac download.
 
-This release is prepared as an unpublished draft for owner inspection. The owner must sign
-and update the Sparkle feed before installed Macs can discover it. Linux has no release
-download in this version.
+The signed Sparkle feed lets installed Macs discover this release. Windows installations
+check GitHub Releases for the new installer. Linux has no release download in this version.
