@@ -26,5 +26,9 @@ codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
 rm "$archive"
 ditto -c -k --keepParent "$app" "$archive"
-shasum -a 256 "$archive" > "$archive.sha256"
+(
+    cd "$root/dist"
+    name="Goosic-$version-macos-universal.zip"
+    shasum -a 256 "$name" > "$name.sha256"
+)
 printf 'Packaged manual-install experiment: %s\n' "$archive"
