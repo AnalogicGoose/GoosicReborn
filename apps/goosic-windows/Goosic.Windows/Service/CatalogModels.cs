@@ -127,6 +127,20 @@ internal sealed record LyricsDocument
 internal sealed record LyricsLine
 {
     [JsonPropertyName("atMs")] public long AtMilliseconds { get; init; }
+
+    /// <summary>Where the line stops being sung, when the provider says; absent means unknown.</summary>
+    [JsonPropertyName("endMs")] public long? EndMilliseconds { get; init; }
+
+    [JsonPropertyName("text")] public string Text { get; init; } = "";
+
+    /// <summary>Word timing, only where a contributor supplied it. Never synthesized by the shell.</summary>
+    [JsonPropertyName("words")] public IReadOnlyList<LyricsWord> Words { get; init; } = [];
+}
+
+internal sealed record LyricsWord
+{
+    [JsonPropertyName("atMs")] public long AtMilliseconds { get; init; }
+    [JsonPropertyName("endMs")] public long? EndMilliseconds { get; init; }
     [JsonPropertyName("text")] public string Text { get; init; } = "";
 }
 

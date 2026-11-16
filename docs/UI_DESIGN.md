@@ -393,7 +393,11 @@ import never changes audio or playback authority. See [LYRICS_TIMING.md](LYRICS_
 the timing contract and current native adoption.
 
 Full player is an immersive artwork-led surface with a dark readable treatment, even when the
-browser is light. Large artwork and track metadata occupy the leading column; Lyrics or Queue
+browser is light. Its backdrop is the cover's own colours at their full depth, darkened with
+black rather than veiled in grey, so a vivid cover gives a vivid field. While playback is
+paused the artwork steps back to about three quarters of its size and springs forward again
+on resume, as Music's does; the metadata and transport below it do not move, and with reduced
+motion the size changes without the spring. Large artwork and track metadata occupy the leading column; Lyrics or Queue
 can occupy the trailing column. The timeline and full transport sit below the artwork. Close
 and mini-player actions are grouped at the top leading edge, volume at the top trailing edge,
 and Lyrics/Queue in a bottom trailing capsule. Top and bottom chrome share material and
