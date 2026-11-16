@@ -501,10 +501,10 @@ internal sealed class LyricsEffects
         }
 
         var animated = _animated();
-        if (_introActive == true && _intro is not null && _follower.Lines.Count > 0
+        if (_introActive == true && _intro is Panel introDots && _follower.Lines.Count > 0
             && LyricsTiming.Introduction(_follower.Lines, _follower.Synced) is { } intro)
         {
-            DrawDots(_intro, intro, position, animated);
+            DrawDots(introDots, intro, position, animated);
         }
 
         foreach (var line in _lines.Values)
