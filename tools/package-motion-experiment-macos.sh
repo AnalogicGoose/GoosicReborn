@@ -12,7 +12,7 @@ sh tools/package-macos.sh "$version"
 archive="$root/dist/Goosic-$version-macos-universal.zip"
 stage=$(mktemp -d "${TMPDIR:-/tmp}/goosic-motion-package.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
-unzip -q "$archive" -d "$stage"
+ditto -x -k "$archive" "$stage"
 app="$stage/Goosic Motion Experiment.app"
 mv "$stage/Goosic.app" "$app"
 plist="$app/Contents/Info.plist"
@@ -25,7 +25,7 @@ xattr -cr "$app"
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
 rm "$archive"
-ditto -c -k --keepParent "$app" "$archive"
+ditto -c -k --norsrc --keepParent "$app" "$archive"
 (
     cd "$root/dist"
     name="Goosic-$version-macos-universal.zip"
