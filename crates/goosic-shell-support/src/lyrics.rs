@@ -105,6 +105,7 @@ mod tests {
 
     fn line(at_ms: i64, text: &str) -> LyricsLine {
         LyricsLine {
+            end_ms: None,
             at_ms,
             text: text.into(),
             words: Vec::new(),
@@ -117,6 +118,7 @@ mod tests {
             synced: true,
             lines: vec![
                 LyricsLine {
+                    end_ms: None,
                     at_ms: 1000,
                     text: "Hi all".into(),
                     words: vec![
