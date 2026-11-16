@@ -28,8 +28,8 @@ and bounds parser events. Outgoing lyrics are bounded by both 900 lines and a 20
 budget, reserving space for the protocol envelope; any removed lines set `truncated`.
 
 The listening presentation keeps Music-like bold active text, contextual blur and edge fading.
-Context depth now depends on distance from the active line; nearby text remains clearer. Active
-lines have a subtle glow and lift, and an advancing highlight follows the current segment.
+Context depth now depends on distance from the active line; nearby text remains clearer. On macOS, active words can glow and lift; an advancing highlight follows the current
+segment on macOS and Windows.
 Only the active line redraws, at up to 60 frames per second. Its presentation position may
 interpolate at most one second beyond the last displayed playback position, then freezes until
 another update arrives. The current line follows that same interpolated position: the confirmed
@@ -167,7 +167,7 @@ next word's start in the same line. Both ends of that span are timestamps the pr
 supplied, and the word cannot still be the one being sung after the next one has begun. The
 span is capped at 2.5 seconds, because a longer wait is more likely a rest than a held note.
 A line's last word has nothing after it to bound it, so it takes a fixed 450 ms rather than a
-guess at its length; the protocol does not carry a line's end. Words that start together
+guess at its length when no line end is supplied. Words that start together
 settle over 220 ms.
 
 This is `LyricsTiming.sweeps`, and it only shapes drawing. `LyricsTiming.progress` and
