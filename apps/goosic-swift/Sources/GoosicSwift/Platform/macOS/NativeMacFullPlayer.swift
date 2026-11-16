@@ -151,6 +151,8 @@ private struct NativeMacFullPlayerCover: View {
     let thumbnail: String?
     /// The cover steps back while playback is paused and comes forward again when it resumes.
     var paused = false
+    var motionQuery: MotionArtworkQuery?
+    var motionEnabled = false
     @Environment(\.goosicReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -168,6 +170,7 @@ private struct NativeMacFullPlayerCover: View {
                 }
             }
         }
+        .overlay { ExperimentalMotionArtwork(query: motionQuery, playing: !paused, enabled: motionEnabled) }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: .black.opacity(paused ? 0.22 : 0.35), radius: paused ? 12 : 24, y: paused ? 6 : 12)
@@ -186,6 +189,7 @@ struct NativeMacFullPlayer: View {
     /// The mini player: the same layout in a small always-on-top window. Lyrics and the
     /// fill-the-screen controls step aside while it is small and come back as they were.
     var compact = false
+    @AppStorage("experimentalMotionArtwork") private var motionArtworkEnabled = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.goosicReduceMotion) private var reduceMotion
@@ -239,6 +243,12 @@ struct NativeMacFullPlayer: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .background(background)
+        .overlay(alignment: .bottomLeading) {
+            Toggle("Experimental Animated Artwork", isOn: $motionArtworkEnabled)
+                .toggleStyle(.switch).font(.caption)
+                .help("Looks up the current title, artist and album on Apple Music. Unofficial; some albums have no animation.")
+                .padding(16)
+        }
         // Volume and Exit are window toolbar items (see `NativeMacRootView`), not overlays here:
         // this view runs under the transparent title bar, and a slider drawn in that strip loses
         // its drag to the title bar, which moves the window instead.
@@ -378,14 +388,14 @@ struct NativeMacFullPlayer: View {
         VStack(alignment: .leading, spacing: compact ? 8 : 14) {
             // Clicking the cover goes back, as it did in the previous Goosic.
             if compact {
-                NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail, paused: model.isPaused)
+                NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail, paused: model.isPaused, motionQuery: model.currentTrack.map(MotionArtworkQuery.init(track:)), motionEnabled: motionArtworkEnabled && !model.isAdvertisement && (compact || model.fullPlayerOpen))
                     .frame(width: cover, height: cover)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .frame(maxWidth: .infinity)
                     .accessibilityLabel("Artwork")
             } else {
                 Button(action: close) {
-                    NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail, paused: model.isPaused)
+                    NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail, paused: model.isPaused, motionQuery: model.currentTrack.map(MotionArtworkQuery.init(track:)), motionEnabled: motionArtworkEnabled && !model.isAdvertisement && (compact || model.fullPlayerOpen))
                         .frame(width: cover, height: cover)
                         // Video art is 16:9. Crop at the square so it stays in the column.
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
