@@ -3445,6 +3445,7 @@ mod presentation_tests {
                         lines: (0..8)
                             .map(|index| goosic_protocol::LyricsLine {
                                 words: Vec::new(),
+                                end_ms: None,
                                 at_ms: index * 20000,
                                 text: [
                                     "First synchronized fixture line",
