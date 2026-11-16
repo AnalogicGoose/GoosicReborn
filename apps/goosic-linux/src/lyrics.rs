@@ -173,6 +173,7 @@ mod tests {
         let lines = (0..lines)
             .map(|index| LyricsLine {
                 words: Vec::new(),
+                end_ms: None,
                 at_ms: if synced { index as i64 * 5_000 } else { -1 },
                 text: format!("line {index}"),
             })
