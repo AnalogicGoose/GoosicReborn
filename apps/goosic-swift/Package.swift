@@ -26,6 +26,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/PersonalCatalog.js"),
+                .copy("Resources/Sung-Motion-Artwork-LICENSE.txt"),
                 .copy("Resources/AppIcons"),
             ],
             // SwiftPM stamps the executable's build version with the deployment target as its
