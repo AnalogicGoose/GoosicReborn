@@ -73,6 +73,7 @@ internal sealed class LyricsEffects
     private CompositionEasingFunction? _ease;
     private bool _blurUnavailable;
     private bool _rendering;
+    private bool _visible;
     private DateTimeOffset _lastFrame;
     private int _followed = int.MinValue;
     private Line? _swept;
@@ -108,6 +109,23 @@ internal sealed class LyricsEffects
         scroller.SizeChanged += (_, _) => Pad();
         Pad();
     }
+
+    /// <summary>Hidden or frozen views do not keep a rendering callback alive.</summary>
+    internal void SetVisible(bool visible)
+    {
+        _visible = visible;
+        if (visible)
+        {
+            Refresh();
+            Follow(animate: false);
+        }
+        else
+        {
+            EnsureRendering();
+        }
+    }
+
+    internal void ClockChanged() => EnsureRendering();
 
     /// <summary>Whether the view scrolls with the song. False once the listener scrolls it themselves.</summary>
     internal bool Following { get; private set; } = true;
@@ -181,6 +199,7 @@ internal sealed class LyricsEffects
             line.Surface?.Dispose();
             line.Brush?.Dispose();
             UpdateResume();
+            EnsureRendering();
         }
     }
 
@@ -444,6 +463,12 @@ internal sealed class LyricsEffects
         foreach (var line in _lines.Values)
         {
             live |= line.EmptyActive || line.AfterActive;
+        }
+
+        live &= _visible && _follower.Running && _animated();
+        if (!live && _visible)
+        {
+            Draw(DateTimeOffset.Now);
         }
 
         if (live == _rendering)

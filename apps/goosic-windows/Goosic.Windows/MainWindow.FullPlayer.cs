@@ -189,6 +189,7 @@ public sealed partial class MainWindow : Window
         var (horizontal, top, bottom) = FullPlayerLayout.Padding(width);
         var lyricsOnly = mode == FullPlayerMode.Lyrics;
         FullPlayerLyrics.Visibility = mode == FullPlayerMode.Cover ? Visibility.Collapsed : Visibility.Visible;
+        _fullLyrics?.SetVisible(FullPlayer.Visibility == Visibility.Visible && mode != FullPlayerMode.Cover);
         // The cover shrinks with the window's height too, so the controls under it stay on screen.
         var cover = FullPlayerLayout.CoverSize(RootGrid.ActualHeight, top, bottom);
 
@@ -285,6 +286,8 @@ public sealed partial class MainWindow : Window
         }
 
         FullPlayer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        _fullLyrics?.SetVisible(open && FullPlayerLyrics.Visibility == Visibility.Visible);
+        _panelLyrics?.SetVisible(!open && _sidePanel.Content == SidePanelContent.Lyrics);
         SetTitleBar(open ? FullPlayerDragStrip : TitleBarStrip);
         if (!open)
         {

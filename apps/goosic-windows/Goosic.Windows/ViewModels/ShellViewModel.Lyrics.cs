@@ -23,6 +23,8 @@ public sealed partial class ShellViewModel
 
     internal event Action? LyricsLoaded;
 
+    internal event Action? LyricClockChanged;
+
     /// <summary>The line drawn as current, or -1 when there is none.</summary>
     internal int CurrentLyricIndex => _lyricFollower.Index;
 
@@ -59,6 +61,7 @@ public sealed partial class ShellViewModel
             PresentLyricLine();
         }
 
+        LyricClockChanged?.Invoke();
         ScheduleLyricChange();
     }
 
@@ -67,6 +70,7 @@ public sealed partial class ShellViewModel
         _lyricsFrozen = true;
         _lyricTimer?.Stop();
         _lyricFollower.Freeze(DateTimeOffset.Now);
+        LyricClockChanged?.Invoke();
     }
 
     /// <summary>Waits for the next line start or rest due before the next confirmation.</summary>

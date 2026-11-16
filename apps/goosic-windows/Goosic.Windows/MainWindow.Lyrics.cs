@@ -35,6 +35,16 @@ public sealed partial class MainWindow
             () => AnimationsEnabled, () => PlainEffects, accent as Microsoft.UI.Xaml.Media.Brush);
         _fullLyrics.Resumed += () => FollowLyricOnScreen(Model.CurrentLyricIndex);
         _panelLyrics.Resumed += () => FollowLyricOnScreen(Model.CurrentLyricIndex);
+        Model.LyricClockChanged += () =>
+        {
+            _fullLyrics.ClockChanged();
+            _panelLyrics.ClockChanged();
+        };
+        Closed += (_, _) =>
+        {
+            _fullLyrics.SetVisible(false);
+            _panelLyrics.SetVisible(false);
+        };
         Model.LyricsLoaded += () =>
         {
             FollowLyricsAgain();

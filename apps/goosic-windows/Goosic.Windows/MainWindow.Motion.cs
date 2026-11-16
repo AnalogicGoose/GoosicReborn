@@ -97,6 +97,8 @@ public sealed partial class MainWindow
     {
         var enabled = AnimationsEnabled;
         UpdateCoverScale(animate: false);
+        _fullLyrics?.Refresh();
+        _panelLyrics?.Refresh();
         if (_motionConfigured && enabled == _motionAttached)
         {
             return;
