@@ -3,6 +3,24 @@
 Written to be read once, start to finish, before touching anything. The last section is a prompt
 that can be pasted into another coding agent as-is.
 
+## Lyrics motion (0.4.1)
+
+The side panel and full player now consume supplied word and line-end timing.
+`Presentation/LyricsTiming.cs`, `LyricsFollower.cs` and `LyricsMotion.cs` keep the tested
+timing and following rules; `ViewModels/ShellViewModel.Lyrics.cs` schedules the displayed
+line, while `Views/LyricsEffects.cs` draws character sweeps, rests, interlude dots and
+per-row composition springs. `MainWindow.Lyrics.cs` resets and follows each view, and
+`MainWindow.FullPlayer.cs` shrinks the cover while paused. The XAML templates retain
+interlude row height and let each column reach its 36% anchor.
+
+Windows has no word lift, held-word swell or glow and uses character fill rather than
+a soft gradient. `docs/LYRICS_TIMING.md` records the adaptations and acceptance cases.
+341 presentation tests passed locally with .NET 9. Windows CI is the compilation gate.
+No Windows visual acceptance has been performed: the scroll jump and row translations
+may land in different frames, causing a one-frame flash. If reproduced, position the
+column with offsets instead. Release 0.4.1 remains a draft for owner inspection; Sparkle
+feed signing is the owner's step.
+
 ## In-app updates
 
 Settings → Updates checks this repository's latest GitHub release, and a copy installed by
