@@ -571,47 +571,6 @@ public sealed class ShelfColumnViewModel(IReadOnlyList<CardViewModel> rows)
     public double Width => ShelfColumns.ColumnWidth;
 }
 
-/// <summary>One line shown in the lyrics panel, never synthesized by the shell.</summary>
-/// <summary>One line of lyrics, and whether the music is on it.</summary>
-public sealed class LyricLineViewModel : INotifyPropertyChanged
-{
-    private bool _isCurrent;
-
-    internal LyricLineViewModel(string text, long atMilliseconds, bool synced, int index)
-    {
-        Text = text;
-        AtMilliseconds = atMilliseconds;
-        Synced = synced;
-        Index = index;
-    }
-
-    /// <summary>The line's place in its document, which is what its distance from the sung line is measured in.</summary>
-    public int Index { get; }
-
-    /// <summary>Whether the document follows the song; unsynced lines have no current line.</summary>
-    public bool Synced { get; }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public string Text { get; }
-    public long AtMilliseconds { get; }
-
-    public bool IsCurrent
-    {
-        get => _isCurrent;
-        internal set
-        {
-            if (_isCurrent == value)
-            {
-                return;
-            }
-
-            _isCurrent = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent)));
-        }
-    }
-}
-
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
 public sealed partial class ShellViewModel : INotifyPropertyChanged
 {
@@ -957,8 +916,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     /// <returns>Whether this is the first confirmed natural end for the current queue item.</returns>
     private bool _isPlaying;
-    private bool _lyricsSynced;
-    private int _currentLyric = -1;
 
     /// <summary>
     /// Raised when the page confirms a different track from the one it was confirming.
@@ -968,15 +925,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// load that has not reached the page yet, must leave the lyrics of what is still playing.
     /// </remarks>
     internal event Action? ConfirmedTrackChanged;
-
-    /// <summary>
-    /// Raised with the index of the lyric line the music has reached, or -1 when it is back
-    /// before the first one.
-    /// </summary>
-    internal event Action<int>? CurrentLyricChanged;
-
-    /// <summary>The line being sung, or -1 when there is none.</summary>
-    internal int CurrentLyricIndex => _currentLyric;
 
     /// <summary>
     /// Whether the page last confirmed that it is playing.
@@ -1012,51 +960,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         IsPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public string PlayPauseLabel => IsPlaying ? "Pause" : "Play";
-
-    /// <summary>
-    /// Moves the highlight to the line the confirmed position has reached.
-    /// </summary>
-    /// <remarks>
-    /// Only for synced lyrics. Plain lyrics carry no times, and highlighting one of them would
-    /// claim a position the document never stated.
-    /// </remarks>
-    private void FollowLyrics(double seconds)
-    {
-        if (!_lyricsSynced || Lyrics.Count == 0)
-        {
-            return;
-        }
-
-        var at = (long)(seconds * 1000);
-        var index = -1;
-        for (var i = 0; i < Lyrics.Count; i++)
-        {
-            if (Lyrics[i].AtMilliseconds > at)
-            {
-                break;
-            }
-
-            index = i;
-        }
-
-        if (index == _currentLyric)
-        {
-            return;
-        }
-
-        if (_currentLyric >= 0 && _currentLyric < Lyrics.Count)
-        {
-            Lyrics[_currentLyric].IsCurrent = false;
-        }
-
-        _currentLyric = index;
-        if (index >= 0)
-        {
-            Lyrics[index].IsCurrent = true;
-        }
-
-        CurrentLyricChanged?.Invoke(index);
-    }
 
     internal bool ReportPlayback(BridgeEvent sample)
     {
@@ -1094,21 +997,22 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             if (changed)
             {
-                Lyrics.Clear();
-                _lyricsSynced = false;
-                _currentLyric = -1;
+                ResetLyricFollowing();
                 ConfirmedTrackChanged?.Invoke();
                 AnnounceConfirmed(pending);
                 PresentTracks();
             }
 
-            FollowLyrics(sample.CurrentTime);
+            FollowLyrics(frozen: sample.State != "playing");
             NowPlayingArtwork = pending.Artwork;
             NowPlayingTitle = pending.Title;
             NowPlayingSubtitle = pending.Subtitle + " · " + Clock(position)
                 + (total > TimeSpan.Zero ? " / " + Clock(total) : "");
             return MarkNaturalEnd(sample);
         }
+
+        // Nothing in the lyrics runs on while something else plays.
+        FreezeLyrics();
 
         // A sample for a track the model did not ask for: an advertisement, or the moments before
         // the requested page takes over. Name the advertisement; otherwise say it is loading,
@@ -1196,9 +1100,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         var track = _confirmedTrack;
         var request = ++_lyricsRequestVersion;
-        Lyrics.Clear();
-        _lyricsSynced = false;
-        _currentLyric = -1;
+        ResetLyricFollowing();
         if (track is null)
         {
             LyricsState = LyricsState.NothingPlaying;
@@ -1256,12 +1158,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 return LyricsState.NotFound;
             }
 
-            foreach (var line in document.Lines)
-            {
-                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds, document.Synced, Lyrics.Count));
-            }
-
-            _lyricsSynced = document.Synced;
+            ShowLyrics(document);
             return LyricsState.Found(document.Synced, document.Source, document.Truncated);
         }
         catch (ServiceRefusedException refused) when (refused.Code == "lyricsNotFound")
