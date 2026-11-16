@@ -7,11 +7,15 @@ return real word or segment timing automatically when a contributor supplied it;
 not universal. Search prefers usable word timing, then line timing, plain lyrics and
 instrumental records. The exact recording lookup still takes priority over search.
 
-The lyric wire format carries optional `words` arrays with absolute `atMs`, optional `endMs`
-and `text`. Existing line-only responses remain compatible. Supplied start/end pairs drive a
-word sweep; a start without an end activates the whole word at that timestamp. No missing end
-is inferred from the next word, the next line or text length. Songs without real word timing
-highlight the complete active line.
+A line carries `atMs`, `text` and, when the provider supplied one, `endMs`: where the line
+stops being sung. It is omitted when unknown, and a shell then keeps the line current until
+the next one starts rather than guessing. The lyric wire format also carries optional `words`
+arrays with absolute `atMs`, optional `endMs` and `text`. Existing line-only responses remain compatible. Supplied start/end pairs drive a
+word sweep; a start without an end activates the word at that timestamp. `progress` infers no
+missing end from the next word, the next line or text length. On macOS the drawing of a
+word-timed line sweeps a start-only word until the next word in the same line begins; the
+section on word motion below records that decision and its limits. Songs without real word
+timing highlight the complete active line.
 
 The parser accepts line-only, plain and instrumental Lyricsfiles, preserves word spacing and
 Unicode text, and sorts lines stably. Equal line starts and overlapping vocals remain in the
@@ -26,9 +30,11 @@ budget, reserving space for the protocol envelope; any removed lines set `trunca
 The listening presentation keeps Music-like bold active text, contextual blur and edge fading.
 Context depth now depends on distance from the active line; nearby text remains clearer. Active
 lines have a subtle glow and lift, and an advancing highlight follows the current segment.
-Only the active line redraws at up to 30 frames per second. Its presentation position may
+Only the active line redraws, at up to 60 frames per second. Its presentation position may
 interpolate at most one second beyond the last displayed playback position, then freezes until
-another update arrives. Pausing, advertisements, disconnection and pending playback transitions
+another update arrives. The current line follows that same interpolated position: the confirmed
+position arrives about once a second, and a line chosen from it alone changed up to a second
+late, after its first words had already been sung. Pausing, advertisements, disconnection and pending playback transitions
 stop that interpolation. It never writes a position, makes a seek or changes Rust authority.
 Manual scrolling, hovered/focused text and increased contrast reveal readable text; reduced
 motion disables the sweeping and movement, retaining a static active-line emphasis.
@@ -48,9 +54,8 @@ provider. Precise timings must match this recording; files for a live version or
 will not align just because the title matches.
 
 Swift and Rust shell-support validate the same local-import and word-progress cases. LRCLIB
-Lyricsfile conversion runs in the Rust service and is shared by every shell. Linux and Windows
-continue their existing line presentation; optional word fields can be ignored safely until
-those native shells adopt word highlighting and local import.
+Lyricsfile conversion runs in the Rust service and is shared by every shell. Windows now draws word sweeps, supplied-end rests, interlude dots and per-row following.
+Linux retains whole-line presentation; local timed-lyrics import remains macOS-only.
 The macOS visual acceptance still needs a real timed song, a line-only song, pauses and seeks,
 manual scrolling, short/wrapped/Unicode lines, and the system accessibility settings. Unit tests
 and compilation do not establish a screenshot match or live singing alignment.
@@ -70,7 +75,10 @@ much of it. Preserve contextual blur, fading, active-line emphasis and smooth fo
 The permanent Follow current line switch was removed because it displaced the immersive
 viewport. Resume lyrics appears only after manual exploration. The user also rejected the
 estimated word sweep: no shell may reintroduce a proportional, evenly distributed or inferred
-word schedule for a line-timed song. A new visual effect does not create timing data.
+word schedule for a line-timed song. A new visual effect does not create timing data. On
+November 16, 2026 the user asked for Music's word motion on word-timed songs, which is a
+different case: the words there carry supplied starts, and only the end of each sweep is taken
+from the next supplied start.
 
 Format support and catalog coverage are separate facts. On September 30, live LRCLIB checks
 found no word arrays in the sampled records, including
@@ -130,26 +138,132 @@ artwork surface; the inspector emphasizes its active line with the app accent.
 | --- | --- |
 | Typography | Bold 30-point immersive text; bold 25-point rounded inspector text |
 | Vertical spacing | 26 points immersive; 22 points inspector |
-| Active-line position | Scroll anchor at 36% of the viewport height |
-| Following transition | Ease in/out, 0.72 seconds immersive; 0.65 seconds inspector |
-| Line emphasis transition | Ease in/out over 0.4 seconds on active-line changes |
-| Context opacity | `max(0.16, base - distance * 0.04)`, base 0.36 immersive / 0.34 inspector |
-| Context blur | `min(3, base + distance * 0.35)`, base 1.1 immersive / 0.8 inspector |
+| Active-line position | Scroll anchor at 36% of the viewport height, with enough padding above the first row and below the last for either to reach it |
+| Following transition | Each row moves on its own critically damped spring, response 0.4 seconds; the column never travels as one block |
+| Line emphasis transition | Opacity and blur only: SwiftUI's smooth spring over 0.55 seconds, no overshoot |
+| Line change cascade | Rows at or above the new line start together; each row below starts 50 ms after the one above, up to ten rows |
+| Line change timing | At the line's own start, scheduled from the interpolated position; a confirmed position up to 250 ms short of a line already shown does not step back |
+| Upcoming lines | Opacity `max(0.3, 0.6 - (distance - 1) * 0.07)`, blur `min(3, distance * 0.5)` |
+| Past lines | Opacity `max(0.16, 0.34 - (distance - 1) * 0.06)`, blur `min(3, 0.8 + distance * 0.6)` |
+| At rest | While nothing is being sung, the finished line and every upcoming line sit at 0.62 opacity with no blur |
 | Active glow | White at 0.2 opacity, radius 8 immersive / 5 inspector |
-| Active lift and context scale | Active lift of 2 points; context scale 0.97 with a leading anchor |
+| Line size and place | Unchanged when a line becomes current. An earlier 2-point lift and a 0.97 context scale read as a zoom on every line change, which Music does not have, and were removed on November 16, 2026 |
 | Viewport fades | Clear at edges; opaque from 14–84% immersive / 10–86% inspector |
-| Word fill | Existing glyphs brighten from 0.55 to 1.0 opacity using supplied segment progress |
-| Drawing cadence | Only the active word-timed line updates, capped at 30 frames per second |
+| Word fill | macOS 15 and later: a sweep with a soft leading edge half the font size wide, from 0.4 to 1.0 opacity. macOS 14: the letters brighten in place over the same span |
+| Word lift | A word rises 0.05 of the font size as it is sung, eased out over at least a second, and stays raised |
+| Held word | A word of two to seven characters swept for a second or longer: its letters swell by up to 12% and glow in turn |
+| Start-only word | Swept from its own start to the next word's start in the same line, for at most 2.5 seconds |
+| Last word of a line | With no supplied end, swept over a fixed 450 ms |
+| Interlude | Three dots, 0.3 of the font size, fill in turn across the stretch, breathe by 8%, and shrink away over its last 600 ms |
+| Pointer highlight | The line under the pointer gets a rounded backing at 8% of the text color and stays swept |
+| Drawing cadence | Only the line being swept, or one row of dots, updates, capped at 60 frames per second |
+
+### Word motion on macOS
+
+LRCLIB's word-timed records checked on November 16, 2026 carry word starts without word ends,
+so a rule that only swept supplied start/end pairs left every word snapping from dim to lit.
+The macOS shell therefore draws a start-only word across the span from its own start to the
+next word's start in the same line. Both ends of that span are timestamps the provider
+supplied, and the word cannot still be the one being sung after the next one has begun. The
+span is capped at 2.5 seconds, because a longer wait is more likely a rest than a held note.
+A line's last word has nothing after it to bound it, so it takes a fixed 450 ms rather than a
+guess at its length; the protocol does not carry a line's end. Words that start together
+settle over 220 ms.
+
+This is `LyricsTiming.sweeps`, and it only shapes drawing. `LyricsTiming.progress` and
+`word_progress` are unchanged and still report a start-only word as complete at its start.
+A line without `words` gets no sweep, no lift and no partial fill, exactly as before. Windows uses the same sweep spans. `goosic-shell-support::lyrics_motion` now owns
+the sweep spans, rest and interlude boundaries, dot drawing values and row-motion parameters.
+Swift and C# retain tested native copies until their bridges expose these rules. Linux has
+not yet adopted the drawing.
+
+The emphasis on a held word uses the same span, so a word followed by a rest inside its line
+can be emphasised as though it were held. The 2.5-second cap, the limit of seven characters and
+the low strength of anything under about a second and a half keep that rare and slight, but it
+is the one place where the drawing can say more than the data does. Supplied word ends remove
+the doubt wherever a provider has them.
+
+From macOS 15 the line being sung is drawn by a text renderer over the glyphs the system
+already laid out, which is what lets a word lift, swell and glow without the line wrapping
+differently or moving its neighbours. Right-to-left runs brighten as a whole instead of being
+swept from the left. The amounts follow the published parameters of the AMLL lyric player,
+which documents Music's behavior more closely than anything Apple has published; no code
+from it is used.
+
+Interlude dots stand only for stretches the lyrics themselves mark as unsung: the
+introduction before a first line that begins four seconds or more into the recording, and a
+line the provider left empty for four seconds or more. A rest after a sung line is drawn
+as an interlude only when the line carries a supplied end and the next line starts four
+seconds or more after it; a line without an end has none, because nothing in the document
+says where the singing stopped. A shorter empty line keeps its musical note. The dots fade out outside their stretch and their row
+keeps its height, because a row that folded away moved every line below it while the column
+was scrolling to the next line.
+
+A line becoming current must not flash. Its text is built from the same word pieces whether
+or not it is current, so nothing is swapped or wrapped differently at that moment, and the
+drop to the unsung brightness animates with the rest of the line's emphasis instead of
+landing at once under an opacity that is still rising. A context line revealed by the pointer
+eases over 0.2 seconds, since lines pass under a resting pointer on every line change. The
+immersive column keeps 16 points of room at each side inside its scroll view, which clips,
+so the dots' swell, a glow and the pointer highlight are not cut off. The widening is applied
+after the viewport's fade mask; a mask applied to the narrowed view trims the sides again.
+
+The following motion was measured, not chosen. A recording of Music taken on November 16,
+2026 was read frame by frame, at about 55 frames a second, and each row of lyrics tracked
+through five line changes. Rows at or above the new line begin to move together, and every
+lyric line below begins 50 ms after the one above it. From its own start a row covers a quarter
+of the distance in 50 ms, half in 100 ms, three quarters in 170 ms, 90% in 240 ms and 98% in
+340 ms, without overshoot. That is a critically damped spring with a response of about 0.4
+seconds, and it is what `rowSpring` and `rowDelay` are. Scrolling the column as one block, on
+any curve, cannot produce this, and it read as the lyrics stopping and starting.
+
+The macOS shell gets there without giving up its scroll view. On a line change the column
+scrolls to the new row at once, and in the same update every row is drawn lower by exactly the
+distance scrolled, so nothing has moved. Each row then gives that offset back on its own
+spring after its own delay. The distance is the difference between where the two rows are laid
+out, which is why the column is padded so that no row's scroll is ever clamped. When either
+row has not been laid out, or following resumes on the row already followed, the column moves
+as one on the same spring. With reduced motion it does not animate at all.
+
+The other curves follow Apple's own guidance from "Animate with springs" (WWDC 2023): a spring
+without bounce for anything that must not overshoot, such as opacity and blur, and a small
+bounce where a settle reads as physical, such as position and scale. Thirty frames a second
+was visibly stepped for a sweep that moves a few points per frame, which is why the one live
+line draws at sixty.
+
+A line that reaches its supplied end, with the next line a second or more away, is at rest
+until that line starts. A shorter wait is not drawn: the line stays lit until the next begins,
+because dimming it for a fraction of a second showed as the highlight dropping back and
+jumping forward on a line change. At rest: nothing is lit,
+the line and those still to come are equally readable and sharp, and the column stays where
+it is unless an interlude's dots take over as the row it follows. That is what Music does
+between lines, and it needs the line's own end; a line without one stays lit until the next
+begins, as before. The end also bounds the sweep of the line's last word. Line ends are
+scheduled from the interpolated position the same way line starts are, and a confirmed
+position up to 250 ms short of a rest already shown does not undo it. Upcoming lines are
+brighter and sharper than past ones, matching a recording of Music taken on November 16, 2026.
+
+Windows consumes `endMs` for rests and interludes. Linux retains whole-line presentation;
+its hand-built fixtures include `end_ms: None` to preserve unknown ends.
+
+Every line is drawn through one view structure whether or not it is current, because a line
+that changed structure on becoming current was replaced outright and its emphasis could not
+animate.
 
 Distance is the absolute row-index distance from the active line. An unsynced document uses
 sharp text and no guessed current line. Line-only active text stays uniformly highlighted;
 it must not look partly sung. Hovered/focused text and manual exploration reveal sharp context.
+The line being sung keeps its sweep under the pointer; keyboard focus still shows it whole.
 Increased contrast removes softening and edge masks and uses readable static emphasis. Reduced
 motion disables the sweep, lift and animated transitions, keeping a static active line. Native
 focus and semantic labels must remain available when decorative effects are disabled.
 
 The display clock may interpolate no more than one second beyond the displayed playback
-position. Reset its sample time on a confirmed position update, pause-state change and track
+position. A newly confirmed position never lands exactly where the clock had got to, and
+stepping to it made every sweep hitch about once a second. When the two are within 0.3 seconds
+the clock keeps the position it was showing and runs up to a few percent fast or slow, closing
+60% of the gap over the next second; it never runs backwards. A larger difference, such as a
+seek or a stall, is taken at once. This is `LyricsTiming.reanchor`. Reset its sample time on a confirmed position update, pause-state change and track
 change, and use the pending seek's displayed position when present. Freeze interpolation on
 pause, advertisement, service disconnection or a non-idle playback transition, and after the
 one-second limit until another update arrives. Render ticks never publish playback samples,
@@ -251,5 +365,28 @@ recording duration and timing presence whenever live word alignment is accepted.
 
 The shared Rust tests and all 240 Swift tests passed after the September 30 Lyricsfile change,
 and both the service and macOS shell built. The sampled live records checked afterward had
-no word timing, so live word-following alignment remains unverified. Windows/GTK rendering,
-import dialogs and accessibility checks are pending native work, not completed acceptance.
+no word timing, so live word-following alignment remains unverified. Windows rendering is implemented, but native visual and accessibility acceptance remains
+pending. GTK motion and non-macOS import dialogs remain pending native work.
+
+## Windows native motion
+
+The WinUI side panel and full player draw the same sweep spans, supplied-end rests,
+introduction and interlude dots, and per-row following as macOS. The follower schedules line
+starts and rests from a presentation clock bounded to one second beyond a confirmation.
+Pauses and advertisements freeze it. Neither the clock nor the compositor authorizes playback.
+The full-player cover settles to 74% scale while paused without changing the controls' layout.
+System animation settings, Reduce motion and Efficiency mode disable decorative motion.
+
+Windows brightens one grapheme at a time using XAML text runs rather than the macOS soft-edged
+gradient. Those runs cannot transform independently, so Windows has no word lift, held-word
+swell or glow. The panel keeps its native 22-point type, the full player its 30-point type;
+active text uses the accent in the panel and white in the full player. The Windows backdrop
+already used a black veil. These are native adaptations, not evidence of visual acceptance.
+
+Each row starts a critically damped 0.4-second composition spring after its 50 ms stagger.
+The scroller jumps to its final offset while row translations hold the old appearance, then
+release it. No one has run this port on Windows during this work. Check line changes for a
+one-frame flash if the scroll and translation land in different frames; replace following
+with an offset-positioned column if reproduced. Also inspect wrapped and bidirectional text,
+manual scrolling and Resume, pause/resume, seeks, track changes and accessibility settings
+on a real Windows desktop.

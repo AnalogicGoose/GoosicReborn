@@ -20,8 +20,8 @@
 
 GoosicReborn replaces web wrappers with real native interfaces powered by a dedicated Rust core (`goosic-core`). Rust acts as the single playback authority and anonymous catalog reader, communicating with each platform shell over newline-delimited JSON across a private stdio channel.
 
-- **macOS:** Built with SwiftUI and AppKit, adopting `NSGlassEffectView` material styling and native system media controls.
-- **Windows:** Built with WinUI 3 and Windows App SDK, featuring Mica/acrylic materials, compact sidebar docking, and smooth media transport.
+- **macOS:** Built with SwiftUI and AppKit, adopting `NSGlassEffectView` material styling, synced lyrics motion, and native system media controls.
+- **Windows:** Built with WinUI 3 and Windows App SDK, featuring Mica/acrylic materials, compact sidebar docking, matching lyrics motion, and smooth media transport.
 - **Linux:** Built with GTK 4 and WebKitGTK, integrating with desktop themes and MPRIS without depending on GNOME's Libadwaita.
 
 ---
@@ -30,8 +30,8 @@ GoosicReborn replaces web wrappers with real native interfaces powered by a dedi
 
 | Platform | Channel | Format | Notes |
 | :--- | :--- | :--- | :--- |
-| **Windows** (x64) | **Stable** (`v0.4.0`) | [**Setup Executable (`.exe`)**](https://github.com/AnalogicGoose/GoosicReborn/releases) \| [Portable ZIP](https://github.com/AnalogicGoose/GoosicReborn/releases) | Built with WinUI 3. Self-updating from `v0.2.0+`. |
-| **macOS** (Universal) | **Alpha** (`v0.4.0`) | [**Universal `.zip`**](https://github.com/AnalogicGoose/GoosicReborn/releases) | SwiftUI/AppKit. macOS 14+ required. Universal x86_64/arm64 binary. |
+| **Windows** (x64) | **Stable** (`v0.4.1`) | [**Setup Executable (`.exe`)**](https://github.com/AnalogicGoose/GoosicReborn/releases) \| [Portable ZIP](https://github.com/AnalogicGoose/GoosicReborn/releases) | Built with WinUI 3. Self-updating from `v0.2.0+`. Includes lyrics motion and dock customization. |
+| **macOS** (Universal) | **Alpha** (`v0.4.1`) | [**Universal `.zip`**](https://github.com/AnalogicGoose/GoosicReborn/releases) | SwiftUI/AppKit. macOS 14+ required. Universal x86_64/arm64 binary with lyrics motion. |
 | **Linux** (x86_64) | **Development** | Flatpak / Source | Native GTK 4 shell. See [the Linux shell notes](docs/LINUX_SHELL.md). |
 
 *Unsigned builds may trigger an unknown-publisher warning on first launch.*
@@ -43,7 +43,7 @@ GoosicReborn replaces web wrappers with real native interfaces powered by a dedi
 - **Blazing Fast Native UI:** No Electron bloat or heavy web container UI. Shells render directly with platform-native controls and materials.
 - **Live Catalog & Search:** Home shelves, Explore, Charts, Moods & genres, New releases, and instant search results backed directly by YouTube Music.
 - **Real Playback Authority:** Rust enforces strictly one playback owner at a time, lease generations, and monotonic sample sequencing.
-- **Synchronized Lyrics:** Live lyrics powered by LRCLIB with line-by-line sync and smooth highlighting.
+- **Synchronized Lyrics & Motion:** Live lyrics powered by LRCLIB with line-by-line timing, end timestamp tracking, and fluid kinetic scrolling.
 - **Personal Content & Accounts:** Authenticated sessions run inside platform-isolated WebKit stores. Cookies and credentials never touch the service protocol or network stdout.
 - **System Media Integration:** Native macOS `MPNowPlayingInfoCenter`, Windows System Media Transport Controls (SMTC), and Linux MPRIS support.
 - **Smart Queue & Radio:** Replaces automated web autoplay with a strict local queue that respects what you chose to play, falling back smoothly to infinite auto-radio when your queue ends.
@@ -73,7 +73,7 @@ apps/goosic-swift                 apps/goosic-windows                 apps/goosi
 - `goosic-lyrics` — LRCLIB lyric lookups and LRC timestamp parsing.
 - `goosic-settings` & `goosic-accounts` — Durable local configuration and profile metadata.
 - `goosic-service` — Private, single-client stdio service. Requests in, responses out, zero telemetry.
-- `goosic-shell-support` — Platform-neutral translation rules and NDJSON client.
+- `goosic-shell-support` — Platform-neutral translation rules, lyrics motion curves, and NDJSON client.
 
 For full architectural invariants, contracts, and boundaries, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/UI_DESIGN.md](docs/UI_DESIGN.md), and [docs/SHELL_CONTRACT.md](docs/SHELL_CONTRACT.md).
 
@@ -105,6 +105,7 @@ make package-macos  # Package Goosic.app for macOS
 
 ## Release Notes & History
 
+- [Release 0.4.1](docs/RELEASE_0.4.1.md): Synchronized lyrics motion, end timestamps, and kinetic scrolling across platforms.
 - [Release 0.4.0](docs/RELEASE_0.4.0.md): Windows docked sidebar, black acrylic material, Settings categories, universal macOS alpha.
 - [Release 0.3.2](docs/RELEASE_0.3.2.md): Windows track fallback stability and responsive logging.
 - [Release 0.3.1](docs/RELEASE_0.3.1.md): Multi-display fixes and artist top songs deduplication.
