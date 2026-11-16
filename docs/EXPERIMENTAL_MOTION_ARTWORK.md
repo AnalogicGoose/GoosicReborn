@@ -37,3 +37,14 @@ manifest parsing and URL restrictions. Actual Apple retrieval and visible animat
 reported separately from compilation. For a live check, enable the switch in the full player,
 play a known album track with motion artwork, then test pause, resume, track change, hiding the
 window and Reduce Motion. No match should affect music playback or replace its still cover.
+
+Build the manual-install universal app with `sh tools/package-motion-experiment-macos.sh` using
+Xcode and a Rust toolchain with both Apple targets installed. It packages as Goosic Motion
+Experiment.app with its own bundle identifier and no updater feed, so it can sit beside the
+regular application. It still uses Goosic's existing account storage; run only one copy at a
+time. Enable Experimental Animated Artwork at the bottom left of the full player. This build
+is opt-in and is not offered through the normal update feed.
+
+The initial Apple network check resolved Blinding Lights from After Hours (Deluxe), obtained a
+real MP4 in 3.6 seconds and passed the native no-audio and video-format validation. This is one
+live retrieval result, not a catalog coverage estimate or visual acceptance of the player.
