@@ -25,14 +25,21 @@ public sealed partial class MainWindow
 
     private void WireLyrics()
     {
-        _fullLyrics = new LyricsEffects(FullPlayerLyricsScroller, FullPlayerLyricsResume, immersive: true,
+        _fullLyrics = new LyricsEffects(FullPlayerLyricsScroller, FullPlayerLyricsContent, FullPlayerLyricsItems,
+            FullPlayerLyricsIntroduction, FullPlayerLyricsResume, immersive: true, Model.LyricFollower,
             () => AnimationsEnabled, () => PlainEffects);
         // In the panel the sung line takes the accent, as on macOS; over a cover it stays white.
         Application.Current.Resources.TryGetValue("GoosicAccentBrush", out var accent);
-        _panelLyrics = new LyricsEffects(LyricsScroller, LyricsResume, immersive: false,
+        _panelLyrics = new LyricsEffects(LyricsScroller, LyricsContent, LyricsItems, LyricsIntroduction,
+            LyricsResume, immersive: false, Model.LyricFollower,
             () => AnimationsEnabled, () => PlainEffects, accent as Microsoft.UI.Xaml.Media.Brush);
         _fullLyrics.Resumed += () => FollowLyricOnScreen(Model.CurrentLyricIndex);
         _panelLyrics.Resumed += () => FollowLyricOnScreen(Model.CurrentLyricIndex);
+        Model.LyricsLoaded += () =>
+        {
+            FollowLyricsAgain();
+            DispatcherQueue.TryEnqueue(() => FollowLyricOnScreen(Model.CurrentLyricIndex));
+        };
         if (PlainEffects)
         {
             return;
@@ -73,27 +80,22 @@ public sealed partial class MainWindow
     {
         _fullLyrics?.Refresh();
         _panelLyrics?.Refresh();
-        if (index < 0)
+        if (FullPlayer.Visibility == Visibility.Visible)
         {
-            return;
+            _fullLyrics?.Follow(true);
         }
 
-        if (FullPlayer.Visibility == Visibility.Visible && _fullLyrics?.Following == true
-            && FullPlayerLyricsItems.ContainerFromIndex(index) is FrameworkElement fullLine)
+        if (LyricsPanel.Visibility == Visibility.Visible)
         {
-            fullLine.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.36, AnimationDesired = true });
-        }
-
-        if (LyricsPanel.Visibility == Visibility.Visible && _panelLyrics?.Following == true
-            && LyricsItems.ContainerFromIndex(index) is FrameworkElement line)
-        {
-            line.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.36, AnimationDesired = true });
+            _panelLyrics?.Follow(true);
         }
     }
 
     /// <summary>A new song is followed from its start, however the last one was left.</summary>
     private void FollowLyricsAgain()
     {
+        _fullLyrics?.Reset();
+        _panelLyrics?.Reset();
         _fullLyrics?.SetFollowing(true);
         _panelLyrics?.SetFollowing(true);
     }

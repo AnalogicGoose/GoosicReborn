@@ -96,6 +96,7 @@ public sealed partial class MainWindow
     private void ApplyMotion()
     {
         var enabled = AnimationsEnabled;
+        UpdateCoverScale(animate: false);
         if (_motionConfigured && enabled == _motionAttached)
         {
             return;

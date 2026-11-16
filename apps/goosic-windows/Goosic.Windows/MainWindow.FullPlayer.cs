@@ -27,6 +27,8 @@ public sealed partial class MainWindow : Window
     private void WireFullPlayer()
     {
         FullPlayerBackdrop.Children.Add(_fullPlayerMesh);
+        FullPlayerCoverFrame.SizeChanged += (_, _) => UpdateCoverScale(animate: false);
+        UpdateCoverScale(animate: false);
         WireFullPlayerBlur();
         FullPlayerProgress.AddHandler(UIElement.PointerPressedEvent,
             new PointerEventHandler((_, _) => { _fullPlayerSeeking = true; Model.IsScrubbing = true; }), handledEventsToo: true);
@@ -53,11 +55,37 @@ public sealed partial class MainWindow : Window
             DispatcherQueue.TryEnqueue(UpdateFullPlayerBlur);
         Model.PropertyChanged += (_, args) =>
         {
+            if (args.PropertyName == nameof(ShellViewModel.IsPlaying))
+            {
+                UpdateCoverScale(animate: true);
+            }
             if (args.PropertyName == nameof(ShellViewModel.ArtworkBackground))
             {
                 UpdateBackdrop();
             }
         };
+    }
+
+    /// <summary>Lets the cover settle smaller while paused without moving the controls.</summary>
+    private void UpdateCoverScale(bool animate)
+    {
+        var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(FullPlayerCoverFrame);
+        visual.CenterPoint = new System.Numerics.Vector3((float)(FullPlayerCoverFrame.ActualWidth / 2),
+            (float)(FullPlayerCoverFrame.ActualHeight / 2), 0);
+        var scale = Model.IsPlaying ? 1f : (float)LyricsMotion.PausedCoverScale;
+        var target = new System.Numerics.Vector3(scale, scale, 1);
+        if (!animate || !AnimationsEnabled)
+        {
+            visual.StopAnimation("Scale");
+            visual.Scale = target;
+            return;
+        }
+
+        var spring = visual.Compositor.CreateSpringVector3Animation();
+        spring.DampingRatio = 0.85f;
+        spring.Period = TimeSpan.FromSeconds(0.5);
+        spring.FinalValue = target;
+        visual.StartAnimation("Scale", spring);
     }
 
     /// <summary>
