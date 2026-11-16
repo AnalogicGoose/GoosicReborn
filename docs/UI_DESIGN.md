@@ -591,3 +591,7 @@ breakpoints have offline tests. Search clearance lives inside the virtualized co
 volume opens without changing the bar's bounds. These checks do not establish live audio,
 account mutation, screen-reader, word-timing or mini-player acceptance; [LINUX_SHELL.md](LINUX_SHELL.md)
 records remaining work and the reproducible desktop fixture.
+
+## Motion artwork experiment
+
+The opt-in macOS motion artwork prototype is specified in [EXPERIMENTAL_MOTION_ARTWORK.md](EXPERIMENTAL_MOTION_ARTWORK.md). It preserves the existing cover geometry and original still fallback, follows app and system Reduce Motion, and never adds sound. Windows and Linux adoption remains pending; this is an experimental platform difference, not a production design precedent.

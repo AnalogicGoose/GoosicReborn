@@ -39,6 +39,7 @@ pub mod login;
 pub mod lyrics;
 pub mod lyrics_motion;
 pub mod media;
+pub mod motion_artwork;
 pub mod navigation;
 pub mod playback;
 pub mod queue;
