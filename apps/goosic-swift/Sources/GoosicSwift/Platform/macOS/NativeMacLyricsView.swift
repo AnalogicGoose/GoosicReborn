@@ -5,8 +5,9 @@ import SwiftUI
 /// Both listening presentations keep lyric navigation, readability and following in step.
 struct NativeMacLyricsView: View {
     @ObservedObject var store: NativeMacModelStore
-    /// The active line follows the position, which the model no longer publishes.
-    @ObservedObject var clock: PlaybackClock
+    /// The active line follows the confirmed position on every sample, which the model does not
+    /// publish and the throttled `PlaybackClock` would deliver too late.
+    @ObservedObject var clock: LyricsClock
     let immersive: Bool
     @Environment(\.goosicReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
@@ -121,7 +122,7 @@ struct NativeMacLyricsView: View {
                         activeIndex = current
                         resting = LyricsTiming.rests(
                             lines: lyrics.lines, index: current,
-                            positionMs: Int64(model.displayedPosition * 1_000))
+                            positionMs: Int64(model.lyricsPosition * 1_000))
                         scroll(reader, to: anchor(lyrics, index: current, resting: resting), animated: false)
                     }
                     .onChange(of: viewport) { _, _ in
@@ -147,7 +148,7 @@ struct NativeMacLyricsView: View {
                     }
                 }
                 .task(id: FollowSample(
-                    position: model.displayedPosition, frozen: clockFrozen,
+                    position: model.lyricsPosition, frozen: clockFrozen,
                     track: model.currentTrack?.id, lyrics: lyrics
                 )) { await follow(lyrics) }
                 .onChange(of: model.currentTrack?.id) { _, _ in
@@ -182,7 +183,7 @@ struct NativeMacLyricsView: View {
             predicted: LyricsTiming.displayPosition(
                 confirmed: positionBase, elapsed: sample.timeIntervalSince(positionSample),
                 frozen: false, rate: positionRate),
-            confirmed: model.displayedPosition, frozen: clockFrozen)
+            confirmed: model.lyricsPosition, frozen: clockFrozen)
         let confirmed = anchor.base
         positionBase = anchor.base
         positionRate = anchor.rate
@@ -335,7 +336,7 @@ struct NativeMacLyricsView: View {
         // row of dots, is ever live, so drawing it at 60 costs little.
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !live || clockFrozen)) { context in
             content(LyricsTiming.displayPosition(
-                confirmed: live && !clockFrozen ? positionBase : model.displayedPosition,
+                confirmed: live && !clockFrozen ? positionBase : model.lyricsPosition,
                 elapsed: context.date.timeIntervalSince(positionSample),
                 frozen: !live || clockFrozen, rate: positionRate) * 1_000)
         }

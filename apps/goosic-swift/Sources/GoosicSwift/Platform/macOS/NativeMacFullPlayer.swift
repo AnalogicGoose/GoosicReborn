@@ -609,7 +609,7 @@ struct NativeMacFullPlayer: View {
     // MARK: - Lyrics
 
     private var lyricsColumn: some View {
-        NativeMacLyricsView(store: store, clock: clock, immersive: true)
+        NativeMacLyricsView(store: store, clock: store.model.lyricsClock, immersive: true)
     }
 
 }
