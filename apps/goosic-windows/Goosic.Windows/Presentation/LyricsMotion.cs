@@ -40,16 +40,52 @@ public static class LyricsMotion
     /// The share of the distance a row has covered <paramref name="seconds"/> after it starts: a
     /// critically damped spring, 1 - (1 + ωt)e^(-ωt) with ω = 2π / period.
     /// </summary>
-    public static double Covered(double seconds)
+    public static double Covered(double seconds) => Spring(seconds, RowSpringPeriod.TotalSeconds);
+
+    /// <summary>
+    /// A SwiftUI spring: the share of the distance covered <paramref name="seconds"/> after it starts,
+    /// for a spring with this <paramref name="response"/> and damping ratio, from rest.
+    /// </summary>
+    /// <remarks>
+    /// SwiftUI's response is the undamped period, so ω = 2π / response; <c>.smooth(duration: d)</c> is
+    /// response d with a damping ratio of 1, and a bounce b is a damping ratio of 1 − b. The
+    /// compositor's own spring animations take a "period" that is not this quantity, and given the
+    /// same numbers they ran several times slower than macOS, so Windows draws this curve itself.
+    /// </remarks>
+    public static double Spring(double seconds, double response, double damping = 1)
     {
-        if (seconds <= 0)
+        if (seconds <= 0 || response <= 0)
         {
-            return 0;
+            return seconds <= 0 ? 0 : 1;
         }
 
-        var omega = 2 * Math.PI / RowSpringPeriod.TotalSeconds;
-        return 1 - (1 + omega * seconds) * Math.Exp(-omega * seconds);
+        var omega = 2 * Math.PI / response;
+        if (damping >= 1)
+        {
+            return 1 - (1 + omega * seconds) * Math.Exp(-omega * seconds);
+        }
+
+        var decay = damping * omega;
+        var ringing = omega * Math.Sqrt(1 - damping * damping);
+        return 1 - Math.Exp(-decay * seconds)
+            * (Math.Cos(ringing * seconds) + decay / ringing * Math.Sin(ringing * seconds));
     }
+
+    /// <summary>
+    /// How long a spring is drawn for: until it is within a thousandth of its target and stays there.
+    /// </summary>
+    public static double SettlingTime(double response, double damping = 1)
+    {
+        var omega = 2 * Math.PI / response;
+        // e^(-ζωt) envelope below 1e-3, with a margin for the critically damped polynomial factor.
+        return Math.Min(4 * response, 9.5 / (Math.Min(1, damping) * omega));
+    }
+
+    /// <summary>The full player's cover on pause and play: macOS's <c>.snappy(duration: 0.5, extraBounce: 0.1)</c>.</summary>
+    public const double CoverResponse = 0.5;
+
+    /// <summary>Snappy's own bounce of 0.15 plus the extra 0.1, as a damping ratio.</summary>
+    public const double CoverDamping = 0.75;
 
     /// <summary>
     /// The padding above the first row and below the last, so that any row, the first and the last
