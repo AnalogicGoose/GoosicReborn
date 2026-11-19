@@ -7,6 +7,31 @@ return real word or segment timing automatically when a contributor supplied it;
 not universal. Search prefers usable word timing, then line timing, plain lyrics and
 instrumental records. The exact recording lookup still takes priority over search.
 
+Search is also length-aware. LRCLIB lists every recording of a song, and the richest timing is
+often a live, extended or video version whose lines land seconds away from the studio track.
+When the query carries the track's length, a result within two seconds of it beats every other
+result, and richness decides only among those; outside that window the closest length wins and
+richness breaks ties. A record that does not state its length is usable but loses to a match, and
+a query without a length keeps the older richness-only ranking.
+
+Timing is never presented from a different recording. If the query has a length and the chosen
+record's length differs from it by more than three seconds, the lyrics are returned as not synced:
+the text is kept, every time and word timing is dropped, and the shell shows them as plain lyrics.
+Plain text from the record is used when it has any, otherwise the synced lines are stripped of
+their timestamps. The same check runs on the exact lookup's answer when the record carries a
+length, since that endpoint matches loosely on its own side. Lyrics that visibly do not follow
+along are honest; lyrics highlighted at the wrong moment are not. Instrumental records are
+unaffected.
+
+Legacy LRC text is parsed with two details that matter for alignment. An `[offset:N]` tag, in
+milliseconds, shifts every line; by the LRC convention a positive value makes lyrics appear
+sooner, so it is subtracted from each time and clamped at zero, and only the first such tag
+counts. Timestamps with hours, `[h:mm:ss.xx]`, are read as hours; they were once read as
+minutes and seconds, which put a ten-minute song's lines at the wrong second. The Lyricsfile
+`offset_ms` is not applied: a non-zero value makes the whole Lyricsfile unusable, so the record's
+legacy LRC fields (and their `[offset:]` tag) are used instead rather than showing shifted timing
+unshifted.
+
 A line carries `atMs`, `text` and, when the provider supplied one, `endMs`: where the line
 stops being sung. It is omitted when unknown, and a shell then keeps the line current until
 the next one starts rather than guessing. The lyric wire format also carries optional `words`
@@ -32,14 +57,19 @@ Context depth now depends on distance from the active line; nearby text remains 
 segment on macOS and Windows.
 Only the active line redraws, at up to 60 frames per second. Its presentation position may
 interpolate at most one second beyond the last displayed playback position, then freezes until
-another update arrives. The current line follows that same interpolated position: the confirmed
-position arrives about once a second, and a line chosen from it alone changed up to a second
-late, after its first words had already been sung. Pausing, advertisements, disconnection and pending playback transitions
+another update arrives. The current line follows that same interpolated position. The page
+confirms the position several times a second, and the lyrics take every confirmation, even
+where a progress bar takes only one a second to save redraws: anchored on a value up to a second
+old, the sweep stalled once a second and the highlight jumped back on pause. A seek holds its
+target for the lyrics until the page confirms it or a second passes, and is not re-confirmed from
+each sample while held, which made the clock snap back repeatedly. While the listener drags the
+progress bar the lyrics keep following the reported position, because the audio plays on. Pausing, advertisements, disconnection and pending playback transitions
 stop that interpolation. It never writes a position, makes a seek or changes Rust authority.
 Manual scrolling, hovered/focused text and increased contrast reveal readable text; reduced
 motion disables the sweeping and movement, retaining a static active-line emphasis.
 
-The macOS player's More menu and the lyrics context menu offer Import Timed Lyrics. Choose a
+On macOS the player's More menu and the lyrics context menu offer Import Timed Lyrics; on
+Windows the lyrics context menu, in both the side panel and the full player, does. Choose a
 JSON file using the structure in [word-timed-lyrics.json](examples/word-timed-lyrics.json), with
 timestamps in milliseconds from the recording's beginning. Word text must concatenate exactly
 to the line text, including spaces, punctuation and Unicode text. Timing is absolute, not
@@ -55,7 +85,7 @@ will not align just because the title matches.
 
 Swift and Rust shell-support validate the same local-import and word-progress cases. LRCLIB
 Lyricsfile conversion runs in the Rust service and is shared by every shell. Windows now draws word sweeps, supplied-end rests, interlude dots and per-row following.
-Linux retains whole-line presentation; local timed-lyrics import remains macOS-only.
+Linux retains whole-line presentation; local timed-lyrics import is on macOS and Windows.
 The macOS visual acceptance still needs a real timed song, a line-only song, pauses and seeks,
 manual scrolling, short/wrapped/Unicode lines, and the system accessibility settings. Unit tests
 and compilation do not establish a screenshot match or live singing alignment.
@@ -104,7 +134,7 @@ segments exactly; do not reconstruct them with inserted spaces or tokenize a lin
 segments. Keep native shaping, wrapping, bidirectional text and grapheme boundaries intact.
 Words can represent syllables or longer segments, so a renderer must not assume Latin words.
 The fixture in [examples/word-timed-lyrics.json](examples/word-timed-lyrics.json) shows the wire
-shape and can also be imported on macOS.
+shape and can also be imported on macOS and Windows.
 
 Use `goosic_shell_support::lyrics::word_progress` for Rust consumers. Its Swift copy is
 `LyricsTiming.progress` and is held to the same boundary tests. With a supplied end greater

@@ -330,6 +330,23 @@ final class LyricsTests: XCTestCase {
         }
     }
 
+    func testLookupPrefersTheMeasuredRecordingLength() async {
+        await MainActor.run {
+            XCTAssertEqual(GoosicAppModel.lyricsLookupDuration(measured: 251.6, catalog: "3:42"), 252)
+            XCTAssertEqual(GoosicAppModel.lyricsLookupDuration(measured: 251.4, catalog: "3:42"), 251)
+        }
+    }
+
+    func testLookupFallsBackToTheCatalogWhenNothingUsableWasMeasured() async {
+        await MainActor.run {
+            XCTAssertEqual(GoosicAppModel.lyricsLookupDuration(measured: nil, catalog: "3:42"), 222)
+            XCTAssertEqual(GoosicAppModel.lyricsLookupDuration(measured: 0, catalog: "3:42"), 222)
+            XCTAssertEqual(GoosicAppModel.lyricsLookupDuration(measured: .nan, catalog: "3:42"), 222)
+            XCTAssertEqual(GoosicAppModel.lyricsLookupDuration(measured: .infinity, catalog: "3:42"), 222)
+            XCTAssertNil(GoosicAppModel.lyricsLookupDuration(measured: nil, catalog: "bad"))
+        }
+    }
+
     func testAMalformedDurationIsRefusedRatherThanGuessed() async {
         await MainActor.run {
             // A wrong length would narrow the lyrics lookup to the wrong recording.
