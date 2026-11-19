@@ -46,9 +46,9 @@ public sealed partial class ShellViewModel
     /// <remarks>
     /// Only for synced lyrics. Plain lyrics carry no times, and highlighting one of them would
     /// claim a position the document never stated. The position is the one shown, so a pending
-    /// seek's target counts, and nothing runs on while the page is paused or in an advertisement.
+    /// seek's target counts once (see <see cref="LyricsPosition"/>), and nothing runs on while the page is paused or in an advertisement.
     /// </remarks>
-    private void FollowLyrics(bool frozen)
+    private void FollowLyrics(double position, bool frozen)
     {
         _lyricsFrozen = frozen;
         if (!_lyricFollower.Synced || Lyrics.Count == 0)
@@ -56,7 +56,7 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        if (_lyricFollower.Confirm(PlaybackPosition, frozen, DateTimeOffset.Now))
+        if (_lyricFollower.Confirm(position, frozen, DateTimeOffset.Now))
         {
             PresentLyricLine();
         }
@@ -131,10 +131,7 @@ public sealed partial class ShellViewModel
     /// <summary>Shows a found document and starts following it from the position already confirmed.</summary>
     private void ShowLyrics(LyricsDocument document)
     {
-        var timed = document.Lines
-            .Select(line => new TimedLine(line.AtMilliseconds, line.EndMilliseconds, line.Text,
-                line.Words.Select(word => new TimedWord(word.AtMilliseconds, word.EndMilliseconds, word.Text)).ToArray()))
-            .ToArray();
+        var timed = Timed(document);
         for (var index = 0; index < timed.Length; index++)
         {
             Lyrics.Add(new LyricLineViewModel(timed, index, document.Synced));
@@ -143,8 +140,61 @@ public sealed partial class ShellViewModel
         _lyricFollower.Load(timed, document.Synced);
         SetLyricsIntroduction(LyricsTiming.Introduction(timed, document.Synced));
         LyricsLoaded?.Invoke();
-        FollowLyrics(_lyricsFrozen);
+        FollowLyrics(PlaybackPosition, _lyricsFrozen);
     }
+
+    /// <summary>The largest timed-lyrics file the import reads, as on macOS.</summary>
+    internal const long MaxImportedLyricsBytes = 2 * 1024 * 1024;
+
+    /// <summary>
+    /// Shows a timed-lyrics document the listener chose for <paramref name="track"/>, for this
+    /// listening session only. It is the macOS shell's <c>installImportedLyrics</c>: the document must
+    /// pass <see cref="LyricsTiming.Valid"/>, and the song must not have changed while it was chosen.
+    /// It only replaces what is drawn; it never moves playback.
+    /// </summary>
+    internal void InstallImportedLyrics(LyricsDocument document, TrackViewModel track)
+    {
+        if (!ReferenceEquals(track, _confirmedTrack))
+        {
+            ReportStatus("The song changed. Import lyrics for the current song.");
+            return;
+        }
+
+        // JSON can say null where a line, a word or a text belongs; projecting that would throw.
+        if (!IsWellFormed(document))
+        {
+            ReportStatus("Invalid lyrics timing. Check the line and word timestamps.");
+            return;
+        }
+
+        var timed = Timed(document);
+        if (!LyricsTiming.Valid(timed, document.Synced))
+        {
+            ReportStatus("Invalid lyrics timing. Check the line and word timestamps.");
+            return;
+        }
+
+        // A lookup still on its way for this song must not replace what was just chosen.
+        _lyricsRequestVersion++;
+        ResetLyricFollowing();
+        ShowLyrics(document with { Source = "Imported", Truncated = false });
+        LyricsState = LyricsState.Found(true, "Imported", false);
+        _lyricsTrack = track;
+        _lyricsAwaitingLength = null;
+        ReportStatus("Imported lyrics");
+    }
+
+    /// <summary>Whether every line, word and text an imported document names is actually there.</summary>
+    internal static bool IsWellFormed(LyricsDocument document) =>
+        document.Lines is { } lines
+        && lines.All(line => line is { Text: not null, Words: { } words }
+            && words.All(word => word is { Text: not null }));
+
+    private static TimedLine[] Timed(LyricsDocument document) =>
+        document.Lines
+            .Select(line => new TimedLine(line.AtMilliseconds, line.EndMilliseconds, line.Text,
+                line.Words.Select(word => new TimedWord(word.AtMilliseconds, word.EndMilliseconds, word.Text)).ToArray()))
+            .ToArray();
 
     private void SetLyricsIntroduction(LyricsTiming.Interlude? introduction)
     {
@@ -185,6 +235,11 @@ public sealed class LyricLineViewModel : System.ComponentModel.INotifyPropertyCh
     public string Shown => EmptyInterlude is not null ? "" : Text.Length == 0 ? "♪" : Text;
 
     public long AtMilliseconds => Timed.AtMs;
+
+    /// <summary>What a screen reader says for the line's button, as on macOS: choosing it plays from it.</summary>
+    public string PlayFromName => Synced
+        ? $"Play from: {(string.IsNullOrWhiteSpace(Text) ? "Instrumental" : Text)}"
+        : string.IsNullOrWhiteSpace(Text) ? "Instrumental" : Text;
 
     /// <summary>The stretch an empty line stands for, drawn as dots in its place.</summary>
     internal LyricsTiming.Interlude? EmptyInterlude { get; }
