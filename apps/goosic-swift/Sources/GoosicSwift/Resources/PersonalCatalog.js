@@ -197,6 +197,21 @@ const GoosicPersonalCatalog = (() => {
   const pageTypeOf = (endpoint) =>
     browseOf(endpoint)?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType ?? "";
 
+  // The artists and album a byline links to. The byline's text names them too, but only the
+  // runs carrying a browse endpoint say where they lead, so a name read from plain text alone
+  // would give "Go to Artist" and "Go to Album" nothing to open.
+  function bylineLinks(runs) {
+    const artists = [];
+    let album, albumId;
+    for (const run of runs ?? []) {
+      const browseId = browseOf(run.navigationEndpoint)?.browseId;
+      const pageType = pageTypeOf(run.navigationEndpoint);
+      if (browseId && pageType.includes("ARTIST")) artists.push({ id: browseId, name: run.text ?? "" });
+      else if (browseId && pageType.includes("ALBUM")) { album = run.text ?? album; albumId = browseId; }
+    }
+    return { artists, album, albumId };
+  }
+
   function mapTwoRowItem(raw) {
     const endpoint = raw.navigationEndpoint ?? {};
     const browseEndpoint = endpoint.browseEndpoint;
@@ -204,14 +219,7 @@ const GoosicPersonalCatalog = (() => {
     const title = readRuns(raw.title);
     const subtitle = readRuns(raw.subtitle);
 
-    const artists = [];
-    let album, albumId;
-    for (const run of raw.subtitle?.runs ?? []) {
-      const browseId = browseOf(run.navigationEndpoint)?.browseId;
-      const pageType = pageTypeOf(run.navigationEndpoint);
-      if (browseId && pageType.includes("ARTIST")) artists.push({ id: browseId, name: run.text ?? "" });
-      else if (browseId && pageType.includes("ALBUM")) { album = run.text ?? album; albumId = browseId; }
-    }
+    const { artists, album, albumId } = bylineLinks(raw.subtitle?.runs);
 
     let thumbnails = readThumbnails(
       raw.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail ??
@@ -896,10 +904,15 @@ const GoosicPersonalCatalog = (() => {
         ?.primaryRenderer?.playlistPanelVideoRenderer;
       if (!row || !/^[A-Za-z0-9_-]{11}$/.test(row.videoId ?? "") || seen.has(row.videoId)) continue;
       seen.add(row.videoId);
+      const links = bylineLinks(row.longBylineText?.runs ?? row.shortBylineText?.runs);
+      // A byline with no artist link still names the artist, which the row keeps without an id.
+      const artists = links.artists.length > 0
+        ? links.artists
+        : [{ name: readRuns(row.shortBylineText) }];
       tracks.push(toWireItem({
         kind: "song", id: row.videoId, title: readRuns(row.title),
         subtitle: readRuns(row.longBylineText),
-        artists: [{ name: readRuns(row.shortBylineText) }],
+        artists, album: links.album, albumId: links.albumId,
         duration: readRuns(row.lengthText), thumbnails: readThumbnails(row.thumbnail),
         explicit: readExplicit(row),
       }));
