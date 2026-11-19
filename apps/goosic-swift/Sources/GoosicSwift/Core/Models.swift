@@ -1238,6 +1238,8 @@ final class GoosicAppModel: Combine.ObservableObject {
         // While the official player is loading the recording its first samples may belong to an
         // advertisement, whose length would match the wrong lyrics. Wait for a real one.
         if measured == nil, playbackState.owner == .officialWebView {
+            // Say what is happening rather than leave the previous song's status in place.
+            lyricsStatus = "Looking up lyrics for \(track.title)…"
             return
         }
         lyricsRequestInFlight = true
