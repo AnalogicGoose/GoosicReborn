@@ -675,6 +675,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         _pendingSeek = new PendingSeek(target, DateTimeOffset.Now);
         PlaybackPosition = target;
+        // The one confirmation the target gets; samples do not repeat it while the seek is held.
+        FollowLyrics(target, _lyricsFrozen);
     }
 
     /// <summary>The listener paused the current play; a pause near its end is theirs, not the end.</summary>
@@ -966,6 +968,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         IsAdvertisement = sample.IsAdvertisement;
         var position = TimeSpan.FromSeconds(Math.Max(0, sample.CurrentTime));
         var total = TimeSpan.FromSeconds(Math.Max(0, sample.Duration));
+        var lyricPosition = LyricsPosition.Choose(sample.CurrentTime, _pendingSeek, IsScrubbing, DateTimeOffset.Now);
         if (!IsScrubbing)
         {
             var (shown, settled) = SeekSettle.Show(Math.Max(0, sample.CurrentTime), _pendingSeek, DateTimeOffset.Now);
@@ -997,13 +1000,33 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             if (changed)
             {
+                // The lines are cleared, so nothing on show belongs to any track any more. Without
+                // this, coming back to the same queue entry kept a "found" state with no lines.
+                _lyricsTrack = null;
+                _lyricsAwaitingLength = null;
                 ResetLyricFollowing();
                 ConfirmedTrackChanged?.Invoke();
                 AnnounceConfirmed(pending);
                 PresentTracks();
             }
 
-            FollowLyrics(frozen: sample.State != "playing");
+            var frozen = sample.State != "playing";
+            if (lyricPosition is { } followed)
+            {
+                FollowLyrics(followed, frozen);
+            }
+
+            if (sample.Duration > 0 && ReferenceEquals(_lyricsAwaitingLength, pending))
+            {
+                // The length the lookup was waiting for.
+                _lyricsAwaitingLength = null;
+                _ = LoadLyricsAsync(force: true);
+            }
+            else if (frozen != _lyricsFrozen)
+            {
+                // A held seek target is not re-confirmed, but pausing or resuming still lands on it.
+                FollowLyrics(PlaybackPosition, frozen);
+            }
             NowPlayingArtwork = pending.Artwork;
             NowPlayingTitle = pending.Title;
             NowPlayingSubtitle = pending.Subtitle + " · " + Clock(position)
@@ -1095,12 +1118,38 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         return true;
     }
 
+    /// <summary>The track the lyrics on show, or being looked up, belong to.</summary>
+    private TrackViewModel? _lyricsTrack;
+
+    /// <summary>The track whose lookup is waiting for the page to report a real length.</summary>
+    private TrackViewModel? _lyricsAwaitingLength;
+
+    /// <summary>The track whose wait for a length ran out, so its catalog length is used.</summary>
+    private TrackViewModel? _lyricsLengthWaitOver;
+
+    /// <summary>How long a lookup waits for the page's own length before using the catalog's, as on macOS.</summary>
+    private static readonly TimeSpan LyricsLengthWait = TimeSpan.FromSeconds(4);
+
     /// <summary>Loads lyrics for the track the official renderer actually confirmed.</summary>
-    internal async Task LoadLyricsAsync()
+    /// <param name="force">Look up again even when lyrics for this track are already on show, as Retry does.</param>
+    /// <remarks>
+    /// Opening the panel used to look the lyrics up again every time, which also threw away a
+    /// successful import. What is on show, or on its way, for the playing track is kept.
+    /// </remarks>
+    internal async Task LoadLyricsAsync(bool force = false)
     {
         var track = _confirmedTrack;
+        if (!force && track is not null && ReferenceEquals(track, _lyricsTrack)
+            && ((LyricsState.HasLines && Lyrics.Count > 0) || LyricsState.IsLoading
+                || LyricsState.Kind == LyricsKind.NotFound))
+        {
+            return;
+        }
+
         var request = ++_lyricsRequestVersion;
         ResetLyricFollowing();
+        _lyricsTrack = track;
+        _lyricsAwaitingLength = null;
         if (track is null)
         {
             LyricsState = LyricsState.NothingPlaying;
@@ -1108,7 +1157,18 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         LyricsState = LyricsState.Loading;
-        var lookup = LyricsLookup.For(track.Title, track.Artist, track.Subtitle, track.Album, track.Duration);
+        // The page's own length picks the right recording; the first report can come before the
+        // media knows it, and a lookup sent then with the catalog's length was never repeated.
+        var measured = IsAdvertisement ? 0 : PlaybackDuration;
+        if (measured <= 0 && !ReferenceEquals(_lyricsLengthWaitOver, track))
+        {
+            _lyricsAwaitingLength = track;
+            _ = EndLyricsLengthWaitAsync(track, request);
+            return;
+        }
+
+        var lookup = LyricsLookup.For(track.Title, track.Artist, track.Subtitle, track.Album, track.Duration,
+            measured > 0 ? measured : null);
         var next = await RequestLyricsAsync(lookup, request).ConfigureAwait(true);
         // One quiet retry: a lookup that timed out usually succeeds a moment later, once LRCLIB
         // has fetched the song. Listeners had to close and reopen the panel to get that retry.
@@ -1124,6 +1184,17 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         if (next is not null && request == _lyricsRequestVersion)
         {
             LyricsState = next;
+        }
+    }
+
+    /// <summary>Gives up waiting for a reported length and looks the lyrics up with the catalog's.</summary>
+    private async Task EndLyricsLengthWaitAsync(TrackViewModel track, int request)
+    {
+        await Task.Delay(LyricsLengthWait).ConfigureAwait(true);
+        if (request == _lyricsRequestVersion && ReferenceEquals(_lyricsAwaitingLength, track))
+        {
+            _lyricsLengthWaitOver = track;
+            await LoadLyricsAsync(force: true).ConfigureAwait(true);
         }
     }
 
