@@ -139,7 +139,7 @@ public sealed partial class MainWindow : Window
         if (sender is Button button)
         {
             button.IsEnabled = false;
-            await Model.LoadLyricsAsync();
+            await Model.LoadLyricsAsync(force: true);
             button.IsEnabled = true;
         }
 

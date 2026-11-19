@@ -161,6 +161,9 @@ fn words(line: &Line) -> Vec<LyricsWord> {
 
 pub(crate) fn parse(source: &str) -> Option<LyricsDocument> {
     let document = read(source)?;
+    // A non-zero `offset_ms` is refused rather than applied: the caller then falls back to the
+    // legacy LRC fields, where `[offset:]` is honoured by the LRC parser, so a shifted file is
+    // never shown unshifted.
     if document.version != "1.0"
         || document
             .metadata
