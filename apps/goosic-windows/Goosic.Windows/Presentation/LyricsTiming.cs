@@ -51,6 +51,64 @@ public static class LyricsTiming
     /// <summary>The shortest stretch without singing that is drawn as an interlude.</summary>
     public const long InterludeMinMs = 4_000;
 
+    /// <summary>The most lines an imported document may carry.</summary>
+    public const int MaxImportedLines = 900;
+
+    /// <summary>
+    /// Whether an imported document's timing can be drawn: synced, lines in strictly increasing
+    /// order, and words that spell their line exactly, run forward, and never overlap the next line.
+    /// The macOS shell's <c>LyricsTiming.valid</c>, case for case. Imported timing only ever shapes
+    /// drawing; it never changes what plays or where.
+    /// </summary>
+    public static bool Valid(IReadOnlyList<TimedLine> lines, bool synced)
+    {
+        if (!synced || lines.Count == 0 || lines.Count > MaxImportedLines)
+        {
+            return false;
+        }
+
+        long previous = -1;
+        foreach (var line in lines)
+        {
+            if (line.AtMs < 0 || line.AtMs <= previous || line.Text.EnumerateRunes().Count() > 512)
+            {
+                return false;
+            }
+
+            previous = line.AtMs;
+            if (line.Words.Count == 0)
+            {
+                continue;
+            }
+
+            if (line.Words.Count > 128 || string.Concat(line.Words.Select(word => word.Text)) != line.Text)
+            {
+                return false;
+            }
+
+            var end = line.AtMs;
+            foreach (var word in line.Words)
+            {
+                if (word.AtMs < end || (word.EndMs ?? word.AtMs) < word.AtMs || word.Text.Length == 0)
+                {
+                    return false;
+                }
+
+                end = word.EndMs ?? word.AtMs;
+            }
+        }
+
+        for (var index = 0; index + 1 < lines.Count; index++)
+        {
+            if (lines[index].Words.Count > 0 && lines[index].Words[^1].EndMs is { } last && last > lines[index + 1].AtMs)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>The line the position has reached, or -1 before the first line or for unsynced lyrics.</summary>
     public static int ActiveIndex(IReadOnlyList<TimedLine> lines, bool synced, long positionMs)
     {

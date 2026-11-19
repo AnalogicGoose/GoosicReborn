@@ -110,6 +110,18 @@ The JavaScript moves across unchanged because it does not need changing: WebKitG
 the same `window.webkit.messageHandlers.<name>.postMessage` that WKWebView does, so one
 observer serves both.
 
+The observer's payload carries two fields beyond the position and state, both additive so an
+older shell that ignores them keeps working. `buffering` is true when the media is neither
+paused nor ended yet cannot advance, because it is seeking or holds too little data
+(`readyState` below `HAVE_FUTURE_DATA`). `state` still says `playing` in that case, which is why
+a lyrics line used to run ahead of a frozen page and then jump back, most visibly after every
+seek. `sampledAt` is the page's `Date.now()` at the instant `currentTime` was read: delivery
+takes time, and a shell that wants the position now must know when it was true rather than assume
+it was sampled on arrival. Both are validated like the other numbers (a non-finite or negative
+`sampledAt` is refused) and both are absent from an older observer. Shells do not yet consume
+them. The observer also listens for `waiting`, `playing`, `seeking`, `stalled` and `canplay`, so
+a change in `buffering` is reported promptly instead of at the next half-second tick.
+
 What stays per-platform is only the transport — creating the view, installing the script, and
 receiving the message — plus how the message's origin is established. macOS checks
 `WKScriptMessage.frameInfo.securityOrigin` against the allowed host after the fact. WebKitGTK
