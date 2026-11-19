@@ -15,6 +15,23 @@ const MAX_LINES: usize = 2_000;
 ///
 /// Returns milliseconds, or `None` when the tag is metadata (`ar:`, `ti:`, …) rather than a time.
 fn parse_timestamp(body: &str) -> Option<i64> {
+    // `h:mm:ss.xx` carries hours. A fraction after a second colon is how `mm:ss:xx` files write
+    // hundredths, so the hour form is recognised only when a dot follows two colons.
+    if let Some((clock, fraction)) = body.split_once('.') {
+        if clock.matches(':').count() == 2 {
+            let (hours, rest) = clock.split_once(':')?;
+            let hours: i64 = hours.trim().parse().ok()?;
+            if hours < 0 {
+                return None;
+            }
+            let minutes: i64 = rest.split_once(':')?.0.trim().parse().ok()?;
+            if !(0..60).contains(&minutes) {
+                return None;
+            }
+            let within = parse_timestamp(&format!("{rest}.{fraction}"))?;
+            return Some(hours * 3_600_000 + within);
+        }
+    }
     let (minutes, rest) = body.split_once(':')?;
     let minutes: i64 = minutes.trim().parse().ok()?;
     if minutes < 0 {
@@ -51,6 +68,15 @@ fn parse_timestamp(body: &str) -> Option<i64> {
     Some(minutes * 60_000 + seconds * 1_000 + milliseconds)
 }
 
+/// Reads an `[offset:+250]` tag body as milliseconds, or `None` when the tag is something else.
+fn parse_offset(body: &str) -> Option<i64> {
+    let (name, value) = body.split_once(':')?;
+    if !name.trim().eq_ignore_ascii_case("offset") {
+        return None;
+    }
+    value.trim().trim_start_matches('+').parse().ok()
+}
+
 /// Splits the leading `[...]` tags off a line, returning them with the remaining text.
 fn split_tags(line: &str) -> (Vec<&str>, &str) {
     let mut tags = Vec::new();
@@ -68,8 +94,12 @@ fn split_tags(line: &str) -> (Vec<&str>, &str) {
 /// One line may carry several timestamps when a phrase repeats; each becomes its own entry.
 /// Metadata tags and untimed lines are dropped, because a line with no time cannot be
 /// highlighted and would only be noise next to timed ones.
+///
+/// The first `[offset:N]` tag shifts every line. By the LRC convention a positive offset makes
+/// lyrics appear sooner, so it is subtracted from each time, never below zero.
 pub fn parse_lrc(source: &str) -> Vec<LyricsLine> {
     let mut lines: Vec<LyricsLine> = Vec::new();
+    let mut offset: Option<i64> = None;
     for raw in source.lines() {
         let (tags, text) = split_tags(raw.trim());
         if tags.is_empty() {
@@ -80,6 +110,10 @@ pub fn parse_lrc(source: &str) -> Vec<LyricsLine> {
             continue;
         }
         for tag in tags {
+            if let Some(value) = parse_offset(tag) {
+                offset.get_or_insert(value);
+                continue;
+            }
             let Some(at_ms) = parse_timestamp(tag) else {
                 continue;
             };
@@ -92,6 +126,11 @@ pub fn parse_lrc(source: &str) -> Vec<LyricsLine> {
                 at_ms,
                 text: text.to_owned(),
             });
+        }
+    }
+    if let Some(offset) = offset.filter(|offset| *offset != 0) {
+        for line in &mut lines {
+            line.at_ms = line.at_ms.saturating_sub(offset).max(0);
         }
     }
     // A stable sort keeps repeated timestamps in the order the file wrote them.
@@ -145,6 +184,53 @@ mod tests {
         assert_eq!(parse_timestamp("00:60.00"), None);
         assert_eq!(parse_timestamp("-1:00.00"), None);
         assert_eq!(parse_timestamp("00:01."), None);
+    }
+
+    #[test]
+    fn hour_timestamps_are_read_as_hours() {
+        assert_eq!(parse_timestamp("1:02:03.00"), Some(3_723_000));
+        assert_eq!(parse_timestamp("0:00:01.50"), Some(1_500));
+        assert_eq!(parse_timestamp("1:60:00.00"), None);
+        let lines = parse_lrc(
+            "[1:02:03.00]Late
+",
+        );
+        assert_eq!(lines[0].at_ms, 3_723_000);
+    }
+
+    #[test]
+    fn a_positive_offset_makes_lyrics_sooner_and_clamps_at_zero() {
+        let lines = parse_lrc(
+            "[offset:+500]
+[00:01.00]A
+[00:00.20]B
+[00:03.00]C
+",
+        );
+        let times: Vec<i64> = lines.iter().map(|line| line.at_ms).collect();
+        assert_eq!(times, vec![0, 500, 2_500]);
+    }
+
+    #[test]
+    fn a_negative_offset_makes_lyrics_later_and_only_the_first_tag_counts() {
+        let lines = parse_lrc(
+            "[offset:-250]
+[offset:900]
+[00:01.00]A
+",
+        );
+        assert_eq!(lines[0].at_ms, 1_250);
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn a_malformed_offset_is_ignored() {
+        let lines = parse_lrc(
+            "[offset:soon]
+[00:01.00]A
+",
+        );
+        assert_eq!(lines[0].at_ms, 1_000);
     }
 
     #[test]
