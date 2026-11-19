@@ -49,6 +49,15 @@ pub struct BridgeEvent {
     pub is_advertisement: bool,
     pub volume: f64,
     pub muted: bool,
+    /// The media is neither paused nor ended but cannot advance: it is seeking or short of data.
+    /// Absent from an older observer, which reads as `false`. `state` keeps its meaning.
+    #[serde(default)]
+    pub buffering: bool,
+    /// `Date.now()` in the page at the moment `currentTime` was read, in epoch milliseconds.
+    /// Message delivery takes time, so a shell that wants the position "now" needs to know when
+    /// it was true. Absent from an older observer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampled_at: Option<f64>,
 }
 
 /// Decodes a message body, refusing an oversized one before it is parsed.
@@ -104,6 +113,12 @@ pub fn rejection_reason(
         || event.duration < 0.0
     {
         return Some("it reported an impossible position or duration".to_owned());
+    }
+    if event
+        .sampled_at
+        .is_some_and(|sampled_at| !sampled_at.is_finite() || sampled_at < 0.0)
+    {
+        return Some("it reported an impossible sample time".to_owned());
     }
     if !event.volume.is_finite() || !(0.0..=1.0).contains(&event.volume) {
         return Some("it reported an impossible volume".to_owned());
@@ -186,19 +201,24 @@ const OBSERVER_BODY: &str = r#"  let sequence = 0;
       // pre-roll advertisement is allowed to finish before queue takeover.
       try { media.pause(); } catch (error) { /* the native side is told regardless */ }
     }
+    // Read the clock beside the position so the pair describes one instant.
+    const sampledAt = Date.now();
     const currentTime =
       Number.isFinite(media.currentTime) && media.currentTime >= 0 ? media.currentTime : 0;
     const duration =
       Number.isFinite(media.duration) && media.duration >= 0 ? media.duration : 0;
     const state = media.ended ? 'ended' : media.paused ? 'paused' : 'playing';
     const volume = Number.isFinite(media.volume) ? Math.min(Math.max(media.volume, 0), 1) : 1;
+    // Not paused and not ended, yet unable to advance: a seek in flight or too little data.
+    const buffering = !media.paused && !media.ended && (media.seeking || media.readyState < 3);
     window.webkit.messageHandlers.goosicBridge.postMessage({
       version: 2, token, generation,
       // Ads belong to the active official load even if the page has already changed its
       // content route. Defer exposing a mismatched id until non-ad content appears.
       videoId: advertisement ? requestedVideoId : actualVideoId,
       sequence: ++sequence, state, currentTime, duration,
-      isAdvertisement: advertisement, volume, muted: Boolean(media.muted)
+      isAdvertisement: advertisement, volume, muted: Boolean(media.muted),
+      buffering, sampledAt
     });
   };
   const install = () => {
@@ -206,7 +226,8 @@ const OBSERVER_BODY: &str = r#"  let sequence = 0;
     if (next === media) return;
     media = next;
     if (!media) return;
-    ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked']
+    ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked',
+     'waiting','playing','seeking','stalled','canplay']
       .forEach(name => media.addEventListener(name, send, { passive: true }));
     send();
   };
@@ -292,7 +313,8 @@ mod tests {
         format!(
             r#"{{"version":2,"token":"{token}","generation":{generation},"videoId":"dQw4w9WgXcQ",
                "sequence":{sequence},"state":"playing","currentTime":12.5,"duration":214,
-               "isAdvertisement":false,"volume":0.8,"muted":false}}"#
+               "isAdvertisement":false,"volume":0.8,"muted":false,
+               "buffering":false,"sampledAt":1700000000000.0}}"#
         )
     }
 
@@ -319,6 +341,48 @@ mod tests {
         assert_eq!(event.generation, 7);
         assert_eq!(event.current_time, 12.5);
         assert!(!event.muted);
+        assert!(!event.buffering);
+        assert_eq!(event.sampled_at, Some(1_700_000_000_000.0));
+    }
+
+    #[test]
+    fn an_older_observer_without_the_new_fields_still_decodes() {
+        let body = r#"{"version":2,"token":"token","generation":7,"videoId":"dQw4w9WgXcQ",
+            "sequence":1,"state":"playing","currentTime":12.5,"duration":214,
+            "isAdvertisement":false,"volume":0.8,"muted":false}"#;
+        let event = decoded(body);
+        assert!(!event.buffering);
+        assert_eq!(event.sampled_at, None);
+        assert_eq!(reason(&event, 0), None);
+    }
+
+    #[test]
+    fn a_non_finite_or_negative_sample_time_is_refused() {
+        let good = decoded(&payload("token", 7, 1));
+        for bad in [-1.0, f64::NAN, f64::INFINITY] {
+            let event = BridgeEvent {
+                sampled_at: Some(bad),
+                ..good.clone()
+            };
+            assert!(reason(&event, 0).unwrap().contains("sample time"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_observer_reports_buffering_and_when_it_sampled() {
+        let script = observer_script("t", 1, "v");
+        assert!(script.contains("media.seeking || media.readyState < 3"));
+        assert!(script.contains("const sampledAt = Date.now();"));
+        assert!(script.contains("buffering, sampledAt"));
+        for name in [
+            "'waiting'",
+            "'playing'",
+            "'seeking'",
+            "'stalled'",
+            "'canplay'",
+        ] {
+            assert!(script.contains(name), "{name}");
+        }
     }
 
     #[test]

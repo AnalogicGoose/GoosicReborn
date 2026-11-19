@@ -12,12 +12,14 @@ final class OfficialBridgeWireTests: XCTestCase {
         generation: UInt64 = 7,
         videoId: String = "dQw4w9WgXcQ",
         sequence: UInt64 = 1,
-        advertisement: Bool = false
+        advertisement: Bool = false,
+        sampledAt: String = "1700000000000"
     ) -> Data {
         Data("""
         {"version":2,"token":"\(token)","generation":\(generation),"videoId":"\(videoId)",
          "sequence":\(sequence),"state":"playing","currentTime":12.5,"duration":214,
-         "isAdvertisement":\(advertisement),"volume":0.8,"muted":false}
+         "isAdvertisement":\(advertisement),"volume":0.8,"muted":false,
+         "buffering":false,"sampledAt":\(sampledAt)}
         """.utf8)
     }
 
@@ -33,6 +35,41 @@ final class OfficialBridgeWireTests: XCTestCase {
         XCTAssertEqual(event.generation, 7)
         XCTAssertEqual(event.currentTime, 12.5)
         XCTAssertFalse(event.muted)
+        XCTAssertEqual(event.buffering, false)
+        XCTAssertEqual(event.sampledAt, 1_700_000_000_000)
+    }
+
+    func testAnOlderObserverWithoutTheNewFieldsStillDecodes() throws {
+        let body = Data("""
+        {"version":2,"token":"token","generation":7,"videoId":"dQw4w9WgXcQ",
+         "sequence":1,"state":"playing","currentTime":12.5,"duration":214,
+         "isAdvertisement":false,"volume":0.8,"muted":false}
+        """.utf8)
+        let event = try decoded(body)
+        XCTAssertNil(event.buffering)
+        XCTAssertNil(event.sampledAt)
+        XCTAssertNil(OfficialBridge.rejectionReason(
+            for: event, expectedToken: "token", expectedGeneration: 7,
+            expectedVideoID: "dQw4w9WgXcQ", lastSequence: 0
+        ))
+    }
+
+    func testANegativeSampleTimeIsRefused() throws {
+        let event = try decoded(Self.payload(sampledAt: "-1"))
+        XCTAssertEqual(OfficialBridge.rejectionReason(
+            for: event, expectedToken: "token", expectedGeneration: 7,
+            expectedVideoID: "dQw4w9WgXcQ", lastSequence: 0
+        ), "it reported an impossible sample time")
+    }
+
+    func testTheObserverReportsBufferingAndWhenItSampled() {
+        let script = OfficialBridge.observerScript(token: "t", generation: 1, videoID: "v")
+        XCTAssertTrue(script.contains("media.seeking || media.readyState < 3"))
+        XCTAssertTrue(script.contains("const sampledAt = Date.now();"))
+        XCTAssertTrue(script.contains("buffering, sampledAt"))
+        for name in ["'waiting'", "'playing'", "'seeking'", "'stalled'", "'canplay'"] {
+            XCTAssertTrue(script.contains(name), name)
+        }
     }
 
     func testAnEventMatchingTheActiveLoadIsAccepted() throws {

@@ -54,10 +54,16 @@ enum OfficialBridge {
         let isAdvertisement: Bool
         let volume: Double
         let muted: Bool
+        /// The media is neither paused nor ended but cannot advance: it is seeking or short of
+        /// data. `nil` from an older observer. `state` keeps its meaning.
+        let buffering: Bool?
+        /// `Date.now()` in the page when `currentTime` was read, in epoch milliseconds. `nil`
+        /// from an older observer.
+        let sampledAt: Double?
 
         enum CodingKeys: String, CodingKey {
             case version, token, generation, sequence, state, currentTime, duration, isAdvertisement
-            case volume, muted
+            case volume, muted, buffering, sampledAt
             case videoID = "videoId"
         }
     }
@@ -88,6 +94,9 @@ enum OfficialBridge {
         guard event.currentTime.isFinite, event.currentTime >= 0,
               event.duration.isFinite, event.duration >= 0 else {
             return "it reported an impossible position or duration"
+        }
+        if let sampledAt = event.sampledAt, !sampledAt.isFinite || sampledAt < 0 {
+            return "it reported an impossible sample time"
         }
         guard event.volume.isFinite, (0...1).contains(event.volume) else {
             return "it reported an impossible volume"
@@ -167,19 +176,24 @@ enum OfficialBridge {
               // pre-roll advertisement is allowed to finish before queue takeover.
               try { media.pause(); } catch (error) { /* the native side is told regardless */ }
             }
+            // Read the clock beside the position so the pair describes one instant.
+            const sampledAt = Date.now();
             const currentTime =
               Number.isFinite(media.currentTime) && media.currentTime >= 0 ? media.currentTime : 0;
             const duration =
               Number.isFinite(media.duration) && media.duration >= 0 ? media.duration : 0;
             const state = media.ended ? 'ended' : media.paused ? 'paused' : 'playing';
             const volume = Number.isFinite(media.volume) ? Math.min(Math.max(media.volume, 0), 1) : 1;
+            // Not paused and not ended, yet unable to advance: a seek in flight or too little data.
+            const buffering = !media.paused && !media.ended && (media.seeking || media.readyState < 3);
             window.webkit.messageHandlers.goosicBridge.postMessage({
               version: 2, token, generation,
               // Ads belong to the active official load even if the page has already changed its
               // content route. Defer exposing a mismatched id until non-ad content appears.
               videoId: advertisement ? requestedVideoId : actualVideoId,
               sequence: ++sequence, state, currentTime, duration,
-              isAdvertisement: advertisement, volume, muted: Boolean(media.muted)
+              isAdvertisement: advertisement, volume, muted: Boolean(media.muted),
+              buffering, sampledAt
             });
           };
           const install = () => {
@@ -187,7 +201,8 @@ enum OfficialBridge {
             if (next === media) return;
             media = next;
             if (!media) return;
-            ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked']
+            ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked',
+             'waiting','playing','seeking','stalled','canplay']
               .forEach(name => media.addEventListener(name, send, { passive: true }));
             send();
           };
