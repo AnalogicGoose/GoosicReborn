@@ -331,6 +331,12 @@ final class GoosicAppModel: Combine.ObservableObject {
     let lyricsClock = LyricsClock()
     /// The real length of the loaded recording, from a sample that was not an advertisement.
     private var measuredDuration: (videoID: String, seconds: Double)?
+    /// The recording whose wait for a measured length has started, and the one whose wait ran
+    /// out. A page that fails to load, or never reports a length, must not leave the lyrics
+    /// saying "Looking up…" for ever; after `lyricsLengthWait` the catalog length is used.
+    private var lyricsLengthWaitVideoID: String?
+    private var lyricsLengthWaitExpired: String?
+    private static let lyricsLengthWait: UInt64 = 4_000_000_000
     private(set) var currentTime: Double {
         get { clock.position }
         set { clock.position = newValue }
@@ -1237,9 +1243,21 @@ final class GoosicAppModel: Combine.ObservableObject {
         let measured = measuredDuration?.videoID == track.videoID ? measuredDuration?.seconds : nil
         // While the official player is loading the recording its first samples may belong to an
         // advertisement, whose length would match the wrong lyrics. Wait for a real one.
-        if measured == nil, playbackState.owner == .officialWebView {
+        if measured == nil, playbackState.owner == .officialWebView,
+           lyricsLengthWaitExpired != track.videoID {
             // Say what is happening rather than leave the previous song's status in place.
             lyricsStatus = "Looking up lyrics for \(track.title)…"
+            if lyricsLengthWaitVideoID != track.videoID {
+                lyricsLengthWaitVideoID = track.videoID
+                let waitingFor = track.videoID
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: Self.lyricsLengthWait)
+                    guard let self, self.currentTrack?.videoID == waitingFor,
+                          self.lyricsVideoID != waitingFor else { return }
+                    self.lyricsLengthWaitExpired = waitingFor
+                    self.loadLyricsIfNeeded()
+                }
+            }
             return
         }
         lyricsRequestInFlight = true
@@ -2823,6 +2841,8 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         let clamped = min(max(position, 0), duration)
         pendingSeek = (clamped, Date())
+        // `lyricsPosition` reads the pending seek, which is not published; tell the lyrics.
+        lyricsClock.objectWillChange.send()
         officialPlaybackHost.seek(to: clamped)
     }
 
@@ -3185,6 +3205,8 @@ final class GoosicAppModel: Combine.ObservableObject {
         currentTime = 0
         lyricsClock.position = 0
         measuredDuration = nil
+        lyricsLengthWaitVideoID = nil
+        lyricsLengthWaitExpired = nil
         duration = 0
         pendingSeek = nil
         endedVideoID = nil
@@ -3311,6 +3333,9 @@ final class GoosicAppModel: Combine.ObservableObject {
            abs(event.currentTime - pending.position) < 1.5
             || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
             pendingSeek = nil
+            // A seek the page refused while paused leaves the reported position unchanged, so
+            // nothing else would move the lyrics off the target they were holding.
+            lyricsClock.objectWillChange.send()
         }
         // A queued playing sample must not undo a listener's asynchronous pause request.
         // Explicit resume and a new load clear this intent.
