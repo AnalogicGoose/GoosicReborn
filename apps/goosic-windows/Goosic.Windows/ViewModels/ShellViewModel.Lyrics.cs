@@ -46,9 +46,9 @@ public sealed partial class ShellViewModel
     /// <remarks>
     /// Only for synced lyrics. Plain lyrics carry no times, and highlighting one of them would
     /// claim a position the document never stated. The position is the one shown, so a pending
-    /// seek's target counts, and nothing runs on while the page is paused or in an advertisement.
+    /// seek's target counts once (see <see cref="LyricsPosition"/>), and nothing runs on while the page is paused or in an advertisement.
     /// </remarks>
-    private void FollowLyrics(bool frozen)
+    private void FollowLyrics(double position, bool frozen)
     {
         _lyricsFrozen = frozen;
         if (!_lyricFollower.Synced || Lyrics.Count == 0)
@@ -56,7 +56,7 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        if (_lyricFollower.Confirm(PlaybackPosition, frozen, DateTimeOffset.Now))
+        if (_lyricFollower.Confirm(position, frozen, DateTimeOffset.Now))
         {
             PresentLyricLine();
         }
@@ -140,7 +140,7 @@ public sealed partial class ShellViewModel
         _lyricFollower.Load(timed, document.Synced);
         SetLyricsIntroduction(LyricsTiming.Introduction(timed, document.Synced));
         LyricsLoaded?.Invoke();
-        FollowLyrics(_lyricsFrozen);
+        FollowLyrics(PlaybackPosition, _lyricsFrozen);
     }
 
     /// <summary>The largest timed-lyrics file the import reads, as on macOS.</summary>

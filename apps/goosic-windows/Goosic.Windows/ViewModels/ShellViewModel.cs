@@ -675,6 +675,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         _pendingSeek = new PendingSeek(target, DateTimeOffset.Now);
         PlaybackPosition = target;
+        // The one confirmation the target gets; samples do not repeat it while the seek is held.
+        FollowLyrics(target, _lyricsFrozen);
     }
 
     /// <summary>The listener paused the current play; a pause near its end is theirs, not the end.</summary>
@@ -966,6 +968,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         IsAdvertisement = sample.IsAdvertisement;
         var position = TimeSpan.FromSeconds(Math.Max(0, sample.CurrentTime));
         var total = TimeSpan.FromSeconds(Math.Max(0, sample.Duration));
+        var lyricPosition = LyricsPosition.Choose(sample.CurrentTime, _pendingSeek, IsScrubbing, DateTimeOffset.Now);
         if (!IsScrubbing)
         {
             var (shown, settled) = SeekSettle.Show(Math.Max(0, sample.CurrentTime), _pendingSeek, DateTimeOffset.Now);
@@ -1003,7 +1006,16 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 PresentTracks();
             }
 
-            FollowLyrics(frozen: sample.State != "playing");
+            var frozen = sample.State != "playing";
+            if (lyricPosition is { } followed)
+            {
+                FollowLyrics(followed, frozen);
+            }
+            else if (frozen != _lyricsFrozen)
+            {
+                // A held seek target is not re-confirmed, but pausing or resuming still lands on it.
+                FollowLyrics(PlaybackPosition, frozen);
+            }
             NowPlayingArtwork = pending.Artwork;
             NowPlayingTitle = pending.Title;
             NowPlayingSubtitle = pending.Subtitle + " · " + Clock(position)
@@ -1108,7 +1120,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         LyricsState = LyricsState.Loading;
-        var lookup = LyricsLookup.For(track.Title, track.Artist, track.Subtitle, track.Album, track.Duration);
+        var lookup = LyricsLookup.For(track.Title, track.Artist, track.Subtitle, track.Album, track.Duration,
+            IsAdvertisement ? null : PlaybackDuration);
         var next = await RequestLyricsAsync(lookup, request).ConfigureAwait(true);
         // One quiet retry: a lookup that timed out usually succeeds a moment later, once LRCLIB
         // has fetched the song. Listeners had to close and reopen the panel to get that retry.
