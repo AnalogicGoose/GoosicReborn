@@ -327,6 +327,10 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Confirmed by the player, never assumed from a request. Published by `clock` rather than
     /// by the model, so a position tick redraws only the views that show time.
     let clock = PlaybackClock()
+    /// The same position, copied on every accepted sample for the lyrics; see `LyricsClock`.
+    let lyricsClock = LyricsClock()
+    /// The real length of the loaded recording, from a sample that was not an advertisement.
+    private var measuredDuration: (videoID: String, seconds: Double)?
     private(set) var currentTime: Double {
         get { clock.position }
         set { clock.position = newValue }
@@ -1230,6 +1234,12 @@ final class GoosicAppModel: Combine.ObservableObject {
             return
         }
         guard lyricsVideoID != track.videoID, !lyricsRequestInFlight else { return }
+        let measured = measuredDuration?.videoID == track.videoID ? measuredDuration?.seconds : nil
+        // While the official player is loading the recording its first samples may belong to an
+        // advertisement, whose length would match the wrong lyrics. Wait for a real one.
+        if measured == nil, playbackState.owner == .officialWebView {
+            return
+        }
         lyricsRequestInFlight = true
         lyricsVideoID = track.videoID
         lyrics = nil
@@ -1241,7 +1251,7 @@ final class GoosicAppModel: Combine.ObservableObject {
                 title: track.title,
                 artist: track.artist,
                 album: track.album,
-                durationSeconds: Self.durationSeconds(track.duration)
+                durationSeconds: Self.lyricsLookupDuration(measured: measured, catalog: track.duration)
             ))
         ) { [weak self] response in
             guard let self else { return }
@@ -1266,6 +1276,16 @@ final class GoosicAppModel: Combine.ObservableObject {
                 ? "No lyrics were found for this track."
                 : "Could not load lyrics: \(described.message)"
         }
+    }
+
+    /// The length sent with a lyrics lookup. YouTube Music may play a different cut than the
+    /// catalog row describes, such as a video with an intro, so the length the player reported
+    /// wins; the catalog text is only a fallback when nothing was measured.
+    nonisolated static func lyricsLookupDuration(measured: Double?, catalog: String) -> UInt32? {
+        if let measured, measured.isFinite, measured > 0, measured < 100_000 {
+            return UInt32(measured.rounded())
+        }
+        return durationSeconds(catalog)
     }
 
     /// Parses a display duration such as `3:42` or `1:02:03` into whole seconds.
@@ -2748,6 +2768,15 @@ final class GoosicAppModel: Combine.ObservableObject {
         return currentTime
     }
 
+    /// Where the lyrics follow from: the pending seek while it is still settling, as for
+    /// `displayedPosition`, otherwise the last confirmed position, unthrottled.
+    var lyricsPosition: Double {
+        if let pending = pendingSeek, Date().timeIntervalSince(pending.requestedAt) < Self.seekSettleWindow {
+            return pending.position
+        }
+        return lyricsClock.position
+    }
+
     /// The scrubber's upper bound. Zero-length media would make an empty range, so it is only
     /// ever seekable once the player has reported a real duration.
     var isSeekable: Bool {
@@ -3152,6 +3181,8 @@ final class GoosicAppModel: Combine.ObservableObject {
         lyricsVideoID = nil
         isPaused = true
         currentTime = 0
+        lyricsClock.position = 0
+        measuredDuration = nil
         duration = 0
         pendingSeek = nil
         endedVideoID = nil
@@ -3199,8 +3230,13 @@ final class GoosicAppModel: Combine.ObservableObject {
             hasConfirmedPlaybackSample = true
             presentationChanged = true
         }
+        if !event.isAdvertisement {
+            if event.duration > 0 { measuredDuration = (event.videoID, event.duration) }
+            if lyricsClock.position != event.currentTime { lyricsClock.position = event.currentTime }
+        }
         loadLyricsIfNeeded()
         let nextPaused = event.state != "playing"
+        let pausedChanged = isPaused != nextPaused
         if isPaused != nextPaused {
             isPaused = nextPaused
             presentationChanged = true
@@ -3223,8 +3259,11 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         // A one-second visual cadence is smooth enough for a music progress bar and halves the
         // number of whole-shell invalidations caused by WebKit's 500 ms observer. A seek must
-        // always copy its confirmation before the pending position is cleared, even if paused.
-        if pendingSeek != nil || abs(currentTime - event.currentTime) >= 0.9 || event.state == "ended" {
+        // always copy its confirmation before the pending position is cleared, even if paused,
+        // and so must a pause or resume, so the exact point shows. The lyrics have their own
+        // unthrottled `lyricsClock` and do not depend on this cadence.
+        if pendingSeek != nil || pausedChanged || abs(currentTime - event.currentTime) >= 0.9
+            || event.state == "ended" {
             currentTime = event.currentTime
             presentationChanged = true
         }
