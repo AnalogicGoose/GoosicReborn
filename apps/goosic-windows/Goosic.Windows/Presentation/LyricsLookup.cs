@@ -1,3 +1,4 @@
+using System;
 namespace Goosic.Windows.Presentation;
 
 /// <summary>What the lyrics lookup is asked for a track.</summary>
@@ -12,13 +13,19 @@ public sealed record LyricsLookup(string Title, string Artist, string Album, int
     /// whatever record happened to carry that text, so some tracks had no lyrics or the wrong
     /// ones. A subtitle is used only when it is nothing but a name.
     /// </remarks>
-    public static LyricsLookup For(string title, string? artist, string subtitle, string? album, string? duration)
+    public static LyricsLookup For(string title, string? artist, string subtitle, string? album, string? duration, double? playedSeconds = null)
     {
         var name = !string.IsNullOrWhiteSpace(artist) ? artist.Trim()
             : IsBareName(subtitle) ? subtitle.Trim()
             : "";
-        return new(title.Trim(), name, album?.Trim() ?? "", Seconds(duration));
+        return new(title.Trim(), name, album?.Trim() ?? "", Length(playedSeconds) ?? Seconds(duration));
     }
+
+    /// <summary>The recording's real length, whole seconds, or null when it is unknown.</summary>
+    /// <remarks>YouTube Music may play another cut than the catalog row lists, and a length that
+    /// differs by an intro matches the wrong lyrics. Callers pass nothing for advertisements.</remarks>
+    public static int? Length(double? played) =>
+        played is > 0 and < 86_400 ? (int)Math.Round(played.Value, MidpointRounding.AwayFromZero) : null;
 
     /// <summary>A subtitle with no separator is an artist line; one with a separator is a description.</summary>
     private static bool IsBareName(string subtitle) =>
