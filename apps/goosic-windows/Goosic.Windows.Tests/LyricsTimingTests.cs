@@ -175,4 +175,31 @@ public class LyricsTimingTests
         Assert.Equal(-1, LyricsTiming.ActiveIndex(lines, false, 60_000));
         Assert.Equal(-1, LyricsTiming.ActiveIndex([], true, 60_000));
     }
+    private static TimedLine[] Imported(long secondWordAt = 2000, string secondWord = "all", long? secondWordEnd = 4000) =>
+    [
+        new(1000, null, "Hi all", [new(1000, 2000, "Hi "), new(secondWordAt, secondWordEnd, secondWord)]),
+        new(5000, "Next"),
+    ];
+
+    [Fact]
+    public void ImportedTimingMatchesTextAndCannotOverlap()
+    {
+        Assert.True(LyricsTiming.Valid(Imported(), true));
+        // A word may not start before the one before it ended.
+        Assert.False(LyricsTiming.Valid(Imported(secondWordAt: 1500), true));
+        // The words must spell the line.
+        Assert.False(LyricsTiming.Valid(Imported(secondWord: "wrong"), true));
+        // The last word may not run into the next line.
+        Assert.False(LyricsTiming.Valid(Imported(secondWordEnd: 6000), true));
+    }
+
+    [Fact]
+    public void ImportedDocumentsMustBeSyncedOrderedAndBounded()
+    {
+        Assert.False(LyricsTiming.Valid(Imported(), false));
+        Assert.False(LyricsTiming.Valid([], true));
+        Assert.False(LyricsTiming.Valid([L(2000, "b"), L(1000, "a")], true));
+        Assert.False(LyricsTiming.Valid([L(1000, "a"), L(1000, "b")], true));
+        Assert.True(LyricsTiming.Valid([L(1000, "Hi")], true));
+    }
 }

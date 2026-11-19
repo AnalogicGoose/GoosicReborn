@@ -45,4 +45,30 @@ public class LyricsMotionTests
         Assert.Equal(0, LyricsMotion.Target(10, 100, 1000, 5000));
         Assert.Equal(200, LyricsMotion.Target(9000, 100, 1000, 200));
     }
+
+    [Fact]
+    public void SpringsUseSwiftUIsResponseAsTheUndampedPeriod()
+    {
+        // .smooth(duration: 0.55): at one response a critically damped spring is 98.6% of the way.
+        Assert.Equal(1 - (1 + 2 * Math.PI) * Math.Exp(-2 * Math.PI), LyricsMotion.Spring(0.55, 0.55), 6);
+        // Half way in about 0.15 s, which a spring read as several times slower would not be.
+        Assert.InRange(LyricsMotion.Spring(0.15, 0.55), 0.5, 0.6);
+        Assert.Equal(LyricsMotion.Covered(0.1), LyricsMotion.Spring(0.1, 0.4), 9);
+    }
+
+    [Fact]
+    public void TheCoverOvershootsALittleAndSettles()
+    {
+        var peak = 0.0;
+        for (var t = 0.0; t < 1; t += 0.005)
+        {
+            peak = Math.Max(peak, LyricsMotion.Spring(t, LyricsMotion.CoverResponse, LyricsMotion.CoverDamping));
+        }
+
+        // A bounce of 0.25 overshoots by a few percent, never by much.
+        Assert.InRange(peak, 1.01, 1.05);
+        var settle = LyricsMotion.SettlingTime(LyricsMotion.CoverResponse, LyricsMotion.CoverDamping);
+        Assert.Equal(1, LyricsMotion.Spring(settle, LyricsMotion.CoverResponse, LyricsMotion.CoverDamping), 3);
+        Assert.InRange(LyricsMotion.Spring(LyricsMotion.SettlingTime(0.55), 0.55), 0.999, 1);
+    }
 }

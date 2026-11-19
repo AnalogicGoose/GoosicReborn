@@ -1948,36 +1948,45 @@
                         </StackPanel>
 
                         <!-- The lines and the shape they fade through at top and bottom; see FadeMask. -->
-                        <Grid x:Name="LyricsMaskHost" Grid.Row="1">
+                        <Grid x:Name="LyricsMaskHost" Grid.Row="1" Margin="-12,0">
+                            <Grid.ContextFlyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Import Timed Lyrics…" Click="OnImportTimedLyrics" />
+                                </MenuFlyout>
+                            </Grid.ContextFlyout>
                             <ScrollViewer x:Name="LyricsScroller" VerticalScrollBarVisibility="Hidden"
                                           Visibility="{x:Bind Model.HasLyricLines, Mode=OneWay}">
                                 <StackPanel x:Name="LyricsContent">
-                                    <StackPanel x:Name="LyricsIntroduction" Orientation="Horizontal" Height="22" Spacing="3.96" Opacity="0" Visibility="{x:Bind Model.LyricsIntroductionVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw">
-                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
-                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
-                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                    <StackPanel x:Name="LyricsIntroduction" Orientation="Horizontal" HorizontalAlignment="Left" Height="25" Spacing="4.5" Opacity="0" Visibility="{x:Bind Model.LyricsIntroductionVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw">
+                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
                                     </StackPanel>
                                     <ItemsControl x:Name="LyricsItems" ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="vm:LyricLineViewModel">
+                                                <Button Style="{StaticResource LyricLineButtonStyle}" Padding="0,0,0,22" Click="OnLyricLineClicked" AutomationProperties.Name="{x:Bind PlayFromName}">
                                                 <!-- How strongly each line shows is for LyricsEffects to decide. -->
-                                                <Grid Background="Transparent" Margin="0,0,0,20">
+                                                <Grid Background="Transparent">
                                                     <Grid.RowDefinitions>
                                                         <RowDefinition Height="Auto"/>
                                                         <RowDefinition Height="Auto"/>
                                                     </Grid.RowDefinitions>
-                                                    <TextBlock Text="{x:Bind Shown}" TextWrapping="Wrap" FontSize="22" FontWeight="Bold" HorizontalAlignment="Left" Loaded="OnPanelLyricLineLoaded" Unloaded="OnPanelLyricLineUnloaded"/>
-                                                    <StackPanel Tag="empty" Grid.Row="0" Orientation="Horizontal" Height="22" Spacing="3.96" Opacity="0" Visibility="{x:Bind EmptyDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
-                                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
-                                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
-                                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                                    <Border Tag="hover" Grid.RowSpan="2" Margin="-10,-6" CornerRadius="10" Opacity="0" IsHitTestVisible="False" Background="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                                    <Border Tag="glow" IsHitTestVisible="False"/>
+                                                    <TextBlock Text="{x:Bind Shown}" TextWrapping="Wrap" FontSize="25" FontWeight="Bold" HorizontalAlignment="Left" Loaded="OnPanelLyricLineLoaded" Unloaded="OnPanelLyricLineUnloaded"/>
+                                                    <StackPanel Tag="empty" Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Left" Height="25" Spacing="4.5" Opacity="0" Visibility="{x:Bind EmptyDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
+                                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
                                                     </StackPanel>
-                                                    <StackPanel Tag="after" Grid.Row="1" Orientation="Horizontal" Height="22" Spacing="3.96" Opacity="0" Visibility="{x:Bind AfterDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
-                                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
-                                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
-                                                        <Ellipse Width="6.6" Height="6.6" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                                    <StackPanel Tag="after" Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Left" Height="25" Spacing="4.5" Opacity="0" Visibility="{x:Bind AfterDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
+                                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
+                                                        <Ellipse Width="7.5" Height="7.5" Fill="{ThemeResource GoosicAccentBrush}"/>
                                                     </StackPanel>
                                                 </Grid>
+                                                </Button>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
@@ -1996,8 +2005,8 @@
                             </Rectangle>
                         </Grid>
                         <!-- Scrolling the lines stops them following the song; this starts it again. -->
-                        <Button x:Name="LyricsResume" Grid.Row="1" Visibility="Collapsed" Content="Resume lyrics"
-                                HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,8"
+                        <Button x:Name="LyricsResume" Grid.Row="1" Visibility="Collapsed" Style="{StaticResource LyricsResumeButtonStyle}" Content="Resume lyrics"
+                                HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,12"
                                 AutomationProperties.Name="Resume following the lyrics" Click="OnResumePanelLyrics" />
                     </Grid>
 
@@ -2282,10 +2291,15 @@
                                    FontWeight="SemiBold" TextWrapping="Wrap" />
                     </StackPanel>
                     <!-- The lines and the shape they fade through at top and bottom; see FadeMask. -->
-                    <Grid x:Name="FullPlayerLyricsMaskHost">
+                    <Grid x:Name="FullPlayerLyricsMaskHost" Margin="-16,0">
+                        <Grid.ContextFlyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="Import Timed Lyrics…" Click="OnImportTimedLyrics" />
+                            </MenuFlyout>
+                        </Grid.ContextFlyout>
                         <ScrollViewer x:Name="FullPlayerLyricsScroller" VerticalScrollBarVisibility="Hidden">
                             <StackPanel x:Name="FullPlayerLyricsContent">
-                                <StackPanel x:Name="FullPlayerLyricsIntroduction" Orientation="Horizontal" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind Model.LyricsIntroductionVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw">
+                                <StackPanel x:Name="FullPlayerLyricsIntroduction" Orientation="Horizontal" HorizontalAlignment="Left" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind Model.LyricsIntroductionVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw">
                                     <Ellipse Width="9" Height="9" Fill="White"/>
                                     <Ellipse Width="9" Height="9" Fill="White"/>
                                     <Ellipse Width="9" Height="9" Fill="White"/>
@@ -2293,20 +2307,22 @@
                                 <ItemsControl x:Name="FullPlayerLyricsItems" ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:LyricLineViewModel">
-                                            <Button Style="{StaticResource LyricLineButtonStyle}" Tag="{x:Bind AtMilliseconds}" Click="OnLyricLineClicked" AutomationProperties.Name="{x:Bind Text}">
+                                            <Button Style="{StaticResource LyricLineButtonStyle}" Click="OnLyricLineClicked" AutomationProperties.Name="{x:Bind PlayFromName}">
                                                 <!-- How strongly each line shows is for LyricsEffects to decide. -->
                                                 <Grid Background="Transparent">
                                                     <Grid.RowDefinitions>
                                                         <RowDefinition Height="Auto"/>
                                                         <RowDefinition Height="Auto"/>
                                                     </Grid.RowDefinitions>
+                                                    <Border Tag="hover" Grid.RowSpan="2" Margin="-10,-6" CornerRadius="10" Opacity="0" IsHitTestVisible="False" Background="White"/>
+                                                    <Border Tag="glow" IsHitTestVisible="False"/>
                                                     <TextBlock Text="{x:Bind Shown}" FontSize="30" FontWeight="Bold" TextWrapping="Wrap" HorizontalAlignment="Left" Loaded="OnFullLyricLineLoaded" Unloaded="OnFullLyricLineUnloaded"/>
-                                                    <StackPanel Tag="empty" Grid.Row="0" Orientation="Horizontal" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind EmptyDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
+                                                    <StackPanel Tag="empty" Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Left" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind EmptyDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
                                                         <Ellipse Width="9" Height="9" Fill="White"/>
                                                         <Ellipse Width="9" Height="9" Fill="White"/>
                                                         <Ellipse Width="9" Height="9" Fill="White"/>
                                                     </StackPanel>
-                                                    <StackPanel Tag="after" Grid.Row="1" Orientation="Horizontal" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind AfterDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
+                                                    <StackPanel Tag="after" Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Left" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind AfterDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
                                                         <Ellipse Width="9" Height="9" Fill="White"/>
                                                         <Ellipse Width="9" Height="9" Fill="White"/>
                                                         <Ellipse Width="9" Height="9" Fill="White"/>
@@ -2331,7 +2347,7 @@
                         </Rectangle>
                     </Grid>
                     <!-- Scrolling the lines stops them following the song; this starts it again. -->
-                    <Button x:Name="FullPlayerLyricsResume" Visibility="Collapsed" Content="Resume lyrics"
+                    <Button x:Name="FullPlayerLyricsResume" Visibility="Collapsed" Style="{StaticResource LyricsResumeButtonStyle}" Content="Resume lyrics"
                             HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,12"
                             AutomationProperties.Name="Resume following the lyrics" Click="OnResumeFullLyrics" />
                 </Grid>

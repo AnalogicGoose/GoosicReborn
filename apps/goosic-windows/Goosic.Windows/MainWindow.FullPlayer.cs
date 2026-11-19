@@ -81,11 +81,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var spring = visual.Compositor.CreateSpringVector3Animation();
-        spring.DampingRatio = 0.85f;
-        spring.Period = TimeSpan.FromSeconds(0.5);
-        spring.FinalValue = target;
-        visual.StartAnimation("Scale", spring);
+        // macOS's .snappy(duration: 0.5, extraBounce: 0.1), on SwiftUI's own curve.
+        visual.StartAnimation("Scale", Views.SwiftUISpring.Vector3(visual.Compositor, LyricsMotion.CoverResponse,
+            LyricsMotion.CoverDamping, target));
     }
 
     /// <summary>
@@ -369,16 +367,6 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Seeks to a synced line. Plain lyrics carry no times, so their lines do nothing.</summary>
-    private async void OnLyricLineClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: long at } && at > 0 && _playback is not null && Model.IsSeekable)
-        {
-            // Choosing a line is choosing to listen from it, so the view follows the song again.
-            _fullLyrics?.SetFollowing(true);
-            await SeekToAsync(at / 1000.0);
-        }
-    }
-
     private async void OnAutoplayToggled(object sender, RoutedEventArgs e)
     {
         if (sender is ToggleSwitch toggle && toggle.IsOn != Model.Autoplay)
