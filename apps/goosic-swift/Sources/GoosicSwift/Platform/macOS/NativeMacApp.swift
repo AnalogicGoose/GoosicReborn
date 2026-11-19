@@ -2191,7 +2191,7 @@ private struct NativeMacNowPlayingInspector: SwiftUI.View {
 
 private struct NativeMacLyricsPanel: SwiftUI.View {
     @ObservedObject var store: NativeMacModelStore
-    var body: some SwiftUI.View { NativeMacLyricsView(store: store, clock: store.model.clock, immersive: false) }
+    var body: some SwiftUI.View { NativeMacLyricsView(store: store, clock: store.model.lyricsClock, immersive: false) }
 }
 
 private struct NativeMacPanelArtwork: SwiftUI.View {

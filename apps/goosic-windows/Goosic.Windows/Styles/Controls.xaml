@@ -583,6 +583,22 @@
         </Setter>
     </Style>
 
+    <!-- "Resume lyrics": macOS's small bordered button with its arrow to the line. -->
+    <Style x:Key="LyricsResumeButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="ContentTemplate">
+            <Setter.Value>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE74B;" FontSize="12" />
+                        <TextBlock Text="{Binding}" />
+                    </StackPanel>
+                </DataTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="RailGlyphStyle" TargetType="Button" BasedOn="{StaticResource TransportGlyphStyle}">
         <Setter Property="Width" Value="40" />
         <Setter Property="Height" Value="40" />

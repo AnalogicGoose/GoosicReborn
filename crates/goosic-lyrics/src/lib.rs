@@ -38,6 +38,15 @@ const SEARCH_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_RESPONSE_BYTES: u64 = 2 * 1024 * 1024;
 /// Keeps one lyrics document inside a protocol frame.
 const MAX_LINES_ON_THE_WIRE: usize = 900;
+/// A search result whose length is within this many seconds of the playing track is treated as
+/// the same recording. Catalogs round and trim lengths differently, so exact equality would
+/// discard the right answer.
+const LENGTH_MATCH_WINDOW_SECONDS: f64 = 2.0;
+/// The most a record's length may differ from the playing track's before its line timing is
+/// distrusted. Timing recorded against a live, extended, or video version is seconds off from
+/// the first chorus on, and lyrics highlighted at the wrong moment are worse than lyrics that
+/// are plainly not following along, so beyond this the text is kept and the timing is dropped.
+const SYNC_DRIFT_TOLERANCE_SECONDS: f64 = 3.0;
 
 #[derive(Debug, Error)]
 pub enum LyricsError {
@@ -80,6 +89,9 @@ struct LrclibRecord {
     synced_lyrics: Option<String>,
     #[serde(default)]
     instrumental: bool,
+    /// Length of the recording the lyrics were timed against, in seconds. LRCLIB sends a float.
+    #[serde(default)]
+    duration: Option<f64>,
 }
 
 /// Parses a `m:ss` or `h:mm:ss` duration into whole seconds.
@@ -110,11 +122,70 @@ fn falls_back_to_search(error: &LyricsError) -> bool {
     }
 }
 
-/// Prefer usable real word timing, then line timing, plain lyrics and instrumentals.
+/// How well a record's length fits the playing track, best first.
+#[derive(Clone, Copy, PartialEq)]
+enum LengthFit {
+    /// Within the match window.
+    Match,
+    /// Outside the window but within the sync tolerance, by this many seconds: close enough that
+    /// its timing is still shown, so it beats a record whose length nobody knows.
+    Near(f64),
+    /// The record does not say how long it is, or the query did not say how long the track is.
+    Unknown,
+    /// Further off than the sync tolerance, by this many seconds.
+    Off(f64),
+}
+
+impl LengthFit {
+    fn of(record_seconds: Option<f64>, query_seconds: Option<u32>) -> Self {
+        match (
+            record_seconds.filter(|value| value.is_finite()),
+            query_seconds,
+        ) {
+            (Some(record), Some(query)) => {
+                let difference = (record - f64::from(query)).abs();
+                if difference <= LENGTH_MATCH_WINDOW_SECONDS {
+                    Self::Match
+                } else if difference <= SYNC_DRIFT_TOLERANCE_SECONDS {
+                    Self::Near(difference)
+                } else {
+                    Self::Off(difference)
+                }
+            }
+            _ => Self::Unknown,
+        }
+    }
+
+    /// Whether `self` is strictly better than `other`: a match, then near lengths closest first,
+    /// then unknown, then far lengths closest first.
+    fn beats(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Near(a), Self::Near(b)) | (Self::Off(a), Self::Off(b)) => a < b,
+            _ => self.tier() < other.tier(),
+        }
+    }
+
+    fn tier(self) -> u8 {
+        match self {
+            Self::Match => 0,
+            Self::Near(_) => 1,
+            Self::Unknown => 2,
+            Self::Off(_) => 3,
+        }
+    }
+}
+
+/// Prefer the recording whose length fits, then usable real word timing, line timing, plain
+/// lyrics and instrumentals.
 ///
 /// Search used to accept only synced results, so a song LRCLIB held as plain text was reported
-/// as having no lyrics at all.
-fn best_search_result(records: Vec<LrclibRecord>) -> Option<LrclibRecord> {
+/// as having no lyrics at all. It also ignored length, so the richest timing won even when it
+/// belonged to a live or extended version. Among records outside the match window the closest
+/// length wins and richness only breaks ties; without a query length richness decides alone.
+fn best_search_result(
+    records: Vec<LrclibRecord>,
+    query_seconds: Option<u32>,
+) -> Option<LrclibRecord> {
     records
         .into_iter()
         .filter_map(|record| {
@@ -133,16 +204,52 @@ fn best_search_result(records: Vec<LrclibRecord>) -> Option<LrclibRecord> {
             } else {
                 0
             };
-            Some((rank, record))
+            Some((LengthFit::of(record.duration, query_seconds), rank, record))
         })
-        .fold(None, |best: Option<(u8, LrclibRecord)>, candidate| {
-            if best.as_ref().is_none_or(|(rank, _)| candidate.0 > *rank) {
-                Some(candidate)
-            } else {
-                best
-            }
-        })
-        .map(|(_, record)| record)
+        .fold(
+            None,
+            |best: Option<(LengthFit, u8, LrclibRecord)>, candidate| {
+                let better = match &best {
+                    None => true,
+                    Some((fit, rank, _)) => {
+                        candidate.0.beats(*fit) || (!fit.beats(candidate.0) && candidate.1 > *rank)
+                    }
+                };
+                if better {
+                    Some(candidate)
+                } else {
+                    best
+                }
+            },
+        )
+        .map(|(_, _, record)| record)
+}
+
+/// Removes timing from a document, keeping its words.
+///
+/// Plain text from the record is preferred because it keeps the contributor's own line breaks;
+/// when there is none, the timed lines are kept and merely stripped of their times.
+fn without_timing(document: LyricsDocument, plain: Option<&str>) -> LyricsDocument {
+    if let Some(text) = plain.map(str::trim).filter(|text| !text.is_empty()) {
+        let lines = parse::parse_plain(text);
+        if !lines.is_empty() {
+            return LyricsClient::clamp(lines, false);
+        }
+    }
+    LyricsDocument {
+        synced: false,
+        lines: document
+            .lines
+            .into_iter()
+            .map(|line| goosic_protocol::LyricsLine {
+                at_ms: -1,
+                end_ms: None,
+                words: Vec::new(),
+                text: line.text,
+            })
+            .collect(),
+        ..document
+    }
 }
 
 /// Live lyrics lookups. Held by the service for its process lifetime.
@@ -198,11 +305,30 @@ impl LyricsClient {
         }
 
         let record = self.fetch(query, title)?;
-        let document = Self::document(record).ok_or(LyricsError::NotFound)?;
+        let document =
+            Self::document_for(record, query.duration_seconds).ok_or(LyricsError::NotFound)?;
         if let Ok(mut slot) = self.cached.lock() {
             *slot = Some((key, document.clone()));
         }
         Ok(document)
+    }
+
+    /// The document for a record, with timing withheld when the record is for another length.
+    fn document_for(record: LrclibRecord, query_seconds: Option<u32>) -> Option<LyricsDocument> {
+        let document = Self::document_ref(&record)?;
+        let drifted = match (
+            record.duration.filter(|value| value.is_finite()),
+            query_seconds,
+        ) {
+            (Some(recorded), Some(query)) => {
+                (recorded - f64::from(query)).abs() > SYNC_DRIFT_TOLERANCE_SECONDS
+            }
+            _ => false,
+        };
+        if document.synced && drifted {
+            return Some(without_timing(document, record.plain_lyrics.as_deref()));
+        }
+        Some(document)
     }
 
     fn fetch(&self, query: &LyricsQuery, title: &str) -> Result<LrclibRecord, LyricsError> {
@@ -254,7 +380,9 @@ impl LyricsClient {
                     .read_json::<Vec<LrclibRecord>>()
                     .map_err(|error| LyricsError::Decode(error.to_string()))
             })
-            .and_then(|records| best_search_result(records).ok_or(LyricsError::NotFound));
+            .and_then(|records| {
+                best_search_result(records, query.duration_seconds).ok_or(LyricsError::NotFound)
+            });
         match (searched, exact_failure) {
             (Ok(record), _) => Ok(record),
             // "Not found" would be a claim the failed exact lookup cannot back up; report the
@@ -286,6 +414,7 @@ impl LyricsClient {
     }
 
     /// Turns a record into the document the shell renders, preferring synced lyrics.
+    #[cfg(test)]
     fn document(record: LrclibRecord) -> Option<LyricsDocument> {
         Self::document_ref(&record)
     }
@@ -389,6 +518,7 @@ mod tests {
             plain_lyrics: Some("Untimed words".into()),
             synced_lyrics: Some("[00:01.00]Timed words".into()),
             instrumental: false,
+            duration: None,
         })
         .expect("a document");
         assert!(document.synced);
@@ -403,6 +533,7 @@ mod tests {
             plain_lyrics: Some("First\nSecond".into()),
             synced_lyrics: None,
             instrumental: false,
+            duration: None,
         })
         .expect("a document");
         assert!(!document.synced);
@@ -416,6 +547,7 @@ mod tests {
             plain_lyrics: Some("Real words".into()),
             synced_lyrics: Some("[ar:only metadata]".into()),
             instrumental: false,
+            duration: None,
         })
         .expect("a document");
         assert!(!document.synced);
@@ -429,6 +561,7 @@ mod tests {
             plain_lyrics: None,
             synced_lyrics: None,
             instrumental: true,
+            duration: None,
         })
         .expect("a document");
         assert_eq!(document.lines.len(), 1);
@@ -442,6 +575,7 @@ mod tests {
             plain_lyrics: Some("   ".into()),
             synced_lyrics: Some("".into()),
             instrumental: false,
+            duration: None,
         })
         .is_none());
     }
@@ -456,6 +590,7 @@ mod tests {
             plain_lyrics: None,
             synced_lyrics: Some(synced),
             instrumental: false,
+            duration: None,
         })
         .expect("a document");
         assert_eq!(document.lines.len(), MAX_LINES_ON_THE_WIRE);
@@ -469,13 +604,16 @@ mod tests {
             synced_lyrics: Some("[00:01.00]Legacy".into()),
             plain_lyrics: None,
             instrumental: false,
+            duration: None,
         };
         let document = LyricsClient::document(rich()).unwrap();
         assert_eq!(document.lines[0].text, "Hello world");
         assert!(!document.lines[0].words.is_empty());
-        let chosen =
-            best_search_result(vec![record(Some("[00:01.00]Legacy"), None, false), rich()])
-                .unwrap();
+        let chosen = best_search_result(
+            vec![record(Some("[00:01.00]Legacy"), None, false), rich()],
+            None,
+        )
+        .unwrap();
         assert!(chosen.lyricsfile.is_some());
     }
 
@@ -489,7 +627,7 @@ mod tests {
         );
         let mut empty = record(None, None, false);
         empty.lyricsfile = Some("invalid: yaml".into());
-        assert!(best_search_result(vec![empty, broken]).is_some());
+        assert!(best_search_result(vec![empty, broken], None).is_some());
     }
 
     #[test]
@@ -544,33 +682,150 @@ mod tests {
             synced_lyrics: synced.map(str::to_owned),
             plain_lyrics: plain.map(str::to_owned),
             instrumental,
+            duration: None,
         }
     }
 
     #[test]
     fn search_prefers_synced_then_plain_then_instrumental() {
-        let chosen = best_search_result(vec![
-            record(None, Some("Untimed"), false),
-            record(Some("[00:01.00]Timed"), None, false),
-        ])
+        let chosen = best_search_result(
+            vec![
+                record(None, Some("Untimed"), false),
+                record(Some("[00:01.00]Timed"), None, false),
+            ],
+            None,
+        )
         .expect("a result");
         assert_eq!(chosen.synced_lyrics.as_deref(), Some("[00:01.00]Timed"));
 
-        let chosen = best_search_result(vec![
-            record(None, None, true),
-            record(Some("   "), Some("Untimed"), false),
-        ])
+        let chosen = best_search_result(
+            vec![
+                record(None, None, true),
+                record(Some("   "), Some("Untimed"), false),
+            ],
+            None,
+        )
         .expect("a result");
         assert_eq!(chosen.plain_lyrics.as_deref(), Some("Untimed"));
 
-        let chosen = best_search_result(vec![record(None, None, true)]).expect("a result");
+        let chosen = best_search_result(vec![record(None, None, true)], None).expect("a result");
         assert!(chosen.instrumental);
+    }
+
+    fn with_duration(mut record: LrclibRecord, seconds: Option<f64>) -> LrclibRecord {
+        record.duration = seconds;
+        record
+    }
+
+    #[test]
+    fn a_known_length_within_the_sync_tolerance_beats_an_unknown_one() {
+        let unknown = with_duration(record(None, Some("Unknown"), false), None);
+        let near = with_duration(record(Some("[00:01.00]Near"), None, false), Some(224.5));
+        let chosen = best_search_result(vec![unknown, near], Some(222)).unwrap();
+        assert!(chosen.synced_lyrics.is_some());
+
+        // Beyond the tolerance its timing would be dropped anyway, so unknown still wins.
+        let unknown = with_duration(record(None, Some("Unknown"), false), None);
+        let far = with_duration(record(Some("[00:01.00]Far"), None, false), Some(230.0));
+        let chosen = best_search_result(vec![unknown, far], Some(222)).unwrap();
+        assert_eq!(chosen.plain_lyrics.as_deref(), Some("Unknown"));
+    }
+
+    #[test]
+    fn the_closest_length_beats_richer_timing_from_a_far_one() {
+        let live = with_duration(record(Some("[00:01.00]Live"), None, false), Some(400.0));
+        let studio = with_duration(record(None, Some("Studio"), false), Some(221.0));
+        let chosen = best_search_result(vec![live, studio], Some(222)).unwrap();
+        assert_eq!(chosen.plain_lyrics.as_deref(), Some("Studio"));
+
+        let far = with_duration(record(Some("[00:01.00]Far"), None, false), Some(300.0));
+        let nearer = with_duration(record(None, Some("Nearer"), false), Some(260.0));
+        let chosen = best_search_result(vec![far, nearer], Some(222)).unwrap();
+        assert_eq!(chosen.plain_lyrics.as_deref(), Some("Nearer"));
+    }
+
+    #[test]
+    fn inside_the_window_richness_still_decides() {
+        let plain = with_duration(record(None, Some("Plain"), false), Some(222.0));
+        let synced = with_duration(record(Some("[00:01.00]Timed"), None, false), Some(223.5));
+        let chosen = best_search_result(vec![plain, synced], Some(222)).unwrap();
+        assert_eq!(chosen.synced_lyrics.as_deref(), Some("[00:01.00]Timed"));
+    }
+
+    #[test]
+    fn an_unknown_length_is_usable_but_loses_to_a_match() {
+        let unknown = record(Some("[00:01.00]Unknown"), None, false);
+        let matching = with_duration(record(None, Some("Match"), false), Some(222.0));
+        let chosen = best_search_result(vec![unknown, matching], Some(222)).unwrap();
+        assert_eq!(chosen.plain_lyrics.as_deref(), Some("Match"));
+        let unknown = record(Some("[00:01.00]Unknown"), None, false);
+        assert!(best_search_result(vec![unknown], Some(222)).is_some());
+    }
+
+    #[test]
+    fn without_a_query_length_search_keeps_the_old_ranking() {
+        let far = with_duration(record(Some("[00:01.00]Far"), None, false), Some(900.0));
+        let near = with_duration(record(None, Some("Near"), false), Some(222.0));
+        let chosen = best_search_result(vec![near, far], None).unwrap();
+        assert_eq!(chosen.synced_lyrics.as_deref(), Some("[00:01.00]Far"));
+    }
+
+    #[test]
+    fn timing_from_a_different_length_is_not_presented_as_synced() {
+        let both = with_duration(
+            record(Some("[00:01.00]Timed"), Some("Plain one\nPlain two"), false),
+            Some(240.0),
+        );
+        let document = LyricsClient::document_for(both, Some(222)).unwrap();
+        assert!(!document.synced);
+        assert_eq!(document.lines.len(), 2);
+        assert!(document.lines.iter().all(|line| line.at_ms < 0));
+        assert_eq!(document.lines[0].text, "Plain one");
+
+        let only_synced = with_duration(record(Some("[00:01.00]Timed"), None, false), Some(240.0));
+        let document = LyricsClient::document_for(only_synced, Some(222)).unwrap();
+        assert!(!document.synced);
+        assert_eq!(document.lines[0].text, "Timed");
+        assert_eq!(document.lines[0].at_ms, -1);
+    }
+
+    #[test]
+    fn timing_within_the_tolerance_or_without_a_length_stays_synced() {
+        let near = with_duration(record(Some("[00:01.00]Timed"), None, false), Some(224.5));
+        assert!(LyricsClient::document_for(near, Some(222)).unwrap().synced);
+        let unknown = record(Some("[00:01.00]Timed"), None, false);
+        assert!(
+            LyricsClient::document_for(unknown, Some(222))
+                .unwrap()
+                .synced
+        );
+        let far = with_duration(record(Some("[00:01.00]Timed"), None, false), Some(500.0));
+        assert!(LyricsClient::document_for(far, None).unwrap().synced);
+    }
+
+    #[test]
+    fn an_instrumental_is_untouched_by_the_drift_rule() {
+        let instrumental = with_duration(record(None, None, true), Some(500.0));
+        let document = LyricsClient::document_for(instrumental, Some(222)).unwrap();
+        assert!(document.lines[0].text.contains("Instrumental"));
+    }
+
+    #[test]
+    fn a_lyricsfile_with_an_offset_is_skipped_so_the_lrc_offset_applies() {
+        let mut shifted = record(Some("[offset:+500]\n[00:02.00]Legacy"), None, false);
+        shifted.lyricsfile = Some(lyricsfile::tests::WORDS.replace(
+            "artist: Test artist",
+            "artist: Test artist\n  offset_ms: 500",
+        ));
+        let document = LyricsClient::document_ref(&shifted).unwrap();
+        assert_eq!(document.lines[0].text, "Legacy");
+        assert_eq!(document.lines[0].at_ms, 1_500);
     }
 
     #[test]
     fn search_with_no_lyrics_anywhere_finds_nothing() {
-        assert!(best_search_result(vec![]).is_none());
-        assert!(best_search_result(vec![record(Some(" "), Some(""), false)]).is_none());
+        assert!(best_search_result(vec![], None).is_none());
+        assert!(best_search_result(vec![record(Some(" "), Some(""), false)], None).is_none());
     }
 
     #[test]
