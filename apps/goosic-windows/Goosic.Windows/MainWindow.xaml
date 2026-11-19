@@ -1906,7 +1906,14 @@
                             ToolTipService.ToolTip="Close inspector" AutomationProperties.Name="Close inspector"
                             Click="OnCloseSidePanel" />
                     <!-- Lyrics: a heading and caption, then the lines, a loading shape, or why there are none. -->
-                    <Grid x:Name="LyricsPanel" Visibility="Collapsed" RowSpacing="12">
+                    <Grid x:Name="LyricsPanel" Visibility="Collapsed" RowSpacing="12" Background="Transparent">
+                        <!-- On the whole lyrics area, with a background so empty space takes the right-click:
+                             importing matters most when the lookup found nothing. -->
+                        <Grid.ContextFlyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="Import Timed Lyrics…" Click="OnImportTimedLyrics" />
+                            </MenuFlyout>
+                        </Grid.ContextFlyout>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
@@ -1949,11 +1956,6 @@
 
                         <!-- The lines and the shape they fade through at top and bottom; see FadeMask. -->
                         <Grid x:Name="LyricsMaskHost" Grid.Row="1" Margin="-12,0">
-                            <Grid.ContextFlyout>
-                                <MenuFlyout>
-                                    <MenuFlyoutItem Text="Import Timed Lyrics…" Click="OnImportTimedLyrics" />
-                                </MenuFlyout>
-                            </Grid.ContextFlyout>
                             <ScrollViewer x:Name="LyricsScroller" VerticalScrollBarVisibility="Hidden"
                                           Visibility="{x:Bind Model.HasLyricLines, Mode=OneWay}">
                                 <StackPanel x:Name="LyricsContent">
@@ -2283,7 +2285,14 @@
                     </Grid>
                 </StackPanel>
 
-                <Grid x:Name="FullPlayerLyrics" Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Center">
+                <Grid x:Name="FullPlayerLyrics" Grid.Column="1" Grid.RowSpan="2" VerticalAlignment="Center" Background="Transparent">
+                    <!-- On the whole lyrics area, with a background so empty space takes the right-click:
+                         importing matters most when the lookup found nothing. -->
+                    <Grid.ContextFlyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="Import Timed Lyrics…" Click="OnImportTimedLyrics" />
+                        </MenuFlyout>
+                    </Grid.ContextFlyout>
                     <StackPanel VerticalAlignment="Center" Spacing="10" Opacity="0.7"
                                 Visibility="{x:Bind Model.HasNoLyrics, Mode=OneWay}">
                         <FontIcon Glyph="&#xE90A;" FontSize="30" HorizontalAlignment="Left" />
@@ -2292,11 +2301,6 @@
                     </StackPanel>
                     <!-- The lines and the shape they fade through at top and bottom; see FadeMask. -->
                     <Grid x:Name="FullPlayerLyricsMaskHost" Margin="-16,0">
-                        <Grid.ContextFlyout>
-                            <MenuFlyout>
-                                <MenuFlyoutItem Text="Import Timed Lyrics…" Click="OnImportTimedLyrics" />
-                            </MenuFlyout>
-                        </Grid.ContextFlyout>
                         <ScrollViewer x:Name="FullPlayerLyricsScroller" VerticalScrollBarVisibility="Hidden">
                             <StackPanel x:Name="FullPlayerLyricsContent">
                                 <StackPanel x:Name="FullPlayerLyricsIntroduction" Orientation="Horizontal" HorizontalAlignment="Left" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind Model.LyricsIntroductionVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw">

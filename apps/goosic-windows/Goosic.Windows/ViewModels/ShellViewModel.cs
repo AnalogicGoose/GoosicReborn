@@ -1000,6 +1000,10 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             if (changed)
             {
+                // The lines are cleared, so nothing on show belongs to any track any more. Without
+                // this, coming back to the same queue entry kept a "found" state with no lines.
+                _lyricsTrack = null;
+                _lyricsAwaitingLength = null;
                 ResetLyricFollowing();
                 ConfirmedTrackChanged?.Invoke();
                 AnnounceConfirmed(pending);
@@ -1136,7 +1140,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         var track = _confirmedTrack;
         if (!force && track is not null && ReferenceEquals(track, _lyricsTrack)
-            && (LyricsState.HasLines || LyricsState.IsLoading || LyricsState.Kind == LyricsKind.NotFound))
+            && ((LyricsState.HasLines && Lyrics.Count > 0) || LyricsState.IsLoading
+                || LyricsState.Kind == LyricsKind.NotFound))
         {
             return;
         }
