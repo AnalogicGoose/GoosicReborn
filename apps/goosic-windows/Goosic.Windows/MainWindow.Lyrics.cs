@@ -150,9 +150,10 @@ public sealed partial class MainWindow
 
             Model.InstallImportedLyrics(document, track);
         }
-        catch (Exception error) when (error is System.Text.Json.JsonException or System.IO.IOException
-            or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        catch (Exception error)
         {
+            // This is an async void handler: anything that escaped it would end the app. A file the
+            // listener chose is untrusted input, so every failure becomes a message.
             BridgeLog.Write($"lyrics import failed: {error.GetType().Name}");
             Model.ReportStatus("Could not read that lyrics file. Check its JSON format and try again.");
         }

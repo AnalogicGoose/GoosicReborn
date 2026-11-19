@@ -160,6 +160,13 @@ public sealed partial class ShellViewModel
             return;
         }
 
+        // JSON can say null where a line, a word or a text belongs; projecting that would throw.
+        if (!IsWellFormed(document))
+        {
+            ReportStatus("Invalid lyrics timing. Check the line and word timestamps.");
+            return;
+        }
+
         var timed = Timed(document);
         if (!LyricsTiming.Valid(timed, document.Synced))
         {
@@ -172,8 +179,16 @@ public sealed partial class ShellViewModel
         ResetLyricFollowing();
         ShowLyrics(document with { Source = "Imported", Truncated = false });
         LyricsState = LyricsState.Found(true, "Imported", false);
+        _lyricsTrack = track;
+        _lyricsAwaitingLength = null;
         ReportStatus("Imported lyrics");
     }
+
+    /// <summary>Whether every line, word and text an imported document names is actually there.</summary>
+    internal static bool IsWellFormed(LyricsDocument document) =>
+        document.Lines is { } lines
+        && lines.All(line => line is { Text: not null, Words: { } words }
+            && words.All(word => word is { Text: not null }));
 
     private static TimedLine[] Timed(LyricsDocument document) =>
         document.Lines

@@ -94,6 +94,7 @@ internal sealed class LyricsEffects
     private readonly Func<bool> _canSeek;
     private readonly Dictionary<TextBlock, Line> _lines = [];
     private readonly Dictionary<UIElement, CompositionPropertySet> _shifted = [];
+    private readonly Dictionary<UIElement, RowMotion> _motions = [];
     private CompositionPropertySet? _scroll;
     private int _shiftVersion;
     private Compositor? _compositor;
@@ -223,18 +224,37 @@ internal sealed class LyricsEffects
 
         _lines[text] = line;
         Ink(line);
-        host.ActualThemeChanged += (_, _) => Ink(line);
-        host.PointerEntered += (_, _) => Point(line, true);
-        host.PointerExited += (_, _) => Point(line, false);
-        host.PointerCanceled += (_, _) => Point(line, false);
+        // Kept on the line so Remove can take them off again: a row that unloads and loads again
+        // would otherwise answer for two lines, one of them holding disposed visuals.
+        TypedEventHandler<FrameworkElement, object> theme = (_, _) => Ink(line);
+        PointerEventHandler entered = (_, _) => Point(line, true);
+        PointerEventHandler exited = (_, _) => Point(line, false);
+        host.ActualThemeChanged += theme;
+        host.PointerEntered += entered;
+        host.PointerExited += exited;
+        host.PointerCanceled += exited;
+        line.Detach += () =>
+        {
+            host.ActualThemeChanged -= theme;
+            host.PointerEntered -= entered;
+            host.PointerExited -= exited;
+            host.PointerCanceled -= exited;
+        };
         // Keyboard focus is on the line's button, not its text: a focused line is being read, so it
         // is drawn sharp and is not swept, as on macOS.
         for (var node = VisualTreeHelper.GetParent(host); node is not null; node = VisualTreeHelper.GetParent(node))
         {
             if (node is Button button)
             {
-                button.GotFocus += (_, _) => Focus(line, true);
-                button.LostFocus += (_, _) => Focus(line, false);
+                RoutedEventHandler got = (_, _) => Focus(line, true);
+                RoutedEventHandler lost = (_, _) => Focus(line, false);
+                button.GotFocus += got;
+                button.LostFocus += lost;
+                line.Detach += () =>
+                {
+                    button.GotFocus -= got;
+                    button.LostFocus -= lost;
+                };
                 break;
             }
         }
@@ -252,10 +272,28 @@ internal sealed class LyricsEffects
                 _swept = null;
             }
 
+            line.Removed = true;
+            line.Detach?.Invoke();
+            line.InkStory?.Stop();
+            // Unhooked from the tree before they are disposed, so nothing draws a disposed visual.
+            if (line.Sprite is not null)
+            {
+                ElementCompositionPreview.SetElementChildVisual(line.Host, null);
+            }
+
+            if (line.Glow is not null && line.GlowHost is not null)
+            {
+                ElementCompositionPreview.SetElementChildVisual(line.GlowHost, null);
+            }
+
             line.Sprite?.Dispose();
             line.Surface?.Dispose();
             line.Brush?.Dispose();
             line.Glow?.Dispose();
+            line.Sprite = null;
+            line.Surface = null;
+            line.Brush = null;
+            line.Glow = null;
             UpdateResume();
             EnsureRendering();
         }
@@ -372,20 +410,51 @@ internal sealed class LyricsEffects
         _compositor ??= visual.Compositor;
         _scroll ??= ElementCompositionPreview.GetScrollViewerManipulationPropertySet(_scroller);
         ElementCompositionPreview.SetIsTranslationEnabled(row, true);
+        // A row still on its way from the last line change is not snapped to its place: what it
+        // had left to travel is carried into this move and given back on a spring of its own.
+        var now = DateTimeOffset.Now;
+        var residual = _motions.TryGetValue(row, out var previous) ? previous.Remaining(now) : 0f;
+        _motions[row] = new RowMotion(now, delay, shift, residual);
+        if (_shifted.Remove(row, out var replaced))
+        {
+            replaced.Dispose();
+        }
+
         var progress = _compositor.CreatePropertySet();
         progress.InsertScalar("c", 0);
+        progress.InsertScalar("r", 0);
         var spring = SwiftUISpring.Progress(_compositor, LyricsMotion.RowSpringPeriod.TotalSeconds);
         spring.DelayTime = delay;
         spring.DelayBehavior = AnimationDelayBehavior.SetInitialValueBeforeDelay;
         progress.StartAnimation("c", spring);
+        // The cached animation is a template: its delay is set again before every start.
+        spring.DelayTime = TimeSpan.Zero;
+        progress.StartAnimation("r", spring);
         var offset = _compositor.CreateExpressionAnimation(
-            "Vector3(0, Abs(-s.Translation.Y - old) < 0.5 ? -shift * p.c : shift * (1 - p.c), 0)");
+            "Vector3(0, (Abs(-s.Translation.Y - old) < 0.5 ? -shift * p.c : shift * (1 - p.c)) + residual * (1 - p.r), 0)");
         offset.SetReferenceParameter("s", _scroll);
         offset.SetReferenceParameter("p", progress);
         offset.SetScalarParameter("old", old);
         offset.SetScalarParameter("shift", shift);
+        offset.SetScalarParameter("residual", residual);
         visual.StartAnimation("Translation", offset);
         _shifted[row] = progress;
+    }
+
+    /// <summary>
+    /// One row's move, kept so a move that interrupts it knows how far the row still had to go: the
+    /// same curves the compositor is drawing, evaluated here, on the assumption that the scroll has
+    /// landed, which it does within a frame or two of being asked.
+    /// </summary>
+    private readonly record struct RowMotion(DateTimeOffset StartedAt, TimeSpan Delay, float Shift, float Residual)
+    {
+        internal float Remaining(DateTimeOffset now)
+        {
+            var response = LyricsMotion.RowSpringPeriod.TotalSeconds;
+            var elapsed = (now - StartedAt).TotalSeconds;
+            return (float)(Shift * (1 - LyricsMotion.Spring(elapsed - Delay.TotalSeconds, response))
+                + Residual * (1 - LyricsMotion.Spring(elapsed, response)));
+        }
     }
 
     /// <summary>Puts every moved row back at its laid-out place, as when the listener takes over the scroll.</summary>
@@ -405,6 +474,7 @@ internal sealed class LyricsEffects
         }
 
         _shifted.Clear();
+        _motions.Clear();
     }
 
     private FrameworkElement? AnchorRow(int index)
@@ -446,7 +516,7 @@ internal sealed class LyricsEffects
 
     private void Point(Line line, bool pointed)
     {
-        if (line.Pointed != pointed)
+        if (!line.Removed && line.Pointed != pointed)
         {
             line.Pointed = pointed;
             Apply(line, _animated(), PointerChange);
@@ -463,7 +533,7 @@ internal sealed class LyricsEffects
 
     private void Focus(Line line, bool focused)
     {
-        if (line.Focused != focused)
+        if (!line.Removed && line.Focused != focused)
         {
             line.Focused = focused;
             Apply(line, _animated(), PointerChange);
@@ -584,7 +654,7 @@ internal sealed class LyricsEffects
     /// <summary>The panel's own brush for a line, so its colour can move; re-read when the theme changes.</summary>
     private void Ink(Line line)
     {
-        if (_accent is not SolidColorBrush accent)
+        if (line.Removed || _accent is not SolidColorBrush accent)
         {
             return;
         }
@@ -1026,6 +1096,8 @@ internal sealed class LyricsEffects
         internal bool AfterActive { get; set; }
         internal bool Pointed { get; set; }
         internal bool Focused { get; set; }
+        internal bool Removed { get; set; }
+        internal Action? Detach { get; set; }
         internal bool Soft { get; set; }
         internal SolidColorBrush? Ink { get; set; }
         internal Color Plain { get; set; }
