@@ -30,8 +30,8 @@ GoosicReborn replaces web wrappers with real native interfaces powered by a dedi
 
 | Platform | Channel | Format | Notes |
 | :--- | :--- | :--- | :--- |
-| **Windows** (x64) | **Stable** (`v0.4.1`) | [**Setup Executable (`.exe`)**](https://github.com/AnalogicGoose/GoosicReborn/releases) \| [Portable ZIP](https://github.com/AnalogicGoose/GoosicReborn/releases) | Built with WinUI 3. Self-updating from `v0.2.0+`. Includes lyrics motion and dock customization. |
-| **macOS** (Universal) | **Alpha** (`v0.4.1`) | [**Universal `.zip`**](https://github.com/AnalogicGoose/GoosicReborn/releases) | SwiftUI/AppKit. macOS 14+ required. Universal x86_64/arm64 binary with lyrics motion. |
+| **Windows** (x64) | **Stable** (`v0.4.2`) | [**Setup Executable (`.exe`)**](https://github.com/AnalogicGoose/GoosicReborn/releases) \| [Portable ZIP](https://github.com/AnalogicGoose/GoosicReborn/releases) | Built with WinUI 3. Self-updating from `v0.2.0+`. Includes lyrics motion and dock customization. |
+| **macOS** (Universal) | **Alpha** (`v0.4.2`) | [**Universal `.zip`**](https://github.com/AnalogicGoose/GoosicReborn/releases) | SwiftUI/AppKit. macOS 14+ required. Universal x86_64/arm64 binary with lyrics motion. |
 | **Linux** (x86_64) | **Development** | Flatpak / Source | Native GTK 4 shell. See [the Linux shell notes](docs/LINUX_SHELL.md). |
 
 *Unsigned builds may trigger an unknown-publisher warning on first launch.*
@@ -105,6 +105,7 @@ make package-macos  # Package Goosic.app for macOS
 
 ## Release Notes & History
 
+- [Release 0.4.2](docs/RELEASE_0.4.2.md): Lyrics matched to the playing recording, Mac-style lyrics and timed import on Windows, and Go to Artist and Album on queue rows and song cards.
 - [Release 0.4.1](docs/RELEASE_0.4.1.md): Synchronized lyrics motion, end timestamps, and kinetic scrolling across platforms.
 - [Release 0.4.0](docs/RELEASE_0.4.0.md): Windows docked sidebar, black acrylic material, Settings categories, universal macOS alpha.
 - [Release 0.3.2](docs/RELEASE_0.3.2.md): Windows track fallback stability and responsive logging.
