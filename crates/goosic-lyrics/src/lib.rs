@@ -127,9 +127,12 @@ fn falls_back_to_search(error: &LyricsError) -> bool {
 enum LengthFit {
     /// Within the match window.
     Match,
+    /// Outside the window but within the sync tolerance, by this many seconds: close enough that
+    /// its timing is still shown, so it beats a record whose length nobody knows.
+    Near(f64),
     /// The record does not say how long it is, or the query did not say how long the track is.
     Unknown,
-    /// A different length, by this many seconds.
+    /// Further off than the sync tolerance, by this many seconds.
     Off(f64),
 }
 
@@ -143,6 +146,8 @@ impl LengthFit {
                 let difference = (record - f64::from(query)).abs();
                 if difference <= LENGTH_MATCH_WINDOW_SECONDS {
                     Self::Match
+                } else if difference <= SYNC_DRIFT_TOLERANCE_SECONDS {
+                    Self::Near(difference)
                 } else {
                     Self::Off(difference)
                 }
@@ -151,13 +156,21 @@ impl LengthFit {
         }
     }
 
-    /// Whether `self` is strictly better than `other`.
+    /// Whether `self` is strictly better than `other`: a match, then near lengths closest first,
+    /// then unknown, then far lengths closest first.
     fn beats(self, other: Self) -> bool {
         match (self, other) {
-            (Self::Match, Self::Match) | (Self::Unknown, Self::Unknown) => false,
-            (Self::Match, _) | (Self::Unknown, Self::Off(_)) => true,
-            (Self::Off(a), Self::Off(b)) => a < b,
-            _ => false,
+            (Self::Near(a), Self::Near(b)) | (Self::Off(a), Self::Off(b)) => a < b,
+            _ => self.tier() < other.tier(),
+        }
+    }
+
+    fn tier(self) -> u8 {
+        match self {
+            Self::Match => 0,
+            Self::Near(_) => 1,
+            Self::Unknown => 2,
+            Self::Off(_) => 3,
         }
     }
 }
@@ -702,6 +715,20 @@ mod tests {
     fn with_duration(mut record: LrclibRecord, seconds: Option<f64>) -> LrclibRecord {
         record.duration = seconds;
         record
+    }
+
+    #[test]
+    fn a_known_length_within_the_sync_tolerance_beats_an_unknown_one() {
+        let unknown = with_duration(record(None, Some("Unknown"), false), None);
+        let near = with_duration(record(Some("[00:01.00]Near"), None, false), Some(224.5));
+        let chosen = best_search_result(vec![unknown, near], Some(222)).unwrap();
+        assert!(chosen.synced_lyrics.is_some());
+
+        // Beyond the tolerance its timing would be dropped anyway, so unknown still wins.
+        let unknown = with_duration(record(None, Some("Unknown"), false), None);
+        let far = with_duration(record(Some("[00:01.00]Far"), None, false), Some(230.0));
+        let chosen = best_search_result(vec![unknown, far], Some(222)).unwrap();
+        assert_eq!(chosen.plain_lyrics.as_deref(), Some("Unknown"));
     }
 
     #[test]

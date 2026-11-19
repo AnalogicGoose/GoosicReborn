@@ -165,8 +165,20 @@ enum OfficialBridge {
           const isAd = () => Boolean(document.querySelector(
             '.ad-showing, .ad-interrupting'
           ));
+          // Every element that becomes the active one gets the listeners once. The interval
+          // below can switch to an element already in the page, and install() then saw no
+          // change and never listened to it, so its waiting and seeking went unreported.
+          const listened = new WeakSet();
+          const listen = (element) => {
+            if (!element || listened.has(element)) return;
+            listened.add(element);
+            ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked',
+             'waiting','playing','seeking','stalled','canplay']
+              .forEach(name => element.addEventListener(name, send, { passive: true }));
+          };
           const send = () => {
             media = activeMedia();
+            listen(media);
             if (!media || !window.webkit?.messageHandlers?.goosicBridge) return;
             const actualVideoId = currentVideoId();
             const advertisement = isAd();
@@ -198,12 +210,10 @@ enum OfficialBridge {
           };
           const install = () => {
             const next = activeMedia();
+            listen(next);
             if (next === media) return;
             media = next;
             if (!media) return;
-            ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked',
-             'waiting','playing','seeking','stalled','canplay']
-              .forEach(name => media.addEventListener(name, send, { passive: true }));
             send();
           };
           install();

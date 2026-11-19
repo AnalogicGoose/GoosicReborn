@@ -39,6 +39,19 @@ final class OfficialBridgeWireTests: XCTestCase {
         XCTAssertEqual(event.sampledAt, 1_700_000_000_000)
     }
 
+    func testBufferingDecodesTheSameAsTheRustCopy() throws {
+        func body(_ value: String) -> Data {
+            Data("""
+            {"version":2,"token":"token","generation":7,"videoId":"dQw4w9WgXcQ",
+             "sequence":1,"state":"playing","currentTime":12.5,"duration":214,
+             "isAdvertisement":false,"volume":0.8,"muted":false,"buffering":\(value)}
+            """.utf8)
+        }
+        XCTAssertEqual(try decoded(body("true")).buffering, true)
+        XCTAssertEqual(try decoded(body("false")).buffering, false)
+        XCTAssertNil(try decoded(body("null")).buffering)
+    }
+
     func testAnOlderObserverWithoutTheNewFieldsStillDecodes() throws {
         let body = Data("""
         {"version":2,"token":"token","generation":7,"videoId":"dQw4w9WgXcQ",

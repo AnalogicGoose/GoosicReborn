@@ -29,7 +29,9 @@ fn parse_timestamp(body: &str) -> Option<i64> {
                 return None;
             }
             let within = parse_timestamp(&format!("{rest}.{fraction}"))?;
-            return Some(hours * 3_600_000 + within);
+            // Checked: a provider can send any digits, and an absurd hour must drop the line
+            // rather than panic the worker or wrap to a negative time.
+            return hours.checked_mul(3_600_000)?.checked_add(within);
         }
     }
     let (minutes, rest) = body.split_once(':')?;
@@ -65,7 +67,10 @@ fn parse_timestamp(body: &str) -> Option<i64> {
         }
     };
 
-    Some(minutes * 60_000 + seconds * 1_000 + milliseconds)
+    minutes
+        .checked_mul(60_000)?
+        .checked_add(seconds * 1_000)?
+        .checked_add(milliseconds)
 }
 
 /// Reads an `[offset:+250]` tag body as milliseconds, or `None` when the tag is something else.
@@ -184,6 +189,17 @@ mod tests {
         assert_eq!(parse_timestamp("00:60.00"), None);
         assert_eq!(parse_timestamp("-1:00.00"), None);
         assert_eq!(parse_timestamp("00:01."), None);
+    }
+
+    #[test]
+    fn absurd_times_are_dropped_instead_of_overflowing() {
+        assert_eq!(parse_timestamp("2562047788016:00:00.00"), None);
+        assert_eq!(parse_timestamp("153722867280912931:00.00"), None);
+        assert!(parse_lrc(
+            "[2562047788016:00:00.00]Line
+"
+        )
+        .is_empty());
     }
 
     #[test]

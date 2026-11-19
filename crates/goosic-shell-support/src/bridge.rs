@@ -50,9 +50,10 @@ pub struct BridgeEvent {
     pub volume: f64,
     pub muted: bool,
     /// The media is neither paused nor ended but cannot advance: it is seeking or short of data.
-    /// Absent from an older observer, which reads as `false`. `state` keeps its meaning.
-    #[serde(default)]
-    pub buffering: bool,
+    /// `None` when absent (an older observer) or `null`, matching the Swift copy's `Bool?`;
+    /// read it as "not buffering". `state` keeps its meaning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buffering: Option<bool>,
     /// `Date.now()` in the page at the moment `currentTime` was read, in epoch milliseconds.
     /// Message delivery takes time, so a shell that wants the position "now" needs to know when
     /// it was true. Absent from an older observer.
@@ -190,8 +191,20 @@ const OBSERVER_BODY: &str = r#"  let sequence = 0;
   const isAd = () => Boolean(document.querySelector(
     '.ad-showing, .ad-interrupting'
   ));
+  // Every element that becomes the active one gets the listeners once. The interval
+  // below can switch to an element already in the page, and install() then saw no
+  // change and never listened to it, so its waiting and seeking went unreported.
+  const listened = new WeakSet();
+  const listen = (element) => {
+    if (!element || listened.has(element)) return;
+    listened.add(element);
+    ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked',
+     'waiting','playing','seeking','stalled','canplay']
+      .forEach(name => element.addEventListener(name, send, { passive: true }));
+  };
   const send = () => {
     media = activeMedia();
+    listen(media);
     if (!media || !window.webkit?.messageHandlers?.goosicBridge) return;
     const actualVideoId = currentVideoId();
     const advertisement = isAd();
@@ -223,12 +236,10 @@ const OBSERVER_BODY: &str = r#"  let sequence = 0;
   };
   const install = () => {
     const next = activeMedia();
+    listen(next);
     if (next === media) return;
     media = next;
     if (!media) return;
-    ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked',
-     'waiting','playing','seeking','stalled','canplay']
-      .forEach(name => media.addEventListener(name, send, { passive: true }));
     send();
   };
   install();
@@ -341,7 +352,7 @@ mod tests {
         assert_eq!(event.generation, 7);
         assert_eq!(event.current_time, 12.5);
         assert!(!event.muted);
-        assert!(!event.buffering);
+        assert_eq!(event.buffering, Some(false));
         assert_eq!(event.sampled_at, Some(1_700_000_000_000.0));
     }
 
@@ -351,9 +362,23 @@ mod tests {
             "sequence":1,"state":"playing","currentTime":12.5,"duration":214,
             "isAdvertisement":false,"volume":0.8,"muted":false}"#;
         let event = decoded(body);
-        assert!(!event.buffering);
+        assert_eq!(event.buffering, None);
         assert_eq!(event.sampled_at, None);
         assert_eq!(reason(&event, 0), None);
+    }
+
+    #[test]
+    fn buffering_decodes_the_same_as_the_swift_copy() {
+        let body = |value: &str| {
+            format!(
+                r#"{{"version":2,"token":"token","generation":7,"videoId":"dQw4w9WgXcQ",
+                "sequence":1,"state":"playing","currentTime":12.5,"duration":214,
+                "isAdvertisement":false,"volume":0.8,"muted":false,"buffering":{value}}}"#
+            )
+        };
+        assert_eq!(decoded(&body("true")).buffering, Some(true));
+        assert_eq!(decoded(&body("false")).buffering, Some(false));
+        assert_eq!(decoded(&body("null")).buffering, None);
     }
 
     #[test]
