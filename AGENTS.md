@@ -248,26 +248,39 @@ native implementation follows the platform branch rules above. Respect system an
 transparency and contrast settings. Compilation and tests do not establish visual acceptance;
 report actual inspection and leave live testing to the user when requested.
 
-## 8. Check the other platforms before you hand work back
+## 8. No job is done on one platform
 
 Goosic is one product on three systems, and the shells keep their own copies of many rules:
 Windows in `apps/goosic-windows/Goosic.Windows/Presentation`, macOS in
 `apps/goosic-swift/Sources/GoosicSwift/Core`, Linux through `goosic-shell-support`. A fix made in
 one copy reaches no other on its own. That is how Windows gained an audio-taper volume slider
-while the Mac kept a linear one. So every change a person can see or hear ends with a parity
-check, whichever platform it started on.
+while the Mac kept a linear one, and how a song that YouTube Music swapped before it started was
+kept on Windows but skipped on the Mac for two months. So the rule is absolute: **a change a
+person can see or hear is not finished until both macOS and Windows have it.** Fixing it on the
+platform where it was reported and leaving the other for later is not done; it is half done.
+
+**Linux is out of scope for now.** The GTK shell is not yet a working product, so a change does
+not wait for it and an agent does not port to it unless the user asks. Bringing Linux to parity
+is a later job of its own; until then, its line in the Parity section says "out of scope for
+now". When the user brings Linux into scope, this paragraph is removed and the rule covers all
+three shells.
 
 1. **Find the same behavior in the other shells.** Read their code; do not assume. The paths
    in section 4 say where each shell keeps it.
 2. **Decide for each one:** it already behaves this way; it needs this change; or it does not
    apply, because the change exists only to satisfy one operating system's API. A Settings
    window is a macOS convention, and Windows keeps a Settings page, so that one does not apply.
-   Say which, and why.
-3. **When another shell needs it,** a rule (a curve, an order, a limit, a validation, a timing)
-   belongs in `goosic-shell-support` on `development`, and each shell's copy changes to match in
-   the same release. Presentation is native, so open an issue labelled `parity` for each shell
-   that needs it. Name the files to change and what done looks like, and link it from the pull
-   request. When the user asks for both platforms at once, make the second change on that
-   platform's own branch rather than the first platform's.
-4. **Record the answer** in the pull request's Parity section. "Does not apply" is a fine
-   answer; leaving it blank is not.
+   Say which, and why. "Does not apply" is the only exemption, and only for that reason.
+3. **Make the change on both macOS and Windows, in the same piece of work.** A rule (a
+   curve, an order, a limit, a validation, a timing) lands in `goosic-shell-support` on
+   `development` first. Each shell's part is then made on that platform's own branch, as
+   section 1 says, never on the other platform's, and each gets its own pull request. The work
+   is handed back only when both are open, with each one linking the other.
+4. **When macOS or Windows cannot be changed now** -- it cannot be built or checked on the machine at
+   hand, or the user explicitly says to stop at one -- say so before handing back, and open an
+   issue labelled `parity` for it that names the files to change and what done looks like, and
+   link it from the pull request. That is a recorded gap, not an exemption: the job stays open
+   until the issue is closed. An agent never decides on its own that the other platform can wait.
+5. **Record the answer** in the pull request's Parity section, one line per shell: changed,
+   with its pull request; already behaves this way; does not apply, and why; or deferred, with
+   its issue; for Linux, "out of scope for now". Leaving it blank is not an answer.
