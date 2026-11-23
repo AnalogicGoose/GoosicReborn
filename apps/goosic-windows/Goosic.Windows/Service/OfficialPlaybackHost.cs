@@ -78,6 +78,13 @@ internal sealed class OfficialPlaybackHost
     /// rather than let run.
     /// </summary>
     private bool _startPaused;
+
+    /// <summary>
+    /// A swapped song the listener paused was refused, so the track the queue moves on to starts
+    /// paused rather than playing over that pause. It expires quickly: with autoplay off nothing
+    /// follows, and a song chosen minutes later is a fresh choice to play.
+    /// </summary>
+    private DateTime _pauseNextLoadUntil = DateTime.MinValue;
     private long _startWatch;
     private long _playRequest;
 
@@ -220,7 +227,11 @@ internal sealed class OfficialPlaybackHost
     /// The claim comes first. A renderer that started producing sound before Rust agreed would
     /// have escaped the authority, which is the one thing every shell has to get right.
     /// </remarks>
-    internal async Task PlayAsync(string videoId)
+    /// <param name="natural">
+    /// The queue moved on by itself. Only such a load inherits a pause carried from a refused swap;
+    /// a song the listener chooses is a fresh choice to play.
+    /// </param>
+    internal async Task PlayAsync(string videoId, bool natural = false)
     {
         if (!ShellSupport.IsValidVideoId(videoId))
         {
@@ -242,7 +253,9 @@ internal sealed class OfficialPlaybackHost
             return;
         }
 
-        await StartAsync(videoId, videoId).ConfigureAwait(true);
+        var startPaused = natural && DateTime.UtcNow < _pauseNextLoadUntil;
+        _pauseNextLoadUntil = DateTime.MinValue;
+        await StartAsync(videoId, videoId, startPaused).ConfigureAwait(true);
     }
 
     /// <param name="loadId">The id the page is sent to.</param>
@@ -796,6 +809,7 @@ internal sealed class OfficialPlaybackHost
         // paused again by the first report it produces.
         _listenerTookOver = true;
         _startPaused = false;
+        _pauseNextLoadUntil = DateTime.MinValue;
         _awaitingStart = false;
 
         try
@@ -1241,6 +1255,8 @@ internal sealed class OfficialPlaybackHost
         }
 
         BridgeLog.Write($"the page replaced a track that never played with {described} (\"{title}\"); treating it as unplayable");
+        // A pause pressed while this was decided holds for the track the queue moves on to.
+        _pauseNextLoadUntil = _pauseAfterSwitch ? DateTime.UtcNow.AddSeconds(5) : DateTime.MinValue;
         PageRefused?.Invoke(_requestedVideoId);
         StopMovedOnPage();
     }
