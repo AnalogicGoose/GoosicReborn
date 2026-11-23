@@ -467,6 +467,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     }
     /// The listener paused the current track; a pause at its last second is theirs, not its end.
     private var listenerPaused = false
+    /// The next track the queue starts should load paused: a swapped song the listener paused was
+    /// refused, and the queue is moving past it. Consumed by that load, inside `play`.
+    private var pauseNextLoad = false
     private var adRecovery = AdPlaybackRecovery()
     /// The preferred volume has not been pushed to this load's player yet. The page reports its
     /// own volume, so the preference is applied once per load rather than fought over.
@@ -2920,7 +2923,11 @@ final class GoosicAppModel: Combine.ObservableObject {
         if playbackState.owner == .officialWebView {
             currentTrack = track
             beginTrack()
-            officialPlaybackHost.load(videoID: track.videoID, generation: playbackState.generation, volume: volume, muted: isMuted)
+            let startPaused = takePauseNextLoad()
+            officialPlaybackHost.load(
+                videoID: track.videoID, generation: playbackState.generation,
+                volume: volume, muted: isMuted, startPaused: startPaused
+            )
             return
         }
 
@@ -2938,11 +2945,24 @@ final class GoosicAppModel: Combine.ObservableObject {
             self.currentTrack = track
             self.beginTrack()
             self.finishPlaybackTransition(operationToken)
-            self.officialPlaybackHost.load(videoID: track.videoID, generation: self.playbackState.generation, volume: self.volume, muted: self.isMuted)
+            let startPaused = self.takePauseNextLoad()
+            self.officialPlaybackHost.load(
+                videoID: track.videoID, generation: self.playbackState.generation,
+                volume: self.volume, muted: self.isMuted, startPaused: startPaused
+            )
         } failure: { [weak self] _ in
             guard let self else { return }
             self.finishPlaybackTransition(operationToken)
         }
+    }
+
+    /// Takes a pause carried from a refused swap for the load about to start, and restores the
+    /// listener's intent that starting a track clears.
+    private func takePauseNextLoad() -> Bool {
+        guard pauseNextLoad else { return false }
+        pauseNextLoad = false
+        listenerPaused = true
+        return true
     }
 
     func togglePause() {
@@ -3268,7 +3288,12 @@ final class GoosicAppModel: Combine.ObservableObject {
             presentationChanged = true
         }
         if !event.isAdvertisement {
-            if event.duration > 0 { measuredDuration = (event.videoID, event.duration) }
+            // Kept under the chosen song's id: an adopted version plays under another id, and the
+            // lyrics lookup asks by the song the listener chose, so keying by the event's id left
+            // an adopted version's real length unused.
+            if event.duration > 0 {
+                measuredDuration = (currentTrack?.videoID ?? event.videoID, event.duration)
+            }
             if lyricsClock.position != event.currentTime { lyricsClock.position = event.currentTime }
         }
         loadLyricsIfNeeded()
@@ -3413,8 +3438,17 @@ final class GoosicAppModel: Combine.ObservableObject {
             // The listener's song is what was refused, even when the page refused a version
             // loaded in its place.
             refusedVideoIDs.insert(currentTrack?.videoID ?? swap.requestedVideoID)
+            // A pause pressed while the switch was being decided carries to the song the queue
+            // moves on to. Starting a new track clears the intent, so it is restored, and the
+            // pause request supersedes the load's play request before the media exists.
+            // The intent rides into that load itself: a pause sent now would reach the outgoing
+            // document, not the next song's, which does not exist yet.
+            pauseNextLoad = listenerPaused
             officialPlaybackHost.pause()
             officialPlayerMovedOn(from: swap.requestedVideoID)
+            // A queue that ended, or radio still loading, starts nothing now; a song chosen later
+            // is a fresh choice to play.
+            pauseNextLoad = false
             status = "\u{201C}\(title)\u{201D} isn\u{2019}t available to play here, so it was skipped."
         }
     }
