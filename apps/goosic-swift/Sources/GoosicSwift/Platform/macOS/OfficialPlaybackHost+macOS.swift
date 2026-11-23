@@ -40,6 +40,21 @@ final class OfficialPlaybackHost: NSObject {
     /// The official app followed its own "up next" to a video Goosic did not request. Goosic
     /// owns the queue, so the shell decides what actually plays instead.
     var onPageAdvanced: ((String) -> Void)?
+    /// The page replaced the requested track before any of it played. The shell decides whether
+    /// the replacement is the same song under another id or the page refusing the track.
+    var onPageSwappedBeforePlaying: ((OfficialPageSwap) -> Void)?
+    /// Whether the requested track has been heard playing under this load.
+    private var heardRequested = false
+    /// Whether this load's switch to another video has been acted on already.
+    private var pageSwapHandled = false
+    /// Reports in a row that describe a video other than the requested one. One alone can be the
+    /// page still showing what its player held before it reached the requested video; two in a
+    /// row is the page having moved, which is the Windows shell's rule too.
+    private var strayReports = 0
+    /// Whether this load is the listener's own choice, which the page may swap for another
+    /// version of the same song once. A version loaded in its place may not be swapped again:
+    /// that is the page wandering, not another version.
+    private var allowsSubstitute = true
 
     func makeWebView(profile: OfficialPlaybackProfile = .guest) -> WKWebView {
         if let webView {
@@ -115,7 +130,14 @@ final class OfficialPlaybackHost: NSObject {
         if container != nil { _ = makeWebView(profile: profile) }
     }
 
-    func load(videoID: String, generation: UInt64, volume: Double = 1, muted: Bool = false) {
+    func load(
+        videoID: String,
+        generation: UInt64,
+        volume: Double = 1,
+        muted: Bool = false,
+        allowsSubstitute: Bool = true,
+        startPaused: Bool = false
+    ) {
         guard let webView else {
             onStatus?("Official host is not attached to the native view.")
             return
@@ -139,6 +161,10 @@ final class OfficialPlaybackHost: NSObject {
         lastBridgeSequence = 0
         sampleSequence.begin(generation: generation)
         advertisementActive = false
+        heardRequested = false
+        pageSwapHandled = false
+        strayReports = 0
+        self.allowsSubstitute = allowsSubstitute
         isLoading = true
 
         var components = URLComponents()
@@ -175,8 +201,10 @@ final class OfficialPlaybackHost: NSObject {
 
         webView.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy))
         // A native card tap is the playback gesture. Queue the intent before navigation so the
-        // first observer event can start the media as soon as WebKit creates its element.
-        transport.request(paused: false)
+        // first observer event can start the media as soon as WebKit creates its element. A
+        // version loaded in place of a swapped song keeps a pause the listener asked for while
+        // its title was being read, instead of starting anyway.
+        transport.request(paused: startPaused)
         onStatus?("Official host loading \(videoID)…")
     }
 
@@ -281,6 +309,9 @@ final class OfficialPlaybackHost: NSObject {
         lastBridgeSequence = 0
         sampleSequence.reset()
         advertisementActive = false
+        heardRequested = false
+        pageSwapHandled = false
+        strayReports = 0
         loadedVideoID = nil
         isLoading = false
     }
@@ -445,16 +476,28 @@ final class OfficialPlaybackHost: NSObject {
 
         // The official app has its own autoplay queue. A well-formed event for a different video
         // means it moved on by itself; that is not a rejection to shrug at, it is a signal that
-        // Goosic's own queue must take over.
+        // Goosic's own queue must take over -- but only once the requested track was heard. A
+        // switch before that cannot be its end: it is the same song under another id, or the
+        // page refusing the track, and taking it for the end skipped the song and started the
+        // next row of the list.
         if event.version == 2,
-           event.token == expectedToken,
+           let token = expectedToken,
+           event.token == token,
            event.generation == expectedGeneration,
            let expected = expectedVideoID,
            event.videoID != expected,
            !event.isAdvertisement,
-           !event.videoID.isEmpty {
-            onStatus?("The official app moved to its own next video; Goosic's queue decides instead.")
-            onPageAdvanced?(expected)
+           OfficialBridge.isValidVideoID(event.videoID) {
+            guard !pageSwapHandled else { return }
+            strayReports += 1
+            guard strayReports >= 2 else { return }
+            pageSwapHandled = true
+            if heardRequested {
+                onStatus?("The official app moved to its own next video; Goosic's queue decides instead.")
+                onPageAdvanced?(expected)
+            } else {
+                resolveEarlySwitch(requested: expected, actual: event.videoID, token: token)
+            }
             return
         }
 
@@ -481,6 +524,12 @@ final class OfficialPlaybackHost: NSObject {
             ])
         }
         lastBridgeSequence = event.sequence
+        strayReports = 0
+        if PageSwap.heardPlaying(
+            state: event.state, duration: event.duration, isAdvertisement: event.isAdvertisement
+        ) {
+            heardRequested = true
+        }
         guard let leaseSequence = sampleSequence.issue(for: event.generation) else {
             onStatus?("Rejected an official-player event with no active playback lease.")
             return
@@ -499,6 +548,85 @@ final class OfficialPlaybackHost: NSObject {
             volume: event.volume,
             isMuted: event.muted
         ))
+    }
+
+    /// Reads the title of the video the page switched to, and hands the decision to the shell.
+    ///
+    /// The observer in this document pauses any video other than the requested one, so nothing
+    /// sounds while this runs. `getVideoData` is the player's own description of what it holds.
+    private func resolveEarlySwitch(requested: String, actual: String, token: String) {
+        Diagnostics.note(.officialPlayback, "switched-before-playing")
+        let mayAdopt = allowsSubstitute
+        let report: @MainActor (String) -> Void = { [weak self] title in
+            guard let self, self.expectedToken == token else { return }
+            self.onPageSwappedBeforePlaying?(OfficialPageSwap(
+                requestedVideoID: requested,
+                pageVideoID: actual,
+                pageTitle: title,
+                mayAdopt: mayAdopt
+            ))
+        }
+        readPageTitle(of: actual, requested: requested, token: token, attempt: 0, completion: report)
+    }
+
+    /// How many times, half a second apart, the title of a switched-to video is asked for.
+    ///
+    /// The page switches before it has finished loading, often before its player can describe
+    /// the new video at all. Asking once read an empty title, and an empty title can never match,
+    /// so another version of the very song asked for was skipped as a refusal.
+    private static let pageTitleAttempts = 8
+
+    /// Reads the player's own title for `videoID`, retrying while the player has not caught up.
+    private func readPageTitle(
+        of videoID: String,
+        requested: String,
+        token: String,
+        attempt: Int,
+        completion: @escaping @MainActor (String) -> Void
+    ) {
+        guard let webView, expectedToken == token else {
+            completion("")
+            return
+        }
+        let script = """
+        (() => {
+          const data = document.getElementById('movie_player')?.getVideoData?.();
+          return JSON.stringify({ id: String(data?.video_id || ''), title: String(data?.title || '') });
+        })();
+        """
+        webView.evaluateJavaScript(script) { [weak self] value, _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.expectedToken == token else { return }
+                struct Described: Decodable { let id: String; let title: String }
+                let described = (value as? String)
+                    .flatMap { $0.data(using: .utf8) }
+                    .flatMap { try? JSONDecoder().decode(Described.self, from: $0) }
+                // Only a description of the switched-to video counts; the player can still be
+                // describing the one it is leaving.
+                if described?.id == requested {
+                    // The player is on the requested song after all: the switch was the page
+                    // passing through another video on its way, not a swap or a refusal.
+                    Diagnostics.note(.officialPlayback, "switch-was-transient", ["attempt": "\(attempt)"])
+                    self.pageSwapHandled = false
+                    self.strayReports = 0
+                } else if let described, described.id == videoID, !described.title.isEmpty {
+                    Diagnostics.note(.officialPlayback, "switched-title", [
+                        "attempt": "\(attempt)", "title": described.title,
+                    ])
+                    completion(described.title)
+                } else if attempt + 1 < Self.pageTitleAttempts {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    self.readPageTitle(
+                        of: videoID, requested: requested, token: token,
+                        attempt: attempt + 1, completion: completion)
+                } else {
+                    Diagnostics.note(.officialPlayback, "switched-title-unread", [
+                        "attempts": "\(Self.pageTitleAttempts)",
+                    ])
+                    completion("")
+                }
+            }
+        }
     }
 
     private final class ScriptMessageProxy: NSObject, WKScriptMessageHandler {

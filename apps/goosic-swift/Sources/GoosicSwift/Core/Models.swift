@@ -456,8 +456,23 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// The video whose end has already advanced the queue, so the player's repeated `ended`
     /// polls cannot skip several tracks at once.
     private var endedVideoID: String?
+    /// Songs the official player refused this session, by video id. They stay listed, dimmed,
+    /// but are left out when a list starts playing and when radio adds recommendations, as on
+    /// Windows. Kept for the session only: a refusal can be regional or temporary.
+    @Combine.Published private(set) var refusedVideoIDs: Set<String> = []
+
+    /// Whether the official player refused this song earlier in the session.
+    func isRefused(_ track: GoosicTrack) -> Bool {
+        refusedVideoIDs.contains(track.videoID)
+    }
     /// The listener paused the current track; a pause at its last second is theirs, not its end.
     private var listenerPaused = false
+    /// The next track the queue starts should load paused: a swapped song the listener paused was
+    /// refused, and the queue is moving past it. Consumed by that load, inside `play`.
+    private var pauseNextLoad = false
+    /// `pauseNextLoad`, held for the song radio is still being fetched to continue with. A Play
+    /// or Pause press, or a song the listener chooses, drops it: those are fresh choices.
+    private var pauseAfterRadio = false
     private var adRecovery = AdPlaybackRecovery()
     /// The preferred volume has not been pushed to this load's player yet. The page reports its
     /// own volume, so the preference is applied once per load rather than fought over.
@@ -529,6 +544,9 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         officialPlaybackHost.onPageAdvanced = { [weak self] finishedVideoID in
             self?.officialPlayerMovedOn(from: finishedVideoID)
+        }
+        officialPlaybackHost.onPageSwappedBeforePlaying = { [weak self] swap in
+            self?.officialPageSwappedBeforePlaying(swap)
         }
         officialPlaybackHost.onStatus = { [weak self] message in
             self?.hostStatus = message
@@ -2874,6 +2892,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         source: QueueSource? = nil
     ) {
         guard allowPlaybackInteraction() else { return }
+        pauseAfterRadio = false
         guard playbackTransition == .idle else {
             status = "Playback command pending; wait for Rust to finish before choosing another action."
             return
@@ -2888,6 +2907,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
 
         if !tracks.isEmpty {
+            let tracks = Self.startableTracks(tracks, chosen: track, refused: refusedVideoIDs)
             queue = GoosicQueue(tracks: tracks, currentIndex: tracks.firstIndex(of: track) ?? 0)
             queueSource = source
             // A deliberately chosen list is a fresh listening context, so its later autoplay
@@ -2907,7 +2927,11 @@ final class GoosicAppModel: Combine.ObservableObject {
         if playbackState.owner == .officialWebView {
             currentTrack = track
             beginTrack()
-            officialPlaybackHost.load(videoID: track.videoID, generation: playbackState.generation, volume: volume, muted: isMuted)
+            let startPaused = takePauseNextLoad()
+            officialPlaybackHost.load(
+                videoID: track.videoID, generation: playbackState.generation,
+                volume: volume, muted: isMuted, startPaused: startPaused
+            )
             return
         }
 
@@ -2925,11 +2949,24 @@ final class GoosicAppModel: Combine.ObservableObject {
             self.currentTrack = track
             self.beginTrack()
             self.finishPlaybackTransition(operationToken)
-            self.officialPlaybackHost.load(videoID: track.videoID, generation: self.playbackState.generation, volume: self.volume, muted: self.isMuted)
+            let startPaused = self.takePauseNextLoad()
+            self.officialPlaybackHost.load(
+                videoID: track.videoID, generation: self.playbackState.generation,
+                volume: self.volume, muted: self.isMuted, startPaused: startPaused
+            )
         } failure: { [weak self] _ in
             guard let self else { return }
             self.finishPlaybackTransition(operationToken)
         }
+    }
+
+    /// Takes a pause carried from a refused swap for the load about to start, and restores the
+    /// listener's intent that starting a track clears.
+    private func takePauseNextLoad() -> Bool {
+        guard pauseNextLoad else { return false }
+        pauseNextLoad = false
+        listenerPaused = true
+        return true
     }
 
     func togglePause() {
@@ -2938,6 +2975,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             status = "Playback command pending; pause is temporarily unavailable."
             return
         }
+        pauseAfterRadio = false
         if officialPlaybackHost.loadedVideoID != nil {
             if isPaused {
                 playOfficialVideo()
@@ -3255,7 +3293,12 @@ final class GoosicAppModel: Combine.ObservableObject {
             presentationChanged = true
         }
         if !event.isAdvertisement {
-            if event.duration > 0 { measuredDuration = (event.videoID, event.duration) }
+            // Kept under the chosen song's id: an adopted version plays under another id, and the
+            // lyrics lookup asks by the song the listener chose, so keying by the event's id left
+            // an adopted version's real length unused.
+            if event.duration > 0 {
+                measuredDuration = (currentTrack?.videoID ?? event.videoID, event.duration)
+            }
             if lyricsClock.position != event.currentTime { lyricsClock.position = event.currentTime }
         }
         loadLyricsIfNeeded()
@@ -3368,6 +3411,53 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     /// The official app followed its own queue. Treat the requested track as finished and let
     /// Goosic's queue decide, so the app never plays something the user did not choose.
+    /// The page replaced the requested track before any of it played.
+    ///
+    /// Another version of the same song is loaded in its place, under the same lease, while the
+    /// listener still sees the song they chose. Anything else is the page refusing the track:
+    /// the listener is told it was skipped, and the queue moves past it as it would at an end.
+    private func officialPageSwappedBeforePlaying(_ swap: OfficialPageSwap) {
+        guard !accountOperationInProgress else { return }
+        guard playbackState.owner == .officialWebView else { return }
+        switch PageSwap.decide(
+            swap,
+            loadedVideoID: officialPlaybackHost.loadedVideoID,
+            currentTitle: currentTrack?.title
+        ) {
+        case .ignore:
+            return
+        case .adopt(let videoID):
+            Diagnostics.note(.officialPlayback, "adopted-other-version")
+            officialPlaybackHost.load(
+                videoID: videoID,
+                generation: playbackState.generation,
+                volume: volume,
+                muted: isMuted,
+                allowsSubstitute: false,
+                // A pause pressed while the title was being read still holds.
+                startPaused: listenerPaused
+            )
+        case .refused:
+            Diagnostics.note(.officialPlayback, "refused-before-playing")
+            let title = currentTrack?.title ?? "This song"
+            // The listener's song is what was refused, even when the page refused a version
+            // loaded in its place.
+            refusedVideoIDs.insert(currentTrack?.videoID ?? swap.requestedVideoID)
+            // A pause pressed while the switch was being decided carries to the song the queue
+            // moves on to. Starting a new track clears the intent, so it is restored, and the
+            // pause request supersedes the load's play request before the media exists.
+            // The intent rides into that load itself: a pause sent now would reach the outgoing
+            // document, not the next song's, which does not exist yet.
+            pauseNextLoad = listenerPaused
+            officialPlaybackHost.pause()
+            officialPlayerMovedOn(from: swap.requestedVideoID)
+            // A queue that ended starts nothing, and a song chosen later is a fresh choice to
+            // play. Radio still loading keeps its own copy for the song it continues with.
+            pauseNextLoad = false
+            status = "\u{201C}\(title)\u{201D} isn\u{2019}t available to play here, so it was skipped."
+        }
+    }
+
     private func officialPlayerMovedOn(from finishedVideoID: String) {
         guard !accountOperationInProgress else { return }
         guard playbackState.owner == .officialWebView else { return }
@@ -3429,6 +3519,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             return
         }
         radioExtensionInFlight = true
+        pauseAfterRadio = pauseNextLoad
         let station = radioStation ?? GoosicRadioStation(seedVideoID: seed.videoID, continuation: nil, accountID: activeAccountId)
         let revision = radioRequestRevision
         status = station.continuation == nil
@@ -3442,7 +3533,8 @@ final class GoosicAppModel: Combine.ObservableObject {
                 self.status = "Queue finished. Radio had nothing to continue with."
                 return
             }
-            let tracks = Self.freshRadioTracks(page.playableTracks, excluding: self.queue.tracks)
+            let tracks = Self.freshRadioTracks(
+                page.playableTracks, excluding: self.queue.tracks, refused: self.refusedVideoIDs)
             self.radioStation = GoosicRadioStation(
                 seedVideoID: station.seedVideoID,
                 continuation: page.nextCursor == station.continuation ? nil : page.nextCursor,
@@ -3454,7 +3546,9 @@ final class GoosicAppModel: Combine.ObservableObject {
             }
             let firstIndex = self.queue.tracks.count
             self.queue.tracks.append(contentsOf: tracks)
+            self.pauseNextLoad = self.pauseAfterRadio
             self.play(first, queueIndex: firstIndex)
+            self.pauseNextLoad = false
         }
     }
 
@@ -3488,7 +3582,8 @@ final class GoosicAppModel: Combine.ObservableObject {
                 self.status = "Radio had nothing to play after \(track.title)."
                 return
             }
-            let tracks = Self.freshRadioTracks(page.playableTracks, excluding: [track])
+            let tracks = Self.freshRadioTracks(
+                page.playableTracks, excluding: [track], refused: self.refusedVideoIDs)
             self.radioStation = GoosicRadioStation(
                 seedVideoID: track.videoID, continuation: page.nextCursor, accountID: accountID
             )
@@ -3499,9 +3594,27 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Keeps only recommendations that do not already occur in this queue, while also removing
     /// repeats inside one upstream page. Explicit user queues may contain duplicates; radio
     /// recommendations may not, because a duplicate reads as a broken "up next" sequence.
-    static func freshRadioTracks(_ candidates: [GoosicTrack], excluding queue: [GoosicTrack]) -> [GoosicTrack] {
-        var seen = Set(queue.map(\.videoID))
+    /// Songs the official player refused this session are left out too.
+    static func freshRadioTracks(
+        _ candidates: [GoosicTrack],
+        excluding queue: [GoosicTrack],
+        refused: Set<String> = []
+    ) -> [GoosicTrack] {
+        var seen = Set(queue.map(\.videoID)).union(refused)
         return candidates.filter { seen.insert($0.videoID).inserted }
+    }
+
+    /// The list a chosen row starts, without the songs the official player refused this session.
+    ///
+    /// The chosen row itself always stays: the listener asked for it by name, and the page may
+    /// play it this time. This is the Mac copy of the filter in the Windows shell's `StartQueue`.
+    static func startableTracks(
+        _ tracks: [GoosicTrack],
+        chosen: GoosicTrack,
+        refused: Set<String>
+    ) -> [GoosicTrack] {
+        guard !refused.isEmpty else { return tracks }
+        return tracks.filter { $0 == chosen || !refused.contains($0.videoID) }
     }
 
     private func requestRadio(
