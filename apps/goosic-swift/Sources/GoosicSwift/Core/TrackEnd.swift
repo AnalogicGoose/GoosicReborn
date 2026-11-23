@@ -70,9 +70,10 @@ enum TrackEnd {
 
 /// What to make of the official page replacing the requested track with another video.
 ///
-/// The Swift copy of the Windows shell's `PlaybackOrder.IsSameSong` and the early-switch rule in
-/// its `OfficialPlaybackHost`; the two are held to the same cases (`PageSwapTests` and
-/// `SameSongTests`).
+/// The Swift copy of `page_swap` in `goosic-shell-support`, and of the Windows shell's
+/// `PlaybackOrder.IsSameSong` and the early-switch rule in its `OfficialPlaybackHost`. The three
+/// are held to the same cases (`PageSwapTests`, the crate's tests and `SameSongTests`), and a
+/// change to one is a change to all of them.
 enum PageSwap {
     /// Whether a sample shows the requested track itself playing.
     ///
