@@ -227,7 +227,11 @@ internal sealed class OfficialPlaybackHost
     /// The claim comes first. A renderer that started producing sound before Rust agreed would
     /// have escaped the authority, which is the one thing every shell has to get right.
     /// </remarks>
-    internal async Task PlayAsync(string videoId)
+    /// <param name="natural">
+    /// The queue moved on by itself. Only such a load inherits a pause carried from a refused swap;
+    /// a song the listener chooses is a fresh choice to play.
+    /// </param>
+    internal async Task PlayAsync(string videoId, bool natural = false)
     {
         if (!ShellSupport.IsValidVideoId(videoId))
         {
@@ -249,7 +253,7 @@ internal sealed class OfficialPlaybackHost
             return;
         }
 
-        var startPaused = DateTime.UtcNow < _pauseNextLoadUntil;
+        var startPaused = natural && DateTime.UtcNow < _pauseNextLoadUntil;
         _pauseNextLoadUntil = DateTime.MinValue;
         await StartAsync(videoId, videoId, startPaused).ConfigureAwait(true);
     }
