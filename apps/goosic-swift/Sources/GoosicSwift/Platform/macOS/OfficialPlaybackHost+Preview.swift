@@ -14,7 +14,8 @@ final class OfficialPlaybackHost {
         generation: UInt64,
         volume: Double = 1,
         muted: Bool = false,
-        allowsSubstitute: Bool = true
+        allowsSubstitute: Bool = true,
+        startPaused: Bool = false
     ) {
         loadedVideoID = nil
         onStatus?("Official playback is disabled in this preview.")
