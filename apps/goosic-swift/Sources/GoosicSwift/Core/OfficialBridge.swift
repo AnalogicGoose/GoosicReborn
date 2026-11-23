@@ -13,6 +13,17 @@ struct OfficialPlaybackEvent {
     let isMuted: Bool
 }
 
+/// The official page replaced the requested track with another video before any of it played.
+struct OfficialPageSwap: Equatable {
+    let requestedVideoID: String
+    let pageVideoID: String
+    /// The page's own title for the video it switched to; empty when it could not be read.
+    let pageTitle: String
+    /// Whether the requested load was the listener's own choice rather than a version already
+    /// loaded in its place.
+    let mayAdopt: Bool
+}
+
 struct OfficialPlaybackProfile: Equatable {
     /// Guest storage is intentionally stable. Account profiles will supply their own stable UUID
     /// once account isolation is connected; cookies are never exported from this store.

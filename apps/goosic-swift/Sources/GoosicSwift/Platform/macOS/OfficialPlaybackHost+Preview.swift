@@ -9,7 +9,14 @@ final class OfficialPlaybackHost {
     var onDiagnostics: ((String) -> Void)?
     private(set) var loadedVideoID: String?
 
-    func load(videoID: String, generation: UInt64, volume: Double = 1, muted: Bool = false) {
+    func load(
+        videoID: String,
+        generation: UInt64,
+        volume: Double = 1,
+        muted: Bool = false,
+        allowsSubstitute: Bool = true,
+        startPaused: Bool = false
+    ) {
         loadedVideoID = nil
         onStatus?("Official playback is disabled in this preview.")
     }
@@ -18,6 +25,7 @@ final class OfficialPlaybackHost {
     func pause() { onStatus?("Official playback is disabled in this preview.") }
     func probePage() {}
     var onPageAdvanced: ((String) -> Void)?
+    var onPageSwappedBeforePlaying: ((OfficialPageSwap) -> Void)?
     func seek(to seconds: Double) { onStatus?("Official playback is disabled in this preview.") }
     func setVolume(_ volume: Double) { onStatus?("Official playback is disabled in this preview.") }
     func setMuted(_ muted: Bool) { onStatus?("Official playback is disabled in this preview.") }
