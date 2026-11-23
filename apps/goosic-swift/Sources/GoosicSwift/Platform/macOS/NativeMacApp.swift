@@ -2105,6 +2105,7 @@ struct NativeMacQueuePanel: SwiftUI.View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .modifier(NativeMacRefusedRow(refused: model.isRefused(track)))
         .contextMenu {
             NativeMacTrackMenuItems(
                 track: track, model: model, includePlay: false, queueIndex: index
