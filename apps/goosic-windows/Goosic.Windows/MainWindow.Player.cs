@@ -215,7 +215,8 @@ public sealed partial class MainWindow : Window
         await PlayEntryAsync(entry);
     }
 
-    private async Task PlayEntryAsync(TrackViewModel? entry)
+    /// <param name="natural">The queue moved on by itself after a track ended or was refused.</param>
+    private async Task PlayEntryAsync(TrackViewModel? entry, bool natural = false)
     {
         if (entry is null)
         {
@@ -236,7 +237,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await _playback.PlayAsync(videoId);
+        await _playback.PlayAsync(videoId, natural);
     }
 
     private async void OnPlayPage(object sender, RoutedEventArgs e)
@@ -321,7 +322,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await PlayEntryAsync(move.Entry);
+        await PlayEntryAsync(move.Entry, natural);
     }
 
     private async void OnPlayPause(object sender, RoutedEventArgs e) => await TogglePauseAsync();
