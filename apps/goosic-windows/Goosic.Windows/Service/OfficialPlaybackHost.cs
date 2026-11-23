@@ -66,6 +66,18 @@ internal sealed class OfficialPlaybackHost
     private bool _awaitingStart;
     private bool _heardPlaying;
     private bool _listenerTookOver;
+
+    /// <summary>The page's switch before the requested track played is being resolved.</summary>
+    private bool _resolvingSwitch;
+
+    /// <summary>The listener pressed Pause while that switch was being resolved.</summary>
+    private bool _pauseAfterSwitch;
+
+    /// <summary>
+    /// This load replaces a swapped song the listener paused, so its first playing report is paused
+    /// rather than let run.
+    /// </summary>
+    private bool _startPaused;
     private long _startWatch;
     private long _playRequest;
 
@@ -235,7 +247,8 @@ internal sealed class OfficialPlaybackHost
 
     /// <param name="loadId">The id the page is sent to.</param>
     /// <param name="requestedId">The id the listener chose, which differs when the page plays it under another.</param>
-    private async Task StartAsync(string loadId, string requestedId)
+    /// <param name="startPaused">Keep the new load paused: the listener paused while it was being decided.</param>
+    private async Task StartAsync(string loadId, string requestedId, bool startPaused = false)
     {
         // Loads are serialised, and only the most recent request survives the wait. Two that ran
         // together would each read the lease, each release it, and each claim it -- leaving one
@@ -252,7 +265,7 @@ internal sealed class OfficialPlaybackHost
 
             _loadRequest = request;
             _loadBegan = DateTime.UtcNow;
-            await LoadAsync(loadId, requestedId).ConfigureAwait(true);
+            await LoadAsync(loadId, requestedId, startPaused).ConfigureAwait(true);
         }
         catch (Exception error)
         {
@@ -273,7 +286,7 @@ internal sealed class OfficialPlaybackHost
         }
     }
 
-    private async Task LoadAsync(string videoId, string requestedId)
+    private async Task LoadAsync(string videoId, string requestedId, bool startPaused)
     {
         // The page being replaced keeps posting until it unloads. Its reports are refused from
         // this moment rather than after the new claim: between Rust releasing the old lease and
@@ -288,7 +301,10 @@ internal sealed class OfficialPlaybackHost
         _requestedVideoId = requestedId;
         _awaitingStart = true;
         _heardPlaying = false;
-        _listenerTookOver = false;
+        // A pause carried over from a swapped song is the listener's, so the start watch must not
+        // nudge the new load into playing.
+        _listenerTookOver = startPaused;
+        _startPaused = startPaused;
         _startWatch++;
 
         try
@@ -766,8 +782,20 @@ internal sealed class OfficialPlaybackHost
             return;
         }
 
-        // From here a silent page is the listener's choice, not a track that failed to start.
+        // While a switch is being decided the page holds a video nobody asked for, which the
+        // observer keeps paused; the press is the listener's intent for the version that follows.
+        if (_resolvingSwitch)
+        {
+            _pauseAfterSwitch = !_pauseAfterSwitch;
+            BridgeLog.Write($"pause pressed while a switch is decided; the next load starts paused={_pauseAfterSwitch}");
+            return;
+        }
+
+        // From here a silent page is the listener's choice, not a track that failed to start. A
+        // press also supersedes a pause carried over from a swapped song, so a Play here is not
+        // paused again by the first report it produces.
         _listenerTookOver = true;
+        _startPaused = false;
         _awaitingStart = false;
 
         try
@@ -1101,6 +1129,13 @@ internal sealed class OfficialPlaybackHost
                 + $"t={verdict.Event.CurrentTime:F1}/{verdict.Event.Duration:F1} ad={verdict.Event.IsAdvertisement} vol={verdict.Event.Volume:F2}");
         }
 
+        if (_startPaused && verdict.Event is { State: "playing", IsAdvertisement: false })
+        {
+            _startPaused = false;
+            BridgeLog.Write("pausing the replacement version, as the listener asked while it was decided");
+            _ = PauseMediaAsync();
+        }
+
         _lastState = verdict.Event.State;
         _lastSequence = verdict.Event.Sequence;
         _lastMuted = verdict.Event.Muted;
@@ -1152,6 +1187,20 @@ internal sealed class OfficialPlaybackHost
 
     private async Task ResolveEarlySwitchAsync(string requested, string described)
     {
+        _resolvingSwitch = true;
+        _pauseAfterSwitch = false;
+        try
+        {
+            await ResolveEarlySwitchCoreAsync(requested, described).ConfigureAwait(true);
+        }
+        finally
+        {
+            _resolvingSwitch = false;
+        }
+    }
+
+    private async Task ResolveEarlySwitchCoreAsync(string requested, string described)
+    {
         var title = "";
         try
         {
@@ -1184,13 +1233,35 @@ internal sealed class OfficialPlaybackHost
             // is why an accepted substitute used to sit paused at 0:00 for as long as it was left.
             BridgeLog.Write($"the page swapped the requested song for another version of it ({described}); loading that version");
             _lastRejection = null;
-            await StartAsync(described, requested).ConfigureAwait(true);
+            // The decision is made: a press from here belongs to the new load, as an ordinary one.
+            var startPaused = _pauseAfterSwitch;
+            _resolvingSwitch = false;
+            await StartAsync(described, requested, startPaused).ConfigureAwait(true);
             return;
         }
 
         BridgeLog.Write($"the page replaced a track that never played with {described} (\"{title}\"); treating it as unplayable");
         PageRefused?.Invoke(_requestedVideoId);
         StopMovedOnPage();
+    }
+
+    /// <summary>Pauses whatever the page is playing; the next report confirms it.</summary>
+    private async Task PauseMediaAsync()
+    {
+        try
+        {
+            await _view.CoreWebView2.ExecuteScriptAsync("""
+                (() => {
+                  const player = document.getElementById('movie_player');
+                  if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
+                  document.querySelectorAll('audio,video').forEach((media) => media.pause());
+                })();
+                """);
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"could not pause the replacement version: {error.GetType().Name}");
+        }
     }
 
     private void StopMovedOnPage()
