@@ -791,8 +791,11 @@ internal sealed class OfficialPlaybackHost
             return;
         }
 
-        // From here a silent page is the listener's choice, not a track that failed to start.
+        // From here a silent page is the listener's choice, not a track that failed to start. A
+        // press also supersedes a pause carried over from a swapped song, so a Play here is not
+        // paused again by the first report it produces.
         _listenerTookOver = true;
+        _startPaused = false;
         _awaitingStart = false;
 
         try
