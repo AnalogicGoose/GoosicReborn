@@ -3268,7 +3268,12 @@ final class GoosicAppModel: Combine.ObservableObject {
             presentationChanged = true
         }
         if !event.isAdvertisement {
-            if event.duration > 0 { measuredDuration = (event.videoID, event.duration) }
+            // Kept under the chosen song's id: an adopted version plays under another id, and the
+            // lyrics lookup asks by the song the listener chose, so keying by the event's id left
+            // an adopted version's real length unused.
+            if event.duration > 0 {
+                measuredDuration = (currentTrack?.videoID ?? event.videoID, event.duration)
+            }
             if lyricsClock.position != event.currentTime { lyricsClock.position = event.currentTime }
         }
         loadLyricsIfNeeded()
@@ -3413,8 +3418,16 @@ final class GoosicAppModel: Combine.ObservableObject {
             // The listener's song is what was refused, even when the page refused a version
             // loaded in its place.
             refusedVideoIDs.insert(currentTrack?.videoID ?? swap.requestedVideoID)
+            // A pause pressed while the switch was being decided carries to the song the queue
+            // moves on to. Starting a new track clears the intent, so it is restored, and the
+            // pause request supersedes the load's play request before the media exists.
+            let keepPaused = listenerPaused
             officialPlaybackHost.pause()
             officialPlayerMovedOn(from: swap.requestedVideoID)
+            if keepPaused, officialPlaybackHost.loadedVideoID != nil {
+                listenerPaused = true
+                officialPlaybackHost.pause()
+            }
             status = "\u{201C}\(title)\u{201D} isn\u{2019}t available to play here, so it was skipped."
         }
     }
