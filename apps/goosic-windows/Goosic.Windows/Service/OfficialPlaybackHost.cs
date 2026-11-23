@@ -81,10 +81,12 @@ internal sealed class OfficialPlaybackHost
 
     /// <summary>
     /// A swapped song the listener paused was refused, so the track the queue moves on to starts
-    /// paused rather than playing over that pause. It expires quickly: with autoplay off nothing
-    /// follows, and a song chosen minutes later is a fresh choice to play.
+    /// paused rather than playing over that pause. It is not timed, because the move on can wait
+    /// on radio recommendations for as long as they take to load. The next play of any kind
+    /// clears it, and a Play or Pause press does too; a song the listener chooses is a fresh
+    /// choice to play and is never paused by it.
     /// </summary>
-    private DateTime _pauseNextLoadUntil = DateTime.MinValue;
+    private bool _pauseNextAdvance;
     private long _startWatch;
     private long _playRequest;
 
@@ -253,8 +255,8 @@ internal sealed class OfficialPlaybackHost
             return;
         }
 
-        var startPaused = natural && DateTime.UtcNow < _pauseNextLoadUntil;
-        _pauseNextLoadUntil = DateTime.MinValue;
+        var startPaused = natural && _pauseNextAdvance;
+        _pauseNextAdvance = false;
         await StartAsync(videoId, videoId, startPaused).ConfigureAwait(true);
     }
 
@@ -809,7 +811,7 @@ internal sealed class OfficialPlaybackHost
         // paused again by the first report it produces.
         _listenerTookOver = true;
         _startPaused = false;
-        _pauseNextLoadUntil = DateTime.MinValue;
+        _pauseNextAdvance = false;
         _awaitingStart = false;
 
         try
@@ -1256,7 +1258,7 @@ internal sealed class OfficialPlaybackHost
 
         BridgeLog.Write($"the page replaced a track that never played with {described} (\"{title}\"); treating it as unplayable");
         // A pause pressed while this was decided holds for the track the queue moves on to.
-        _pauseNextLoadUntil = _pauseAfterSwitch ? DateTime.UtcNow.AddSeconds(5) : DateTime.MinValue;
+        _pauseNextAdvance = _pauseAfterSwitch;
         PageRefused?.Invoke(_requestedVideoId);
         StopMovedOnPage();
     }
