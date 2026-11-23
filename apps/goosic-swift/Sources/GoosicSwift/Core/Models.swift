@@ -470,6 +470,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// The next track the queue starts should load paused: a swapped song the listener paused was
     /// refused, and the queue is moving past it. Consumed by that load, inside `play`.
     private var pauseNextLoad = false
+    /// `pauseNextLoad`, held for the song radio is still being fetched to continue with. A Play
+    /// or Pause press, or a song the listener chooses, drops it: those are fresh choices.
+    private var pauseAfterRadio = false
     private var adRecovery = AdPlaybackRecovery()
     /// The preferred volume has not been pushed to this load's player yet. The page reports its
     /// own volume, so the preference is applied once per load rather than fought over.
@@ -2889,6 +2892,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         source: QueueSource? = nil
     ) {
         guard allowPlaybackInteraction() else { return }
+        pauseAfterRadio = false
         guard playbackTransition == .idle else {
             status = "Playback command pending; wait for Rust to finish before choosing another action."
             return
@@ -2971,6 +2975,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             status = "Playback command pending; pause is temporarily unavailable."
             return
         }
+        pauseAfterRadio = false
         if officialPlaybackHost.loadedVideoID != nil {
             if isPaused {
                 playOfficialVideo()
@@ -3446,8 +3451,8 @@ final class GoosicAppModel: Combine.ObservableObject {
             pauseNextLoad = listenerPaused
             officialPlaybackHost.pause()
             officialPlayerMovedOn(from: swap.requestedVideoID)
-            // A queue that ended, or radio still loading, starts nothing now; a song chosen later
-            // is a fresh choice to play.
+            // A queue that ended starts nothing, and a song chosen later is a fresh choice to
+            // play. Radio still loading keeps its own copy for the song it continues with.
             pauseNextLoad = false
             status = "\u{201C}\(title)\u{201D} isn\u{2019}t available to play here, so it was skipped."
         }
@@ -3514,6 +3519,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             return
         }
         radioExtensionInFlight = true
+        pauseAfterRadio = pauseNextLoad
         let station = radioStation ?? GoosicRadioStation(seedVideoID: seed.videoID, continuation: nil, accountID: activeAccountId)
         let revision = radioRequestRevision
         status = station.continuation == nil
@@ -3540,7 +3546,9 @@ final class GoosicAppModel: Combine.ObservableObject {
             }
             let firstIndex = self.queue.tracks.count
             self.queue.tracks.append(contentsOf: tracks)
+            self.pauseNextLoad = self.pauseAfterRadio
             self.play(first, queueIndex: firstIndex)
+            self.pauseNextLoad = false
         }
     }
 
