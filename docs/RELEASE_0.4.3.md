@@ -21,20 +21,22 @@ of starting the next song silently. The song is dimmed wherever it is listed, wi
 isn't available to play, and is left out of new queues and radio for the rest of the session. You
 can still choose it again. This matches Windows.
 
-## Windows
+## A pause that stays paused
 
-Unchanged, and still current.
+Pause means pause, even mid-swap.
 
-Windows already played swapped songs and named refused ones. This release carries the same
-Windows build forward so both platforms share one version.
+When the player swaps a song for another version, pressing pause while Goosic is still working
+out what the player switched to used to be undone the moment the new version loaded. The pause
+now holds on macOS and Windows, and pressing Play afterwards plays as you'd expect. Windows
+already played swapped songs and named refused ones; this is its only change in 0.4.3.
 
 ## What still needs a live check
 
 Tests pass; your ears decide.
 
 On a Mac, the song that prompted this fix played through without a skip. The case where the
-player swaps in another version, and a real refusal, have been checked by tests only. Linux is
-not part of this release.
+player swaps in another version, a real refusal, and a pause pressed during a swap have been
+checked by tests and builds only, on both platforms. Linux is not part of this release.
 
 ## Downloads and installation
 
