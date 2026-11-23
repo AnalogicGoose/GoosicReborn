@@ -765,6 +765,8 @@ private struct NativeMacTrackColumns: SwiftUI.View {
         }
         .buttonStyle(.plain)
         .contextMenu { NativeMacTrackMenuItems(track: track, model: model, context: tracks, source: source) }
+        // Inside the title's tooltip, so a refused song's reason is the one shown.
+        .modifier(NativeMacRefusedRow(refused: model.isRefused(track)))
         .help(track.title)
     }
 }
@@ -979,6 +981,7 @@ private struct NativeMacTrackList: SwiftUI.View {
         .accessibilityAddTraits(selected == track.id ? .isSelected : [])
         .accessibilityValue(playing ? (model.isPaused ? "Current track, paused" : "Playing") : "")
         .accessibilityAction { play(track) }
+        .modifier(NativeMacRefusedRow(refused: model.isRefused(track)))
     }
 
     /// The number or the art, which becomes a play button under the pointer and a speaker for
@@ -1039,6 +1042,23 @@ private struct NativeMacTrackList: SwiftUI.View {
                 .disabled(track.id == tracks.first?.id)
             SwiftUI.Button("Move Down", systemImage: "arrow.down") { model.move(track, in: container, up: false) }
                 .disabled(track.id == tracks.last?.id)
+        }
+    }
+}
+
+/// Dims a song the official player refused this session and says why, as the Windows shell
+/// does. The row stays listed and can still be chosen: the page may play it another time.
+struct NativeMacRefusedRow: SwiftUI.ViewModifier {
+    let refused: Bool
+
+    func body(content: Content) -> some SwiftUI.View {
+        if refused {
+            content
+                .opacity(0.45)
+                .help("This track isn\u{2019}t available to play")
+                .accessibilityHint("Unavailable. This track isn\u{2019}t available to play.")
+        } else {
+            content
         }
     }
 }

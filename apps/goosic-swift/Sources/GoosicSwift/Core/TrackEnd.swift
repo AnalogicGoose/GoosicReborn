@@ -67,3 +67,73 @@ enum TrackEnd {
             && hasFinished(state: state, position: position, duration: duration, listenerPaused: listenerPaused)
     }
 }
+
+/// What to make of the official page replacing the requested track with another video.
+///
+/// The Swift copy of the Windows shell's `PlaybackOrder.IsSameSong` and the early-switch rule in
+/// its `OfficialPlaybackHost`; the two are held to the same cases (`PageSwapTests` and
+/// `SameSongTests`).
+enum PageSwap {
+    /// Whether a sample shows the requested track itself playing.
+    ///
+    /// Until one does, a different video under the same load cannot be the track's end: either
+    /// YouTube Music swapped in another version of the same song before starting it, or it gave
+    /// up on a track it would not play. Treating either as the end skipped the song without a
+    /// word and started the next row of the list instead.
+    static func heardPlaying(state: String, duration: Double, isAdvertisement: Bool) -> Bool {
+        state == "playing" && !isAdvertisement && duration.isFinite && duration > 0
+    }
+
+    /// Whether the page's title names the song that was asked for.
+    ///
+    /// YouTube Music swaps a song for its other version -- the audio track for the music video,
+    /// or back -- before it starts. That is the same song under another id. The titles differ
+    /// only by decoration such as "(Official Video)" or "(feat. …)", so both are reduced to their
+    /// words, and one must contain the other as whole words, so "Down" is not "Downtown".
+    static func isSameSong(requested: String?, page: String?) -> Bool {
+        let requested = songWords(requested)
+        let page = songWords(page)
+        guard !requested.isEmpty, !page.isEmpty else { return false }
+        return " \(page) ".contains(" \(requested) ") || " \(requested) ".contains(" \(page) ")
+    }
+
+    enum Decision: Equatable {
+        /// Load the page's version in place of the requested one, still presented as the song
+        /// the listener chose.
+        case adopt(videoID: String)
+        /// The page would not play the requested track: say so and move past it.
+        case refused
+        /// The report is about a track that is no longer the current one.
+        case ignore
+    }
+
+    /// What the shell does with a switch that happened before the requested track was heard.
+    ///
+    /// `loadedVideoID` is what the host has loaded now, which may be a version adopted earlier;
+    /// `currentTitle` is the title of the song the listener chose.
+    static func decide(_ swap: OfficialPageSwap, loadedVideoID: String?, currentTitle: String?) -> Decision {
+        guard swap.requestedVideoID == loadedVideoID else { return .ignore }
+        if swap.mayAdopt,
+           swap.pageVideoID != swap.requestedVideoID,
+           isSameSong(requested: currentTitle, page: swap.pageTitle) {
+            return .adopt(videoID: swap.pageVideoID)
+        }
+        return .refused
+    }
+
+    private static func songWords(_ title: String?) -> String {
+        guard let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
+        // Drop bracketed decoration: (Official Video), [Lyrics], (feat. …) and the like.
+        let text = title.replacingOccurrences(
+            of: #"[\(\[][^\)\]]*[\)\]]"#, with: " ", options: .regularExpression)
+        var words = ""
+        for character in text.lowercased() {
+            // An apostrophe joins a word rather than splitting it: "don't" and "dont" are one word.
+            if character == "'" || character == "\u{2019}" { continue }
+            words.append(character.isLetter || character.isNumber ? character : " ")
+        }
+        return words.split(separator: " ").joined(separator: " ")
+    }
+}
