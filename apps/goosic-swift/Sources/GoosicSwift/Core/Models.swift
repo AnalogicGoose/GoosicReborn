@@ -3403,7 +3403,9 @@ final class GoosicAppModel: Combine.ObservableObject {
                 generation: playbackState.generation,
                 volume: volume,
                 muted: isMuted,
-                allowsSubstitute: false
+                allowsSubstitute: false,
+                // A pause pressed while the title was being read still holds.
+                startPaused: listenerPaused
             )
         case .refused:
             Diagnostics.note(.officialPlayback, "refused-before-playing")

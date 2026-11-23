@@ -26,6 +26,7 @@
 //! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key |
 //! | [`hero`] | `ArtistHero.swift` | an artist hero's height and the colour its page takes |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
+//! | [`page_swap`] | `TrackEnd.swift`, C# `PlaybackOrder` | a page that switches video before the requested track plays |
 
 use std::time::Duration;
 
@@ -41,6 +42,7 @@ pub mod lyrics_motion;
 pub mod media;
 pub mod motion_artwork;
 pub mod navigation;
+pub mod page_swap;
 pub mod playback;
 pub mod queue;
 pub mod response;
