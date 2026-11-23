@@ -135,7 +135,8 @@ final class OfficialPlaybackHost: NSObject {
         generation: UInt64,
         volume: Double = 1,
         muted: Bool = false,
-        allowsSubstitute: Bool = true
+        allowsSubstitute: Bool = true,
+        startPaused: Bool = false
     ) {
         guard let webView else {
             onStatus?("Official host is not attached to the native view.")
@@ -200,8 +201,10 @@ final class OfficialPlaybackHost: NSObject {
 
         webView.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy))
         // A native card tap is the playback gesture. Queue the intent before navigation so the
-        // first observer event can start the media as soon as WebKit creates its element.
-        transport.request(paused: false)
+        // first observer event can start the media as soon as WebKit creates its element. A
+        // version loaded in place of a swapped song keeps a pause the listener asked for while
+        // its title was being read, instead of starting anyway.
+        transport.request(paused: startPaused)
         onStatus?("Official host loading \(videoID)…")
     }
 
