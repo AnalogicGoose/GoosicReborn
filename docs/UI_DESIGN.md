@@ -52,12 +52,16 @@ decorative artwork, fades and backdrops must never intercept input.
 
 ## Color, material, typography and shape
 
-The brand accent is the vivid pink used by the current macOS UI: approximately #FF0552, from
-its sRGB components 1.0, 0.02, 0.32. Use it consistently for branded navigation icons, primary
-music actions and active music states. Current Windows and Linux #F53150 values are a parity
-gap, not a second brand choice. Native selection controls may retain their system selection
-color; do not replace a real control just to force every selected segment pink. High-contrast
-and forced-color modes may override brand colors for legibility.
+Goosic has no colour accent. Icons, branded navigation glyphs, primary music actions, active
+music states, liked hearts and slider fills are drawn in the neutral primary colour: white on
+dark surfaces and in the full player, near-black on light ones, so the artwork is the only
+strong colour on screen. A fill in that neutral carries its content in the opposite neutral, so
+a white button holds black text and a black one white. The vivid pink accent (#FF0552 on macOS,
+#F53150 on Windows) is retired on every platform; reintroducing a brand colour is a design
+decision that changes this paragraph, not a per-screen choice. Colour that identifies a place
+rather than a state stays: the browse categories keep their own gradients and Settings rows
+keep their coloured tiles. Native selection controls may retain their system selection color.
+High-contrast and forced-color modes may override these colors for legibility.
 
 Use semantic primary, secondary and tertiary text colors. Primary text contains names and
 important state; secondary text contains artist, album, counts and descriptive metadata;
@@ -246,8 +250,8 @@ on an owned playlist, Remove from Playlist; then Copy Link. Every item carries a
 menu where only some rows have one reads as ragged, and labels use title case. Go to Artist and
 Go to Album stay in the menu whenever the song names an artist or album and are dimmed when
 the catalog gave no link, so the menu does not change shape from one song to the next. The
-macOS menus are the reference; Windows draws its flyouts with rounded rows highlighted in the
-accent colour, which is the nearest native equivalent.
+macOS menus are the reference; Windows draws its flyouts with rounded rows highlighted in a
+neutral fill, which is the nearest native equivalent.
 
 Album and playlist pages lead with cover art, title, relevant metadata and primary Play/Pause
 and Shuffle actions. The primary action reflects whether that collection is playing. Ordered
@@ -330,7 +334,8 @@ through loading and retries.
 ## Main player and volume interaction
 
 The normal player order is Shuffle, Previous, Play/Pause, Next, Repeat; current artwork and
-track title/subtitle above a thin timeline; then More, Lyrics, Queue and Volume. The compact
+track title/subtitle above a thin timeline, the artwork at the playing cover's own shape, as
+in the full player; then More, Lyrics, Queue and Volume. The compact
 layout may wrap persistent controls or omit secondary transport from its first row while
 keeping its actions available. Lyrics and Queue remain visible in normal narrow layouts.
 Do not silently drop them to make the bar fit. The idle state says Nothing playing and invites
@@ -394,7 +399,13 @@ the timing contract and current native adoption.
 
 Full player is an immersive artwork-led surface with a dark readable treatment, even when the
 browser is light. Its backdrop is the cover's own colours at their full depth, darkened with
-black rather than veiled in grey, so a vivid cover gives a vivid field. While playback is
+black rather than veiled in grey, so a vivid cover gives a vivid field. The cover keeps
+the shape of its picture rather than being cropped to a square: a song's square art stays
+square, a music video's frame stays wide, and the controls and lyrics arrange themselves around
+whatever shape it is. The ratio is held between 9:16 and 16:9 and fitted into the space a square
+cover would take, by the rule `cover_aspect` and `fit_cover` in `goosic-shell-support`, so a wide
+cover is as wide as a square one and shorter, never taller than the room left above the
+controls. While playback is
 paused the artwork steps back to about three quarters of its size and springs forward again
 on resume, as Music's does; the metadata and transport below it do not move, and with reduced
 motion the size changes without the spring. Large artwork and track metadata occupy the leading column; Lyrics or Queue
@@ -422,7 +433,7 @@ behind which an edit could be lost. On macOS, Settings lives in its own window, 
 main window, so changing one never takes the user away from what is playing. It is the standard
 Settings window, reached with ⌘, and from the account menu: a toolbar of tabs
 (General, Playback, Accounts, Advanced) over right-aligned group labels with checkboxes and
-pop-up menus, as Music's is, with Goosic's accent on the checkmarks only.
+pop-up menus, as Music's is, with neutral checkmarks.
 
 On Windows, Settings is laid out as Apple Music for Windows lays it out, in the manner of the
 Windows 11 Settings app: an index of full-width category cards (Account, General, Playback,
@@ -534,10 +545,10 @@ Windows/Linux playback or the user's visual acceptance; macOS acceptance remains
 | Volume | Mac corrected overlay; Windows fixed speaker capsule; GTK parity branch uses a homogeneous stack to cover utility icons while More and the speaker remain reachable | Keep geometry fixed; verify native assistive-technology behavior |
 | Player bar | Mac 740-wide capsule; Windows now the same width, with a Like button the Mac bar does not have, and it stays in place beside an opening panel until the panel would reach it; GTK parity branch has the same capsule width and native controls | Decide whether Like belongs in the bar on every platform; verify GTK text scaling |
 | Lyrics | Mac and Windows use contextual opacity/blur, supplied-end rests, interlude dots, per-row following on SwiftUI spring curves, a glow on the sung line, seekable lines with a pointer highlight, and timed-lyrics import; Windows sweeps each character with a feathered edge but has no word lift or held-note swell, which a TextBlock cannot draw; GTK emphasizes synced lines with manual-follow suspension and line seeking | Word lift and swell on Windows need a custom text renderer; adopt native motion on GTK (parity #159); see LYRICS_TIMING.md |
-| Accent | Mac uses #FF0552; GTK parity branch adopts that token; Windows #F53150 remains a gap | Align Windows while preserving native/contrast selection exceptions |
+| Accent | Mac and Windows draw icons and active states in the neutral primary colour; GTK parity branch still uses #FF0552 | Retire the pink on GTK when Linux is back in scope |
 | Density | Mac standard art 158; Windows palette card token 196; GTK artwork/card sizing differs | Compare at equivalent scaling and align perceived density to the current reference |
 | Navigation/inspector | Mac native split regions; Windows adaptive columns/overlays; GTK parity branch adapts navigation and panels down to a 480-pixel window | Preserve native hit areas and verify text scaling and desktop contrast |
-| Full/mini presentation | Mac and Windows immersive players; GTK parity branch has an expanded dark cover/lyrics/queue surface with inspected synthetic captures | GTK mini player and live presentation acceptance remain pending |
+| Full/mini presentation | Mac and Windows immersive players, with the cover at its picture's own shape in the player bar and full player; GTK parity branch has an expanded dark cover/lyrics/queue surface with inspected synthetic captures | GTK mini player and live presentation acceptance remain pending |
 | Accessibility/material | Windows has explicit HighContrast brushes; Mac reduced-motion/material paths; GTK native/theme paths | Verify actual keyboard, contrast, transparency and scaling behavior on each desktop |
 
 Primary source map: macOS NativeMacApp.swift, NativeMacCatalogSurface.swift,
