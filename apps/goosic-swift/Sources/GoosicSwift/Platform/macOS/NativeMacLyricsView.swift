@@ -357,7 +357,7 @@ struct NativeMacLyricsView: View {
             }
             .scaleEffect(gap.scale(positionMs: position, animated: !reduceMotion))
         }
-        .foregroundStyle(immersive ? Color.primary : Color.goosicPink)
+        .foregroundStyle(immersive ? Color.primary : Color.goosicAccent)
         .frame(height: fontSize, alignment: .leading)
         .opacity(active ? 1 : 0)
         .animation(reduceMotion ? nil : .smooth(duration: 0.45), value: active)
@@ -395,7 +395,7 @@ struct NativeMacLyricsView: View {
         let words = synced && segments.map(\.text).joined() == line.text ? segments : []
         return lineContent(line, words: words, swept: swept, position: position)
             .font(.system(size: fontSize, weight: .bold, design: immersive ? .default : .rounded))
-            .foregroundStyle(immersive ? Color.primary : (active ? Color.goosicPink : Color.primary))
+            .foregroundStyle(immersive ? Color.primary : (active ? Color.goosicAccent : Color.primary))
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
             .contentTransition(.identity)
@@ -422,7 +422,7 @@ struct NativeMacLyricsView: View {
         }
         guard swept else { return plain }
         var result = AttributedString()
-        let color: Color = immersive ? .white : .goosicPink
+        let color: Color = immersive ? .white : .goosicAccent
         for (word, sweep) in zip(words, LyricsTiming.sweeps(line)) {
             let characters = Array(word.text)
             let progress = sweep.progress(position)
