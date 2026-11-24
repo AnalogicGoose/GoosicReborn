@@ -176,6 +176,12 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
   switch off after each load (bridge.log: `automix "turned off"`). It is behaviour every shell
   wants, so the script belongs in `goosic-shell-support` beside the observer once that crate's FFI
   question is settled.
+- **The renderer plays the song version.** A song with an audio version and a music video plays
+  whichever the page's Song/Video switch prefers, and the page swaps the requested id before it
+  starts. `OfficialPlaybackHost.PreferSongVersionAsync` presses the page's Song button after each
+  load (bridge.log: `song version "switched"`), and an early swap to another version of the same
+  song is adopted up to `PlaybackOrder.MaxAdoptions` times, so a song swapped to its video and
+  back plays instead of being refused.
 - **A track replaced before it played is not an end.** The host reads the page's title: the same
   song under another id is kept, anything else is reported as refused, dimmed, and skipped for the
   session. Unreleased tracks on pre-release albums arrive from the catalog with a video id and no

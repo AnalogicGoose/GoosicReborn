@@ -22,4 +22,32 @@ public class SameSongTests
     [InlineData("(Intro)", "Anything")]
     public void ADifferentSongDoesNot(string requested, string page) =>
         Assert.False(PlaybackOrder.IsSameSong(requested, page));
+
+    [Fact]
+    public void AnAdoptedVersionMayBeSwappedBackOnceButNotForEver()
+    {
+        Assert.True(PlaybackOrder.MayAdopt(0));
+        // The page swapped the song for its video, then the video back for the song.
+        Assert.True(PlaybackOrder.MayAdopt(1));
+        Assert.False(PlaybackOrder.MayAdopt(PlaybackOrder.MaxAdoptions));
+    }
+
+    [Fact]
+    public void TheSongVersionScriptOnlyPressesSongAndSaysWhatItDid()
+    {
+        var script = PlaybackOrder.SongVersionScript;
+        Assert.Contains("ytmusic-av-toggle", script);
+        Assert.Contains(".song-button", script);
+        Assert.DoesNotContain("video-button", script);
+        Assert.DoesNotContain("location", script);
+        foreach (var answer in new[] { "song", "switched", "no song version" })
+        {
+            Assert.True(PlaybackOrder.SongVersionSettled(answer), answer);
+        }
+
+        foreach (var answer in new[] { "absent", "pending", "", null })
+        {
+            Assert.False(PlaybackOrder.SongVersionSettled(answer), answer);
+        }
+    }
 }
