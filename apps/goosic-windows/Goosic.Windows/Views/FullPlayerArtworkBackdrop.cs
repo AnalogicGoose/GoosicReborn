@@ -23,7 +23,7 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
     private const float DisplacementRange = Side;
     private static readonly Lazy<byte[]> DisplacementPixels = new(CreateDisplacementPixels);
     private readonly Image _base = new() { Stretch = Stretch.UniformToFill };
-    private readonly Image _overlay = new() { Stretch = Stretch.UniformToFill, Opacity = 0.42 };
+    private readonly Image _overlay = new() { Stretch = Stretch.UniformToFill, Opacity = 0.68 };
     private readonly RectangleGeometry _clip = new();
     private Visual? _overlayVisual;
     private string? _requestedFile;
@@ -41,8 +41,9 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
         Children.Add(_overlay);
         Loaded += (_, _) =>
         {
+            ElementCompositionPreview.SetIsTranslationEnabled(_overlay, true);
             _overlayVisual = ElementCompositionPreview.GetElementVisual(_overlay);
-            _overlayVisual.Scale = new Vector3(1.32f, 1.32f, 1);
+            _overlayVisual.Scale = new Vector3(1.46f, 1.46f, 1);
             UpdateBounds();
             UpdateMotion();
         };
@@ -82,7 +83,12 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
         _clip.Rect = new global::Windows.Foundation.Rect(0, 0, ActualWidth, ActualHeight);
         if (_overlayVisual is { } visual)
         {
-            visual.CenterPoint = new Vector3((float)ActualWidth / 2, (float)ActualHeight / 2, 0);
+            // Scale around the middle and rotate around the off-centre pivot of the enlarged image.
+            var width = (float)ActualWidth;
+            var height = (float)ActualHeight;
+            var pivot = new Vector3(width * 0.28f, height * 0.69f, 0);
+            visual.CenterPoint = pivot;
+            visual.Properties.InsertVector3("Translation", (pivot - new Vector3(width / 2, height / 2, 0)) * 0.46f);
         }
     }
 
@@ -110,12 +116,12 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
 
         using var ease = visual.Compositor.CreateCubicBezierEasingFunction(new Vector2(0.42f, 0), new Vector2(0.58f, 1));
         using var animation = visual.Compositor.CreateScalarKeyFrameAnimation();
-        animation.Duration = TimeSpan.FromSeconds(48);
+        animation.Duration = TimeSpan.FromSeconds(22);
         animation.IterationBehavior = AnimationIterationBehavior.Forever;
         animation.InsertKeyFrame(0, 0);
-        animation.InsertKeyFrame(0.25f, 9, ease);
+        animation.InsertKeyFrame(0.25f, 16.6f, ease);
         animation.InsertKeyFrame(0.5f, 0, ease);
-        animation.InsertKeyFrame(0.75f, -9, ease);
+        animation.InsertKeyFrame(0.75f, -16.6f, ease);
         animation.InsertKeyFrame(1, 0, ease);
         visual.StartAnimation(angle, animation);
     }
@@ -175,9 +181,15 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
             TransformMatrix = Matrix3x2.CreateScale(scale) *
                 Matrix3x2.CreateTranslation((Side - width * scale) / 2, (Side - height * scale) / 2),
         };
-        using var warp = new DisplacementMapEffect
+        using var clamped = new BorderEffect
         {
             Source = fitted,
+            ExtendX = CanvasEdgeBehavior.Clamp,
+            ExtendY = CanvasEdgeBehavior.Clamp,
+        };
+        using var warp = new DisplacementMapEffect
+        {
+            Source = clamped,
             Displacement = displacement,
             Amount = DisplacementRange,
             XChannelSelect = EffectChannelSelect.Red,
@@ -188,7 +200,7 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
             Source = warp,
             SourceRectangle = new global::Windows.Foundation.Rect(0, 0, Side, Side),
         };
-        using var blur = new GaussianBlurEffect { Source = clipped, BlurAmount = 10, BorderMode = EffectBorderMode.Hard };
+        using var blur = new GaussianBlurEffect { Source = clipped, BlurAmount = 8, BorderMode = EffectBorderMode.Hard };
         using var colour = new SaturationEffect { Source = blur, Saturation = 1.35f };
         using (var session = target.CreateDrawingSession())
         {
@@ -219,8 +231,8 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
             {
                 var dx = x + 0.5f - Side / 2f;
                 var dy = y + 0.5f - Side / 2f;
-                var weight = MathF.Max(0, 1 - MathF.Sqrt(dx * dx + dy * dy) / (Side / 2f));
-                var angle = 1.4f * weight * weight;
+                var weight = MathF.Max(0, 1 - MathF.Sqrt(dx * dx + dy * dy) / (Side * 0.66f));
+                var angle = 2.9f * weight * weight;
                 var sin = MathF.Sin(angle);
                 var cos = MathF.Cos(angle);
                 var index = (y * Side + x) * 4;
@@ -233,6 +245,6 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
 
         return pixels;
 
-        static byte Encode(float offset) => (byte)MathF.Round(255 * (0.5f + offset / DisplacementRange));
+        static byte Encode(float offset) => (byte)Math.Clamp(MathF.Round(255 * (0.5f + offset / DisplacementRange)), 0, 255);
     }
 }
