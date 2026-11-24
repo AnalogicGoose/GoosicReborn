@@ -3,9 +3,7 @@
  * NativeMacFullPlayer.swift — the immersive full-screen player for the native macOS shell.
  *
  * Layout and behaviour ported from the previous Goosic application's full-screen player
- * (src/components/layout/player-bar.tsx, variant "fullscreen", and lyrics-view.tsx), and its
- * procedural background from src/components/layout/now-playing-background.tsx; the rules those
- * rely on live in Core/NowPlayingMesh.swift.
+ * (src/components/layout/player-bar.tsx, variant "fullscreen", and lyrics-view.tsx).
  *
  * Copyright (C) Oscar Mantilla, George Shyshov, and Goosic contributors.
  *
@@ -18,130 +16,180 @@
  * repository root.
  */
 import AppKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import ImageIO
 import SwiftUI
 
-/// Reads a cached cover into the small bitmap `NowPlayingMesh.palette` samples.
-enum NowPlayingPaletteLoader {
-    /// Survives the player closing, so reopening it fades in the finished background. Sampling
-    /// again meant the field first appeared partway through the fade, the costliest moment for it.
-    @MainActor static var last: (file: URL, palette: [MeshSample])?
+/// Bakes one small texture off the main actor. Core Animation only sees the finished image.
+enum NowPlayingArtworkTexture {
+    private static let side = 128
+    private static let context = CIContext(options: [.cacheIntermediates: false])
+    @MainActor static var last: (file: URL, image: CGImage)?
 
-    static func palette(at file: URL) -> [MeshSample]? {
+    static func make(from file: URL) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-              let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-        let side = NowPlayingMesh.sampleSide
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(
-                data: buffer.baseAddress,
-                width: side,
-                height: side,
-                bitsPerComponent: 8,
-                bytesPerRow: side * 4,
-                space: space,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return false }
-            context.interpolationQuality = .medium
-            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return true
-        }
-        guard drawn else { return nil }
-        return NowPlayingMesh.palette(rgba: pixels, width: side, height: side)
+              let cover = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: side,
+              ] as CFDictionary) else { return nil }
+
+        let extent = CGRect(x: 0, y: 0, width: side, height: side)
+        let scale = CGFloat(side) / CGFloat(min(cover.width, cover.height))
+        let fitted = CIImage(cgImage: cover)
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            .transformed(by: CGAffineTransform(translationX: (extent.width - CGFloat(cover.width) * scale) / 2,
+                                               y: (extent.height - CGFloat(cover.height) * scale) / 2))
+
+        let twirl = CIFilter.twirlDistortion()
+        twirl.inputImage = fitted.cropped(to: extent)
+        twirl.center = CGPoint(x: extent.midX, y: extent.midY)
+        twirl.radius = Float(side) / 2
+        twirl.angle = 1.4
+        guard let warped = twirl.outputImage else { return nil }
+
+        let softened = warped.clampedToExtent()
+            .applyingGaussianBlur(sigma: 10)
+            .cropped(to: extent)
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.35])
+        return context.createCGImage(softened, from: extent)
     }
 }
 
-/// The animated field of soft colour blobs sampled from the cover.
-///
-/// Each cell is a radial blob rather than a filled square: overlapping blobs with a transparent
-/// falloff fuse into one fluid field once blurred, where squares would read as a mosaic. The
-/// field is oversized by 30% on every side so the drift never reveals an edge.
-///
-/// Nothing in a field this blurred needs full resolution, so it is drawn at a fraction of its size
-/// and scaled up. At full size it held the GPU near 57% and well over 100 MB for a large window,
-/// which is what made the player's opening fade stutter; this takes 27% and looks the same.
-struct NowPlayingMeshBackground: View {
-    private static let rasterDivisor: CGFloat = 8
+private struct NowPlayingArtworkBackground: NSViewRepresentable {
+    let file: URL?
+    let animate: Bool
 
-    let palette: [MeshSample]
-    /// Held still while the player slides, so the move only repositions a finished image.
-    var still = false
-    @Environment(\.goosicReduceMotion) private var reduceMotion
+    func makeNSView(context: Context) -> ArtworkLayers { ArtworkLayers() }
 
-    var body: some View {
-        let cells = NowPlayingMesh.cells(for: palette)
-        GeometryReader { proxy in
-            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion || still)) { timeline in
-                field(cells: cells, size: proxy.size, time: timeline.date.timeIntervalSinceReferenceDate)
+    func updateNSView(_ view: ArtworkLayers, context: Context) {
+        view.update(file: file, animate: animate)
+    }
+
+    @MainActor
+    final class ArtworkLayers: NSView {
+        private let base = CALayer()
+        private let overlay = CALayer()
+        private var animate = false
+        private var file: URL?
+        private var renderedFile: URL?
+        private var renderTask: Task<Void, Never>?
+
+        init() {
+            super.init(frame: .zero)
+            wantsLayer = true
+            layer?.masksToBounds = true
+            for texture in [base, overlay] {
+                texture.contentsGravity = .resizeAspectFill
+                texture.masksToBounds = true
+                layer?.addSublayer(texture)
+            }
+            overlay.opacity = 0.42
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
+
+        func update(file: URL?, animate: Bool) {
+            if self.file != file {
+                self.file = file
+                cancelRender()
+                renderedFile = nil
+                setImage(nil)
+            }
+            self.animate = animate
+            updateVisibility()
+        }
+
+        private func setImage(_ image: CGImage?) {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            base.contents = image
+            overlay.contents = image
+            CATransaction.commit()
+        }
+
+        private func cancelRender() {
+            renderTask?.cancel()
+            renderTask = nil
+        }
+
+        private func prepareArtwork() {
+            guard let file, renderedFile != file, renderTask == nil else { return }
+            if let last = NowPlayingArtworkTexture.last, last.file == file {
+                renderedFile = file
+                setImage(last.image)
+                return
+            }
+
+            renderTask = Task { [weak self] in
+                let render = Task.detached(priority: .utility) {
+                    Task.isCancelled ? nil : NowPlayingArtworkTexture.make(from: file)
+                }
+                let image = await withTaskCancellationHandler {
+                    await render.value
+                } onCancel: {
+                    render.cancel()
+                }
+                guard !Task.isCancelled, let self else { return }
+                renderTask = nil
+                renderedFile = file
+                if let image { NowPlayingArtworkTexture.last = (file, image) }
+                setImage(image)
+                updateMotion()
             }
         }
-        .background(palette.first.map(Self.color) ?? .black)
-        // The frost: in the dark appearance this player always uses, a slight darkening.
-        .overlay(Color.black.opacity(0.18))
-        .clipped()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
 
-    private func field(cells: [MeshCell], size: CGSize, time: Double) -> some View {
-        let side = NowPlayingMesh.gridSide
-        let fieldSize = CGSize(width: size.width * 1.6, height: size.height * 1.6)
-        let raster = CGSize(width: fieldSize.width / Self.rasterDivisor, height: fieldSize.height / Self.rasterDivisor)
-        let slot = CGSize(width: raster.width / CGFloat(side), height: raster.height / CGFloat(side))
-        let drift = reduceMotion ? NowPlayingMesh.restingDrift : NowPlayingMesh.drift(at: time)
-        let blur = min(max(size.width * 0.09, 110), 160) / Self.rasterDivisor
-
-        return ZStack(alignment: .topLeading) {
-            ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
-                let pose = reduceMotion ? NowPlayingMesh.restingCell : NowPlayingMesh.breathe(index: index, at: time)
-                blob(cell, slot: slot)
-                    .scaleEffect(cell.scale * pose.scale)
-                    .offset(x: pose.dx * slot.width, y: pose.dy * slot.height)
-                    .opacity(pose.opacity)
-                    .offset(
-                        x: CGFloat(index % side) * slot.width,
-                        y: CGFloat(index / side) * slot.height
-                    )
-            }
+        override func layout() {
+            super.layout()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            base.frame = bounds
+            overlay.frame = bounds.insetBy(dx: -bounds.width * 0.16, dy: -bounds.height * 0.16)
+            CATransaction.commit()
         }
-        .frame(width: raster.width, height: raster.height, alignment: .topLeading)
-        .drawingGroup()
-        .blur(radius: blur)
-        // Averaging a cover's pixels and blurring them both pull its colours toward grey. This
-        // puts back the depth the cover has, so the field reads as its colour and not a wash.
-        .saturation(1.55)
-        .contrast(1.08)
-        // Rasterised with room for the blur's spread, or the scale would redo the blur at full size.
-        .padding(blur * 2)
-        .drawingGroup()
-        .padding(-blur * 2)
-        .scaleEffect(Self.rasterDivisor)
-        .scaleEffect(drift.scale)
-        .rotationEffect(.degrees(drift.degrees))
-        .offset(x: drift.dx * fieldSize.width, y: drift.dy * fieldSize.height)
-        .frame(width: size.width, height: size.height)
-    }
 
-    private func blob(_ cell: MeshCell, slot: CGSize) -> some View {
-        let color = Self.color(cell.color)
-        // CSS `circle at x y` sizes the gradient to the farthest corner of its box.
-        let reach = hypot(max(cell.x, 1 - cell.x) * slot.width, max(cell.y, 1 - cell.y) * slot.height)
-        return RadialGradient(
-            stops: [
-                .init(color: color, location: 0),
-                .init(color: color, location: 0.38),
-                .init(color: color.opacity(0), location: 0.74),
-            ],
-            center: UnitPoint(x: cell.x, y: cell.y),
-            startRadius: 0,
-            endRadius: reach
-        )
-        .frame(width: slot.width, height: slot.height)
-    }
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification,
+                                                      object: window)
+            if newWindow == nil { cancelRender() }
+            super.viewWillMove(toWindow: newWindow)
+        }
 
-    static func color(_ sample: MeshSample) -> Color {
-        Color(.sRGB, red: sample.red / 255, green: sample.green / 255, blue: sample.blue / 255)
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window {
+                NotificationCenter.default.addObserver(self, selector: #selector(updateVisibility),
+                                                       name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            }
+            updateVisibility()
+        }
+
+        private var visible: Bool { window?.occlusionState.contains(.visible) == true }
+
+        @objc private func updateVisibility() {
+            if visible {
+                prepareArtwork()
+            } else {
+                cancelRender()
+            }
+            updateMotion()
+        }
+
+        private func updateMotion() {
+            guard animate, visible, overlay.contents != nil else {
+                overlay.removeAnimation(forKey: "drift")
+                return
+            }
+            guard overlay.animation(forKey: "drift") == nil else { return }
+            let drift = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+            drift.values = [0, 0.16, 0, -0.16, 0]
+            drift.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
+            drift.duration = 48
+            drift.repeatCount = .infinity
+            overlay.add(drift, forKey: "drift")
+        }
     }
 }
 
@@ -178,7 +226,7 @@ private struct NativeMacFullPlayerCover: View {
     }
 }
 
-/// Cover, title, progress, and transport on the left; lyrics on the right; over the mesh.
+/// Cover, title, progress, and transport on the left; lyrics on the right; over the artwork backdrop.
 /// Everything stays mounted beneath it, including the official player surface, so opening and
 /// closing this never interrupts playback.
 struct NativeMacFullPlayer: View {
@@ -191,7 +239,6 @@ struct NativeMacFullPlayer: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.goosicReduceMotion) private var reduceMotion
-    @SwiftUI.State private var palette: [MeshSample]? = NowPlayingPaletteLoader.last?.palette
     @SwiftUI.State private var surfaceSettled = false
     /// What the right-hand column shows: lyrics, the queue, or nothing, switched by the glass
     /// capsule at the bottom right as in Music.
@@ -206,7 +253,7 @@ struct NativeMacFullPlayer: View {
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
-    private var paletteFile: URL? { model.artworkFile(for: model.currentTrack?.thumbnail) }
+    private var backdropFile: URL? { model.artworkFile(for: model.currentTrack?.thumbnail) }
     private var lyricsUnavailable: Bool {
         model.lyrics == nil && (model.lyricsStatus == "No lyrics were found for this track."
             || model.lyricsStatus.hasPrefix("Could not load lyrics:"))
@@ -295,20 +342,7 @@ struct NativeMacFullPlayer: View {
         .environment(\.colorScheme, .dark)
         .task {
             try? await Task.sleep(for: .seconds(0.45))
-            surfaceSettled = true
-        }
-        .task(id: paletteFile) {
-            guard let file = paletteFile else { return }
-            if let last = NowPlayingPaletteLoader.last, last.file == file {
-                palette = last.palette
-                return
-            }
-            let sampled = await Task.detached(priority: .userInitiated) {
-                NowPlayingPaletteLoader.palette(at: file)
-            }.value
-            guard !Task.isCancelled else { return }
-            palette = sampled
-            if let sampled { NowPlayingPaletteLoader.last = (file, sampled) }
+            if !Task.isCancelled { surfaceSettled = true }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: rightPane)
         .onChange(of: model.currentTrack?.id) { _, _ in isScrubbing = false }
@@ -359,18 +393,13 @@ struct NativeMacFullPlayer: View {
 
     private var background: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
-            if let palette {
-                NowPlayingMeshBackground(palette: palette, still: !surfaceSettled || !model.fullPlayerOpen && !compact)
-                    .id(palette)
-                    .transition(.opacity)
-            }
-            // Keeps white text readable over a pale cover. It is black rather than the window's
-            // grey: the grey darkened the field and greyed it too, which is what made a vivid
-            // cover come out as a dull wash.
-            Color.black.opacity(0.24)
+            Color.black
+            NowPlayingArtworkBackground(file: backdropFile,
+                                        animate: !reduceMotion && surfaceSettled && (compact || model.fullPlayerOpen))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            Color.black.opacity(0.56)
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 1.15), value: palette)
         .ignoresSafeArea()
     }
 
