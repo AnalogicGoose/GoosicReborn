@@ -429,8 +429,11 @@ colour boundaries travel visibly behind the controls over a few seconds. An off-
 creates that travel. Size the moving layer for the viewport so its edges stay outside the window
 as it turns. Missing or unreadable artwork leaves the dark fallback. Stop decorative animation
 when the player is hidden or minimised, or when the effective motion preference suppresses it.
-The still image must keep lyrics and controls readable. Browsing alone does not prepare this
-texture.
+The still image must keep lyrics and controls readable. During the full-player entrance, use the
+main screen's already-rendered background, including its plain base when artwork is turned off
+or unavailable. Prepare and start the immersive backdrop only after the entrance finishes, and
+keep the main background visible until the new texture is ready. With motion off, the player
+can prepare its still backdrop as soon as it opens. Browsing alone does not prepare this texture.
 
 Before shipping, compare the old and new backdrop on macOS and Windows using the same square
 cover, wide video thumbnail and window sizes. Check CPU, GPU, resident memory, and player
