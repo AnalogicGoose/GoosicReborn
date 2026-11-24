@@ -149,6 +149,8 @@ struct NowPlayingMeshBackground: View {
 /// and whenever the larger one fails.
 private struct NativeMacFullPlayerCover: View {
     let thumbnail: String?
+    /// Width over height, from the picture itself.
+    var aspect: Double = 1
     /// The cover steps back while playback is paused and comes forward again when it resumes.
     var paused = false
     @Environment(\.goosicReduceMotion) private var reduceMotion
@@ -168,7 +170,7 @@ private struct NativeMacFullPlayerCover: View {
                 }
             }
         }
-        .aspectRatio(1, contentMode: .fit)
+        .aspectRatio(aspect, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: .black.opacity(paused ? 0.22 : 0.35), radius: paused ? 12 : 24, y: paused ? 6 : 12)
         .scaleEffect(paused ? 0.74 : 1)
@@ -376,24 +378,29 @@ struct NativeMacFullPlayer: View {
 
     private func playerColumn(cover: CGFloat, width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: compact ? 8 : 14) {
+            // The cover keeps its picture's shape inside the square it used to fill: a song
+            // stays square, a video is as wide and shorter, and the controls move up to meet it.
             // Clicking the cover goes back, as it did in the previous Goosic.
-            if compact {
-                NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail, paused: model.isPaused)
-                    .frame(width: cover, height: cover)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .frame(maxWidth: .infinity)
-                    .accessibilityLabel("Artwork")
-            } else {
-                Button(action: close) {
-                    NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail, paused: model.isPaused)
-                        .frame(width: cover, height: cover)
-                        // Video art is 16:9. Crop at the square so it stays in the column.
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            NativeMacCoverAspectReader(thumbnail: model.currentTrack?.thumbnail) { aspect in
+                let fitted = CoverShape.fit(aspect: aspect, maxWidth: cover, maxHeight: cover)
+                let artwork = NativeMacFullPlayerCover(
+                    thumbnail: model.currentTrack?.thumbnail, aspect: aspect, paused: model.isPaused
+                )
+                .frame(width: fitted.width, height: fitted.height)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Group {
+                    if compact {
+                        artwork
+                            .accessibilityLabel("Artwork")
+                    } else {
+                        Button(action: close) { artwork }
+                            .buttonStyle(NativeMacPlayerButtonStyle())
+                            .help("Exit full-screen player")
+                            .accessibilityLabel("Exit full-screen player")
+                    }
                 }
-                .buttonStyle(NativeMacPlayerButtonStyle())
                 .frame(maxWidth: .infinity)
-                .help("Exit full-screen player")
-                .accessibilityLabel("Exit full-screen player")
+                .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: aspect)
             }
 
             HStack(alignment: .center, spacing: 10) {
