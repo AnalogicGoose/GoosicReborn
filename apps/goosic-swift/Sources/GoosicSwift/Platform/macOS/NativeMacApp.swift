@@ -28,7 +28,7 @@ struct GoosicMacApp: SwiftUI.App {
     var body: some SwiftUI.Scene {
         SwiftUI.WindowGroup("Goosic", id: "main") {
             NativeMacRootView(store: store)
-                .tint(.goosicPink)
+                .tint(.goosicAccent)
                 .frame(minWidth: 920, minHeight: 680)
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
@@ -43,7 +43,7 @@ struct GoosicMacApp: SwiftUI.App {
         // one to keep in step; playback stays in the main window, where the player surface is.
         SwiftUI.Window("Mini Player", id: NativeMacMiniPlayer.windowID) {
             NativeMacMiniPlayer(store: store)
-                .tint(.goosicPink)
+                .tint(.goosicAccent)
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 320, height: 470)
@@ -258,7 +258,7 @@ public struct GoosicMacUITestHost: SwiftUI.View {
 
     public var body: some SwiftUI.View {
         NativeMacRootView(store: store)
-            .tint(.goosicPink)
+            .tint(.goosicAccent)
             .frame(minWidth: 920, minHeight: 680)
             .onAppear {
                 NSApplication.shared.activate(ignoringOtherApps: true)
@@ -958,7 +958,7 @@ private struct NativeMacSidebar: SwiftUI.View {
                 SwiftUI.Text(route.title).fontWeight(selected ? .semibold : .regular)
             } icon: {
                 NativeMacFixedSymbol(name: icon, glyphSize: 16, width: 22, height: 22)
-                    .foregroundStyle(SwiftUI.Color.goosicPink)
+                    .foregroundStyle(SwiftUI.Color.goosicAccent)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -987,7 +987,7 @@ private struct NativeMacSidebar: SwiftUI.View {
                 SwiftUI.Text(title).fontWeight(selected ? .semibold : .regular)
             } icon: {
                 NativeMacFixedSymbol(name: icon, glyphSize: 16, width: 22, height: 22)
-                    .foregroundStyle(SwiftUI.Color.goosicPink)
+                    .foregroundStyle(SwiftUI.Color.goosicAccent)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -1011,7 +1011,7 @@ private struct NativeMacSidebar: SwiftUI.View {
                 SwiftUI.Text("Liked Music").fontWeight(selected ? .semibold : .regular)
             } icon: {
                 NativeMacFixedSymbol(name: "heart.square", glyphSize: 16, width: 22, height: 22)
-                    .foregroundStyle(SwiftUI.Color.goosicPink)
+                    .foregroundStyle(SwiftUI.Color.goosicAccent)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -1190,7 +1190,7 @@ struct NativeMacAccountAvatar: SwiftUI.View {
                 SwiftUI.Text(fallback)
                     .font(.headline)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(SwiftUI.Color.goosicPink)
+                    .background(SwiftUI.Color.secondary.opacity(0.3))
             }
         }
         .frame(width: 34, height: 34)
@@ -1210,10 +1210,10 @@ private struct NativeMacSidebarArtwork: SwiftUI.View {
             if let image {
                 image.resizable().scaledToFill()
             } else {
-                SwiftUI.Color.goosicPink.opacity(0.14)
+                SwiftUI.Color.goosicAccent.opacity(0.14)
                     .overlay(
                         NativeMacFixedSymbol(name: "music.note", glyphSize: 11, width: 18, height: 18)
-                            .foregroundStyle(SwiftUI.Color.goosicPink)
+                            .foregroundStyle(SwiftUI.Color.goosicAccent)
                     )
             }
         }
@@ -1358,11 +1358,15 @@ private struct NativeMacPlayerBar: SwiftUI.View {
     private var nowPlaying: some SwiftUI.View {
         SwiftUI.VStack(alignment: .leading, spacing: 3) {
             SwiftUI.HStack(spacing: 10) {
-                NativeMacExpandableArtwork(
-                    url: model.currentTrack?.thumbnail,
-                    size: 34,
-                    enabled: model.currentTrack != nil
-                ) { model.setFullPlayerOpen(true) }
+                // The cover keeps its picture's shape: square for a song, wide for a video.
+                NativeMacCoverAspectReader(thumbnail: model.currentTrack?.thumbnail) { aspect in
+                    NativeMacExpandableArtwork(
+                        url: model.currentTrack?.thumbnail,
+                        size: 34,
+                        aspect: aspect,
+                        enabled: model.currentTrack != nil
+                    ) { model.setFullPlayerOpen(true) }
+                }
                 SwiftUI.VStack(alignment: .leading, spacing: 1) {
                     SwiftUI.Text(model.currentTrack?.title ?? "Nothing playing")
                         .font(.body.weight(.semibold)).lineLimit(1)
@@ -1435,7 +1439,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
         .focusEffectDisabled()
         .overlay {
             if progressFocused {
-                Capsule().stroke(SwiftUI.Color.goosicPink.opacity(0.5), lineWidth: 1)
+                Capsule().stroke(SwiftUI.Color.goosicAccent.opacity(0.5), lineWidth: 1)
                     .allowsHitTesting(false)
             }
         }
@@ -1531,7 +1535,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             SwiftUI.Group { moreMenuItems }.labelStyle(.titleAndIcon)
         } label: {
             NativeMacFixedSymbol(name: "ellipsis", glyphSize: 15, width: 30, height: 30)
-                .foregroundStyle(model.sleepTimerActive ? SwiftUI.Color.goosicPink : SwiftUI.Color.primary)
+                .foregroundStyle(model.sleepTimerActive ? SwiftUI.Color.goosicAccent : SwiftUI.Color.primary)
                 .contentShape(Rectangle())
         }
         .menuStyle(.button)
@@ -1581,7 +1585,7 @@ private struct NativeMacPlayerBar: SwiftUI.View {
                        subtle: Bool = false, action: @escaping () -> Void) -> some SwiftUI.View {
         SwiftUI.Button(action: action) {
             NativeMacFixedSymbol(name: name, glyphSize: size, width: 30, height: 30)
-                .foregroundStyle(active ? SwiftUI.Color.goosicPink : subtle ? SwiftUI.Color.secondary : SwiftUI.Color.primary)
+                .foregroundStyle(active ? SwiftUI.Color.goosicAccent : subtle ? SwiftUI.Color.secondary : SwiftUI.Color.primary)
                 .contentShape(Rectangle())
                 .background(active ? SwiftUI.Color.primary.opacity(0.12) : .clear, in: Circle())
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: active)
@@ -1597,9 +1601,9 @@ private struct NativeMacPlayerBar: SwiftUI.View {
 /// button style propagates through the environment, so one placed on the split view turns every
 /// list row and catalog card into a filled control too.
 ///
-/// The tint is cleared because the app tint is `goosicPink`, and a tinted glass button is drawn
-/// as a solid fill of that colour rather than as glass. Pink stays an accent applied to icons and
-/// selection, so call sites do not need to reset the tint themselves.
+/// The tint is cleared because the app tint is `goosicAccent`, and a tinted glass button is drawn
+/// as a solid fill of that colour rather than as glass. The accent stays on icons and selection,
+/// so call sites do not need to reset the tint themselves.
 struct NativeMacGlassButtons: SwiftUI.ViewModifier {
     @SwiftUI.ViewBuilder
     func body(content: Content) -> some SwiftUI.View {
@@ -1754,7 +1758,7 @@ private struct NativeMacSearchView: SwiftUI.View {
             }
             SwiftUI.Button("Search", action: submit)
                 .buttonStyle(.plain)
-                .foregroundStyle(SwiftUI.Color.goosicPink)
+                .foregroundStyle(SwiftUI.Color.goosicAccent)
                 .disabled(model.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(.horizontal, 16)
@@ -1822,7 +1826,7 @@ private struct NativeMacSearchView: SwiftUI.View {
                 SwiftUI.Spacer()
                 SwiftUI.Button("Clear", action: model.clearRecentSearches)
                     .buttonStyle(.plain)
-                    .foregroundStyle(SwiftUI.Color.goosicPink)
+                    .foregroundStyle(SwiftUI.Color.goosicAccent)
             }
             SwiftUI.ScrollView(.horizontal, showsIndicators: false) {
                 SwiftUI.HStack(spacing: 16) {
@@ -2093,7 +2097,7 @@ struct NativeMacQueuePanel: SwiftUI.View {
                 if isCurrent {
                     SwiftUI.Image(systemName: "speaker.wave.2.fill")
                         .font(.caption)
-                        .foregroundStyle(SwiftUI.Color.goosicPink)
+                        .foregroundStyle(SwiftUI.Color.goosicAccent)
                 } else {
                     SwiftUI.Text(track.duration)
                         .font(.caption2.monospacedDigit())
@@ -2130,7 +2134,7 @@ private struct NativeMacNoticeView: SwiftUI.View {
     var body: some SwiftUI.View {
         SwiftUI.HStack(spacing: 8) {
             SwiftUI.Image(systemName: notice.isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(notice.isError ? SwiftUI.Color.orange : SwiftUI.Color.goosicPink)
+                .foregroundStyle(notice.isError ? SwiftUI.Color.orange : SwiftUI.Color.goosicAccent)
             SwiftUI.Text(notice.text).font(.callout).lineLimit(2)
         }
         .padding(.horizontal, 14)
@@ -2198,6 +2202,8 @@ private struct NativeMacLyricsPanel: SwiftUI.View {
 private struct NativeMacPanelArtwork: SwiftUI.View {
     let url: String?
     var size: CGFloat = 42
+    /// Width over height; `size` is the height.
+    var aspect: Double = 1
 
     var body: some SwiftUI.View {
         NativeMacCachedImage(url: url, maxPixels: Int(size * 2)) { image in
@@ -2208,7 +2214,7 @@ private struct NativeMacPanelArtwork: SwiftUI.View {
                     .overlay(SwiftUI.Image(systemName: "music.note"))
             }
         }
-        .frame(width: size, height: size)
+        .frame(width: size * aspect, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size / 6))
     }
 }
@@ -2218,6 +2224,7 @@ private struct NativeMacPanelArtwork: SwiftUI.View {
 private struct NativeMacExpandableArtwork: SwiftUI.View {
     let url: String?
     let size: CGFloat
+    var aspect: Double = 1
     let enabled: Bool
     let action: () -> Void
     @SwiftUI.Environment(\.goosicReduceMotion) private var reduceMotion
@@ -2227,7 +2234,8 @@ private struct NativeMacExpandableArtwork: SwiftUI.View {
 
     var body: some SwiftUI.View {
         SwiftUI.Button(action: action) {
-            NativeMacPanelArtwork(url: url, size: size)
+            NativeMacPanelArtwork(url: url, size: size, aspect: aspect)
+                .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: aspect)
                 .overlay {
                     if highlighted {
                         SwiftUI.ZStack {
@@ -2304,9 +2312,11 @@ private struct NativeMacOfficialPlaybackSurface: SwiftUI.NSViewRepresentable {
 }
 
 extension SwiftUI.Color {
-    /// Goosic's accent, used where Music uses its red. `Color.accentColor` is not it: that reads
-    /// the system accent and ignores the window's tint, which is how hearts came out blue.
-    static let goosicPink = SwiftUI.Color(red: 1.0, green: 0.02, blue: 0.32)
+    /// Goosic's accent, used where Music uses its red: the neutral primary colour, white in dark
+    /// mode and the full player and near-black in light mode, so the artwork is the only strong
+    /// colour on screen. `Color.accentColor` is not it: that reads the system accent and ignores
+    /// the window's tint, which is how hearts came out blue.
+    static let goosicAccent = SwiftUI.Color.primary
 }
 
 #if DEBUG
@@ -2320,7 +2330,7 @@ private struct NativeMacAppPreview: SwiftUI.View {
 
     var body: some SwiftUI.View {
         NativeMacRootView(store: store)
-            .tint(.goosicPink)
+            .tint(.goosicAccent)
             .preferredColorScheme(colorScheme)
             .frame(width: 1_280, height: height)
     }

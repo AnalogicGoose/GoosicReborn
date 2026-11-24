@@ -1801,9 +1801,9 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Border Width="32" Height="32" CornerRadius="16" Background="{ThemeResource GoosicNavigationAccentBrush}">
+                                <Border Width="32" Height="32" CornerRadius="16" Background="{ThemeResource GoosicRaisedStrongBrush}">
                                     <Grid>
-                                        <TextBlock Text="{x:Bind Model.AccountInitials, Mode=OneWay}" Foreground="White"
+                                        <TextBlock Text="{x:Bind Model.AccountInitials, Mode=OneWay}" Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                    FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         <Image Source="{x:Bind Model.AccountArtwork, Mode=OneWay}" Stretch="UniformToFill" />
                                     </Grid>
@@ -2193,7 +2193,8 @@
                             AutomationProperties.Name="Exit full-screen player" Click="OnCloseFullPlayer">
                         <Border x:Name="FullPlayerCoverFrame" CornerRadius="12" Background="#22FFFFFF">
                             <Viewbox Stretch="Uniform">
-                                <Grid Width="520" Height="520">
+                                <!-- Sized to the picture's own shape in code; see ApplyCoverAspect. -->
+                                <Grid x:Name="FullPlayerCoverCanvas" Width="520" Height="520">
                                     <FontIcon Glyph="&#xE8D6;" FontSize="64" Opacity="0.5" />
                                     <Image x:Name="FullPlayerCover" Stretch="UniformToFill" />
                                 </Grid>
