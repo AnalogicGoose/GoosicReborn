@@ -23,8 +23,9 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
     private const float DisplacementRange = Side;
     private static readonly Lazy<byte[]> DisplacementPixels = new(CreateDisplacementPixels);
     private readonly Image _base = new() { Stretch = Stretch.UniformToFill };
-    private readonly Image _overlay = new() { Stretch = Stretch.UniformToFill, Opacity = 0.68 };
+    private readonly Image _overlay = new() { Stretch = Stretch.UniformToFill, Opacity = 0.64 };
     private readonly RectangleGeometry _clip = new();
+    private Visual? _baseVisual;
     private Visual? _overlayVisual;
     private string? _requestedFile;
     private int _request;
@@ -41,6 +42,9 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
         Children.Add(_overlay);
         Loaded += (_, _) =>
         {
+            _baseVisual = ElementCompositionPreview.GetElementVisual(_base);
+            // Reorient the rear layer so it contributes different colour regions.
+            _baseVisual.Scale = new Vector3(-1, -1, 1);
             ElementCompositionPreview.SetIsTranslationEnabled(_overlay, true);
             _overlayVisual = ElementCompositionPreview.GetElementVisual(_overlay);
             _overlayVisual.Scale = new Vector3(1.46f, 1.46f, 1);
@@ -50,6 +54,7 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
         Unloaded += (_, _) =>
         {
             Update(file: null, animate: false);
+            _baseVisual = null;
             _overlayVisual = null;
         };
         SizeChanged += (_, _) => UpdateBounds();
@@ -81,14 +86,20 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
     private void UpdateBounds()
     {
         _clip.Rect = new global::Windows.Foundation.Rect(0, 0, ActualWidth, ActualHeight);
+        var width = (float)ActualWidth;
+        var height = (float)ActualHeight;
+        var centre = new Vector3(width / 2, height / 2, 0);
+        if (_baseVisual is { } rear)
+        {
+            rear.CenterPoint = centre;
+        }
+
         if (_overlayVisual is { } visual)
         {
             // Scale around the middle and rotate around the off-centre pivot of the enlarged image.
-            var width = (float)ActualWidth;
-            var height = (float)ActualHeight;
             var pivot = new Vector3(width * 0.28f, height * 0.69f, 0);
             visual.CenterPoint = pivot;
-            visual.Properties.InsertVector3("Translation", (pivot - new Vector3(width / 2, height / 2, 0)) * 0.46f);
+            visual.Properties.InsertVector3("Translation", (pivot - centre) * 0.46f);
         }
     }
 
@@ -201,11 +212,24 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
             SourceRectangle = new global::Windows.Foundation.Rect(0, 0, Side, Side),
         };
         using var blur = new GaussianBlurEffect { Source = clipped, BlurAmount = 8, BorderMode = EffectBorderMode.Hard };
-        using var colour = new SaturationEffect { Source = blur, Saturation = 1.35f };
+        using var colour = new SaturationEffect { Source = blur, Saturation = 1.5f };
+        using var bounded = new ColorMatrixEffect { Source = colour, ClampOutput = true };
+        // Lift midtones without letting the highlights compete with the player text.
+        using var grade = new GammaTransferEffect
+        {
+            Source = bounded,
+            RedAmplitude = 117f / 255,
+            GreenAmplitude = 117f / 255,
+            BlueAmplitude = 117f / 255,
+            RedExponent = 0.66f,
+            GreenExponent = 0.66f,
+            BlueExponent = 0.66f,
+            AlphaDisable = true,
+        };
         using (var session = target.CreateDrawingSession())
         {
             session.Clear(Microsoft.UI.Colors.Black);
-            session.DrawImage(colour);
+            session.DrawImage(grade);
         }
 
         var output = new InMemoryRandomAccessStream();

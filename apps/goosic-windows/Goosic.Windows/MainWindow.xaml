@@ -2166,7 +2166,6 @@
         -->
         <Grid x:Name="FullPlayer" Visibility="Collapsed" Background="Black" RequestedTheme="Dark">
             <Grid x:Name="FullPlayerBackdrop" />
-            <Rectangle Fill="#000000" Opacity="0.45" IsHitTestVisible="False" />
 
             <!-- Split: cover beside lyrics. On a narrow window the lyrics toggle chooses between the
                  cover and the lyrics, and the controls stay at the bottom either way. -->
