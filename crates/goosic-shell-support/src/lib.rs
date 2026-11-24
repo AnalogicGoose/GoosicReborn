@@ -23,7 +23,7 @@
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
 //! | [`lyrics`] | `Models.swift` | which line is current |
 //! | [`lyrics_motion`] | `LyricsTiming.swift`, C# lyrics rules | drawing spans, rests, interludes and row motion |
-//! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key |
+//! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key, the playing cover's shape |
 //! | [`hero`] | `ArtistHero.swift` | an artist hero's height and the colour its page takes |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
 //! | [`page_swap`] | `TrackEnd.swift`, C# `PlaybackOrder` | a page that switches video before the requested track plays |
