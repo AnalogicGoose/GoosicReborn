@@ -58,17 +58,40 @@ ensure_pr() {
 merge_when_green() {
     number=$1
     say "Waiting for CI on #$number"
-    tries=0
-    # Checks appear a few seconds after a push; until then gh reports none.
-    until gh pr checks "$number" >/dev/null 2>&1 || [ $? -eq 8 ]; do
-        tries=$((tries + 1))
-        [ "$tries" -lt 20 ] || { echo "No checks reported on #$number." >&2; exit 1; }
-        sleep 15
+    empty=0
+    passed=0
+    # gh exits 0 when every check passed, 8 while any is pending, and 1 both when one failed and
+    # when none is reported. None is reported for a moment after a push, and again whenever the
+    # base moves and the checks restart, which is what happens to the second pull request into
+    # development once the first merges. So "none" is waited out, never read as a failure, and a
+    # pass is believed only when it is still a pass on the next look.
+    while :; do
+        code=0
+        output=$(gh pr checks "$number" 2>&1) || code=$?
+        case $code in
+            0)
+                passed=$((passed + 1))
+                [ "$passed" -lt 2 ] || break
+                sleep 20
+                ;;
+            8)
+                passed=0
+                sleep 30
+                ;;
+            *)
+                passed=0
+                if printf '%s' "$output" | grep -q "no checks reported"; then
+                    empty=$((empty + 1))
+                    [ "$empty" -lt 40 ] || { echo "No checks reported on #$number." >&2; exit 1; }
+                    sleep 15
+                else
+                    printf '%s\n' "$output" | grep -v -e '	pass	' -e '	skipping	' >&2 || true
+                    echo "CI failed on #$number: $(gh pr view "$number" --json url --jq .url)" >&2
+                    exit 1
+                fi
+                ;;
+        esac
     done
-    if ! gh pr checks "$number" --watch --interval 30 >/dev/null; then
-        echo "CI failed on #$number: $(gh pr view "$number" --json url --jq .url)" >&2
-        exit 1
-    fi
     gh pr merge "$number" --merge >/dev/null
     echo "Merged #$number."
 }
