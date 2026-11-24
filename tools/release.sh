@@ -188,6 +188,13 @@ ship() {
 }
 
 feed() {
+    # A repeat after the feed item merged has nothing left to do; the merged pull request is no
+    # longer open, so looking for one would try to open another.
+    if git show origin/development:updates/macos-alpha.xml \
+        | grep -q "<sparkle:shortVersionString>$version</sparkle:shortVersionString>"; then
+        say "development's feed already offers $version to installed Macs."
+        return 0
+    fi
     [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" = false ] \
         || { echo "Publish the $tag draft first; the feed points at its download." >&2; exit 1; }
     sign=${SPARKLE_SIGN_UPDATE:-}
