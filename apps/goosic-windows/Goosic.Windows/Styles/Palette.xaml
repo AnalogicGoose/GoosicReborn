@@ -10,7 +10,24 @@
             <LinearGradientBrush x:Key="GoosicSearchMoodsBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#A92FB3" Offset="0" /><GradientStop Color="#D929EE" Offset="1" /></LinearGradientBrush>
             <LinearGradientBrush x:Key="GoosicSearchReleasesBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#B82E52" Offset="0" /><GradientStop Color="#FF2D61" Offset="1" /></LinearGradientBrush>
             <SolidColorBrush x:Key="GoosicSearchCardTextBrush" Color="White" />
-            <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#FF0552" />
+            <!--
+                Goosic has no colour accent: icons, active states, slider fills and the system's
+                accent-coloured controls all take the neutral primary colour, so the artwork is the
+                only strong colour on screen. A fill in it carries its content in the opposite one.
+            -->
+            <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="GoosicAccentBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SliderTrackValueFill" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#FFFFFF" Opacity="0.9" />
+            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#FFFFFF" Opacity="0.8" />
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#FFFFFF" Opacity="0.9" />
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#FFFFFF" Opacity="0.8" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#000000" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#000000" Opacity="0.7" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemBaseHighColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#1C1C1C" />
             <SolidColorBrush x:Key="GoosicRailBrush" Color="#211B30" />
@@ -45,7 +62,24 @@
             <LinearGradientBrush x:Key="GoosicSearchMoodsBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#A92FB3" Offset="0" /><GradientStop Color="#D929EE" Offset="1" /></LinearGradientBrush>
             <LinearGradientBrush x:Key="GoosicSearchReleasesBrush" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#B82E52" Offset="0" /><GradientStop Color="#FF2D61" Offset="1" /></LinearGradientBrush>
             <SolidColorBrush x:Key="GoosicSearchCardTextBrush" Color="White" />
-            <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#FF0552" />
+            <!--
+                Goosic has no colour accent: icons, active states, slider fills and the system's
+                accent-coloured controls all take the neutral primary colour, so the artwork is the
+                only strong colour on screen. A fill in it carries its content in the opposite one.
+            -->
+            <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="GoosicAccentBrush" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="SliderTrackValueFill" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#1C1C1C" Opacity="0.9" />
+            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#1C1C1C" Opacity="0.8" />
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#1C1C1C" />
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#1C1C1C" Opacity="0.9" />
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#1C1C1C" Opacity="0.8" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#FFFFFF" Opacity="0.7" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemBaseHighColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="#FBFBFD" />
             <SolidColorBrush x:Key="GoosicRailBrush" Color="#F0EDF5" />
@@ -80,6 +114,7 @@
             <SolidColorBrush x:Key="GoosicSearchReleasesBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicSearchCardTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="GoosicNavigationAccentBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="GoosicAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="GoosicSidebarSelectedTextBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
             <SolidColorBrush x:Key="GoosicWindowBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GoosicTitleFadeBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -100,13 +135,12 @@
     <!--
         The shell's colours in one place, so a surface cannot drift from the rest.
 
-        The accent is literal because the brand red has to be the same red whatever the desktop
-        accent is set to. The neutrals are theme dictionaries rather than fixed values: a
+        The accent is the neutral primary colour, set per theme above, and it replaces the
+        desktop's accent too, so no control turns red or blue. The neutrals are theme
+        dictionaries rather than fixed values: a
         translucent white raises a surface on a dark ground and vanishes on a light one, so each
         neutral states both rather than suiting one scheme and being wrong in the other.
     -->
-    <Color x:Key="GoosicAccentColor">#F53150</Color>
-    <SolidColorBrush x:Key="GoosicAccentBrush" Color="{StaticResource GoosicAccentColor}" />
 
 
 
