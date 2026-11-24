@@ -2166,12 +2166,6 @@
         -->
         <Grid x:Name="FullPlayer" Visibility="Collapsed" Background="Black" RequestedTheme="Dark">
             <Grid x:Name="FullPlayerBackdrop" />
-            <!-- The cover, blurred, over the moving colours: it ties the background to this track
-                 rather than to its palette alone. Skipped when Windows has transparency turned off. -->
-            <Image x:Name="FullPlayerBlur" Stretch="UniformToFill" Opacity="0.5" Visibility="Collapsed"
-                   IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw" />
-            <!-- Blurs everything beneath it, so the moving colours read as a wash, as on macOS. -->
-            <Grid x:Name="FullPlayerBlurHost" IsHitTestVisible="False" />
             <Rectangle Fill="#000000" Opacity="0.45" IsHitTestVisible="False" />
 
             <!-- Split: cover beside lyrics. On a narrow window the lyrics toggle chooses between the
