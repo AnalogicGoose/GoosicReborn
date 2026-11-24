@@ -500,7 +500,7 @@ private struct NativeMacCollectionHeader: SwiftUI.View {
             )
             .font(.headline)
             .modifier(NativeMacSymbolTransition(symbol: playingHere && !model.isPaused ? "pause.fill" : "play.fill"))
-            .foregroundStyle(SwiftUI.Color.goosicPink)
+            .foregroundStyle(SwiftUI.Color.goosicAccent)
             .frame(width: 150, height: 34)
             .contentShape(Capsule())
         }
@@ -519,7 +519,7 @@ private struct NativeMacCollectionHeader: SwiftUI.View {
                               systemImage: saved ? "checkmark" : "plus")
             }
             .modifier(NativeMacGlassButtons())
-            .foregroundStyle(SwiftUI.Color.goosicPink)
+            .foregroundStyle(SwiftUI.Color.goosicAccent)
             .help(saved ? "Remove from Library" : "Save to Library")
             .accessibilityLabel(saved ? "Saved. Remove from Library" : "Save to Library")
             .disabled(model.libraryOperationInProgress)
@@ -536,7 +536,7 @@ private struct NativeMacCollectionHeader: SwiftUI.View {
             }
         }
         .font(.system(size: 24, weight: .medium))
-        .foregroundStyle(SwiftUI.Color.goosicPink)
+        .foregroundStyle(SwiftUI.Color.goosicAccent)
         .lineLimit(1)
     }
 
@@ -561,7 +561,7 @@ private struct NativeMacCollectionHeader: SwiftUI.View {
         SwiftUI.Button(action: action) {
             SwiftUI.Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(active ? SwiftUI.Color.goosicPink : SwiftUI.Color.primary)
+                .foregroundStyle(active ? SwiftUI.Color.goosicAccent : SwiftUI.Color.primary)
                 .frame(width: 34, height: 34)
                 .contentShape(Circle())
         }
@@ -748,7 +748,7 @@ private struct NativeMacTrackColumns: SwiftUI.View {
                 SwiftUI.VStack(alignment: .leading, spacing: 2) {
                     SwiftUI.Text(track.title)
                         .lineLimit(1)
-                        .foregroundStyle(playing ? SwiftUI.Color.goosicPink : SwiftUI.Color.primary)
+                        .foregroundStyle(playing ? SwiftUI.Color.goosicAccent : SwiftUI.Color.primary)
                     SwiftUI.Text(track.secondaryText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -829,7 +829,7 @@ private struct NativeMacCategoryGrid: SwiftUI.View {
     }
 
     private func stripe(_ hex: String?) -> SwiftUI.Color {
-        guard let rgb = categoryColor(hex) else { return SwiftUI.Color.goosicPink }
+        guard let rgb = categoryColor(hex) else { return SwiftUI.Color.secondary }
         return SwiftUI.Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 }
@@ -886,7 +886,7 @@ private struct NativeMacTrackList: SwiftUI.View {
             SwiftUI.Button { model.toggleLike(track) } label: {
                 SwiftUI.Image(systemName: liked ? "heart.fill" : "heart")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(liked ? SwiftUI.Color.goosicPink : SwiftUI.Color.secondary)
+                    .foregroundStyle(liked ? SwiftUI.Color.goosicAccent : SwiftUI.Color.secondary)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
@@ -904,7 +904,7 @@ private struct NativeMacTrackList: SwiftUI.View {
                 SwiftUI.HStack(spacing: 5) {
                     SwiftUI.Text(track.title)
                         .lineLimit(1)
-                        .foregroundStyle(playing ? SwiftUI.Color.goosicPink : SwiftUI.Color.primary)
+                        .foregroundStyle(playing ? SwiftUI.Color.goosicAccent : SwiftUI.Color.primary)
                     if track.explicit {
                         SwiftUI.Image(systemName: "e.square.fill")
                             .font(.caption2)
@@ -940,7 +940,7 @@ private struct NativeMacTrackList: SwiftUI.View {
             } label: {
                 SwiftUI.Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(isHovered || selected == track.id ? SwiftUI.Color.goosicPink : SwiftUI.Color.secondary)
+                    .foregroundStyle(isHovered || selected == track.id ? SwiftUI.Color.goosicAccent : SwiftUI.Color.secondary)
                     .frame(width: 26, height: 26)
                     .contentShape(Rectangle())
             }
@@ -991,7 +991,7 @@ private struct NativeMacTrackList: SwiftUI.View {
         let button = SwiftUI.Button { play(track) } label: {
             SwiftUI.Image(systemName: "play.fill")
                 .font(.system(size: 13))
-                .foregroundStyle(numbered ? SwiftUI.Color.goosicPink : SwiftUI.Color.white)
+                .foregroundStyle(numbered ? SwiftUI.Color.goosicAccent : SwiftUI.Color.white)
                 .frame(width: 30, height: 30)
                 .contentShape(Rectangle())
         }
@@ -1004,7 +1004,7 @@ private struct NativeMacTrackList: SwiftUI.View {
                 } else if playing {
                     SwiftUI.Image(systemName: model.isPaused ? "speaker.fill" : "speaker.wave.2.fill")
                         .font(.caption)
-                        .foregroundStyle(SwiftUI.Color.goosicPink)
+                        .foregroundStyle(SwiftUI.Color.goosicAccent)
                 } else {
                     SwiftUI.Text("\(index + 1)")
                         .font(.callout.monospacedDigit())
@@ -1248,7 +1248,7 @@ private struct NativeMacArtwork: SwiftUI.View {
                 image.resizable().scaledToFill()
             } else {
                 SwiftUI.ZStack {
-                    SwiftUI.Color.goosicPink.opacity(0.14)
+                    SwiftUI.Color.goosicAccent.opacity(0.14)
                     SwiftUI.Image(systemName: round ? "music.mic" : "music.note")
                         .foregroundStyle(.secondary)
                 }
