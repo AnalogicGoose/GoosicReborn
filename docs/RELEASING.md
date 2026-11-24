@@ -95,7 +95,9 @@ derived one.
 
 Codex reviews a release, not every pull request. Its automatic reviews are switched off for this
 repository in the Codex settings (chatgpt.com/codex, Settings → Code review), so feature, fix and
-promotion pull requests merge on CI and a person's reading alone. A review on each of those was
+promotion pull requests merge on CI and a person's reading alone. That setting belongs to each
+Codex account, not to the repository: anyone whose account is connected to it switches it off in
+their own settings, or Codex keeps reviewing every pull request on their behalf. A review on each of those was
 the same code read several times on its way to `main` — once in the feature, again in each
 promotion — and its findings landed mid-chain, where every fix reopened a pull request and cost
 another round of CI.
