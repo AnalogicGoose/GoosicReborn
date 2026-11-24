@@ -14,6 +14,7 @@ use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 
 use crate::artwork::ArtworkCache;
+use crate::glass::{GlassFrame, GlassGroup, GlassKind};
 use crate::pages::{route_title, LibrarySection, MoreRow, PageRow, ShellFacts};
 use crate::theme;
 
@@ -24,6 +25,7 @@ pub struct Actions {
     /// Plays a track; the list is what becomes the queue, and may be empty.
     pub play: Box<dyn Fn(Track, Rc<[Track]>)>,
     pub shuffle_play: Box<dyn Fn(Rc<[Track]>)>,
+    pub start_radio_for: Box<dyn Fn(Track)>,
     pub retry: Box<dyn Fn()>,
     pub back: Box<dyn Fn()>,
     pub set_theme: Box<dyn Fn(Theme)>,
@@ -31,6 +33,10 @@ pub struct Actions {
     pub set_start_page: Box<dyn Fn(String)>,
     pub set_reduce_motion: Box<dyn Fn(bool)>,
     pub set_artwork_background: Box<dyn Fn(bool)>,
+    pub set_discord_status: Box<dyn Fn(bool)>,
+    pub set_debug_mode: Box<dyn Fn(bool)>,
+    pub toggle_autoplay: Box<dyn Fn()>,
+    pub toggle_shuffle: Box<dyn Fn()>,
     pub import_legacy: Box<dyn Fn()>,
     /// Fetches the next part of a page that continues.
     pub load_more: Box<dyn Fn()>,
@@ -44,9 +50,13 @@ pub struct Actions {
     pub save_playlist: Box<dyn Fn(String, bool)>,
     pub like_track: Box<dyn Fn(String)>,
     pub unlike_track: Box<dyn Fn(String)>,
+    pub subscribe_artist: Box<dyn Fn(String, bool)>,
     pub add_to_playlist: Box<dyn Fn(String)>,
     pub can_edit_library: Box<dyn Fn() -> bool>,
+    pub is_refused: Box<dyn Fn(&str) -> bool>,
     pub queue_track: Box<dyn Fn(Track, bool)>,
+    pub submit_search: Box<dyn Fn(String)>,
+    pub clear_recent_searches: Box<dyn Fn()>,
     pub artwork: Rc<ArtworkCache>,
 }
 
@@ -545,10 +555,11 @@ pub fn select_library_section(routes: &gtk::ListBox, section: LibrarySection) {
 }
 
 /// The floating macOS-style Search capsule and linked native segmented category control.
-/// No opaque header band or horizontal separator sits behind them.
+/// Both sit inside frosted `GlassFrame`s so scrolled rows blur smoothly beneath them.
 pub fn search_bar(
     on_submit: impl Fn(String) + 'static,
     on_filter: impl Fn(SearchFilter) + 'static,
+    glass: &GlassGroup,
 ) -> gtk::Box {
     let on_submit = Rc::new(on_submit);
     let entry = gtk::SearchEntry::builder()
@@ -570,6 +581,7 @@ pub fn search_bar(
     pill.add_css_class("goosic-search-pill");
     pill.append(&entry);
     pill.append(&search);
+    let pill_glass = glass.wrap(&pill, GlassKind::SearchPill, None);
 
     let on_filter = Rc::new(on_filter);
     let segments = gtk::Box::new(gtk::Orientation::Horizontal, 2);
@@ -594,20 +606,60 @@ pub fn search_bar(
         });
         segments.append(&toggle);
     }
+    let segments_glass = glass.wrap(&segments, GlassKind::SegmentedPill, None);
+    segments_glass.set_halign(gtk::Align::Center);
     let filter_scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Automatic)
         .vscrollbar_policy(gtk::PolicyType::Never)
         .propagate_natural_height(true)
-        .child(&segments)
+        .child(&segments_glass)
         .build();
 
     let root = column(12);
     root.set_margin_top(16);
     root.set_margin_start(24);
     root.set_margin_end(24);
-    root.append(&pill);
+    root.append(&pill_glass);
     root.append(&filter_scroll);
     root
+}
+
+/// Floating frosted "Find in Playlist" bar triggered by Ctrl+Shift+F on track lists.
+pub fn find_bar(
+    on_change: impl Fn(String) + 'static,
+    on_close: impl Fn() + 'static,
+    glass: &GlassGroup,
+) -> (GlassFrame, gtk::SearchEntry) {
+    let entry = gtk::SearchEntry::builder()
+        .placeholder_text("Find in playlist or album")
+        .hexpand(true)
+        .width_request(260)
+        .build();
+    entry.add_css_class("goosic-search-entry");
+    entry.connect_search_changed(move |e| on_change(e.text().to_string()));
+    let close = gtk::Button::builder()
+        .icon_name("window-close-symbolic")
+        .tooltip_text("Close find (Esc)")
+        .build();
+    close.add_css_class("flat");
+    {
+        let entry = entry.clone();
+        close.connect_clicked(move |_| {
+            entry.set_text("");
+            on_close();
+        });
+    }
+    let box_inner = row(8);
+    box_inner.add_css_class("goosic-find-bar");
+    box_inner.append(&entry);
+    box_inner.append(&close);
+    let frame = glass.wrap(&box_inner, GlassKind::SearchPill, None);
+    frame.set_halign(gtk::Align::End);
+    frame.set_valign(gtk::Align::Start);
+    frame.set_margin_top(14);
+    frame.set_margin_end(24);
+    frame.set_visible(false);
+    (frame, entry)
 }
 
 fn filter_label(filter: SearchFilter) -> &'static str {
@@ -670,10 +722,12 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
             18,
         ),
         PageRow::ArtistHero {
+            artist_id,
             name,
             header,
             tracks,
-        } => padded(&artist_hero(name, header, tracks, actions), 4, 18),
+        } => padded(&artist_hero(artist_id, name, header, tracks, actions), 4, 18),
+        PageRow::RecentSearches(queries) => padded(&recent_searches(queries, actions), 8, 12),
         PageRow::SearchBrowse => padded(&search_browse(actions), 8, 20),
         PageRow::GuestNotice => {
             let notice = row(8);
@@ -916,8 +970,9 @@ fn collection_header(
 }
 
 /// macOS `NativeMacArtistHero`: edge-to-edge top-anchored banner (or circular portrait),
-/// darkened gradient foot scrim, bold centered name, audience line, and About / Play / Subscribe.
+/// tint-sampled gradient foot scrim, bold centered name, audience line, and frosted About / Play / Subscribe.
 fn artist_hero(
+    artist_id: &str,
     name: &str,
     header: &ArtistHeader,
     tracks: &Rc<[Track]>,
@@ -930,6 +985,43 @@ fn artist_hero(
     backdrop.set_overflow(gtk::Overflow::Hidden);
     backdrop.add_css_class("goosic-artist-hero");
 
+    let scrim = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    scrim.add_css_class("goosic-artist-scrim");
+    scrim.set_can_target(false);
+    scrim.set_hexpand(true);
+    scrim.set_vexpand(true);
+
+    // Apply sampled artist page tint from the loaded banner/portrait texture via `hero::tint`.
+    let apply_tint = |picture: &gtk::Picture, scrim: &gtk::Box| {
+        let scrim_weak = scrim.downgrade();
+        let update = move |picture: &gtk::Picture| {
+            let Some(scrim) = scrim_weak.upgrade() else {
+                return;
+            };
+            let Some(texture) = picture.paintable().and_downcast::<gtk::gdk::Texture>() else {
+                return;
+            };
+            if let Some((r, g, b)) = crate::mesh::sample_hero_tint(&texture) {
+                let (ri, gi, bi) = (
+                    (r * 255.0).round() as u8,
+                    (g * 255.0).round() as u8,
+                    (b * 255.0).round() as u8,
+                );
+                let css = format!(
+                    ".goosic-artist-scrim {{ background: linear-gradient(to bottom, rgba({ri},{gi},{bi},0.06) 0%, rgba({ri},{gi},{bi},0.52) 55%, rgba({ri},{gi},{bi},0.94) 100%); }}"
+                );
+                let provider = gtk::CssProvider::new();
+                provider.load_from_string(&css);
+                #[allow(deprecated)]
+                scrim
+                    .style_context()
+                    .add_provider(&provider, gtk::STYLE_PROVIDER_PRIORITY_USER);
+            }
+        };
+        update(picture);
+        picture.connect_paintable_notify(update);
+    };
+
     if let Some(banner) = header.banner.as_deref() {
         let picture = gtk::Picture::builder()
             .content_fit(gtk::ContentFit::Cover)
@@ -938,6 +1030,7 @@ fn artist_hero(
             .vexpand(true)
             .build();
         actions.artwork.show_picture(Some(banner), &picture);
+        apply_tint(&picture, &scrim);
         backdrop.append(&picture);
     } else if let Some(portrait) = header.portrait.as_deref() {
         let circle = artwork_picture(
@@ -948,16 +1041,18 @@ fn artist_hero(
             true,
             "audio-input-microphone-symbolic",
         );
+        if let Some(picture) = circle
+            .child()
+            .and_downcast::<gtk::Overlay>()
+            .and_then(|o| o.last_child())
+            .and_downcast::<gtk::Picture>()
+        {
+            apply_tint(&picture, &scrim);
+        }
         circle.set_halign(gtk::Align::Center);
         circle.set_margin_top(28);
         backdrop.append(&circle);
     }
-
-    let scrim = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    scrim.add_css_class("goosic-artist-scrim");
-    scrim.set_can_target(false);
-    scrim.set_hexpand(true);
-    scrim.set_vexpand(true);
 
     let title = gtk::Label::builder()
         .label(name)
@@ -988,7 +1083,7 @@ fn artist_hero(
     buttons.set_halign(gtk::Align::Center);
     buttons.set_margin_top(10);
 
-    // About popover button
+    // Frosted About popover button blurring the artist banner behind it.
     let about_popover = gtk::Popover::new();
     about_popover.add_css_class("goosic-popover");
     let about_box = column(8);
@@ -1015,8 +1110,12 @@ fn artist_hero(
         .sensitive(header.description.is_some() || header.subscribers.is_some())
         .build();
     about_btn.add_css_class("goosic-artist-round-menu");
+    let about_glass = GlassFrame::new(GlassKind::Circle);
+    about_glass.set_child(&about_btn);
+    about_glass.set_underlay(&backdrop);
+    about_glass.set_valign(gtk::Align::Center);
 
-    // Large white Play button centered under artist name
+    // Large white Play button centered under artist name.
     let play_btn = gtk::Button::builder()
         .child(
             &gtk::Image::builder()
@@ -1038,15 +1137,43 @@ fn artist_hero(
         });
     }
 
-    // Spacer balancing About so Play stays centered
-    let balance = gtk::Box::builder()
-        .width_request(44)
-        .height_request(44)
+    // Frosted Subscribe star toggle on the right (balances About so Play stays centered).
+    let sub_btn = gtk::ToggleButton::builder()
+        .icon_name("non-starred-symbolic")
+        .tooltip_text(if (actions.can_edit_library)() {
+            "Subscribe to artist"
+        } else {
+            "Sign in to subscribe"
+        })
+        .valign(gtk::Align::Center)
+        .sensitive((actions.can_edit_library)())
         .build();
+    sub_btn.add_css_class("goosic-artist-round-btn");
+    {
+        let (actions, artist_id) = (actions.clone(), artist_id.to_owned());
+        sub_btn.connect_toggled(move |btn| {
+            let subscribed = btn.is_active();
+            btn.set_icon_name(if subscribed {
+                "starred-symbolic"
+            } else {
+                "non-starred-symbolic"
+            });
+            btn.set_tooltip_text(Some(if subscribed {
+                "Unsubscribe from artist"
+            } else {
+                "Subscribe to artist"
+            }));
+            (actions.subscribe_artist)(artist_id.clone(), subscribed);
+        });
+    }
+    let sub_glass = GlassFrame::new(GlassKind::Circle);
+    sub_glass.set_child(&sub_btn);
+    sub_glass.set_underlay(&backdrop);
+    sub_glass.set_valign(gtk::Align::Center);
 
-    buttons.append(&about_btn);
+    buttons.append(&about_glass);
     buttons.append(&play_btn);
-    buttons.append(&balance);
+    buttons.append(&sub_glass);
     content.append(&buttons);
 
     let overlay = gtk::Overlay::new();
@@ -1056,6 +1183,47 @@ fn artist_hero(
     overlay.add_overlay(&scrim);
     overlay.add_overlay(&content);
     overlay
+}
+
+/// Recently searched horizontal pill strip with a Clear button, shown above Browse categories.
+fn recent_searches(queries: &[String], actions: &Rc<Actions>) -> gtk::Box {
+    let section = column(10);
+    let header = row(8);
+    let heading = plain("Recently searched");
+    heading.add_css_class("goosic-shelf-title");
+    heading.set_hexpand(true);
+    let clear = gtk::Button::with_label("Clear");
+    clear.add_css_class("goosic-glass-pill-action");
+    {
+        let actions = actions.clone();
+        clear.connect_clicked(move |_| (actions.clear_recent_searches)());
+    }
+    header.append(&heading);
+    header.append(&clear);
+    section.append(&header);
+
+    let strip = row(10);
+    for query in queries {
+        let icon = gtk::Image::from_icon_name("document-open-recent-symbolic");
+        icon.add_css_class("dim-label");
+        let label = single_line(plain(query));
+        let inner = row(8);
+        inner.append(&icon);
+        inner.append(&label);
+        let btn = gtk::Button::builder().child(&inner).build();
+        btn.add_css_class("goosic-recent-search-chip");
+        let (actions, q) = (actions.clone(), query.clone());
+        btn.connect_clicked(move |_| (actions.submit_search)(q.clone()));
+        strip.append(&btn);
+    }
+    let scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .propagate_natural_height(true)
+        .child(&strip)
+        .build();
+    section.append(&scroller);
+    section
 }
 
 /// macOS Search landing page: colorful gradient Browse category cards.
@@ -1168,22 +1336,30 @@ fn track_row(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk
     let duration = dim(&track.duration);
     duration.set_valign(gtk::Align::Center);
     line.append(&duration);
+    let refused = (actions.is_refused)(&track.video_id);
     let button = gtk::Button::builder()
         .child(&line)
-        .tooltip_text("Play")
+        .tooltip_text(if refused {
+            "This song isn’t available to play here."
+        } else {
+            "Play"
+        })
         .build();
     button.add_css_class("flat");
     button.add_css_class("goosic-track-row");
-    let (selected, context, play_actions) = (track.clone(), context.clone(), actions.clone());
-    button.connect_clicked(move |_| (play_actions.play)(selected.clone(), context.clone()));
+    if refused {
+        button.add_css_class("goosic-track-refused");
+    }
+    let (selected, context_for_play, play_actions) = (track.clone(), context.clone(), actions.clone());
+    button.connect_clicked(move |_| (play_actions.play)(selected.clone(), context_for_play.clone()));
     let outer = row(4);
     button.set_hexpand(true);
     outer.append(&button);
-    outer.append(&track_menu(track, actions));
+    outer.append(&track_menu(track, context, actions));
     outer
 }
 
-fn track_menu(track: &Track, actions: &Rc<Actions>) -> gtk::MenuButton {
+fn track_menu(track: &Track, context: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::MenuButton {
     let popover = gtk::Popover::new();
     popover.add_css_class("goosic-popover");
     let menu = column(4);
@@ -1191,6 +1367,21 @@ fn track_menu(track: &Track, actions: &Rc<Actions>) -> gtk::MenuButton {
     menu.set_margin_end(6);
     menu.set_margin_top(6);
     menu.set_margin_bottom(6);
+
+    let play_btn = gtk::Button::with_label("Play");
+    {
+        let (track, context, action, close) = (
+            track.clone(),
+            context.clone(),
+            actions.clone(),
+            popover.clone(),
+        );
+        play_btn.connect_clicked(move |_| {
+            close.popdown();
+            (action.play)(track.clone(), context.clone());
+        });
+    }
+    menu.append(&play_btn);
 
     for (label, next) in [("Play Next", true), ("Add to Queue", false)] {
         let button = gtk::Button::with_label(label);
@@ -1201,6 +1392,17 @@ fn track_menu(track: &Track, actions: &Rc<Actions>) -> gtk::MenuButton {
         });
         menu.append(&button);
     }
+
+    let radio_btn = gtk::Button::with_label("Start Radio");
+    {
+        let (track, action, close) = (track.clone(), actions.clone(), popover.clone());
+        radio_btn.connect_clicked(move |_| {
+            close.popdown();
+            (action.start_radio_for)(track.clone());
+        });
+    }
+    menu.append(&radio_btn);
+
     if (actions.can_edit_library)() {
         menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         let like = gtk::Button::with_label("Like");
@@ -1255,6 +1457,17 @@ fn track_menu(track: &Track, actions: &Rc<Actions>) -> gtk::MenuButton {
         });
         menu.append(&add);
     }
+    if !track.video_id.is_empty() {
+        menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let copy = gtk::Button::with_label("Copy Link");
+        let url = format!("https://music.youtube.com/watch?v={}", track.video_id);
+        let close = popover.clone();
+        copy.connect_clicked(move |btn| {
+            close.popdown();
+            btn.clipboard().set_text(&url);
+        });
+        menu.append(&copy);
+    }
     popover.set_child(Some(&menu));
     let button = gtk::MenuButton::builder()
         .icon_name("view-more-horizontal-symbolic")
@@ -1297,12 +1510,17 @@ fn track_shelf(tracks: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::ScrolledWind
             button.add_css_class("goosic-track-row");
             let (track, context, actions) = (track.clone(), tracks.clone(), actions.clone());
             let menu_track = track.clone();
+            let menu_context = context.clone();
             let menu_actions = actions.clone();
+            if (actions.is_refused)(&track.video_id) {
+                button.add_css_class("goosic-track-refused");
+                button.set_tooltip_text(Some("This song isn’t available to play here."));
+            }
             button.connect_clicked(move |_| (actions.play)(track.clone(), context.clone()));
             let item = row(4);
             button.set_hexpand(true);
             item.append(&button);
-            item.append(&track_menu(&menu_track, &menu_actions));
+            item.append(&track_menu(&menu_track, &menu_context, &menu_actions));
             track_column.append(&item);
         }
         columns.append(&track_column);
@@ -1411,8 +1629,31 @@ fn card_widget(card: &Card, actions: &Rc<Actions>) -> gtk::Button {
     );
     if is_artist {
         art.set_halign(gtk::Align::Center);
+        body.append(&art);
+    } else {
+        let art_overlay = gtk::Overlay::new();
+        art_overlay.set_child(Some(&art));
+        let badge = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        badge.add_css_class("goosic-card-badge");
+        badge.set_halign(gtk::Align::End);
+        badge.set_valign(gtk::Align::End);
+        badge.set_margin_end(8);
+        badge.set_margin_bottom(8);
+        badge.set_can_target(false);
+        let badge_icon = gtk::Image::builder()
+            .icon_name(if matches!(&card.action, Some(CardAction::Play(_))) {
+                "media-playback-start-symbolic"
+            } else {
+                "go-next-symbolic"
+            })
+            .pixel_size(14)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .build();
+        badge.append(&badge_icon);
+        art_overlay.add_overlay(&badge);
+        body.append(&art_overlay);
     }
-    body.append(&art);
 
     let title = single_line(plain(&card.title));
     title.add_css_class("goosic-card-title");
@@ -1524,14 +1765,45 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
     content.append(&start);
     page.append(&content);
 
-    let motion = settings_group("Motion");
-    let reduce = gtk::CheckButton::with_label("Reduce decorative motion");
+    let playback_group = settings_group("Playback & Integrations");
+    let autoplay = wrapped_check("Autoplay — keep the music going with related recommendations");
+    autoplay.set_active(facts.autoplay);
+    {
+        let actions = actions.clone();
+        autoplay.connect_toggled(move |_| (actions.toggle_autoplay)());
+    }
+    playback_group.append(&autoplay);
+    let shuffle = wrapped_check("Shuffle — play the current queue in a randomized order");
+    shuffle.set_active(facts.shuffle);
+    {
+        let actions = actions.clone();
+        shuffle.connect_toggled(move |_| (actions.toggle_shuffle)());
+    }
+    playback_group.append(&shuffle);
+    let discord = wrapped_check("Discord status — show the playing song on your Discord profile");
+    discord.set_active(facts.discord_status);
+    {
+        let actions = actions.clone();
+        discord.connect_toggled(move |button| (actions.set_discord_status)(button.is_active()));
+    }
+    playback_group.append(&discord);
+    page.append(&playback_group);
+
+    let motion = settings_group("Motion & Diagnostics");
+    let reduce = wrapped_check("Reduce decorative motion");
     reduce.set_active(facts.reduce_motion);
     {
         let actions = actions.clone();
         reduce.connect_toggled(move |button| (actions.set_reduce_motion)(button.is_active()));
     }
     motion.append(&reduce);
+    let debug = wrapped_check("Debug mode — show technical status details");
+    debug.set_active(facts.debug_mode);
+    {
+        let actions = actions.clone();
+        debug.connect_toggled(move |button| (actions.set_debug_mode)(button.is_active()));
+    }
+    motion.append(&debug);
     page.append(&motion);
     let shortcuts = gtk::Expander::builder().label("Keyboard shortcuts").build();
     let keys = column(6);
@@ -1541,14 +1813,17 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
         ("Shift+Left / Right", "Seek backward / forward ten seconds"),
         ("Ctrl+Up / Down", "Volume up / down"),
         ("Ctrl+M", "Mute"),
+        ("Alt+Shift+B", "Like / unlike current song"),
         ("Ctrl+S / Ctrl+R", "Shuffle / repeat"),
-        ("Ctrl+F", "Search"),
-        ("Ctrl+L", "Lyrics"),
-        ("Ctrl+Shift+Q", "Up Next"),
+        ("Ctrl+F / Ctrl+K", "Search"),
+        ("Ctrl+Shift+F", "Find in playlist or album"),
+        ("Ctrl+L / Ctrl+Alt+L", "Lyrics"),
+        ("Ctrl+Shift+Q / Ctrl+Alt+U", "Up Next"),
+        ("Ctrl+Alt+M", "Mini Player"),
         ("Ctrl+B", "Sidebar"),
-        ("Ctrl+Shift+F / F11", "Full player / full screen"),
-        ("Esc", "Close full player or panels"),
-        ("Alt+Left", "Go back"),
+        ("Ctrl+Shift+Alt+F / F11", "Full-Screen Player"),
+        ("Esc", "Close full player, find bar, or panels"),
+        ("Alt+Left / Ctrl+[", "Go back"),
         ("Ctrl+,", "Settings"),
         ("Ctrl+W / Ctrl+Q", "Close window / quit"),
     ] {
@@ -1737,6 +2012,13 @@ fn plain(text: &str) -> gtk::Label {
         .xalign(0.0)
         .wrap(true)
         .build()
+}
+
+fn wrapped_check(text: &str) -> gtk::CheckButton {
+    let check = gtk::CheckButton::new();
+    let label = plain(text);
+    check.set_child(Some(&label));
+    check
 }
 
 fn dim(text: &str) -> gtk::Label {

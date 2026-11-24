@@ -27,6 +27,7 @@ use goosic_shell_support::login::{self, LoginResult};
 use goosic_shell_support::navigation::{
     CatalogKey, EntityReference, PlaybackTransition, Route, SearchFilter, Theme,
 };
+use goosic_shell_support::page_swap::{decide_early_switch, EarlySwitch, EarlySwitchDecision};
 use goosic_shell_support::playback::{
     believes_sample, clamp_seek, clamp_volume, is_seekable, merge_preferences,
     should_advance_after_end, volume_sync, EndSample, PendingSeek, ReportedSample, VolumeSync,
@@ -41,10 +42,13 @@ use uuid::Uuid;
 use crate::artwork::ArtworkCache;
 use crate::backdrop::ArtworkBackdrop;
 use crate::background::Background;
+use crate::discord::{DiscordActivity, DiscordPresence};
 use crate::full_player::FullPlayer;
+use crate::glass::{GlassFrame, GlassGroup, GlassKind};
 use crate::layout;
 use crate::login_host::{LoginHandlers, LoginHost};
-use crate::lyrics::Lyrics;
+use crate::lyrics::{decode_imported_lyrics, Lyrics};
+use crate::mini_player::MiniPlayer;
 use crate::mpris::{Mpris, MprisHandlers};
 use crate::official_host::{self, OfficialHost};
 use crate::pages::LibrarySection;
@@ -80,10 +84,14 @@ pub struct Shell {
     layout_size: Cell<(i32, i32)>,
     main: gtk::Box,
     content: gtk::Box,
+    glass: GlassGroup,
     sidebar: ui::Sidebar,
-    sidebar_toggle: gtk::Button,
+    sidebar_glass: GlassFrame,
+    sidebar_toggle_glass: GlassFrame,
     backdrop: ArtworkBackdrop,
     full_player: FullPlayer,
+    mini_player: MiniPlayer,
+    discord: DiscordPresence,
     official: Rc<OfficialHost>,
     personal: Rc<PersonalHost>,
     mpris: Rc<Mpris>,
@@ -97,8 +105,12 @@ pub struct Shell {
     rows: gio::ListStore,
     scroller: gtk::ScrolledWindow,
     search_bar: gtk::Box,
+    find_bar: GlassFrame,
+    find_entry: gtk::SearchEntry,
     bar: PlayerBar,
+    bar_glass: GlassFrame,
     side: gtk::Box,
+    side_glass: GlassFrame,
     queue_panel: QueuePanel,
     lyrics_panel: LyricsPanel,
     diagnostics: RefCell<String>,
@@ -121,6 +133,9 @@ impl Shell {
         web_profile::clear_abandoned_staging();
         let artwork = ArtworkCache::new();
         let shell = Rc::new_cyclic(|weak: &Weak<Shell>| {
+            let glass = GlassGroup::new();
+            let discord = DiscordPresence::start();
+            let initial_discord = discord.is_enabled();
             let actions = Rc::new(ui::Actions {
                 navigate: Box::new(forward(weak, Shell::navigate)),
                 open: Box::new(forward(weak, Shell::open)),
@@ -133,6 +148,7 @@ impl Shell {
                     }
                 }),
                 shuffle_play: Box::new(forward(weak, Shell::shuffle_play)),
+                start_radio_for: Box::new(forward(weak, Shell::start_radio_for)),
                 retry: Box::new(forward_unit(weak, Shell::retry)),
                 back: Box::new(forward_unit(weak, Shell::back)),
                 set_theme: Box::new(forward(weak, Shell::set_theme)),
@@ -140,6 +156,10 @@ impl Shell {
                 set_start_page: Box::new(forward(weak, Shell::set_start_page)),
                 set_reduce_motion: Box::new(forward(weak, Shell::set_reduce_motion)),
                 set_artwork_background: Box::new(forward(weak, Shell::set_artwork_background)),
+                set_discord_status: Box::new(forward(weak, Shell::set_discord_status)),
+                set_debug_mode: Box::new(forward(weak, Shell::set_debug_mode)),
+                toggle_autoplay: Box::new(forward_unit(weak, Shell::toggle_autoplay)),
+                toggle_shuffle: Box::new(forward_unit(weak, Shell::toggle_shuffle)),
                 import_legacy: Box::new(forward_unit(weak, Shell::import_legacy_preferences)),
                 load_more: Box::new(forward_unit(weak, Shell::load_more)),
                 sign_in: Box::new(forward_unit(weak, Shell::sign_in)),
@@ -159,12 +179,27 @@ impl Shell {
                 }),
                 like_track: Box::new(forward(weak, Shell::like_track)),
                 unlike_track: Box::new(forward(weak, Shell::unlike_track)),
+                subscribe_artist: Box::new({
+                    let weak = weak.clone();
+                    move |id, subscribed| {
+                        if let Some(shell) = weak.upgrade() {
+                            shell.subscribe_artist(id, subscribed);
+                        }
+                    }
+                }),
                 add_to_playlist: Box::new(forward(weak, Shell::add_to_playlist)),
                 can_edit_library: Box::new({
                     let weak = weak.clone();
                     move || {
                         weak.upgrade()
                             .is_some_and(|shell| shell.facts.borrow().active_account_id.is_some())
+                    }
+                }),
+                is_refused: Box::new({
+                    let weak = weak.clone();
+                    move |video_id| {
+                        weak.upgrade()
+                            .is_some_and(|shell| shell.player.borrow().refused_video_ids.contains(video_id))
                     }
                 }),
                 queue_track: Box::new({
@@ -175,12 +210,20 @@ impl Shell {
                         }
                     }
                 }),
+                submit_search: Box::new(forward(weak, Shell::submit_search)),
+                clear_recent_searches: Box::new(forward_unit(weak, Shell::clear_recent_searches)),
                 artwork: artwork.clone(),
             });
             let (scroller, rows) = ui::page_list(actions);
             let search_bar = ui::search_bar(
                 forward(weak, Shell::submit_search),
                 forward(weak, Shell::select_filter),
+                &glass,
+            );
+            let (find_bar, find_entry) = ui::find_bar(
+                forward(weak, Shell::set_track_find),
+                forward_unit(weak, Shell::close_find_bar),
+                &glass,
             );
             let sidebar = ui::sidebar(ui::SidebarActions {
                 navigate: Box::new(forward(weak, Shell::navigate)),
@@ -195,6 +238,7 @@ impl Shell {
                 on_event: Box::new(forward(weak, Shell::receive_official)),
                 on_status: Box::new(forward(weak, Shell::host_status)),
                 on_page_advanced: Box::new(forward(weak, Shell::official_moved_on)),
+                on_page_swapped: Box::new(forward(weak, Shell::official_swapped_early)),
                 on_diagnostics: Box::new(forward(weak, Shell::host_diagnostics)),
             });
             let personal = PersonalHost::new();
@@ -230,17 +274,29 @@ impl Shell {
                 lyrics: Box::new(forward_unit(weak, Shell::toggle_lyrics)),
                 queue: Box::new(forward_unit(weak, Shell::toggle_queue)),
                 expand: Box::new(forward_unit(weak, Shell::toggle_full_player)),
+                mini_player: Box::new(forward_unit(weak, Shell::open_mini_player)),
+                import_lyrics: Box::new(forward_unit(weak, Shell::import_timed_lyrics)),
                 like_current: Box::new(forward_unit(weak, Shell::like_current_track)),
                 sleep: Box::new(forward(weak, Shell::set_sleep_timer)),
             });
             let bar = PlayerBar::new(bar_actions.clone(), artwork.clone());
             let full_player = FullPlayer::new(
-                bar_actions,
+                bar_actions.clone(),
                 artwork.clone(),
                 forward_unit(weak, Shell::close_full_player),
                 forward_unit(weak, Shell::toggle_fullscreen),
             );
+            let mini_player = MiniPlayer::new(
+                app,
+                bar_actions,
+                artwork.clone(),
+                forward_unit(weak, Shell::raise),
+            );
             let backdrop = ArtworkBackdrop::new(artwork.clone());
+            {
+                let glass = glass.clone();
+                backdrop.set_on_update(move || glass.invalidate());
+            }
             let queue_panel = QueuePanel::new(
                 forward(weak, Shell::play_queued),
                 forward(weak, Shell::edit_queue),
@@ -265,15 +321,10 @@ impl Shell {
             panels.append(&queue_panel.root);
             panels.append(&lyrics_panel.root);
             let side = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            side.set_width_request(320);
-            side.set_halign(gtk::Align::End);
-            side.set_valign(gtk::Align::Fill);
-            side.set_margin_top(0);
-            side.set_margin_bottom(0);
-            side.set_margin_end(0);
+            side.set_hexpand(true);
+            side.set_vexpand(true);
             side.add_css_class("goosic-side-panel");
             side.append(&panels);
-            side.set_visible(false);
 
             let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
             main.set_hexpand(true);
@@ -281,53 +332,78 @@ impl Shell {
             main.set_margin_start(212);
             main.set_margin_end(0);
             main.set_margin_top(0);
-            let page_overlay = gtk::Overlay::new();
-            page_overlay.set_child(Some(&scroller));
-            search_bar.set_valign(gtk::Align::Start);
-            search_bar.add_css_class("goosic-search-chrome");
-            page_overlay.add_overlay(&search_bar);
-            main.append(&page_overlay);
+            main.append(&scroller);
             let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
             content.set_hexpand(true);
             content.set_vexpand(true);
             content.append(&main);
-            content.append(official.widget());
-            content.append(personal.widget());
-            let root = gtk::Overlay::new();
-            root.set_child(Some(&backdrop.widget));
-            root.add_overlay(&content);
-            sidebar.root.set_width_request(212);
-            sidebar.root.set_halign(gtk::Align::Start);
-            sidebar.root.set_valign(gtk::Align::Fill);
-            sidebar.root.set_margin_top(0);
-            sidebar.root.set_margin_bottom(0);
-            sidebar.root.set_margin_start(0);
+
+            // Base scene holds ONLY backdrop + scrolling page content (no hidden WebKit views),
+            // so every frosted `GlassFrame` sibling blurs the live artwork and scrolled rows cleanly.
+            let base_scene = gtk::Overlay::new();
+            base_scene.set_child(Some(&backdrop.widget));
+            base_scene.add_overlay(&content);
+            let underlay_widget: gtk::Widget = base_scene.clone().upcast();
+
+            let sidebar_glass = glass.wrap(&sidebar.root, GlassKind::Sidebar, Some(&underlay_widget));
+            sidebar_glass.set_halign(gtk::Align::Start);
+            sidebar_glass.set_valign(gtk::Align::Fill);
             sidebar.root.add_css_class("goosic-sidebar");
-            root.add_overlay(&sidebar.root);
-            root.add_overlay(&side);
-            bar.root.set_halign(gtk::Align::Fill);
-            bar.root.set_valign(gtk::Align::End);
-            bar.root.set_margin_start(232);
-            bar.root.set_margin_end(20);
-            bar.root.set_margin_bottom(14);
+
+            let side_glass = glass.wrap(&side, GlassKind::SidePanel, Some(&underlay_widget));
+            side_glass.set_width_request(320);
+            side_glass.set_halign(gtk::Align::End);
+            side_glass.set_valign(gtk::Align::Fill);
+            side_glass.set_visible(false);
+
             bar.root.add_css_class("goosic-player-pill");
-            root.add_overlay(&bar.root);
+            let bar_glass = glass.wrap(&bar.root, GlassKind::PlayerPill, Some(&underlay_widget));
+            bar_glass.set_halign(gtk::Align::Fill);
+            bar_glass.set_valign(gtk::Align::End);
+            bar_glass.set_margin_start(232);
+            bar_glass.set_margin_end(20);
+            bar_glass.set_margin_bottom(14);
+
             let sidebar_toggle = gtk::Button::builder()
                 .icon_name("sidebar-show-symbolic")
                 .tooltip_text("Toggle sidebar")
                 .width_request(34)
                 .height_request(34)
-                .halign(gtk::Align::Start)
-                .valign(gtk::Align::Start)
-                .margin_start(14)
-                .margin_top(14)
                 .build();
             sidebar_toggle.add_css_class("goosic-sidebar-toggle");
             sidebar_toggle.connect_clicked({
                 let toggle = forward_unit(weak, Shell::toggle_sidebar);
                 move |_| toggle()
             });
-            root.add_overlay(&sidebar_toggle);
+            let sidebar_toggle_glass =
+                glass.wrap(&sidebar_toggle, GlassKind::SearchPill, Some(&underlay_widget));
+            sidebar_toggle_glass.set_halign(gtk::Align::Start);
+            sidebar_toggle_glass.set_valign(gtk::Align::Start);
+            sidebar_toggle_glass.set_margin_start(14);
+            sidebar_toggle_glass.set_margin_top(14);
+
+            search_bar.set_valign(gtk::Align::Start);
+            search_bar.add_css_class("goosic-search-chrome");
+            // Bind search pill, segmented bar, and find bar to `base_scene`.
+            glass.set_underlay_all(&underlay_widget);
+
+            {
+                let glass = glass.clone();
+                scroller.vadjustment().connect_value_changed(move |_| {
+                    glass.invalidate();
+                });
+            }
+
+            let root = gtk::Overlay::new();
+            root.set_child(Some(&base_scene));
+            root.add_overlay(official.widget());
+            root.add_overlay(personal.widget());
+            root.add_overlay(&search_bar);
+            root.add_overlay(&find_bar);
+            root.add_overlay(&sidebar_glass);
+            root.add_overlay(&side_glass);
+            root.add_overlay(&bar_glass);
+            root.add_overlay(&sidebar_toggle_glass);
             root.add_overlay(&full_player.root);
 
             let window = gtk::ApplicationWindow::builder()
@@ -356,23 +432,32 @@ impl Shell {
                 quit: Box::new(forward_unit(weak, Shell::quit)),
             });
 
+            let facts = ShellFacts {
+                discord_status: initial_discord,
+                ..ShellFacts::default()
+            };
+
             Shell {
                 window,
                 client,
                 browser: RefCell::new(Browser::new()),
                 player: RefCell::new(Player::new()),
                 lyrics: RefCell::new(Lyrics::new()),
-                facts: RefCell::new(ShellFacts::default()),
+                facts: RefCell::new(facts),
                 queue_visible: Cell::new(false),
                 full_open: Cell::new(false),
                 sidebar_open: Cell::new(true),
                 layout_size: Cell::new((1180, 780)),
                 main,
                 content,
+                glass,
                 sidebar,
-                sidebar_toggle,
+                sidebar_glass,
+                sidebar_toggle_glass,
                 backdrop,
                 full_player,
+                mini_player,
+                discord,
                 official,
                 personal,
                 mpris,
@@ -385,8 +470,12 @@ impl Shell {
                 rows,
                 scroller,
                 search_bar,
+                find_bar,
+                find_entry,
                 bar,
+                bar_glass,
                 side,
+                side_glass,
                 queue_panel,
                 lyrics_panel,
                 diagnostics: RefCell::new(String::new()),
@@ -407,6 +496,7 @@ impl Shell {
         shell.wire_keyboard();
         shell.wire_layout();
         shell.wire_sleep_timer();
+        shell.wire_lyrics_clock();
         shell.render();
         shell.refresh_player();
         shell.connect();
@@ -540,13 +630,29 @@ impl Shell {
             facts.start_page = settings.start_page.clone();
             facts.reduce_motion = settings.reduce_motion;
             facts.artwork_background = settings.artwork_background;
+            facts.autoplay = settings.autoplay;
+            facts.shuffle = settings.shuffle;
+        }
+        if let Some(gtk_settings) = gtk::Settings::default() {
+            gtk_settings.set_gtk_enable_animations(!settings.reduce_motion);
         }
         theme::apply(theme);
         theme::apply_window(&self.window, theme);
-        self.backdrop
-            .set_appearance(self.window.has_css_class("goosic-light"), self.full_open.get());
+        self.sync_appearance();
         self.queue_visible.set(settings.queue_visible);
         self.sync_side_panels();
+    }
+
+    fn sync_appearance(&self) {
+        let light = self.window.has_css_class("goosic-light");
+        let high_contrast = self.window.has_css_class("goosic-high-contrast");
+        let reduce_motion = self.facts.borrow().reduce_motion;
+        self.backdrop.set_appearance(light, self.full_open.get());
+        self.glass.set_appearance(light, high_contrast);
+        self.full_player.set_appearance(reduce_motion, high_contrast);
+        self.mini_player.set_appearance(reduce_motion, high_contrast);
+        self.lyrics_panel
+            .set_appearance(light, high_contrast, reduce_motion);
     }
 
     /// Queues a preference change, coalescing rapid ones such as a volume drag into one save.
@@ -578,8 +684,7 @@ impl Shell {
         self.facts.borrow_mut().theme = theme;
         theme::apply(theme);
         theme::apply_window(&self.window, theme);
-        self.backdrop
-            .set_appearance(self.window.has_css_class("goosic-light"), self.full_open.get());
+        self.sync_appearance();
         // Redrawn once the current signal has returned: the choice may come from the settings
         // page's own toggle, and rebuilding the page inside that toggle's signal would destroy it
         // mid-emission.
@@ -625,11 +730,178 @@ impl Shell {
 
     fn set_reduce_motion(self: &Rc<Self>, enabled: bool) {
         self.facts.borrow_mut().reduce_motion = enabled;
+        if let Some(gtk_settings) = gtk::Settings::default() {
+            gtk_settings.set_gtk_enable_animations(!enabled);
+        }
+        self.sync_appearance();
         self.save_preferences(PreferencesPatch {
             reduce_motion: Some(enabled),
             ..Default::default()
         });
         self.render_soon();
+    }
+
+    fn set_discord_status(self: &Rc<Self>, enabled: bool) {
+        self.facts.borrow_mut().discord_status = enabled;
+        self.discord.set_enabled(enabled);
+        self.refresh_player();
+        self.render_soon();
+    }
+
+    fn set_debug_mode(self: &Rc<Self>, enabled: bool) {
+        self.facts.borrow_mut().debug_mode = enabled;
+        self.render_soon();
+    }
+
+    fn clear_recent_searches(self: &Rc<Self>) {
+        self.browser.borrow_mut().clear_recent_searches();
+        self.render();
+    }
+
+    fn set_track_find(self: &Rc<Self>, text: String) {
+        self.browser.borrow_mut().set_track_find(&text);
+        self.render();
+    }
+
+    pub(super) fn open_find_bar(self: &Rc<Self>) {
+        if !self.browser.borrow().can_find_tracks() {
+            return self.search_focus();
+        }
+        self.find_bar.set_visible(true);
+        self.find_entry.grab_focus();
+        self.glass.invalidate();
+    }
+
+    pub(super) fn close_find_bar(self: &Rc<Self>) {
+        if !self.find_bar.is_visible() {
+            return;
+        }
+        self.find_bar.set_visible(false);
+        self.find_entry.set_text("");
+        self.browser.borrow_mut().set_track_find("");
+        self.render();
+    }
+
+    pub(super) fn open_mini_player(self: &Rc<Self>) {
+        self.refresh_player();
+        self.mini_player.present();
+    }
+
+    /// Opens a native file picker (XDG FileChooser portal in Flatpak) to load session-only
+    /// timed-lyrics JSON for the currently playing track without touching playback authority.
+    pub(super) fn import_timed_lyrics(self: &Rc<Self>) {
+        let Some(video_id) = self
+            .player
+            .borrow()
+            .current
+            .as_ref()
+            .map(|t| t.video_id.clone())
+        else {
+            return self.set_status("Play a song before importing timed lyrics.");
+        };
+        let filter = gtk::FileFilter::new();
+        filter.set_name(Some("Goosic Timed Lyrics (*.json)"));
+        filter.add_pattern("*.json");
+        let filters = gio::ListStore::new::<gtk::FileFilter>();
+        filters.append(&filter);
+        let dialog = gtk::FileDialog::builder()
+            .title("Import Timed Lyrics")
+            .filters(&filters)
+            .build();
+        let weak = Rc::downgrade(self);
+        dialog.open(
+            Some(&self.window),
+            None::<&gio::Cancellable>,
+            move |result| {
+                let Some(shell) = weak.upgrade() else {
+                    return;
+                };
+                let Ok(file) = result else {
+                    return;
+                };
+                let label = file
+                    .basename()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "local file".to_owned());
+                match file.load_contents(None::<&gio::Cancellable>) {
+                    Ok((bytes, _)) => match decode_imported_lyrics(&bytes) {
+                        Ok(document) => {
+                            let still_same = shell
+                                .player
+                                .borrow()
+                                .current
+                                .as_ref()
+                                .is_some_and(|t| t.video_id == video_id);
+                            if !still_same {
+                                return;
+                            }
+                            {
+                                let mut lyrics = shell.lyrics.borrow_mut();
+                                lyrics.visible = true;
+                                lyrics.install_imported(&video_id, document, &label);
+                            }
+                            shell.queue_visible.set(false);
+                            shell.sync_side_panels();
+                            shell.set_status(&format!("Imported timed lyrics from {label}."));
+                        }
+                        Err(reason) => shell.set_status(&reason),
+                    },
+                    Err(error) => {
+                        shell.set_status(&format!("Could not read lyrics file: {error}"));
+                    }
+                }
+            },
+        );
+    }
+
+    fn subscribe_artist(self: &Rc<Self>, artist_id: String, subscribed: bool) {
+        if self.facts.borrow().active_account_id.is_none() {
+            return;
+        }
+        let op = if subscribed {
+            "subscribeArtist"
+        } else {
+            "unsubscribeArtist"
+        };
+        let msg = if subscribed {
+            "Subscribed to artist."
+        } else {
+            "Unsubscribed from artist."
+        };
+        self.mutate_library(op, json!({"channelId": artist_id}), msg);
+    }
+
+    fn start_radio_for(self: &Rc<Self>, track: Track) {
+        if self.player.borrow().radio_in_flight {
+            return;
+        }
+        self.begin_radio(track, "Starting radio from");
+    }
+
+    /// Lightweight 30fps clock driving word-timed lyric sweeps, animated interlude dots,
+    /// and spring row scrolling ONLY while lyrics are visible and music is actively playing.
+    fn wire_lyrics_clock(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local(std::time::Duration::from_millis(33), move || {
+            let Some(shell) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let lyrics = shell.lyrics.borrow();
+            if !lyrics.visible || lyrics.document().is_none() {
+                return glib::ControlFlow::Continue;
+            }
+            let player = shell.player.borrow();
+            if !player.confirmed || player.paused || player.advertisement {
+                return glib::ControlFlow::Continue;
+            }
+            let pos = player.interpolated_position(Instant::now());
+            if shell.full_open.get() {
+                shell.full_player.lyrics.update(&lyrics, pos);
+            } else if shell.side_glass.is_visible() {
+                shell.lyrics_panel.update(&lyrics, pos);
+            }
+            glib::ControlFlow::Continue
+        });
     }
 
     /// Reads the previous Goosic's preferences. The service reads them without changing them and
@@ -1460,27 +1732,97 @@ impl Shell {
             self.set_status("Rust has not granted the official player.");
             return;
         }
-        let (generation, changed, volume, muted) = {
+        let (generation, changed, volume, muted, start_paused) = {
             let mut player = self.player.borrow_mut();
             let changed =
                 player.current.as_ref().map(|current| &current.video_id) != Some(&track.video_id);
             player.current = Some(track.clone());
             player.begin_track();
             player.begin_load();
+            let start_paused = player.take_pause_next_load();
             (
                 player.lease.generation,
                 changed,
                 player.volume,
                 player.muted,
+                start_paused,
             )
         };
         self.official
-            .load(&track.video_id, generation, volume, muted);
+            .load(&track.video_id, generation, volume, muted, true);
+        if start_paused {
+            self.official.pause();
+        }
         if changed {
             self.lyrics.borrow_mut().track_changed();
             self.load_lyrics();
         }
         self.refresh_player();
+    }
+
+    /// Handles YouTube Music replacing a video before the requested song was heard playing.
+    /// Another version of the same song is adopted once under the same lease; anything else
+    /// is treated as a refusal, marked dimmed, and skipped while preserving any user pause.
+    fn official_swapped_early(self: &Rc<Self>, swap: official_host::PageSwapReport) {
+        if self.facts.borrow().account_busy {
+            return;
+        }
+        let (owner, loaded, current_title, generation, volume, muted, listener_paused) = {
+            let player = self.player.borrow();
+            (
+                player.lease.owner,
+                self.official.loaded_video_id(),
+                player.current.as_ref().map(|t| t.title.clone()),
+                player.lease.generation,
+                player.volume,
+                player.muted,
+                player.listener_paused,
+            )
+        };
+        if owner != Owner::OfficialWebView {
+            return;
+        }
+        let early = EarlySwitch {
+            requested_video_id: &swap.requested_video_id,
+            page_video_id: &swap.page_video_id,
+            page_title: &swap.page_title,
+            may_adopt: swap.may_adopt,
+        };
+        match decide_early_switch(
+            &early,
+            loaded.as_deref(),
+            current_title.as_deref().unwrap_or(""),
+        ) {
+            EarlySwitchDecision::Ignore => {}
+            EarlySwitchDecision::Adopt { video_id } => {
+                self.player.borrow_mut().begin_load();
+                self.official
+                    .load(&video_id, generation, volume, muted, false);
+                if listener_paused {
+                    self.official.pause();
+                }
+            }
+            EarlySwitchDecision::Refused => {
+                let title = current_title.unwrap_or_else(|| "This song".to_owned());
+                {
+                    let mut player = self.player.borrow_mut();
+                    let refused_id = player
+                        .current
+                        .as_ref()
+                        .map(|t| t.video_id.clone())
+                        .unwrap_or_else(|| swap.requested_video_id.clone());
+                    player.refused_video_ids.insert(refused_id);
+                    player.pause_next_load = listener_paused;
+                }
+                self.official.pause();
+                self.official_moved_on(swap.requested_video_id);
+                self.player.borrow_mut().pause_next_load = false;
+                self.set_status(&format!(
+                    "“{title}” isn’t available to play here, so it was skipped."
+                ));
+                self.render_soon();
+            }
+        }
     }
 
     /// A report from the official page that passed the bridge's checks.
@@ -1507,6 +1849,7 @@ impl Shell {
             player.advertisement = event.is_advertisement;
             player.current_time = event.current_time;
             player.duration = event.duration;
+            player.last_sample_at = Some(Instant::now());
             let sync = volume_sync(
                 player.volume_applied_for_load,
                 event.is_advertisement,
@@ -1938,6 +2281,7 @@ impl Shell {
             player.shuffle = !player.shuffle;
             player.shuffle
         };
+        self.facts.borrow_mut().shuffle = shuffle;
         self.save_preferences(PreferencesPatch {
             shuffle: Some(shuffle),
             ..Default::default()
@@ -1964,6 +2308,7 @@ impl Shell {
             player.autoplay = !player.autoplay;
             player.autoplay
         };
+        self.facts.borrow_mut().autoplay = autoplay;
         self.save_preferences(PreferencesPatch {
             autoplay: Some(autoplay),
             ..Default::default()
@@ -2574,6 +2919,8 @@ impl Shell {
 
     /// Ends Goosic. Quitting is explicit; closing the window is not quitting.
     pub fn quit(self: &Rc<Self>) {
+        self.discord.clear();
+        self.mini_player.window.set_visible(false);
         if let Some(app) = self.window.application() {
             app.quit();
         }
@@ -2654,7 +3001,7 @@ impl Shell {
         }
         self.queue_panel.root.set_visible(queue);
         self.lyrics_panel.root.set_visible(lyrics);
-        self.side
+        self.side_glass
             .set_visible((queue || lyrics) && !self.full_open.get());
         self.bar.set_panels(lyrics, queue);
         self.full_player.set_panels(lyrics, queue);
@@ -2718,15 +3065,28 @@ impl Shell {
                 self.sleep_end_track.borrow_mut().take();
             }
             self.full_player.update(&player, loaded);
-            self.backdrop.set_appearance(
-                self.window.has_css_class("goosic-light"),
-                self.full_open.get(),
-            );
+            self.mini_player.update(&player, loaded);
+            self.sync_appearance();
             self.backdrop.update(
                 player.current.as_ref().and_then(|t| t.thumbnail.as_deref()),
                 (self.facts.borrow().artwork_background || self.full_open.get())
                     && !self.window.has_css_class("goosic-high-contrast"),
             );
+            let discord_activity = if player.confirmed && !player.paused && !player.advertisement {
+                player.current.as_ref().and_then(|track| {
+                    DiscordActivity::from_playback(
+                        &track.title,
+                        &track.artist,
+                        &track.album,
+                        track.thumbnail.as_deref(),
+                        player.current_time,
+                        player.duration,
+                    )
+                })
+            } else {
+                None
+            };
+            self.discord.update(discord_activity);
             let snapshot = player.snapshot();
             self.mpris.update(&snapshot);
             self.status_icon.update(&snapshot);
@@ -2735,6 +3095,7 @@ impl Shell {
                 .set_audible(player.confirmed && !player.paused);
         }
         self.refresh_panels();
+        self.glass.invalidate();
     }
 }
 
@@ -2768,14 +3129,14 @@ mod presentation_tests {
         let context = glib::MainContext::default();
         let until = Instant::now() + std::time::Duration::from_millis(350);
         while Instant::now() < until {
-            while context.pending() {
+            while Instant::now() < until && context.pending() {
                 context.iteration(false);
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
     }
 
-    fn capture(window: &gtk::ApplicationWindow, name: &str) {
+    fn capture(window: &(impl IsA<gtk::Window> + IsA<gtk::Widget> + IsA<gtk::Native>), name: &str) {
         let Some(directory) = std::env::var_os("GOOSIC_UI_CAPTURE_DIR") else {
             return;
         };
@@ -3000,17 +3361,21 @@ mod presentation_tests {
         capture(&shell.window, "queue-wide");
         shell.toggle_queue();
 
-        // Capture Search landing page (floating pill + segmented picker + colored Browse cards)
+        // Capture Search landing page (frosted pill + segmented picker + recent searches + colored Browse cards)
+        shell.browser.borrow_mut().submit_search("M83 Midnight City");
+        shell.browser.borrow_mut().submit_search("Beach House");
+        shell.browser.borrow_mut().submit_search("");
         shell.search_focus();
         settle();
         capture(&shell.window, "search-wide");
 
-        // Capture Artist Hero page
+        // Capture Artist Hero page with sampled tint and frosted round actions
         ui::set_rows(
             &shell.rows,
             vec![
                 PageRow::Back,
                 PageRow::ArtistHero {
+                    artist_id: "UC1".into(),
                     name: "Beach House".into(),
                     header: Box::new(goosic_protocol::ArtistHeader {
                         banner: Some(remote.into()),
@@ -3032,6 +3397,12 @@ mod presentation_tests {
         shell.apply_layout();
         settle();
         capture(&shell.window, "artist-hero-wide");
+
+        // Capture Mini Player window
+        shell.open_mini_player();
+        settle();
+        capture(&shell.mini_player.window, "mini-player");
+        shell.mini_player.window.set_visible(false);
 
         shell.toggle_full_player();
         settle();
@@ -3057,6 +3428,8 @@ mod presentation_tests {
         shell.toggle_queue();
         shell.window.set_default_size(1180, 780);
         settle();
+        shell.layout_size.set((shell.window.width(), shell.window.height()));
+        shell.apply_layout();
         shell.lyrics.borrow_mut().visible = true;
         shell.lyrics.borrow_mut().finish(
             &tracks[0].video_id,
@@ -3068,20 +3441,70 @@ mod presentation_tests {
                         source: "Fixture".into(),
                         synced: true,
                         truncated: false,
-                        lines: (0..8)
-                            .map(|index| goosic_protocol::LyricsLine {
-                                words: Vec::new(),
-                                end_ms: None,
-                                at_ms: index * 20000,
-                                text: [
-                                    "First synchronized fixture line",
-                                    "A longer line wraps within the panel",
-                                    "Third synchronized fixture line",
-                                    "The active line follows the song position",
-                                ][index as usize % 4]
-                                    .into(),
-                            })
-                            .collect(),
+                        lines: vec![
+                            goosic_protocol::LyricsLine {
+                                at_ms: 20_000,
+                                end_ms: Some(38_000),
+                                text: "Waiting in a car".into(),
+                                words: vec![],
+                            },
+                            goosic_protocol::LyricsLine {
+                                at_ms: 40_000,
+                                end_ms: Some(58_000),
+                                text: "Waiting for a ride in the dark".into(),
+                                words: vec![],
+                            },
+                            goosic_protocol::LyricsLine {
+                                at_ms: 60_000,
+                                end_ms: Some(68_000),
+                                text: "The night city grows around us".into(),
+                                words: vec![
+                                    goosic_protocol::LyricsWord {
+                                        at_ms: 60_000,
+                                        end_ms: Some(61_000),
+                                        text: "The ".into(),
+                                    },
+                                    goosic_protocol::LyricsWord {
+                                        at_ms: 61_000,
+                                        end_ms: Some(62_500),
+                                        text: "night ".into(),
+                                    },
+                                    goosic_protocol::LyricsWord {
+                                        at_ms: 62_500,
+                                        end_ms: Some(64_000),
+                                        text: "city ".into(),
+                                    },
+                                    goosic_protocol::LyricsWord {
+                                        at_ms: 64_000,
+                                        end_ms: Some(66_000),
+                                        text: "grows ".into(),
+                                    },
+                                    goosic_protocol::LyricsWord {
+                                        at_ms: 66_000,
+                                        end_ms: Some(68_000),
+                                        text: "around us".into(),
+                                    },
+                                ],
+                            },
+                            goosic_protocol::LyricsLine {
+                                at_ms: 74_000,
+                                end_ms: Some(82_000),
+                                text: "Look at the horizon glow".into(),
+                                words: vec![],
+                            },
+                            goosic_protocol::LyricsLine {
+                                at_ms: 84_000,
+                                end_ms: Some(92_000),
+                                text: "The city is my church tonight".into(),
+                                words: vec![],
+                            },
+                            goosic_protocol::LyricsLine {
+                                at_ms: 94_000,
+                                end_ms: Some(102_000),
+                                text: "It wraps me in the sparkling twilight".into(),
+                                words: vec![],
+                            },
+                        ],
                     }),
                     ..Default::default()
                 },

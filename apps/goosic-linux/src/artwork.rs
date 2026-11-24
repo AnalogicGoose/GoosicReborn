@@ -112,6 +112,24 @@ impl ArtworkCache {
         self.schedule(remote);
     }
 
+    /// Shows `remote` immediately and, when a larger YouTube/Google variant exists, also fetches
+    /// the high-resolution cover so Full Player and Mini Player artwork stays crisp.
+    pub fn show_high_res_picture(self: &Rc<Self>, remote: Option<&str>, picture: &gtk::Picture) {
+        let Some(remote) = remote.filter(|remote| !remote.is_empty()) else {
+            return;
+        };
+        if let Some(upgraded) = crate::mesh::high_resolution_variant(remote, 1080) {
+            if let Some(texture) = self.cached(&upgraded) {
+                picture.set_paintable(Some(&texture));
+                return;
+            }
+            self.show_picture(Some(remote), picture);
+            self.show_picture(Some(&upgraded), picture);
+        } else {
+            self.show_picture(Some(remote), picture);
+        }
+    }
+
     fn file_for(&self, remote: &str) -> PathBuf {
         self.directory.join(format!("{}.img", cache_key(remote)))
     }

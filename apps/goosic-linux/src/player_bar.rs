@@ -41,6 +41,8 @@ pub struct BarActions {
     pub lyrics: Box<dyn Fn()>,
     pub queue: Box<dyn Fn()>,
     pub expand: Box<dyn Fn()>,
+    pub mini_player: Box<dyn Fn()>,
+    pub import_lyrics: Box<dyn Fn()>,
     pub like_current: Box<dyn Fn()>,
     /// 0 cancels; -1 stops at the end of the current song; positive values are minutes.
     pub sleep: Box<dyn Fn(i32)>,
@@ -524,6 +526,24 @@ pub fn build_more_menu(
         });
     }
     extra.append(&full);
+    let mini = gtk::Button::with_label("Mini Player");
+    {
+        let (actions, close) = (actions.clone(), popover.clone());
+        mini.connect_clicked(move |_| {
+            close.popdown();
+            (actions.mini_player)();
+        });
+    }
+    extra.append(&mini);
+    let import = gtk::Button::with_label("Import Timed Lyrics…");
+    {
+        let (actions, close) = (actions.clone(), popover.clone());
+        import.connect_clicked(move |_| {
+            close.popdown();
+            (actions.import_lyrics)();
+        });
+    }
+    extra.append(&import);
     for (label, is_lyrics) in [("Lyrics", true), ("Up Next", false)] {
         let button = gtk::Button::with_label(label);
         let (actions, close) = (actions.clone(), popover.clone());

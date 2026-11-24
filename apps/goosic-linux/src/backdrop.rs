@@ -91,6 +91,7 @@ pub struct ArtworkBackdrop {
     shown: RefCell<Option<String>>,
     // Each request owns a fresh image, so late artwork cannot replace the next track's cover.
     pending: RefCell<Option<gtk::Image>>,
+    on_update: RefCell<Option<Rc<dyn Fn()>>>,
 }
 
 impl ArtworkBackdrop {
@@ -100,7 +101,12 @@ impl ArtworkBackdrop {
             cache,
             shown: RefCell::new(None),
             pending: RefCell::new(None),
+            on_update: RefCell::new(None),
         }
+    }
+
+    pub fn set_on_update(&self, callback: impl Fn() + 'static) {
+        *self.on_update.borrow_mut() = Some(Rc::new(callback));
     }
 
     pub fn set_appearance(&self, light: bool, immersive: bool) {
@@ -108,6 +114,9 @@ impl ArtworkBackdrop {
         let changed = imp.light.replace(light) != light || imp.immersive.replace(immersive) != immersive;
         if changed {
             self.widget.queue_draw();
+            if let Some(cb) = self.on_update.borrow().as_ref() {
+                cb();
+            }
         }
     }
 
@@ -120,13 +129,20 @@ impl ArtworkBackdrop {
         self.pending.borrow_mut().take();
         self.widget.imp().image.borrow_mut().take();
         self.widget.queue_draw();
+        if let Some(cb) = self.on_update.borrow().as_ref() {
+            cb();
+        }
         let Some(remote) = remote else { return };
         let image = gtk::Image::new();
         let weak = self.widget.downgrade();
+        let on_update = self.on_update.borrow().clone();
         image.connect_paintable_notify(move |image| {
             if let Some(widget) = weak.upgrade() {
                 *widget.imp().image.borrow_mut() = image.paintable();
                 widget.queue_draw();
+                if let Some(cb) = on_update.as_ref() {
+                    cb();
+                }
             }
         });
         self.cache.show(Some(remote), &image);

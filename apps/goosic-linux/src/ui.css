@@ -11,21 +11,21 @@ window.goosic-shell { background: #181620; color: #f6f6f9; }
   opacity: 1;
 }
 
-/* Full-height flush translucent sidebar letting the ambient artwork glow softly through. */
+/* Full-height flush frosted sidebar — GlassFrame paints the live GSK blur, veil and border. */
 .goosic-sidebar {
-  background: alpha(#12101a, 0.44);
-  border-right: 1px solid alpha(white, 0.10);
+  background: transparent;
+  border: 0;
   border-radius: 0;
   padding: 12px 6px 8px 6px;
 }
 .goosic-sidebar.goosic-sidebar-overlay {
-  background: alpha(#14121c, 0.92);
-  border-right: 1px solid alpha(white, 0.14);
-  box-shadow: 8px 0 32px alpha(black, 0.40);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 .goosic-side-panel {
-  background: alpha(#13111c, 0.94);
-  border-left: 1px solid alpha(white, 0.12);
+  background: transparent;
+  border: 0;
   border-radius: 0;
   padding: 14px;
 }
@@ -92,22 +92,23 @@ frame.goosic-sidebar-thumb { border-radius: 4px; }
 .goosic-sidebar .goosic-account-connection { font-size: 11px; color: alpha(#f6f6f9, 0.58); }
 
 button.goosic-sidebar-toggle {
-  background: alpha(#1a1824, 0.65);
+  background: transparent;
+  background-image: none;
   color: #f6f6f9;
-  border: 1px solid alpha(white, 0.16);
+  border: 0;
   border-radius: 999px;
-  box-shadow: 0 4px 14px alpha(black, 0.24);
+  box-shadow: none;
   padding: 0;
 }
 button.goosic-sidebar-toggle:hover { background: alpha(white, 0.16); }
 
-/* Floating frosted glass player capsule — matches the macOS screenshot. */
+/* Floating frosted glass player capsule — GlassFrame paints real GSK blur, tint, sheen and rim. */
 .goosic-player-pill {
-  background: alpha(#1f1b2b, 0.86);
-  border: 1px solid alpha(white, 0.22);
+  background: transparent;
+  border: 0;
   border-radius: 999px;
   padding: 7px 14px;
-  box-shadow: 0 12px 32px alpha(black, 0.40);
+  box-shadow: none;
 }
 .goosic-player-pill.goosic-player-stacked {
   border-radius: 26px;
@@ -258,6 +259,33 @@ scale.goosic-volume slider {
   padding: 5px 8px;
 }
 .goosic-page .goosic-track-row:hover { background: alpha(white, 0.08); }
+.goosic-page .goosic-track-row.goosic-track-refused { opacity: 0.42; }
+.goosic-card-badge {
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 999px;
+  background: alpha(#161420, 0.72);
+  border: 1px solid alpha(white, 0.22);
+  color: #ffffff;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+.goosic-page button.goosic-card:hover .goosic-card-badge,
+.goosic-page button.goosic-card:focus-visible .goosic-card-badge {
+  opacity: 1;
+}
+.goosic-page button.goosic-recent-search-chip {
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: alpha(white, 0.10);
+  border: 1px solid alpha(white, 0.16);
+}
+.goosic-page button.goosic-recent-search-chip:hover {
+  background: alpha(white, 0.18);
+}
+.goosic-find-bar {
+  padding: 4px 8px 4px 12px;
+}
 .goosic-track-title, .goosic-card-title { font-size: 13.5px; font-weight: 500; }
 .goosic-track-subtitle, .goosic-card-subtitle { font-size: 12px; }
 .goosic-explicit-badge {
@@ -347,28 +375,34 @@ frame.goosic-collection-cover {
   box-shadow: 0 8px 24px alpha(black, 0.35);
 }
 .goosic-page button.goosic-artist-play-button:hover { background: alpha(white, 0.90); }
-.goosic-page .goosic-artist-round-menu > button {
+.goosic-page .goosic-artist-round-menu > button,
+.goosic-page button.goosic-artist-round-btn {
   min-width: 44px;
   min-height: 44px;
   padding: 0;
   border-radius: 999px;
-  background: alpha(white, 0.16);
-  border: 1px solid alpha(white, 0.20);
+  background: transparent;
+  background-image: none;
+  border: 0;
   color: #ffffff;
+  box-shadow: none;
+}
+.goosic-page button.goosic-artist-round-btn:checked {
+  color: #ff0552;
 }
 
-/* Floating Search pill & linked segmented selector (NO opaque header box). */
+/* Floating Search pill & linked segmented selector (GlassFrame paints real frosted blur). */
 .goosic-search-chrome {
   background: transparent;
   border: 0;
   padding: 0;
 }
 .goosic-search-pill {
-  background: alpha(#221e2e, 0.72);
-  border: 1px solid alpha(white, 0.22);
+  background: transparent;
+  border: 0;
   border-radius: 999px;
   padding: 4px 14px 4px 10px;
-  box-shadow: 0 8px 26px alpha(black, 0.28);
+  box-shadow: none;
 }
 .goosic-search-entry {
   background: transparent;
@@ -389,10 +423,14 @@ button.goosic-search-submit {
 button.goosic-search-submit:hover { background: alpha(white, 0.08); border-radius: 999px; }
 
 .goosic-search-segments {
-  background: alpha(#1b1826, 0.82);
-  border: 1px solid alpha(white, 0.18);
+  background: transparent;
+  border: 0;
   border-radius: 999px;
   padding: 3px;
+}
+.goosic-page .goosic-search-segments {
+  background: alpha(#1b1826, 0.66);
+  border: 1px solid alpha(white, 0.16);
 }
 .goosic-search-segments button.goosic-segment-button,
 .goosic-page .goosic-search-segments button.goosic-segment-button {
@@ -458,11 +496,11 @@ window.goosic-shell.goosic-immersive { background: #0c0b10; }
 .goosic-full-player list, .goosic-full-player row { background: transparent; }
 
 .goosic-glass-capsule {
-  background: alpha(white, 0.12);
-  border: 1px solid alpha(white, 0.20);
+  background: transparent;
+  border: 0;
   border-radius: 999px;
   padding: 3px;
-  box-shadow: 0 8px 24px alpha(black, 0.28);
+  box-shadow: none;
 }
 .goosic-full-volume-capsule { padding: 3px 6px 3px 12px; }
 .goosic-glass-capsule button {
@@ -498,11 +536,13 @@ button.goosic-full-cover-button {
 }
 .goosic-full-title { font-size: 20px; font-weight: 700; color: #ffffff; }
 .goosic-full-subtitle { font-size: 14px; }
+.goosic-mini-title { font-size: 16px; font-weight: 700; color: #ffffff; }
+.goosic-mini-subtitle { font-size: 12.5px; }
 
 button.goosic-glass-circle, .goosic-glass-circle-menu > button {
-  background: alpha(white, 0.14);
+  background: transparent;
   background-image: none;
-  border: 1px solid alpha(white, 0.18);
+  border: 0;
   border-radius: 999px;
   min-width: 32px;
   min-height: 32px;
@@ -511,7 +551,7 @@ button.goosic-glass-circle, .goosic-glass-circle-menu > button {
   box-shadow: none;
 }
 button.goosic-glass-circle:hover, .goosic-glass-circle-menu > button:hover {
-  background: alpha(white, 0.22);
+  background: alpha(white, 0.16);
 }
 
 scale.goosic-full-progress { min-height: 14px; }
@@ -613,23 +653,24 @@ window.goosic-shell.goosic-light { background: #f6f6fa; color: #1d1d24; }
   color: alpha(#1d1d24, 0.58);
 }
 .goosic-light .goosic-sidebar {
-  background: alpha(#f2f2f7, 0.62);
-  border-right-color: alpha(black, 0.08);
+  background: transparent;
+  border: 0;
 }
-.goosic-light .goosic-sidebar.goosic-sidebar-overlay { background: alpha(#f6f6fa, 0.94); }
+.goosic-light .goosic-sidebar.goosic-sidebar-overlay { background: transparent; }
 .goosic-light .goosic-side-panel {
-  background: alpha(#f4f4f8, 0.95);
-  border-left-color: alpha(black, 0.08);
+  background: transparent;
+  border: 0;
 }
 .goosic-light .goosic-sidebar row:selected { background: alpha(black, 0.08); color: #1d1d24; }
 .goosic-light .goosic-sidebar row:hover { background: alpha(black, 0.04); }
 .goosic-light .goosic-sidebar-section { color: alpha(#1d1d24, 0.48); }
 .goosic-light .goosic-sidebar-divider { background: alpha(black, 0.08); }
 .goosic-light .goosic-sidebar label.goosic-account-avatar { color: white; }
+.goosic-light button.goosic-sidebar-toggle { color: #1d1d24; }
 .goosic-light .goosic-player-pill {
-  background: alpha(#ffffff, 0.92);
-  border-color: alpha(black, 0.12);
-  box-shadow: 0 12px 30px alpha(black, 0.14);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 .goosic-light .goosic-player-pill button,
 .goosic-light .goosic-player-pill menubutton > button { color: #1d1d24; }
@@ -656,14 +697,18 @@ window.goosic-shell.goosic-light { background: #f6f6fa; color: #1d1d24; }
   border-color: transparent;
 }
 .goosic-light .goosic-search-pill {
-  background: alpha(#ffffff, 0.84);
-  border-color: alpha(black, 0.12);
-  box-shadow: 0 8px 24px alpha(black, 0.10);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 .goosic-light .goosic-search-entry { color: #1d1d24; }
 .goosic-light .goosic-search-segments {
+  background: transparent;
+  border: 0;
+}
+.goosic-light .goosic-page .goosic-search-segments {
   background: alpha(black, 0.07);
-  border-color: alpha(black, 0.09);
+  border: 1px solid alpha(black, 0.09);
 }
 .goosic-light .goosic-search-segments button.goosic-segment-button,
 .goosic-light .goosic-page .goosic-search-segments button.goosic-segment-button {
@@ -694,8 +739,8 @@ window.goosic-shell.goosic-high-contrast { background: #000000; color: #ffffff; 
 .goosic-high-contrast .goosic-sidebar, .goosic-high-contrast .goosic-side-panel,
 .goosic-high-contrast .goosic-player-pill, .goosic-high-contrast .goosic-search-pill,
 .goosic-high-contrast .goosic-glass-capsule {
-  background: #000000;
-  border: 2px solid #ffffff;
+  background: transparent;
+  border: 0;
   box-shadow: none;
 }
 .goosic-high-contrast button.goosic-segment-button:checked,

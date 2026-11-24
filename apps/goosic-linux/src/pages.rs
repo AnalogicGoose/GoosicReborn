@@ -44,6 +44,10 @@ pub struct ShellFacts {
     pub start_page: String,
     pub reduce_motion: bool,
     pub artwork_background: bool,
+    pub discord_status: bool,
+    pub debug_mode: bool,
+    pub autoplay: bool,
+    pub shuffle: bool,
 }
 
 impl Default for ShellFacts {
@@ -61,6 +65,10 @@ impl Default for ShellFacts {
             start_page: "home".into(),
             reduce_motion: false,
             artwork_background: true,
+            discord_status: false,
+            debug_mode: false,
+            autoplay: true,
+            shuffle: false,
         }
     }
 }
@@ -86,10 +94,13 @@ pub enum PageRow {
     },
     /// macOS-style artist page hero with edge-to-edge banner/portrait, audience and round actions.
     ArtistHero {
+        artist_id: String,
         name: String,
         header: Box<ArtistHeader>,
         tracks: Rc<[Track]>,
     },
+    /// Recently searched queries on the Search landing page, with a Clear button.
+    RecentSearches(Vec<String>),
     /// macOS Search landing page: colorful Browse category destination cards.
     SearchBrowse,
     /// Says plainly that the catalog is anonymous, so nobody reads a guest shelf as their own mix.
@@ -198,6 +209,8 @@ pub struct Browser {
     route: Route,
     detail: Option<EntityReference>,
     submitted_query: String,
+    recent_searches: Vec<String>,
+    track_find: String,
     filter: SearchFilter,
     library_section: LibrarySection,
     pages: HashMap<CatalogKey, LoadState>,
@@ -216,6 +229,8 @@ impl Browser {
             route: Route::Home,
             detail: None,
             submitted_query: String::new(),
+            recent_searches: Vec::new(),
+            track_find: String::new(),
             filter: SearchFilter::All,
             library_section: LibrarySection::Playlists,
             pages: HashMap::new(),
@@ -230,21 +245,50 @@ impl Browser {
     pub fn navigate(&mut self, route: Route) {
         self.route = route;
         self.detail = None;
+        self.track_find.clear();
     }
 
     pub fn open(&mut self, entity: EntityReference) {
         self.detail = Some(entity);
+        self.track_find.clear();
     }
 
     pub fn back(&mut self) {
         self.detail = None;
+        self.track_find.clear();
+    }
+
+    pub fn set_track_find(&mut self, query: &str) {
+        self.track_find = query.trim().to_owned();
+    }
+
+    pub fn clear_recent_searches(&mut self) {
+        self.recent_searches.clear();
+    }
+
+    pub fn can_find_tracks(&self) -> bool {
+        matches!(
+            self.detail,
+            Some(EntityReference::Album(_) | EntityReference::Playlist(_))
+        ) || (self.detail.is_none()
+            && self.route == Route::Library
+            && self.library_section == LibrarySection::Songs)
     }
 
     /// Records the query to search for. An empty one clears the results rather than searching
     /// for nothing, and returns false.
     pub fn submit_search(&mut self, text: &str) -> bool {
         self.submitted_query = text.trim().to_owned();
-        !self.submitted_query.is_empty()
+        if !self.submitted_query.is_empty() {
+            let query = self.submitted_query.clone();
+            self.recent_searches
+                .retain(|existing| !existing.eq_ignore_ascii_case(&query));
+            self.recent_searches.insert(0, query);
+            self.recent_searches.truncate(8);
+            true
+        } else {
+            false
+        }
     }
 
     /// Each filter is its own upstream query, so switching tabs is a new page rather than a
@@ -510,6 +554,17 @@ impl Browser {
         if facts.hide_explicit {
             rows = rows.into_iter().filter_map(without_explicit).collect();
         }
+        if !self.track_find.is_empty() && self.can_find_tracks() {
+            let needle = self.track_find.to_lowercase();
+            rows.retain(|row| match row {
+                PageRow::Track { track, .. } => {
+                    track.title.to_lowercase().contains(&needle)
+                        || track.artist.to_lowercase().contains(&needle)
+                        || track.album.to_lowercase().contains(&needle)
+                }
+                _ => true,
+            });
+        }
         rows
     }
 
@@ -532,7 +587,12 @@ impl Browser {
                     self.state(&key),
                     &format!("“{}”", self.submitted_query),
                 )),
-                None => rows.push(PageRow::SearchBrowse),
+                None => {
+                    if !self.recent_searches.is_empty() {
+                        rows.push(PageRow::RecentSearches(self.recent_searches.clone()));
+                    }
+                    rows.push(PageRow::SearchBrowse);
+                }
             },
             Route::Settings => rows.push(PageRow::Settings(facts.clone())),
             Route::Library => match facts.account {
@@ -578,9 +638,10 @@ impl Browser {
         match state {
             LoadState::Loaded(page) => {
                 let tracks: Rc<[Track]> = page.listed_tracks().into();
-                if matches!(entity, EntityReference::Artist(_)) {
+                if let EntityReference::Artist(artist_id) = entity {
                     if let Some(artist) = &page.artist {
                         rows.push(PageRow::ArtistHero {
+                            artist_id: artist_id.clone(),
                             name: page.title.clone(),
                             header: Box::new(artist.clone()),
                             tracks: tracks.clone(),
@@ -822,6 +883,7 @@ fn without_explicit(row: PageRow) -> Option<PageRow> {
             })
         }
         PageRow::ArtistHero {
+            artist_id,
             name,
             header,
             tracks,
@@ -833,6 +895,7 @@ fn without_explicit(row: PageRow) -> Option<PageRow> {
                 .collect::<Vec<_>>()
                 .into();
             Some(PageRow::ArtistHero {
+                artist_id,
                 name,
                 header,
                 tracks,

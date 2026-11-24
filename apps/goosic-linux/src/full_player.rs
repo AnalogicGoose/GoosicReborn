@@ -8,6 +8,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use goosic_shell_support::lyrics_motion::PAUSED_COVER_SCALE;
 use goosic_shell_support::navigation::{PlaybackTransition, RepeatMode};
 use goosic_shell_support::playback::{
     displayed_position, is_seekable, now_playing_subtitle, time_text, volume_gain, volume_position,
@@ -16,7 +17,9 @@ use gtk::glib;
 use gtk::prelude::*;
 
 use crate::artwork::ArtworkCache;
+use crate::glass::{GlassGroup, GlassKind};
 use crate::layout;
+use crate::mesh::MeshBackdrop;
 use crate::playback::Player;
 use crate::player_bar::BarActions;
 use crate::side_panels::LyricsPanel;
@@ -26,6 +29,8 @@ const SEEK_SETTLE: Duration = Duration::from_millis(200);
 pub struct FullPlayer {
     pub root: gtk::Overlay,
     pub lyrics: LyricsPanel,
+    mesh: MeshBackdrop,
+    glass: GlassGroup,
     container: gtk::Box,
     body: gtk::Box,
     cover_column: gtk::Box,
@@ -64,13 +69,20 @@ impl FullPlayer {
     ) -> Self {
         let seeking = Rc::new(Cell::new(false));
         let updating = Rc::new(Cell::new(false));
+        let mesh = MeshBackdrop::new(cache.clone());
+        let glass = GlassGroup::new();
+        {
+            let glass = glass.clone();
+            mesh.widget.set_on_tick(Rc::new(move || glass.invalidate()));
+        }
+        let underlay: gtk::Widget = mesh.widget.clone().upcast();
 
         let container = gtk::Box::new(gtk::Orientation::Vertical, 16);
         container.add_css_class("goosic-full-player");
         container.set_hexpand(true);
         container.set_vexpand(true);
 
-        // Top chrome: leading close + fullscreen glass capsule, trailing volume glass capsule.
+        // Top chrome: leading close + fullscreen + mini player glass capsule, trailing volume glass capsule.
         let top_bar = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         top_bar.set_valign(gtk::Align::Start);
 
@@ -90,8 +102,18 @@ impl FullPlayer {
             .tooltip_text("Toggle full screen (F11)")
             .build();
         full_btn.connect_clicked(move |_| fullscreen());
+        let mini_btn = gtk::Button::builder()
+            .icon_name("window-new-symbolic")
+            .tooltip_text("Mini Player (Ctrl+Alt+M)")
+            .build();
+        {
+            let actions = actions.clone();
+            mini_btn.connect_clicked(move |_| (actions.mini_player)());
+        }
         leading_capsule.append(&close_btn);
         leading_capsule.append(&full_btn);
+        leading_capsule.append(&mini_btn);
+        let leading_glass = glass.wrap(&leading_capsule, GlassKind::Capsule, Some(&underlay));
 
         let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         spacer.set_hexpand(true);
@@ -125,10 +147,11 @@ impl FullPlayer {
         volume_capsule.add_css_class("goosic-full-volume-capsule");
         volume_capsule.append(&volume);
         volume_capsule.append(&mute);
+        let volume_glass = glass.wrap(&volume_capsule, GlassKind::Capsule, Some(&underlay));
 
-        top_bar.append(&leading_capsule);
+        top_bar.append(&leading_glass);
         top_bar.append(&spacer);
-        top_bar.append(&volume_capsule);
+        top_bar.append(&volume_glass);
         container.append(&top_bar);
 
         // Cover art — clickable to exit full player, matching macOS.
@@ -185,14 +208,19 @@ impl FullPlayer {
             like_button.connect_clicked(move |_| (actions.like_current)());
         }
 
+        let like_glass = glass.wrap(&like_button, GlassKind::Circle, Some(&underlay));
+        like_glass.set_valign(gtk::Align::Center);
+
         let more_menu = build_full_more(&actions);
         more_menu.add_css_class("goosic-glass-circle-menu");
+        let more_glass = glass.wrap(&more_menu, GlassKind::Circle, Some(&underlay));
+        more_glass.set_valign(gtk::Align::Center);
 
         let meta_row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         meta_row.set_hexpand(true);
         meta_row.append(&text_col);
-        meta_row.append(&like_button);
-        meta_row.append(&more_menu);
+        meta_row.append(&like_glass);
+        meta_row.append(&more_glass);
 
         // Progress scrubber + elapsed / -remaining.
         let position = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 1.0, 1.0);
@@ -378,23 +406,27 @@ impl FullPlayer {
         let pane_capsule = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         pane_capsule.add_css_class("goosic-glass-capsule");
         pane_capsule.add_css_class("goosic-pane-capsule");
-        pane_capsule.set_halign(gtk::Align::End);
-        pane_capsule.set_valign(gtk::Align::End);
-        pane_capsule.set_margin_end(20);
-        pane_capsule.set_margin_bottom(18);
         pane_capsule.append(&lyrics_toggle);
         pane_capsule.append(&queue_toggle);
+        let pane_glass = glass.wrap(&pane_capsule, GlassKind::Capsule, Some(&underlay));
+        pane_glass.set_halign(gtk::Align::End);
+        pane_glass.set_valign(gtk::Align::End);
+        pane_glass.set_margin_end(20);
+        pane_glass.set_margin_bottom(18);
 
         let root = gtk::Overlay::new();
         root.set_hexpand(true);
         root.set_vexpand(true);
         root.set_visible(false);
-        root.set_child(Some(&container));
-        root.add_overlay(&pane_capsule);
+        root.set_child(Some(&mesh.widget));
+        root.add_overlay(&container);
+        root.add_overlay(&pane_glass);
 
         Self {
             root,
             lyrics,
+            mesh,
+            glass,
             container,
             body,
             cover_column,
@@ -484,11 +516,17 @@ impl FullPlayer {
         self.cover_column.set_vexpand(!auxiliary || split);
     }
 
+    pub fn set_appearance(&self, reduce_motion: bool, high_contrast: bool) {
+        self.mesh.set_options(reduce_motion, high_contrast);
+        self.glass.set_appearance(false, high_contrast);
+        self.lyrics.set_appearance(false, high_contrast, reduce_motion);
+    }
+
     fn apply_cover_size(&self) {
         let base = self.base_cover_size.get().max(1);
-        // Step the artwork back while paused, keeping the metadata and transport stationary.
+        // Step the artwork back while paused (matching `PAUSED_COVER_SCALE`), keeping controls stationary.
         let visual = if self.paused_visual.get() {
-            ((f64::from(base) * 0.80).round() as i32).max(1)
+            ((f64::from(base) * PAUSED_COVER_SCALE).round() as i32).max(1)
         } else {
             base
         };
@@ -592,6 +630,7 @@ impl FullPlayer {
         }
 
         let remote = track.and_then(|track| track.thumbnail.as_deref());
+        self.mesh.update(remote);
         if self.shown.borrow().as_deref() != remote {
             *self.shown.borrow_mut() = remote.map(str::to_owned);
             while let Some(child) = self.cover_slot.first_child() {
@@ -600,11 +639,12 @@ impl FullPlayer {
             let size = self.base_cover_size.get().max(1);
             let overlay = placeholder_cover(size);
             if let Some(picture) = overlay.last_child().and_downcast::<gtk::Picture>() {
-                self.cache.show_picture(remote, &picture);
+                self.cache.show_high_res_picture(remote, &picture);
             }
             self.cover_slot.append(&overlay);
             self.apply_cover_size();
         }
+        self.glass.invalidate();
         self.updating.set(false);
     }
 }
@@ -637,10 +677,14 @@ fn build_full_more(actions: &Rc<BarActions>) -> gtk::MenuButton {
     list.set_margin_start(6);
     list.set_margin_end(6);
     for (label, action) in [
+        ("Mini Player", 2),
+        ("Import Timed Lyrics…", 3),
         ("Start radio", 0),
         ("Stop playback", 1),
         ("Sleep: 15 minutes", 15),
         ("Sleep: 30 minutes", 30),
+        ("Sleep: 45 minutes", 45),
+        ("Sleep: 60 minutes", 60),
         ("Sleep: End of this song", -1),
         ("Turn off sleep timer", -2),
     ] {
@@ -651,6 +695,8 @@ fn build_full_more(actions: &Rc<BarActions>) -> gtk::MenuButton {
             match action {
                 0 => (actions.radio)(),
                 1 => (actions.stop)(),
+                2 => (actions.mini_player)(),
+                3 => (actions.import_lyrics)(),
                 -2 => (actions.sleep)(0),
                 minutes => (actions.sleep)(minutes),
             }
