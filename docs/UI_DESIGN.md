@@ -424,8 +424,8 @@ The immersive backdrop derives its shapes from the current cached cover. Prepare
 texture when the immersive player needs new artwork, applying a local warp and blur before
 display. Grade the texture to retain saturated midtones and limit highlights behind white
 text. Use the same texture at different orientations across the compositor layers so
-warm and cool regions can appear in several places. Animation moves the finished artwork. The soft colour boundaries should visibly travel behind the controls over a few
-seconds. Give the moving layer an off-centre pivot to create that travel. Missing or
+warm and cool regions can appear in several places. Animate the finished artwork so the soft
+colour boundaries travel visibly behind the controls over a few seconds. Give the moving layer an off-centre pivot to create that travel. Missing or
 unreadable artwork leaves the dark fallback. Stop decorative animation
 when the player is hidden or minimised, or when the effective motion preference suppresses it.
 The still image must keep lyrics and controls readable. Browsing alone does not prepare this
