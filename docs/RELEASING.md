@@ -21,8 +21,10 @@ leaves is the README's prose and the protocol's own version, which shares number
 but is not one. 0.3.0 was renamed late, after the deploy pull request had opened, and the rename
 cost a second full round of CI; freezing first means the deployment carries the final number.
 
-Merge the coherent platform changes into development, run the required tests, and deploy
-by merging development into main. Tag that deployment commit with a numeric version such as
+Merge the coherent platform changes into development, run the required tests, open the deploy
+pull request from development into main, and have Codex review it before it merges (see
+[Codex reviews the release](#codex-reviews-the-release) below). Then deploy by merging
+development into main. Tag that deployment commit with a numeric version such as
 `v0.4.3` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
 builds the Windows installer and portable ZIP and the universal macOS app, verifies the Mac
 bundle signature and architectures, and attaches both checksum files to a draft release.
@@ -89,6 +91,36 @@ overrides the derivation for the one case it cannot cover: two macOS builds of t
 such as a second `-macos-alpha` of one base version, where the later one needs a number above the
 derived one.
 
+## Codex reviews the release
+
+Codex reviews a release, not every pull request. Its automatic reviews are switched off for this
+repository in the Codex settings (chatgpt.com/codex, Settings → Code review), so feature, fix and
+promotion pull requests merge on CI and a person's reading alone. A review on each of those was
+the same code read several times on its way to `main` — once in the feature, again in each
+promotion — and its findings landed mid-chain, where every fix reopened a pull request and cost
+another round of CI.
+
+The deploy pull request is where it reads instead. Its diff, `main...development`, is exactly
+what changed since the last release, every platform together, so one review sees the whole of
+what is about to ship and nothing that already has. Once the deploy pull request is open, ask for
+the review in a comment of your own:
+
+```sh
+gh pr comment <number> --body "@codex review"
+```
+
+It has to be posted from a person's account linked to Codex; a comment written by a workflow is
+not acted on, which is why this is a step and not a job in CI. Wait for the review before the
+deploy pull request merges, and do not queue that merge with `--auto` until it has arrived. A
+finding that blocks the release — it breaks what the release notes promise, loses data, or
+crosses one of the invariants in AGENTS.md — is fixed on a `fix/` branch into `development`,
+which updates the open deploy pull request; ask for another review of the new commits if the fix
+is not small. Any other finding goes into a `fix/` branch for the next version, as the next
+section says, rather than holding the release.
+
+A pull request that needs a second opinion before then can still ask for one with the same
+comment. That is a choice made for that change, not the routine.
+
 ## Keeping the release moving
 
 A release is a chain of pull requests — feature into `development`, any platform promotions,
@@ -101,15 +133,15 @@ Freeze the version first, as above, so no rename reopens a pull request that has
 
 Queue each merge instead of watching for it. `gh pr merge <number> --auto --merge` merges a pull
 request the moment its required checks pass, so the next one in the chain can open straight
-away rather than whenever someone next looks. Use it on the promotion pull requests and on the
-deploy pull request; `--merge` keeps the merge commit that `main`'s history is built from. It
+away rather than whenever someone next looks. Use it on the promotion pull requests, and on the
+deploy pull request once Codex's review is in; `--merge` keeps the merge commit that `main`'s history is built from. It
 needs auto-merge enabled in the repository's settings (General → Pull Requests → Allow
 auto-merge), which only an administrator can switch on; until it is, the command is refused and
 the merge stays a manual click.
 
-Treat a late review finding as the next patch unless it blocks the release. A finding that
-arrives after the deploy pull request is green, and does not break what the release notes
-promise, goes into a `fix/` branch for the following version. Reopening the deployment for it
+Treat a review finding as the next patch unless it blocks the release. A finding on the deploy
+pull request, or one that arrives after it is green, that does not break what the release notes
+promise goes into a `fix/` branch for the following version. Reopening the deployment for it
 costs another full round of CI on every pull request in the chain, which is what added two
 rounds to 0.3.0.
 

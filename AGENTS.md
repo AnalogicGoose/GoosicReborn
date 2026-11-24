@@ -203,6 +203,10 @@ job, and it only removes branches whose commits already live in their parent.
   same change.
 - **Prose over bullets in `docs/`.** Existing documents explain *why* a contract exists, not
   just what it is. Match that.
+- **Codex reviews releases, not pull requests.** Do not ask for `@codex review` on a feature,
+  fix or promotion pull request unless the user asks; it is requested once, on the deploy pull
+  request into `main`, whose diff is everything since the last release. See
+  [docs/RELEASING.md](docs/RELEASING.md#codex-reviews-the-release).
 - **Commit messages** state what changed and why it had to change, in the imperative. No
   co-authorship, attribution, or session trailers.
 - **Release notes read like an Apple product page.** This applies to `docs/RELEASE_<version>.md`
