@@ -116,8 +116,9 @@ way. The first-release layout follows the Windows shell's composition: a grouped
 sidebar and the Playing Next or Lyrics panel sit over the content, and a compact transport pill
 floats at the bottom. Home presents song shelves as horizontally scrolling columns of four
 compact rows. GTK uses neutral light and dark palettes with translucent fills and native controls;
-WinUI's acrylic blur is not available through ordinary GTK widgets. The shared pink accent is
-`#FF0552`. The adaptive and immersive behavior follows [UI_DESIGN.md](UI_DESIGN.md).
+WinUI's acrylic blur is not available through ordinary GTK widgets. The GTK shell still uses
+the retired pink accent `#FF0552`; the shared design now draws icons and active states in the
+neutral primary colour. The adaptive and immersive behavior follows [UI_DESIGN.md](UI_DESIGN.md).
 
 ## How it talks to Rust
 
