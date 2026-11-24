@@ -1,4 +1,5 @@
-//! Where catalog artwork may be fetched from, and what it is cached as.
+//! Where catalog artwork may be fetched from, what it is cached as, and the shape the playing
+//! cover is drawn at.
 //!
 //! Fetching and caching are platform work — each shell has its own HTTP stack and its own cache
 //! directory. The two decisions that are not are here: which hosts a catalog response may point
@@ -63,9 +64,66 @@ pub fn cache_key(remote: &str) -> String {
     format!("{low:016x}{high:016x}")
 }
 
+/// The narrowest a now-playing cover is drawn: a portrait picture at 9:16.
+pub const MIN_ASPECT: f64 = 9.0 / 16.0;
+
+/// The widest a now-playing cover is drawn: a music video's 16:9 frame.
+pub const MAX_ASPECT: f64 = 16.0 / 9.0;
+
+/// The width-to-height ratio the playing cover is drawn at, taken from the picture itself.
+///
+/// A song's art is square and a music video's is wide, and cropping both to one fixed square cut
+/// the sides off every video. The player instead takes the shape of the picture it has. The ratio
+/// is held between 9:16 and 16:9 so an odd banner cannot turn the cover into a sliver, and a
+/// picture with no size yet is square, the shape most covers are.
+pub fn cover_aspect(pixel_width: f64, pixel_height: f64) -> f64 {
+    if !(pixel_width.is_finite() && pixel_height.is_finite())
+        || pixel_width <= 0.0
+        || pixel_height <= 0.0
+    {
+        return 1.0;
+    }
+    (pixel_width / pixel_height).clamp(MIN_ASPECT, MAX_ASPECT)
+}
+
+/// The size a cover of `aspect` takes inside a `max_width` by `max_height` slot: as large as fits
+/// without cropping, touching the slot on its longer side.
+pub fn fit_cover(aspect: f64, max_width: f64, max_height: f64) -> (f64, f64) {
+    let aspect = cover_aspect(aspect, 1.0);
+    let (max_width, max_height) = (max_width.max(0.0), max_height.max(0.0));
+    if max_height == 0.0 || aspect >= max_width / max_height {
+        (max_width, max_width / aspect)
+    } else {
+        (max_height * aspect, max_height)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cover_aspect_follows_the_picture_within_bounds() {
+        assert_eq!(cover_aspect(544.0, 544.0), 1.0);
+        assert!((cover_aspect(1280.0, 720.0) - 16.0 / 9.0).abs() < 1e-9);
+        assert!((cover_aspect(480.0, 360.0) - 4.0 / 3.0).abs() < 1e-9);
+        assert_eq!(cover_aspect(3000.0, 300.0), MAX_ASPECT);
+        assert_eq!(cover_aspect(100.0, 1000.0), MIN_ASPECT);
+        assert_eq!(cover_aspect(0.0, 720.0), 1.0);
+        assert_eq!(cover_aspect(f64::NAN, 720.0), 1.0);
+    }
+
+    #[test]
+    fn a_cover_fits_its_slot_on_the_longer_side() {
+        assert_eq!(fit_cover(1.0, 520.0, 520.0), (520.0, 520.0));
+        let (w, h) = fit_cover(16.0 / 9.0, 520.0, 520.0);
+        assert_eq!(w, 520.0);
+        assert!((h - 292.5).abs() < 1e-9);
+        let (w, h) = fit_cover(9.0 / 16.0, 520.0, 520.0);
+        assert!((w - 292.5).abs() < 1e-9);
+        assert_eq!(h, 520.0);
+        assert_eq!(fit_cover(1.0, 0.0, 0.0), (0.0, 0.0));
+    }
 
     #[test]
     fn artwork_hosts_youtube_music_actually_serves_are_allowed() {
