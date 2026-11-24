@@ -68,9 +68,9 @@ enum NowPlayingArtworkTexture {
                     let green = Float(rgba[index + 1])
                     let blue = Float(rgba[index + 2])
                     let luma = red * 0.2126 + green * 0.7152 + blue * 0.0722
-                    rgba[index] = saturated(red, luma: luma)
-                    rgba[index + 1] = saturated(green, luma: luma)
-                    rgba[index + 2] = saturated(blue, luma: luma)
+                    rgba[index] = graded(red, luma: luma)
+                    rgba[index + 1] = graded(green, luma: luma)
+                    rgba[index + 2] = graded(blue, luma: luma)
                 }
                 return error
             }
@@ -82,8 +82,14 @@ enum NowPlayingArtworkTexture {
                        decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
-    private static func saturated(_ channel: Float, luma: Float) -> UInt8 {
-        UInt8(clamping: Int((luma + (channel - luma) * 1.35).rounded()))
+    /// Keep midtones visible while bounding the brightest texture values behind white text.
+    private static let toneCurve: [UInt8] = (0...255).map { value in
+        UInt8((pow(Double(value) / 255, 0.66) * 117).rounded())
+    }
+
+    private static func graded(_ channel: Float, luma: Float) -> UInt8 {
+        let saturated = UInt8(clamping: Int((luma + (channel - luma) * 1.5).rounded()))
+        return toneCurve[Int(saturated)]
     }
 
     /// Inverse texture coordinates for a local twist. The blur softens the rounded samples.
@@ -129,7 +135,9 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
                 texture.masksToBounds = true
                 layer?.addSublayer(texture)
             }
-            overlay.opacity = 0.68
+            // Reorient the rear layer so it contributes different colour regions.
+            base.transform = CATransform3DMakeScale(-1, -1, 1)
+            overlay.opacity = 0.64
             // An off-centre pivot makes colours travel across the field as the layer turns.
             overlay.anchorPoint = CGPoint(x: 0.28, y: 0.69)
         }
@@ -191,7 +199,8 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
             super.layout()
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            base.frame = bounds
+            base.bounds = CGRect(origin: .zero, size: bounds.size)
+            base.position = CGPoint(x: bounds.midX, y: bounds.midY)
             overlay.frame = bounds.insetBy(dx: -bounds.width * 0.23, dy: -bounds.height * 0.23)
             CATransaction.commit()
         }
@@ -444,7 +453,6 @@ struct NativeMacFullPlayer: View {
                                         animate: !reduceMotion && surfaceSettled && (compact || model.fullPlayerOpen))
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-            Color.black.opacity(0.56)
         }
         .ignoresSafeArea()
     }

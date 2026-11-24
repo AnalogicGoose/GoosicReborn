@@ -16,6 +16,8 @@ final class NowPlayingArtworkTextureTests: XCTestCase {
         cover.fill(CGRect(x: 0, y: 0, width: 128, height: 144))
         cover.setFillColor(red: 0, green: 0, blue: 1, alpha: 1)
         cover.fill(CGRect(x: 128, y: 0, width: 128, height: 144))
+        cover.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        cover.fill(CGRect(x: 0, y: 96, width: 256, height: 48))
         let writer = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
         CGImageDestinationAddImage(writer, try XCTUnwrap(cover.makeImage()), nil)
         XCTAssertTrue(CGImageDestinationFinalize(writer))
@@ -33,6 +35,11 @@ final class NowPlayingArtworkTextureTests: XCTestCase {
         XCTAssertGreaterThan(rgba[right + 2], rgba[right])
         XCTAssertEqual(rgba[left + 3], 255)
         XCTAssertEqual(rgba[right + 3], 255)
+        let brightestChannel = (0..<(128 * 128)).map { pixel in
+            let index = pixel * 4
+            return max(rgba[index], rgba[index + 1], rgba[index + 2])
+        }.max()
+        XCTAssertEqual(brightestChannel, 117)
     }
 
     func testMissingArtworkLeavesNoTexture() {
