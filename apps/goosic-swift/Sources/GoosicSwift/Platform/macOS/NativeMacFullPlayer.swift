@@ -59,7 +59,7 @@ enum NowPlayingArtworkTexture {
                 var destination = vImage_Buffer(data: output.baseAddress, height: UInt(side),
                                                 width: UInt(side), rowBytes: rowBytes)
                 // A separable tent filter gives a wide, soft blur without a live GPU effect.
-                let error = vImageTentConvolve_ARGB8888(&source, &destination, nil, 0, 0, 49, 49, nil,
+                let error = vImageTentConvolve_ARGB8888(&source, &destination, nil, 0, 0, 37, 37, nil,
                                                        vImage_Flags(kvImageEdgeExtend | kvImageDoNotTile))
                 guard error == kvImageNoError else { return error }
                 let rgba = output.bindMemory(to: UInt8.self)
@@ -91,12 +91,12 @@ enum NowPlayingArtworkTexture {
         let centre = Double(side - 1) / 2
         let x = Double(index % side) - centre
         let y = Double(index / side) - centre
-        let weight = max(0, 1 - hypot(x, y) / (Double(side) / 2))
-        let angle = 1.4 * weight * weight
+        let weight = max(0, 1 - hypot(x, y) / (Double(side) * 0.66))
+        let angle = 2.9 * weight * weight
         let cosine = cos(angle)
         let sine = sin(angle)
-        let column = Int((centre + x * cosine - y * sine).rounded())
-        let row = Int((centre + x * sine + y * cosine).rounded())
+        let column = min(side - 1, max(0, Int((centre + x * cosine - y * sine).rounded())))
+        let row = min(side - 1, max(0, Int((centre + x * sine + y * cosine).rounded())))
         return UInt16(row * side + column)
     }
 }
@@ -129,7 +129,9 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
                 texture.masksToBounds = true
                 layer?.addSublayer(texture)
             }
-            overlay.opacity = 0.42
+            overlay.opacity = 0.68
+            // An off-centre pivot makes colours travel across the field as the layer turns.
+            overlay.anchorPoint = CGPoint(x: 0.28, y: 0.69)
         }
 
         @available(*, unavailable)
@@ -190,7 +192,7 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             base.frame = bounds
-            overlay.frame = bounds.insetBy(dx: -bounds.width * 0.16, dy: -bounds.height * 0.16)
+            overlay.frame = bounds.insetBy(dx: -bounds.width * 0.23, dy: -bounds.height * 0.23)
             CATransaction.commit()
         }
 
@@ -228,9 +230,9 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
             }
             guard overlay.animation(forKey: "drift") == nil else { return }
             let drift = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-            drift.values = [0, 0.16, 0, -0.16, 0]
+            drift.values = [0, 0.29, 0, -0.29, 0]
             drift.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
-            drift.duration = 48
+            drift.duration = 22
             drift.repeatCount = .infinity
             overlay.add(drift, forKey: "drift")
         }
