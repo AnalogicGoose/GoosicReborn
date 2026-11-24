@@ -308,11 +308,10 @@ A deployment is `development` → `main`, and nothing else reaches `main`. Befor
 in a way the release claims otherwise, and the README's "What works today" and "Migration
 phases" describe what actually ships. The deploy pull request is the one Codex reviews: its
 diff is everything since the last release, and automatic reviews on every other pull request
-are switched off. Tag the merge commit on `main` with the version.
-[RELEASING.md](RELEASING.md) describes the release itself: freezing the version with
-`tools/bump-version.sh` before the deploy pull request opens, asking Codex for its review there,
-and queueing the promotion and deploy merges with `gh pr merge --auto --merge` so none of them
-waits on a person once CI is green and, for the deploy, once the review is in.
+are switched off. The release workflow tags the merge commit on `main` with the version.
+[RELEASING.md](RELEASING.md) describes the release itself, which `tools/release.sh` runs:
+freezing the version before the deploy pull request opens, promoting the platform branches,
+asking Codex for its review, and merging each pull request only once its CI is green.
 
 A hotfix is the single exception to "nothing is cut from `main`": cut `hotfix/<slug>` from
 `main`, fix the one thing, merge it to `main`, and then merge `main` back into

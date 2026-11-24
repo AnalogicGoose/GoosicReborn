@@ -3,9 +3,9 @@
 #
 # Usage: sh tools/bump-version.sh <x.y.z>
 #
-# It rewrites the workspace version in Cargo.toml and refreshes Cargo.lock, the release
-# workflow's default tag and notes file, the Windows and macOS packaging defaults, and the
-# example tag in docs/RELEASING.md. Each edit is anchored to the line it belongs to rather than
+# It rewrites the workspace version in Cargo.toml and refreshes Cargo.lock, and the Windows and
+# macOS packaging defaults. The release workflow reads the version and the notes file from the
+# tag, so it has nothing to move. Each edit is anchored to the line it belongs to rather than
 # to the old version alone, because the wire protocol has its own version that happens to share
 # numbers with a release and must not move with it. The README paragraph stays hand-written.
 set -eu
@@ -46,12 +46,9 @@ rewrite() {
 
 o=$(printf '%s' "$old" | sed 's/\./\\./g')
 rewrite Cargo.toml "/^\[workspace.package\]/,/^\[/s/^version = \"$o\"/version = \"$new\"/"
-rewrite .github/workflows/release.yml "s/default: v$o\$/default: v$new/"
-rewrite .github/workflows/release.yml "s|body_path: docs/RELEASE_$o\.md|body_path: docs/RELEASE_$new.md|"
 rewrite apps/goosic-windows/build-installer.ps1 "s/\[string\]\$Version = '$o'/[string]\$Version = '$new'/"
 rewrite apps/goosic-windows/package.ps1 "s/\[string\]\$Version = '$o'/[string]\$Version = '$new'/"
 rewrite tools/package-macos.sh "s/^version=\${1:-$o}/version=\${1:-$new}/"
-rewrite docs/RELEASING.md "s/^\`v$o\` and push the tag/\`v$new\` and push the tag/"
 
 # Only the workspace's own packages move; nothing is upgraded.
 cargo update --workspace --offline >/dev/null 2>&1 || cargo update --workspace
