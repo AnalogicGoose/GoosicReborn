@@ -134,6 +134,7 @@ public sealed partial class MainWindow : Window
 
         if (file is null)
         {
+            ApplyCoverAspect(1);
             FullPlayerCover.Source = null;
             _fullPlayerMesh.SetPalette(null);
             ArtworkBackdropImage.Source = null;
@@ -151,12 +152,14 @@ public sealed partial class MainWindow : Window
 
         var paletteTask = Views.MeshBackground.PaletteAsync(file);
         var backdropTask = _backdropRenderer.RenderAsync(file);
-        await Task.WhenAll(paletteTask, backdropTask);
+        var aspectTask = CoverAspectAsync(file);
+        await Task.WhenAll(paletteTask, backdropTask, aspectTask);
         if (_paletteFor != thumbnail)
         {
             return;
         }
 
+        ApplyCoverAspect(aspectTask.Result);
         FullPlayerCover.Source = image;
         FadePlayerArtwork(FullPlayerCover);
         _fullPlayerMesh.SetPalette(paletteTask.Result);
@@ -167,6 +170,43 @@ public sealed partial class MainWindow : Window
     }
 
     private readonly global::Windows.UI.ViewManagement.UISettings _uiSettings = new();
+
+    /// <summary>Reads the picture's shape from its header, turned as the file says to turn it.</summary>
+    private static async Task<double> CoverAspectAsync(string file)
+    {
+        try
+        {
+            using var stream = File.OpenRead(file);
+            var decoder = await global::Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream.AsRandomAccessStream());
+            return CoverShape.Aspect(decoder.OrientedPixelWidth, decoder.OrientedPixelHeight);
+        }
+        catch (Exception error)
+        {
+            // An unreadable header leaves the cover square, as it always was.
+            BridgeLog.Write($"cover shape unavailable: {error.GetType().Name}");
+            return 1;
+        }
+    }
+
+    /// <summary>The playing cover's width over its height, from the full-size picture.</summary>
+    private double _coverAspect = 1;
+
+    /// <summary>The player bar's cover height; its width follows the cover's shape.</summary>
+    private const double PillCoverHeight = 34;
+
+    /// <summary>
+    /// Gives the cover in the player bar and in the full player the shape of its picture: square
+    /// for a song, wide for a music video, instead of cropping every picture to a square.
+    /// </summary>
+    private void ApplyCoverAspect(double aspect)
+    {
+        _coverAspect = aspect;
+        var (width, height) = CoverShape.Fit(aspect, 520, 520);
+        FullPlayerCoverCanvas.Width = width;
+        FullPlayerCoverCanvas.Height = height;
+        PillCoverButton.Width = Math.Round(PillCoverHeight * aspect);
+        ApplyFullPlayerLayout();
+    }
 
     private void UpdateFullPlayerBlur() =>
         FullPlayerBlur.Visibility = FullPlayerLayout.ShowsBlur(_uiSettings.AdvancedEffectsEnabled, FullPlayerBlur.Source is not null)
@@ -206,7 +246,11 @@ public sealed partial class MainWindow : Window
         FullPlayerCoverColumn.MaxWidth = double.PositiveInfinity;
         FullPlayerLyricsColumn.Width = new GridLength(split ? lyrics : 0);
         FullPlayerControls.MaxWidth = split ? player : 520;
-        FullPlayerCoverButton.MaxWidth = cover > 0 ? cover : double.PositiveInfinity;
+        // The cover fits the square it used to fill: a wide one is as wide and shorter, a tall
+        // one as tall and narrower, and the controls below move to meet it.
+        FullPlayerCoverButton.MaxWidth = cover > 0
+            ? CoverShape.Fit(_coverAspect, cover, cover).Width
+            : double.PositiveInfinity;
         FullPlayerCoverButton.HorizontalAlignment = HorizontalAlignment.Left;
         FullPlayerCoverButton.Visibility = lyricsOnly || cover == 0 ? Visibility.Collapsed : Visibility.Visible;
 
