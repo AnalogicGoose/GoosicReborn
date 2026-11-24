@@ -12,9 +12,8 @@ use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 
 use crate::artwork::ArtworkCache;
-use crate::pages::{route_title, size_text, LibrarySection, MoreRow, PageRow, ShellFacts};
+use crate::pages::{route_title, LibrarySection, MoreRow, PageRow, ShellFacts};
 use crate::theme;
-use goosic_protocol::DownloadedTrack;
 
 /// What a row can ask the shell to do, and the artwork cache rows draw from.
 pub struct Actions {
@@ -31,9 +30,6 @@ pub struct Actions {
     pub import_legacy: Box<dyn Fn()>,
     /// Fetches the next part of a page that continues.
     pub load_more: Box<dyn Fn()>,
-    pub play_download: Box<dyn Fn(DownloadedTrack)>,
-    pub refresh_downloads: Box<dyn Fn()>,
-    pub import_downloads: Box<dyn Fn()>,
     pub sign_in: Box<dyn Fn()>,
     pub switch_account: Box<dyn Fn(String)>,
     pub sign_out: Box<dyn Fn()>,
@@ -196,7 +192,7 @@ pub struct Sidebar {
     pub status: gtk::Label,
 }
 
-const SIDEBAR_ROUTES: [Option<Route>; 12] = [
+const SIDEBAR_ROUTES: [Option<Route>; 11] = [
     Some(Route::Home),
     None,
     Some(Route::Explore),
@@ -205,7 +201,6 @@ const SIDEBAR_ROUTES: [Option<Route>; 12] = [
     Some(Route::NewReleases),
     None,
     Some(Route::Library),
-    Some(Route::Downloads),
     Some(Route::Settings),
     None,
     Some(Route::Library),
@@ -226,7 +221,7 @@ pub fn sidebar(
             let heading = match index {
                 1 => "Discover",
                 6 => "Library",
-                10 => "Playlists",
+                9 => "Playlists",
                 _ => unreachable!("only section headers have no route"),
             };
             let label = plain(heading);
@@ -241,14 +236,14 @@ pub fn sidebar(
             routes.append(&header);
             continue;
         };
-        let icon = gtk::Label::new(Some(if index == 11 {
+        let icon = gtk::Label::new(Some(if index == 10 {
             "≡"
         } else {
             route_glyph(route)
         }));
         icon.add_css_class("goosic-route-icon");
         icon.set_width_chars(2);
-        let label = plain(if index == 11 {
+        let label = plain(if index == 10 {
             "All Playlists"
         } else {
             route_title(route)
@@ -334,7 +329,6 @@ fn route_glyph(route: Route) -> &'static str {
         Route::Charts => "≋",
         Route::MoodsAndGenres => "◎",
         Route::NewReleases => "✦",
-        Route::Downloads => "⇩",
         Route::Settings => "⚙",
     }
 }
@@ -540,34 +534,6 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
             18,
         ),
         PageRow::Settings(facts) => padded(&settings_page(facts, actions), 8, 24),
-        PageRow::DownloadsToolbar { busy } => {
-            let toolbar = column(8);
-            let buttons = row(8);
-            let refresh = gtk::Button::with_label("Refresh");
-            let import = gtk::Button::with_label("Import previous Goosic files");
-            refresh.set_sensitive(!busy);
-            import.set_sensitive(!busy);
-            {
-                let actions = actions.clone();
-                refresh.connect_clicked(move |_| (actions.refresh_downloads)());
-            }
-            {
-                let actions = actions.clone();
-                import.connect_clicked(move |_| (actions.import_downloads)());
-            }
-            buttons.append(&refresh);
-            buttons.append(&import);
-            if *busy {
-                buttons.append(&gtk::Spinner::builder().spinning(true).build());
-            }
-            toolbar.append(&buttons);
-            toolbar.append(&dim(
-                "Goosic plays finalized files already on disk. It never starts a downloader and \
-                 never reads account cookies.",
-            ));
-            padded(&toolbar, 0, 12)
-        }
-        PageRow::Download(track) => padded(&download_row(track, actions), 4, 4),
         PageRow::More(more) => {
             let line = row(8);
             let action_button = |label: &str| {
@@ -727,41 +693,6 @@ fn track_shelf(tracks: &Rc<[Track]>, actions: &Rc<Actions>) -> gtk::ScrolledWind
         .propagate_natural_height(true)
         .child(&columns)
         .build()
-}
-
-fn download_row(track: &DownloadedTrack, actions: &Rc<Actions>) -> gtk::Box {
-    let line = row(10);
-    line.append(&artwork(actions, None, "♪", 40));
-
-    let text = column(2);
-    text.set_hexpand(true);
-    text.set_valign(gtk::Align::Center);
-    text.append(&single_line(plain(&track.title)));
-    let mut detail = vec![track.artist.clone(), size_text(track.bytes)];
-    if track.imported {
-        detail.push("From the previous Goosic".to_owned());
-    }
-    if !track.available {
-        detail.push("Missing from disk".to_owned());
-    }
-    detail.retain(|part| !part.is_empty());
-    text.append(&single_line(dim(&detail.join(" · "))));
-    line.append(&text);
-
-    let play = gtk::Button::builder()
-        .icon_name("media-playback-start-symbolic")
-        .tooltip_text(if track.available {
-            "Play the downloaded file"
-        } else {
-            "This file is missing from disk"
-        })
-        .valign(gtk::Align::Center)
-        .sensitive(track.available)
-        .build();
-    let (track, actions) = (track.clone(), actions.clone());
-    play.connect_clicked(move |_| (actions.play_download)(track.clone()));
-    line.append(&play);
-    line
 }
 
 fn card_strip(cards: &[Card], actions: &Rc<Actions>) -> gtk::ScrolledWindow {

@@ -409,7 +409,7 @@ mod tests {
         player.apply_lease(lease(Owner::OfficialWebView, 7));
         assert!(player.holds(Owner::OfficialWebView, 7));
         assert!(!player.holds(Owner::OfficialWebView, 6));
-        assert!(!player.holds(Owner::LocalDownloadedFile, 7));
+        assert!(!player.holds(Owner::None, 7));
         player.apply_lease(lease(Owner::None, 8));
         assert!(!player.holds(Owner::OfficialWebView, 8));
     }

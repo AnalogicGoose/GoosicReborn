@@ -8,9 +8,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use goosic_protocol::{
-    AccountSummary, CatalogPage, DownloadedTrack, RequestPayload, ResponseEnvelope,
-};
+use goosic_protocol::{AccountSummary, CatalogPage, RequestPayload, ResponseEnvelope};
 use goosic_shell_support::catalog::{
     detail_subtitle, failure_text, Card, CardAction, PageView, Track,
 };
@@ -22,7 +20,7 @@ use goosic_shell_support::TransportError;
 pub enum LoadState {
     Idle,
     Loading,
-    Loaded(PageView),
+    Loaded(Box<PageView>),
     Failed { code: String, message: String },
 }
 
@@ -46,9 +44,6 @@ pub struct ShellFacts {
     pub start_page: String,
     pub reduce_motion: bool,
     pub artwork_background: bool,
-    pub downloads: DownloadsState,
-    /// A read or import of the downloaded files is in flight.
-    pub downloads_busy: bool,
 }
 
 impl Default for ShellFacts {
@@ -66,28 +61,7 @@ impl Default for ShellFacts {
             start_page: "home".into(),
             reduce_motion: false,
             artwork_background: true,
-            downloads: DownloadsState::NotRead,
-            downloads_busy: false,
         }
-    }
-}
-
-/// What the shell has read of the downloaded files.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub enum DownloadsState {
-    #[default]
-    NotRead,
-    Read(Vec<DownloadedTrack>),
-    Failed(String),
-}
-
-/// A file size as people read it.
-pub fn size_text(bytes: u64) -> String {
-    const MEGABYTE: f64 = 1024.0 * 1024.0;
-    if bytes as f64 >= MEGABYTE {
-        format!("{:.1} MB", bytes as f64 / MEGABYTE)
-    } else {
-        format!("{} KB", bytes.div_ceil(1024))
     }
 }
 
@@ -137,11 +111,6 @@ pub enum PageRow {
     Settings(ShellFacts),
     /// The end of a page that continues upstream.
     More(MoreRow),
-    /// Refresh and import, with what the screen does and does not do.
-    DownloadsToolbar {
-        busy: bool,
-    },
-    Download(DownloadedTrack),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,7 +314,7 @@ impl Browser {
         let state = match result {
             Ok(page) => {
                 self.set_cursor(&key, page.next_cursor.clone());
-                LoadState::Loaded(PageView::from_wire(&page))
+                LoadState::Loaded(Box::new(PageView::from_wire(&page)))
             }
             Err(message) => LoadState::Failed {
                 code: "accountUnavailable".to_owned(),
@@ -392,7 +361,7 @@ impl Browser {
             Ok(response) => match response.payload.and_then(|payload| payload.catalog) {
                 Some(page) => {
                     self.set_cursor(&key, page.next_cursor.clone());
-                    LoadState::Loaded(PageView::from_wire(&page))
+                    LoadState::Loaded(Box::new(PageView::from_wire(&page)))
                 }
                 None => LoadState::Failed {
                     code: "invalidResponse".to_owned(),
@@ -543,31 +512,6 @@ impl Browser {
                 }),
             },
             Route::Settings => rows.push(PageRow::Settings(facts.clone())),
-            Route::Downloads => {
-                rows.push(PageRow::DownloadsToolbar {
-                    busy: facts.downloads_busy,
-                });
-                match &facts.downloads {
-                    DownloadsState::NotRead => rows.push(PageRow::Loading {
-                        subject: "downloaded files".to_owned(),
-                    }),
-                    DownloadsState::Failed(message) => rows.push(PageRow::Failure {
-                        title: "Could not read downloaded files".to_owned(),
-                        detail: message.clone(),
-                    }),
-                    DownloadsState::Read(tracks) if tracks.is_empty() => {
-                        rows.push(PageRow::Empty {
-                            title: "No downloaded files".to_owned(),
-                            message: "Import the finalized files a previous Goosic left on this \
-                                      machine. Nothing is downloaded here."
-                                .to_owned(),
-                        })
-                    }
-                    DownloadsState::Read(tracks) => {
-                        rows.extend(tracks.iter().cloned().map(PageRow::Download))
-                    }
-                }
-            }
             Route::Library => match facts.account {
                 None => rows.push(PageRow::Empty {
                     title: "Not connected to an account".to_owned(),
@@ -679,7 +623,6 @@ pub fn route_title(route: Route) -> &'static str {
         Route::Charts => "Charts",
         Route::MoodsAndGenres => "Moods & genres",
         Route::NewReleases => "New releases",
-        Route::Downloads => "Downloads",
         Route::Settings => "Settings",
     }
 }
@@ -693,7 +636,6 @@ fn route_subtitle(route: Route) -> &'static str {
         Route::Charts => "What is being played right now",
         Route::MoodsAndGenres => "Find a feeling, then a playlist",
         Route::NewReleases => "Albums and singles out now",
-        Route::Downloads => "Finalized files from the previous Goosic",
         Route::Settings => "Preferences, accounts, and the service",
     }
 }
@@ -1132,54 +1074,6 @@ mod tests {
                 .any(|row| matches!(row, PageRow::More(_))),
             "an empty next part is the end of the feed, not an error"
         );
-    }
-
-    #[test]
-    fn downloads_show_what_was_read_and_say_why_when_nothing_was() {
-        let mut browser = Browser::new();
-        browser.navigate(Route::Downloads);
-        assert_eq!(
-            browser.current_key(),
-            None,
-            "downloads read no catalog page"
-        );
-
-        let mut facts = ShellFacts::default();
-        assert!(matches!(browser.rows(&facts)[2], PageRow::Loading { .. }));
-
-        let track = DownloadedTrack {
-            video_id: "dQw4w9WgXcQ".into(),
-            title: "Song".into(),
-            artist: "Artist".into(),
-            bytes: 3 * 1024 * 1024,
-            available: true,
-            imported: true,
-        };
-        facts.downloads = DownloadsState::Read(vec![track.clone()]);
-        facts.downloads_busy = true;
-        let rows = browser.rows(&facts);
-        assert_eq!(rows[1], PageRow::DownloadsToolbar { busy: true });
-        assert_eq!(rows[2], PageRow::Download(track));
-
-        facts.downloads = DownloadsState::Read(Vec::new());
-        assert!(matches!(
-            &browser.rows(&facts)[2],
-            PageRow::Empty { title, .. } if title == "No downloaded files"
-        ));
-
-        facts.downloads = DownloadsState::Failed("store unavailable".into());
-        assert!(matches!(
-            &browser.rows(&facts)[2],
-            PageRow::Failure { detail, .. } if detail == "store unavailable"
-        ));
-    }
-
-    #[test]
-    fn sizes_read_as_people_say_them() {
-        assert_eq!(size_text(0), "0 KB");
-        assert_eq!(size_text(1), "1 KB");
-        assert_eq!(size_text(512 * 1024), "512 KB");
-        assert_eq!(size_text(5 * 1024 * 1024 + 512 * 1024), "5.5 MB");
     }
 
     #[test]

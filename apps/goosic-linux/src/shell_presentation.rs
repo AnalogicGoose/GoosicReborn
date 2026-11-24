@@ -85,8 +85,6 @@ impl Shell {
         };
         if owner == Owner::OfficialWebView && self.official.is_loaded_for(generation) {
             self.official.pause();
-        } else if owner == Owner::LocalDownloadedFile && self.local.is_loaded_for(generation) {
-            self.local.pause();
         }
         self.set_status("Sleep timer finished. Pause requested.");
     }

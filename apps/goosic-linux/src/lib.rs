@@ -10,7 +10,6 @@ mod background;
 pub mod bridge;
 mod full_player;
 pub mod layout;
-pub mod local_host;
 mod login_host;
 pub mod lyrics;
 mod mpris;
