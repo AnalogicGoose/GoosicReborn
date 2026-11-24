@@ -15,16 +15,18 @@
  * See the GNU General Public License for more details. A copy is in LICENSE-GPL-3.0 at the
  * repository root.
  */
+import Accelerate
 import AppKit
-import CoreImage
-import CoreImage.CIFilterBuiltins
 import ImageIO
 import SwiftUI
 
 /// Bakes one small texture off the main actor. Core Animation only sees the finished image.
 enum NowPlayingArtworkTexture {
     private static let side = 128
-    private static let context = CIContext(options: [.cacheIntermediates: false])
+    private static let rowBytes = side * 4
+    private static let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        | CGBitmapInfo.byteOrder32Big.rawValue
+    private static let colourSpace = CGColorSpace(name: CGColorSpace.sRGB)!
     @MainActor static var last: (file: URL, image: CGImage)?
 
     static func make(from file: URL) -> CGImage? {
@@ -33,27 +35,69 @@ enum NowPlayingArtworkTexture {
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceThumbnailMaxPixelSize: side,
-              ] as CFDictionary) else { return nil }
+              ] as CFDictionary),
+              let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8,
+                                      bytesPerRow: rowBytes, space: colourSpace, bitmapInfo: bitmapInfo),
+              let bitmap = context.data else { return nil }
 
         let extent = CGRect(x: 0, y: 0, width: side, height: side)
         let scale = CGFloat(side) / CGFloat(min(cover.width, cover.height))
-        let fitted = CIImage(cgImage: cover)
-            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            .transformed(by: CGAffineTransform(translationX: (extent.width - CGFloat(cover.width) * scale) / 2,
-                                               y: (extent.height - CGFloat(cover.height) * scale) / 2))
+        let width = CGFloat(cover.width) * scale
+        let height = CGFloat(cover.height) * scale
+        context.setFillColor(gray: 0, alpha: 1)
+        context.fill(extent)
+        context.draw(cover, in: CGRect(x: (extent.width - width) / 2, y: (extent.height - height) / 2,
+                                       width: width, height: height))
 
-        let twirl = CIFilter.twirlDistortion()
-        twirl.inputImage = fitted.cropped(to: extent)
-        twirl.center = CGPoint(x: extent.midX, y: extent.midY)
-        twirl.radius = Float(side) / 2
-        twirl.angle = 1.4
-        guard let warped = twirl.outputImage else { return nil }
+        let input = bitmap.assumingMemoryBound(to: UInt32.self)
+        var warped = withExtendedLifetime(context) { textureMap.map { input[Int($0)] } }
+        var blurred = Data(count: side * rowBytes)
+        let result = warped.withUnsafeMutableBufferPointer { pixels in
+            blurred.withUnsafeMutableBytes { output in
+                var source = vImage_Buffer(data: pixels.baseAddress, height: UInt(side),
+                                           width: UInt(side), rowBytes: rowBytes)
+                var destination = vImage_Buffer(data: output.baseAddress, height: UInt(side),
+                                                width: UInt(side), rowBytes: rowBytes)
+                // A separable tent filter gives a wide, soft blur without a live GPU effect.
+                let error = vImageTentConvolve_ARGB8888(&source, &destination, nil, 0, 0, 49, 49, nil,
+                                                       vImage_Flags(kvImageEdgeExtend | kvImageDoNotTile))
+                guard error == kvImageNoError else { return error }
+                let rgba = output.bindMemory(to: UInt8.self)
+                for index in stride(from: 0, to: rgba.count, by: 4) {
+                    let red = Float(rgba[index])
+                    let green = Float(rgba[index + 1])
+                    let blue = Float(rgba[index + 2])
+                    let luma = red * 0.2126 + green * 0.7152 + blue * 0.0722
+                    rgba[index] = saturated(red, luma: luma)
+                    rgba[index + 1] = saturated(green, luma: luma)
+                    rgba[index + 2] = saturated(blue, luma: luma)
+                }
+                return error
+            }
+        }
+        guard result == kvImageNoError,
+              let provider = CGDataProvider(data: blurred as CFData) else { return nil }
+        return CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
+                       space: colourSpace, bitmapInfo: CGBitmapInfo(rawValue: bitmapInfo), provider: provider,
+                       decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
 
-        let softened = warped.clampedToExtent()
-            .applyingGaussianBlur(sigma: 10)
-            .cropped(to: extent)
-            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.35])
-        return context.createCGImage(softened, from: extent)
+    private static func saturated(_ channel: Float, luma: Float) -> UInt8 {
+        UInt8(clamping: Int((luma + (channel - luma) * 1.35).rounded()))
+    }
+
+    /// Inverse texture coordinates for a local twist. The blur softens the rounded samples.
+    private static let textureMap: [UInt16] = (0..<(side * side)).map { index in
+        let centre = Double(side - 1) / 2
+        let x = Double(index % side) - centre
+        let y = Double(index / side) - centre
+        let weight = max(0, 1 - hypot(x, y) / (Double(side) / 2))
+        let angle = 1.4 * weight * weight
+        let cosine = cos(angle)
+        let sine = sin(angle)
+        let column = Int((centre + x * cosine - y * sine).rounded())
+        let row = Int((centre + x * sine + y * cosine).rounded())
+        return UInt16(row * side + column)
     }
 }
 
