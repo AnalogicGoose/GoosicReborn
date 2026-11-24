@@ -20,6 +20,7 @@ namespace Goosic.Windows.Views;
 internal sealed class FullPlayerArtworkBackdrop : Grid
 {
     private const int Side = 128;
+    private const float Turn = 0.29f;
     private const float DisplacementRange = Side;
     private static readonly Lazy<byte[]> DisplacementPixels = new(CreateDisplacementPixels);
     private readonly Image _base = new() { Stretch = Stretch.UniformToFill };
@@ -47,7 +48,6 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
             _baseVisual.Scale = new Vector3(-1, -1, 1);
             ElementCompositionPreview.SetIsTranslationEnabled(_overlay, true);
             _overlayVisual = ElementCompositionPreview.GetElementVisual(_overlay);
-            _overlayVisual.Scale = new Vector3(1.46f, 1.46f, 1);
             UpdateBounds();
             UpdateMotion();
         };
@@ -94,12 +94,18 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
             rear.CenterPoint = centre;
         }
 
-        if (_overlayVisual is { } visual)
+        if (_overlayVisual is { } visual && width > 0 && height > 0)
         {
-            // Scale around the middle and rotate around the off-centre pivot of the enlarged image.
-            var pivot = new Vector3(width * 0.28f, height * 0.69f, 0);
-            visual.CenterPoint = pivot;
-            visual.Properties.InsertVector3("Translation", (pivot - centre) * 0.46f);
+            // Allow for the diagonal sweep of each side and the travel around the off-centre pivot.
+            var pivot = new Vector3(-0.22f * width, -0.19f * height, 0);
+            var excursion = 2 * pivot.Length() * MathF.Sin(Turn / 2);
+            var crossAxis = MathF.Sin(Turn);
+            var scale = MathF.Max(1.46f, MathF.Max(
+                1 + (height * crossAxis + 2 * excursion) / width,
+                1 + (width * crossAxis + 2 * excursion) / height));
+            visual.Scale = new Vector3(scale, scale, 1);
+            visual.CenterPoint = centre + pivot / scale;
+            visual.Properties.InsertVector3("Translation", pivot * (1 - 1 / scale));
         }
     }
 
@@ -130,9 +136,9 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
         animation.Duration = TimeSpan.FromSeconds(22);
         animation.IterationBehavior = AnimationIterationBehavior.Forever;
         animation.InsertKeyFrame(0, 0);
-        animation.InsertKeyFrame(0.25f, 16.6f, ease);
+        animation.InsertKeyFrame(0.25f, Turn * (180 / MathF.PI), ease);
         animation.InsertKeyFrame(0.5f, 0, ease);
-        animation.InsertKeyFrame(0.75f, -16.6f, ease);
+        animation.InsertKeyFrame(0.75f, -Turn * (180 / MathF.PI), ease);
         animation.InsertKeyFrame(1, 0, ease);
         visual.StartAnimation(angle, animation);
     }
