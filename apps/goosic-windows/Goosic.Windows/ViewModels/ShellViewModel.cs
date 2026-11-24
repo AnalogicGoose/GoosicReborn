@@ -571,47 +571,6 @@ public sealed class ShelfColumnViewModel(IReadOnlyList<CardViewModel> rows)
     public double Width => ShelfColumns.ColumnWidth;
 }
 
-/// <summary>One line shown in the lyrics panel, never synthesized by the shell.</summary>
-/// <summary>One line of lyrics, and whether the music is on it.</summary>
-public sealed class LyricLineViewModel : INotifyPropertyChanged
-{
-    private bool _isCurrent;
-
-    internal LyricLineViewModel(string text, long atMilliseconds, bool synced, int index)
-    {
-        Text = text;
-        AtMilliseconds = atMilliseconds;
-        Synced = synced;
-        Index = index;
-    }
-
-    /// <summary>The line's place in its document, which is what its distance from the sung line is measured in.</summary>
-    public int Index { get; }
-
-    /// <summary>Whether the document follows the song; unsynced lines have no current line.</summary>
-    public bool Synced { get; }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public string Text { get; }
-    public long AtMilliseconds { get; }
-
-    public bool IsCurrent
-    {
-        get => _isCurrent;
-        internal set
-        {
-            if (_isCurrent == value)
-            {
-                return;
-            }
-
-            _isCurrent = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsCurrent)));
-        }
-    }
-}
-
 /// <summary>What the window is showing, and how it asks the service to change it.</summary>
 public sealed partial class ShellViewModel : INotifyPropertyChanged
 {
@@ -716,6 +675,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     {
         _pendingSeek = new PendingSeek(target, DateTimeOffset.Now);
         PlaybackPosition = target;
+        // The one confirmation the target gets; samples do not repeat it while the seek is held.
+        FollowLyrics(target, _lyricsFrozen);
     }
 
     /// <summary>The listener paused the current play; a pause near its end is theirs, not the end.</summary>
@@ -957,8 +918,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// </remarks>
     /// <returns>Whether this is the first confirmed natural end for the current queue item.</returns>
     private bool _isPlaying;
-    private bool _lyricsSynced;
-    private int _currentLyric = -1;
 
     /// <summary>
     /// Raised when the page confirms a different track from the one it was confirming.
@@ -968,15 +927,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// load that has not reached the page yet, must leave the lyrics of what is still playing.
     /// </remarks>
     internal event Action? ConfirmedTrackChanged;
-
-    /// <summary>
-    /// Raised with the index of the lyric line the music has reached, or -1 when it is back
-    /// before the first one.
-    /// </summary>
-    internal event Action<int>? CurrentLyricChanged;
-
-    /// <summary>The line being sung, or -1 when there is none.</summary>
-    internal int CurrentLyricIndex => _currentLyric;
 
     /// <summary>
     /// Whether the page last confirmed that it is playing.
@@ -1013,56 +963,12 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     public string PlayPauseLabel => IsPlaying ? "Pause" : "Play";
 
-    /// <summary>
-    /// Moves the highlight to the line the confirmed position has reached.
-    /// </summary>
-    /// <remarks>
-    /// Only for synced lyrics. Plain lyrics carry no times, and highlighting one of them would
-    /// claim a position the document never stated.
-    /// </remarks>
-    private void FollowLyrics(double seconds)
-    {
-        if (!_lyricsSynced || Lyrics.Count == 0)
-        {
-            return;
-        }
-
-        var at = (long)(seconds * 1000);
-        var index = -1;
-        for (var i = 0; i < Lyrics.Count; i++)
-        {
-            if (Lyrics[i].AtMilliseconds > at)
-            {
-                break;
-            }
-
-            index = i;
-        }
-
-        if (index == _currentLyric)
-        {
-            return;
-        }
-
-        if (_currentLyric >= 0 && _currentLyric < Lyrics.Count)
-        {
-            Lyrics[_currentLyric].IsCurrent = false;
-        }
-
-        _currentLyric = index;
-        if (index >= 0)
-        {
-            Lyrics[index].IsCurrent = true;
-        }
-
-        CurrentLyricChanged?.Invoke(index);
-    }
-
     internal bool ReportPlayback(BridgeEvent sample)
     {
         IsAdvertisement = sample.IsAdvertisement;
         var position = TimeSpan.FromSeconds(Math.Max(0, sample.CurrentTime));
         var total = TimeSpan.FromSeconds(Math.Max(0, sample.Duration));
+        var lyricPosition = LyricsPosition.Choose(sample.CurrentTime, _pendingSeek, IsScrubbing, DateTimeOffset.Now);
         if (!IsScrubbing)
         {
             var (shown, settled) = SeekSettle.Show(Math.Max(0, sample.CurrentTime), _pendingSeek, DateTimeOffset.Now);
@@ -1094,21 +1000,42 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
             if (changed)
             {
-                Lyrics.Clear();
-                _lyricsSynced = false;
-                _currentLyric = -1;
+                // The lines are cleared, so nothing on show belongs to any track any more. Without
+                // this, coming back to the same queue entry kept a "found" state with no lines.
+                _lyricsTrack = null;
+                _lyricsAwaitingLength = null;
+                ResetLyricFollowing();
                 ConfirmedTrackChanged?.Invoke();
                 AnnounceConfirmed(pending);
                 PresentTracks();
             }
 
-            FollowLyrics(sample.CurrentTime);
+            var frozen = sample.State != "playing";
+            if (lyricPosition is { } followed)
+            {
+                FollowLyrics(followed, frozen);
+            }
+
+            if (sample.Duration > 0 && ReferenceEquals(_lyricsAwaitingLength, pending))
+            {
+                // The length the lookup was waiting for.
+                _lyricsAwaitingLength = null;
+                _ = LoadLyricsAsync(force: true);
+            }
+            else if (frozen != _lyricsFrozen)
+            {
+                // A held seek target is not re-confirmed, but pausing or resuming still lands on it.
+                FollowLyrics(PlaybackPosition, frozen);
+            }
             NowPlayingArtwork = pending.Artwork;
             NowPlayingTitle = pending.Title;
             NowPlayingSubtitle = pending.Subtitle + " · " + Clock(position)
                 + (total > TimeSpan.Zero ? " / " + Clock(total) : "");
             return MarkNaturalEnd(sample);
         }
+
+        // Nothing in the lyrics runs on while something else plays.
+        FreezeLyrics();
 
         // A sample for a track the model did not ask for: an advertisement, or the moments before
         // the requested page takes over. Name the advertisement; otherwise say it is loading,
@@ -1191,14 +1118,38 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         return true;
     }
 
+    /// <summary>The track the lyrics on show, or being looked up, belong to.</summary>
+    private TrackViewModel? _lyricsTrack;
+
+    /// <summary>The track whose lookup is waiting for the page to report a real length.</summary>
+    private TrackViewModel? _lyricsAwaitingLength;
+
+    /// <summary>The track whose wait for a length ran out, so its catalog length is used.</summary>
+    private TrackViewModel? _lyricsLengthWaitOver;
+
+    /// <summary>How long a lookup waits for the page's own length before using the catalog's, as on macOS.</summary>
+    private static readonly TimeSpan LyricsLengthWait = TimeSpan.FromSeconds(4);
+
     /// <summary>Loads lyrics for the track the official renderer actually confirmed.</summary>
-    internal async Task LoadLyricsAsync()
+    /// <param name="force">Look up again even when lyrics for this track are already on show, as Retry does.</param>
+    /// <remarks>
+    /// Opening the panel used to look the lyrics up again every time, which also threw away a
+    /// successful import. What is on show, or on its way, for the playing track is kept.
+    /// </remarks>
+    internal async Task LoadLyricsAsync(bool force = false)
     {
         var track = _confirmedTrack;
+        if (!force && track is not null && ReferenceEquals(track, _lyricsTrack)
+            && ((LyricsState.HasLines && Lyrics.Count > 0) || LyricsState.IsLoading
+                || LyricsState.Kind == LyricsKind.NotFound))
+        {
+            return;
+        }
+
         var request = ++_lyricsRequestVersion;
-        Lyrics.Clear();
-        _lyricsSynced = false;
-        _currentLyric = -1;
+        ResetLyricFollowing();
+        _lyricsTrack = track;
+        _lyricsAwaitingLength = null;
         if (track is null)
         {
             LyricsState = LyricsState.NothingPlaying;
@@ -1206,7 +1157,18 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
 
         LyricsState = LyricsState.Loading;
-        var lookup = LyricsLookup.For(track.Title, track.Artist, track.Subtitle, track.Album, track.Duration);
+        // The page's own length picks the right recording; the first report can come before the
+        // media knows it, and a lookup sent then with the catalog's length was never repeated.
+        var measured = IsAdvertisement ? 0 : PlaybackDuration;
+        if (measured <= 0 && !ReferenceEquals(_lyricsLengthWaitOver, track))
+        {
+            _lyricsAwaitingLength = track;
+            _ = EndLyricsLengthWaitAsync(track, request);
+            return;
+        }
+
+        var lookup = LyricsLookup.For(track.Title, track.Artist, track.Subtitle, track.Album, track.Duration,
+            measured > 0 ? measured : null);
         var next = await RequestLyricsAsync(lookup, request).ConfigureAwait(true);
         // One quiet retry: a lookup that timed out usually succeeds a moment later, once LRCLIB
         // has fetched the song. Listeners had to close and reopen the panel to get that retry.
@@ -1222,6 +1184,17 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         if (next is not null && request == _lyricsRequestVersion)
         {
             LyricsState = next;
+        }
+    }
+
+    /// <summary>Gives up waiting for a reported length and looks the lyrics up with the catalog's.</summary>
+    private async Task EndLyricsLengthWaitAsync(TrackViewModel track, int request)
+    {
+        await Task.Delay(LyricsLengthWait).ConfigureAwait(true);
+        if (request == _lyricsRequestVersion && ReferenceEquals(_lyricsAwaitingLength, track))
+        {
+            _lyricsLengthWaitOver = track;
+            await LoadLyricsAsync(force: true).ConfigureAwait(true);
         }
     }
 
@@ -1256,12 +1229,7 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
                 return LyricsState.NotFound;
             }
 
-            foreach (var line in document.Lines)
-            {
-                Lyrics.Add(new LyricLineViewModel(line.Text, line.AtMilliseconds, document.Synced, Lyrics.Count));
-            }
-
-            _lyricsSynced = document.Synced;
+            ShowLyrics(document);
             return LyricsState.Found(document.Synced, document.Source, document.Truncated);
         }
         catch (ServiceRefusedException refused) when (refused.Code == "lyricsNotFound")

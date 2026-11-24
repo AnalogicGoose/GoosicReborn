@@ -108,7 +108,10 @@ struct NowPlayingMeshBackground: View {
         .frame(width: raster.width, height: raster.height, alignment: .topLeading)
         .drawingGroup()
         .blur(radius: blur)
-        .saturation(1.08)
+        // Averaging a cover's pixels and blurring them both pull its colours toward grey. This
+        // puts back the depth the cover has, so the field reads as its colour and not a wash.
+        .saturation(1.55)
+        .contrast(1.08)
         // Rasterised with room for the blur's spread, or the scale would redo the blur at full size.
         .padding(blur * 2)
         .drawingGroup()
@@ -146,6 +149,9 @@ struct NowPlayingMeshBackground: View {
 /// and whenever the larger one fails.
 private struct NativeMacFullPlayerCover: View {
     let thumbnail: String?
+    /// The cover steps back while playback is paused and comes forward again when it resumes.
+    var paused = false
+    @Environment(\.goosicReduceMotion) private var reduceMotion
 
     var body: some View {
         NativeMacCachedImage(url: NowPlayingMesh.highResolutionVariant(of: thumbnail ?? ""), maxPixels: 1200) { larger in
@@ -164,7 +170,9 @@ private struct NativeMacFullPlayerCover: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
+        .shadow(color: .black.opacity(paused ? 0.22 : 0.35), radius: paused ? 12 : 24, y: paused ? 6 : 12)
+        .scaleEffect(paused ? 0.74 : 1)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.5, extraBounce: 0.1), value: paused)
     }
 }
 
@@ -355,9 +363,10 @@ struct NativeMacFullPlayer: View {
                     .id(palette)
                     .transition(.opacity)
             }
-            // The old player's `bg-background/35`: enough to keep white text readable over a
-            // pale cover without flattening the colour.
-            Color(nsColor: .windowBackgroundColor).opacity(0.35)
+            // Keeps white text readable over a pale cover. It is black rather than the window's
+            // grey: the grey darkened the field and greyed it too, which is what made a vivid
+            // cover come out as a dull wash.
+            Color.black.opacity(0.24)
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 1.15), value: palette)
         .ignoresSafeArea()
@@ -369,14 +378,14 @@ struct NativeMacFullPlayer: View {
         VStack(alignment: .leading, spacing: compact ? 8 : 14) {
             // Clicking the cover goes back, as it did in the previous Goosic.
             if compact {
-                NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail)
+                NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail, paused: model.isPaused)
                     .frame(width: cover, height: cover)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .frame(maxWidth: .infinity)
                     .accessibilityLabel("Artwork")
             } else {
                 Button(action: close) {
-                    NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail)
+                    NativeMacFullPlayerCover(thumbnail: model.currentTrack?.thumbnail, paused: model.isPaused)
                         .frame(width: cover, height: cover)
                         // Video art is 16:9. Crop at the square so it stays in the column.
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -600,7 +609,7 @@ struct NativeMacFullPlayer: View {
     // MARK: - Lyrics
 
     private var lyricsColumn: some View {
-        NativeMacLyricsView(store: store, clock: clock, immersive: true)
+        NativeMacLyricsView(store: store, clock: store.model.lyricsClock, immersive: true)
     }
 
 }
