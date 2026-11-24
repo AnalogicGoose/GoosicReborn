@@ -72,9 +72,9 @@ final class MaterialSurfaceHostView: NSView {
 
     private func tint(for kind: MaterialSurfaceKind) -> NSColor? {
         switch kind {
-        case .sidebar: return nil
-        case .queue: return NSColor.controlAccentColor.withAlphaComponent(0.08)
-        case .nowPlaying: return NSColor.controlAccentColor.withAlphaComponent(0.12)
+        // Plain glass everywhere: the system accent tinted these red or blue, and Goosic has no
+        // colour accent.
+        case .sidebar, .queue, .nowPlaying: return nil
         }
     }
 }

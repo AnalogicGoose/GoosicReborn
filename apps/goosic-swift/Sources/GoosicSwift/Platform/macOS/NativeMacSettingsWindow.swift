@@ -63,10 +63,11 @@ private struct NativeMacSettingsOption: SwiftUI.View {
 
     var body: some SwiftUI.View {
         SwiftUI.VStack(alignment: .leading, spacing: 3) {
-            // Only the checkmark takes Goosic's pink; pop-ups and buttons stay neutral, as Music's.
+            // The checkbox is filled grey, not with the neutral accent: a white fill would hide
+            // its white checkmark in dark mode.
             SwiftUI.Toggle(title, isOn: $isOn)
                 .toggleStyle(.checkbox)
-                .tint(.goosicPink)
+                .tint(.gray)
             SwiftUI.Text(detail)
                 .font(.callout)
                 .foregroundStyle(.secondary)
