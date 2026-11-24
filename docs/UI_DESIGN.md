@@ -420,6 +420,19 @@ the full player's menu, such as Go to Artist, closes the full player before the 
 because the page would otherwise load unseen behind it; from the mini player it also brings
 the main window back.
 
+The immersive backdrop derives its shapes from the current cached cover. Prepare a small
+texture when the immersive player needs new artwork, applying a local warp and blur before
+display. Reuse the texture across the compositor layers so animation only moves the finished
+artwork. Missing or unreadable artwork leaves the dark fallback. Stop decorative animation
+when the player is hidden or minimised, or when the effective motion preference suppresses it.
+The still image must keep lyrics and controls readable. Browsing alone does not prepare this
+texture.
+
+Before shipping, compare the old and new backdrop on macOS and Windows using the same square
+cover, wide video thumbnail and window sizes. Check CPU, GPU, resident memory, and player
+opening smoothness. Include a track change with the player closed and check that decorative
+animation stops after minimising or turning on Reduce Motion.
+
 Mini player is a compact native listening window with cover, metadata, timeline and core
 transport. Large lyric/queue columns can step aside there, with a route back to the full
 presentation. Always-on-top behavior is a native capability, not a recreated fake titlebar.
