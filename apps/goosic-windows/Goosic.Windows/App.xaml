@@ -10,27 +10,11 @@
                 <ResourceDictionary Source="Styles/Palette.xaml" />
                 <ResourceDictionary Source="Styles/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- Sliders fill in the brand red and carry a white thumb, as the volume popover shows. -->
-            <StaticResource x:Key="SliderTrackValueFill" ResourceKey="GoosicAccentBrush" />
-            <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="GoosicAccentBrush" />
-            <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="GoosicAccentBrush" />
+            <!-- Sliders fill in the neutral accent (Styles/Palette.xaml) and carry a white thumb. -->
             <SolidColorBrush x:Key="SliderThumbBackground" Color="White" />
             <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="White" />
             <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#EEEEEE" />
-            <!-- A menu row under the pointer fills with the brand colour and turns white, as a
-                 macOS menu's selection does with the accent colour. -->
-            <StaticResource x:Key="MenuFlyoutItemBackgroundPointerOver" ResourceKey="GoosicAccentBrush" />
-            <StaticResource x:Key="MenuFlyoutItemBackgroundPressed" ResourceKey="GoosicAccentBrush" />
-            <SolidColorBrush x:Key="MenuFlyoutItemForegroundPointerOver" Color="White" />
-            <SolidColorBrush x:Key="MenuFlyoutItemForegroundPressed" Color="White" />
-            <StaticResource x:Key="MenuFlyoutSubItemBackgroundPointerOver" ResourceKey="GoosicAccentBrush" />
-            <StaticResource x:Key="MenuFlyoutSubItemBackgroundPressed" ResourceKey="GoosicAccentBrush" />
-            <StaticResource x:Key="MenuFlyoutSubItemBackgroundSubMenuOpened" ResourceKey="GoosicAccentBrush" />
-            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundPointerOver" Color="White" />
-            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundPressed" Color="White" />
-            <SolidColorBrush x:Key="MenuFlyoutSubItemForegroundSubMenuOpened" Color="White" />
-            <SolidColorBrush x:Key="MenuFlyoutSubItemChevronPointerOver" Color="White" />
-            <SolidColorBrush x:Key="MenuFlyoutSubItemChevronSubMenuOpened" Color="White" />
+            <!-- Menu rows under the pointer keep WinUI's own neutral fill: Goosic has no colour accent. -->
         </ResourceDictionary>
     </Application.Resources>
 </Application>
