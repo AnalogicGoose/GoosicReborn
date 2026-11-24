@@ -1,10 +1,11 @@
-//! A cropped, blurred copy of the playing cover. GTK's render graph keeps blur off the UI thread.
+//! A full-bleed blurred copy of the playing cover tinted with the window colour, matching the
+//! macOS shell's ambient artwork backdrop. GTK's render graph keeps the blur off the UI thread.
 
 use crate::artwork::ArtworkCache;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk::{gdk, glib, graphene};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 mod imp {
@@ -13,6 +14,8 @@ mod imp {
     #[derive(Default)]
     pub struct Backdrop {
         pub image: RefCell<Option<gdk::Paintable>>,
+        pub light: Cell<bool>,
+        pub immersive: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -33,13 +36,16 @@ mod imp {
             if width <= 0.0 || height <= 0.0 {
                 return;
             }
+            let bounds = graphene::Rect::new(0.0, 0.0, width as f32, height as f32);
             let iw = f64::from(image.intrinsic_width().max(1));
             let ih = f64::from(image.intrinsic_height().max(1));
-            let scale = ((width + 160.0) / iw).max((height + 160.0) / ih);
+            // Overscan well past the blur spread so the blurred edges never fade to transparent.
+            let spread = if self.immersive.get() { 260.0 } else { 220.0 };
+            let scale = ((width + spread) / iw).max((height + spread) / ih);
             let (w, h) = (iw * scale, ih * scale);
-            snapshot.push_clip(&graphene::Rect::new(0.0, 0.0, width as f32, height as f32));
-            snapshot.push_opacity(0.32);
-            snapshot.push_blur(60.0);
+
+            snapshot.push_clip(&bounds);
+            snapshot.push_blur(if self.immersive.get() { 110.0 } else { 88.0 });
             snapshot.save();
             snapshot.translate(&graphene::Point::new(
                 ((width - w) / 2.0) as f32,
@@ -48,7 +54,17 @@ mod imp {
             image.snapshot(snapshot, w, h);
             snapshot.restore();
             snapshot.pop();
-            snapshot.pop();
+
+            // Lay the window's own tint over the blurred cover: deep dark in the full player so
+            // vivid covers stay saturated rather than grey, and a readable veil in the browser.
+            let veil = if self.immersive.get() {
+                gdk::RGBA::new(0.0, 0.0, 0.0, 0.34)
+            } else if self.light.get() {
+                gdk::RGBA::new(0.97, 0.97, 0.99, 0.78)
+            } else {
+                gdk::RGBA::new(0.08, 0.07, 0.12, 0.52)
+            };
+            snapshot.append_color(&veil, &bounds);
             snapshot.pop();
         }
     }
@@ -84,6 +100,14 @@ impl ArtworkBackdrop {
             cache,
             shown: RefCell::new(None),
             pending: RefCell::new(None),
+        }
+    }
+
+    pub fn set_appearance(&self, light: bool, immersive: bool) {
+        let imp = self.widget.imp();
+        let changed = imp.light.replace(light) != light || imp.immersive.replace(immersive) != immersive;
+        if changed {
+            self.widget.queue_draw();
         }
     }
 

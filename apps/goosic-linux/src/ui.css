@@ -1,246 +1,708 @@
-/* The Linux widgets reproduce the Windows shell geometry and neutral palette. */
-window.goosic-shell { background: #202020; color: #f6f6f8; }
-.goosic-page, .goosic-sidebar, .goosic-side-panel, .goosic-player-pill { color: #f6f6f8; }
-.goosic-page label, .goosic-sidebar label, .goosic-side-panel label, .goosic-player-pill label { color: #f6f6f8; }
-.goosic-page .dim-label, .goosic-sidebar .dim-label, .goosic-side-panel .dim-label, .goosic-player-pill .dim-label { color: #9e9ea7; }
+/* macOS Goosic design language adapted natively for GTK 4.
+ * Translucent full-height sidebar over the blurred ambient artwork backdrop,
+ * vivid #FF0552 branded icons, floating frosted glass player capsule with inline
+ * volume pill, clean artwork-led shelves, and dark vivid immersive full player. */
 
-.goosic-sidebar, .goosic-side-panel {
-  background: alpha(#08080a, 0.94);
-  border: 1px solid alpha(white, 0.14);
-  border-radius: 14px;
-  box-shadow: 0 12px 36px alpha(black, 0.22);
+window.goosic-shell { background: #181620; color: #f6f6f9; }
+.goosic-page, .goosic-sidebar, .goosic-side-panel, .goosic-player-pill { color: #f6f6f9; }
+.goosic-page label, .goosic-sidebar label, .goosic-side-panel label, .goosic-player-pill label { color: #f6f6f9; }
+.goosic-page .dim-label, .goosic-sidebar .dim-label, .goosic-side-panel .dim-label, .goosic-player-pill .dim-label {
+  color: alpha(#f6f6f9, 0.62);
+  opacity: 1;
 }
-.goosic-sidebar { padding: 10px; }
-.goosic-side-panel { padding: 18px; }
-.goosic-player-pill {
-  background: alpha(#050505, 0.90);
-  border: 1px solid alpha(white, 0.14);
-  border-radius: 24px;
-  padding: 8px 16px;
-  box-shadow: 0 10px 30px alpha(black, 0.25);
+
+/* Full-height flush translucent sidebar letting the ambient artwork glow softly through. */
+.goosic-sidebar {
+  background: alpha(#12101a, 0.44);
+  border-right: 1px solid alpha(white, 0.10);
+  border-radius: 0;
+  padding: 12px 6px 8px 6px;
+}
+.goosic-sidebar.goosic-sidebar-overlay {
+  background: alpha(#14121c, 0.92);
+  border-right: 1px solid alpha(white, 0.14);
+  box-shadow: 8px 0 32px alpha(black, 0.40);
+}
+.goosic-side-panel {
+  background: alpha(#13111c, 0.94);
+  border-left: 1px solid alpha(white, 0.12);
+  border-radius: 0;
+  padding: 14px;
 }
 
 .goosic-sidebar list, .goosic-side-panel list, .goosic-page list,
 .goosic-page listview, .goosic-page row { background: transparent; }
-.goosic-sidebar row { border-radius: 8px; }
-.goosic-sidebar row:selected { background: alpha(white, 0.10); color: #f6f6f8; }
-.goosic-sidebar row:hover, .goosic-track-row:hover { background: alpha(white, 0.07); }
-.goosic-sidebar-section { color: #9e9ea7; font-size: 12px; font-weight: 600; }
-.goosic-playlist-placeholder { color: #9e9ea7; font-size: 14px; }
-.goosic-route-icon { color: #ff0552; font-size: 16px; }
-.goosic-sidebar entry, .goosic-sidebar entry text {
+.goosic-sidebar row {
+  border-radius: 7px;
+  margin: 1px 4px;
   min-height: 30px;
-  border-radius: 8px;
-  background: alpha(white, 0.08);
-  border: 1px solid alpha(white, 0.08);
-  color: #f6f6f8;
 }
-.goosic-sidebar entry text { background: transparent; border: 0; }
-.goosic-sidebar button, .goosic-player-pill button, .goosic-player-pill togglebutton {
-  background-image: none;
-  background-color: transparent;
-  color: #f6f6f8;
-  border-color: transparent;
-  box-shadow: none;
+.goosic-sidebar row:selected {
+  background: alpha(white, 0.12);
+  color: #ffffff;
 }
-.goosic-sidebar button:hover, .goosic-player-pill button:hover,
-.goosic-player-pill togglebutton:hover { background-color: alpha(white, 0.08); }
-button.goosic-account-row {
-  border-radius: 8px;
-  padding: 10px;
-  background-color: transparent;
+.goosic-sidebar row:selected label { font-weight: 600; }
+.goosic-sidebar row:hover { background: alpha(white, 0.06); }
+.goosic-sidebar row:selected:hover { background: alpha(white, 0.14); }
+.goosic-sidebar-section {
+  color: alpha(#f6f6f9, 0.46);
+  font-size: 11px;
   font-weight: 600;
 }
+.goosic-sidebar .goosic-route-icon { color: #ff0552; }
+
+button.goosic-sidebar-playlist {
+  border-radius: 7px;
+  padding: 4px 10px;
+  margin: 1px 0;
+  min-height: 28px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+button.goosic-sidebar-playlist:hover { background: alpha(white, 0.07); }
+frame.goosic-sidebar-thumb { border-radius: 4px; }
+.goosic-sidebar-divider {
+  background: alpha(white, 0.10);
+  min-height: 1px;
+  margin: 6px 4px;
+}
+
+/* Anchored bottom account menu button. */
+.goosic-account-row > button {
+  background: transparent;
+  background-image: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 8px;
+  box-shadow: none;
+}
+.goosic-account-row > button:hover { background: alpha(white, 0.08); }
 .goosic-account-avatar {
-  min-width: 36px;
-  min-height: 36px;
-  border-radius: 18px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 999px;
   background: #ff0552;
   color: white;
+  font-size: 13px;
   font-weight: 700;
 }
 .goosic-sidebar label.goosic-account-avatar { color: white; }
-.goosic-account-name { font-size: 14px; font-weight: 600; }
-.goosic-sidebar .goosic-account-connection { font-size: 12px; color: #9e9ea7; opacity: 1; }
-button.goosic-sidebar-toggle {
-  background: transparent;
-  color: #f6f6f8;
-  border: 0;
-  border-radius: 7px;
-  box-shadow: none;
-  padding: 0;
-}
-button.goosic-sidebar-toggle:hover { background: alpha(white, 0.08); }
-.goosic-page button, .goosic-page togglebutton {
-  background-image: none;
-  background-color: alpha(white, 0.08);
-  color: #f6f6f8;
-  border: 1px solid alpha(white, 0.08);
-  box-shadow: none;
-}
-.goosic-page button.flat, .goosic-page button.goosic-card {
-  background: transparent;
-  border-color: transparent;
-}
-.goosic-page button:hover { background-color: alpha(white, 0.12); }
-.goosic-page .dim-label { opacity: 1; }
+.goosic-account-name { font-size: 13px; font-weight: 600; }
+.goosic-sidebar .goosic-account-connection { font-size: 11px; color: alpha(#f6f6f9, 0.58); }
 
-.goosic-player-pill button, .goosic-player-pill togglebutton {
-  border-radius: 22px;
-  min-width: 34px;
-  min-height: 42px;
+button.goosic-sidebar-toggle {
+  background: alpha(#1a1824, 0.65);
+  color: #f6f6f9;
+  border: 1px solid alpha(white, 0.16);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px alpha(black, 0.24);
   padding: 0;
 }
-.goosic-player-pill .goosic-play-button { min-width: 46px; background: #ff0552; color: white; }
-.goosic-player-metadata { margin-left: 8px; margin-right: 8px; }
+button.goosic-sidebar-toggle:hover { background: alpha(white, 0.16); }
+
+/* Floating frosted glass player capsule — matches the macOS screenshot. */
+.goosic-player-pill {
+  background: alpha(#1f1b2b, 0.86);
+  border: 1px solid alpha(white, 0.22);
+  border-radius: 999px;
+  padding: 7px 14px;
+  box-shadow: 0 12px 32px alpha(black, 0.40);
+}
+.goosic-player-pill.goosic-player-stacked {
+  border-radius: 26px;
+  padding: 10px 14px 8px 14px;
+}
+.goosic-player-pill button, .goosic-player-pill menubutton > button {
+  background-image: none;
+  background-color: transparent;
+  color: #f6f6f9;
+  border: 0;
+  border-radius: 999px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  box-shadow: none;
+}
+.goosic-player-pill button:hover,
+.goosic-player-pill menubutton > button:hover {
+  background-color: alpha(white, 0.10);
+}
+.goosic-player-pill .goosic-subtle-control { color: alpha(#f6f6f9, 0.62); }
+.goosic-player-pill .goosic-play-button {
+  min-width: 34px;
+  min-height: 34px;
+  background: transparent;
+  color: #ffffff;
+}
+.goosic-player-pill .goosic-play-button:hover { background: alpha(white, 0.12); }
+.goosic-player-pill button:checked,
+.goosic-player-pill .goosic-control-active {
+  color: #ff0552;
+  background-color: alpha(white, 0.12);
+}
+
+.goosic-player-pill button.goosic-cover-button {
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 6px;
+  padding: 0;
+}
 .goosic-player-pill frame {
   border: 0;
   border-radius: 6px;
-  background: alpha(white, 0.11);
+  background: alpha(white, 0.12);
   box-shadow: none;
 }
-.goosic-player-metadata label { font-size: 14px; }
-.goosic-player-metadata .dim-label { font-size: 12px; }
-.goosic-player-pill scale { min-height: 12px; }
+.goosic-player-title { font-size: 13px; font-weight: 600; }
+.goosic-player-subtitle { font-size: 11.5px; }
+.goosic-player-timeline { min-height: 10px; }
+.goosic-player-pill scale { min-height: 10px; padding: 0; }
 .goosic-player-pill scale trough {
   min-height: 3px;
-  border-radius: 2px;
-  background: alpha(white, 0.20);
+  border-radius: 999px;
+  background: alpha(white, 0.22);
 }
-.goosic-player-pill scale highlight { background: alpha(white, 0.85); border-radius: 2px; }
+.goosic-player-pill scale highlight {
+  background: alpha(white, 0.78);
+  border-radius: 999px;
+}
 .goosic-player-pill scale.goosic-progress slider {
-  min-width: 12px;
-  min-height: 12px;
-  margin: -5px;
+  min-width: 10px;
+  min-height: 10px;
+  margin: -4px;
   padding: 0;
   border: 0;
   opacity: 0;
   background: transparent;
   box-shadow: none;
 }
-.goosic-player-pill scale.goosic-volume slider {
-  min-width: 12px;
-  min-height: 12px;
-  margin: 0;
+.goosic-player-pill .goosic-time { font-size: 10px; color: alpha(#f6f6f9, 0.65); }
+
+/* Inline glass volume capsule inside the floating player pill (matches macOS screenshot). */
+.goosic-volume-capsule {
+  background: alpha(white, 0.13);
+  border: 1px solid alpha(white, 0.20);
+  border-radius: 999px;
+  padding: 2px 4px 2px 10px;
+}
+scale.goosic-volume { min-height: 18px; }
+scale.goosic-volume trough {
+  min-height: 4px;
+  border-radius: 999px;
+  background: alpha(white, 0.24);
+}
+scale.goosic-volume highlight {
+  background: #2f88ff;
+  border-radius: 999px;
+}
+scale.goosic-volume slider {
+  min-width: 14px;
+  min-height: 14px;
+  margin: -5px 0;
   padding: 0;
   border: 0;
-  background: #f6f6f8;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px alpha(black, 0.35);
+}
+
+/* Main catalog typography, cards, shelves, and circular carousel chevrons. */
+.goosic-page-title { font-size: 32px; font-weight: 700; }
+.goosic-shelf-title { font-size: 18px; font-weight: 600; }
+.goosic-guest-badge {
+  background: alpha(white, 0.12);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.goosic-page button {
+  background-image: none;
+  background-color: alpha(white, 0.08);
+  color: #f6f6f9;
+  border: 1px solid alpha(white, 0.12);
   box-shadow: none;
 }
-.goosic-player-pill .goosic-time { font-size: 10px; color: #9e9ea7; }
+.goosic-page button:hover { background-color: alpha(white, 0.14); }
+.goosic-page button.flat, .goosic-page button.goosic-card {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+}
+.goosic-page button.goosic-card { border-radius: 10px; }
+.goosic-page button.goosic-card:hover { background: transparent; }
 
-.goosic-page-title { font-size: 30px; font-weight: 700; }
-.goosic-shelf-title { font-size: 20px; font-weight: 600; }
-.goosic-page .goosic-track-row { border-radius: 7px; padding: 6px 8px; }
-.goosic-track-title, .goosic-card-title { font-size: 14px; }
+.goosic-page button.goosic-carousel-arrow {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  background: alpha(white, 0.11);
+  border: 1px solid alpha(white, 0.16);
+  color: alpha(white, 0.90);
+}
+.goosic-page button.goosic-carousel-arrow:hover { background: alpha(white, 0.20); }
+
+.goosic-page button.goosic-back-button,
+.goosic-page button.goosic-glass-pill-action {
+  border-radius: 999px;
+  padding: 5px 14px;
+  background: alpha(white, 0.11);
+  border: 1px solid alpha(white, 0.16);
+}
+
+.goosic-page .goosic-track-row {
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+.goosic-page .goosic-track-row:hover { background: alpha(white, 0.08); }
+.goosic-track-title, .goosic-card-title { font-size: 13.5px; font-weight: 500; }
 .goosic-track-subtitle, .goosic-card-subtitle { font-size: 12px; }
-.goosic-card { border-radius: 9px; }
-.goosic-card:hover { background: alpha(white, 0.06); }
-.goosic-artwork { border-radius: 8px; }
-.goosic-settings-group { border-radius: 12px; background: alpha(white, 0.06); padding: 18px; }
-
-window.goosic-shell.goosic-light { background: #fbfbfd; color: #202026; }
-.goosic-light .goosic-page, .goosic-light .goosic-sidebar,
-.goosic-light .goosic-side-panel, .goosic-light .goosic-player-pill { color: #202026; }
-.goosic-light .goosic-page label, .goosic-light .goosic-sidebar label,
-.goosic-light .goosic-side-panel label, .goosic-light .goosic-player-pill label { color: #202026; }
-.goosic-light .goosic-page .dim-label, .goosic-light .goosic-sidebar .dim-label,
-.goosic-light .goosic-side-panel .dim-label, .goosic-light .goosic-player-pill .dim-label { color: #5c5c66; }
-.goosic-light .goosic-sidebar, .goosic-light .goosic-side-panel {
-  background: alpha(#f1f1f5, 0.94);
-  border-color: alpha(black, 0.10);
-  box-shadow: 0 12px 36px alpha(black, 0.10);
+.goosic-explicit-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: alpha(white, 0.14);
 }
-.goosic-light .goosic-player-pill {
-  background: alpha(white, 0.95);
-  border-color: alpha(black, 0.10);
-  box-shadow: 0 10px 30px alpha(black, 0.10);
+.goosic-page .goosic-song-menu > button {
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  color: alpha(#f6f6f9, 0.72);
 }
-.goosic-light .goosic-sidebar row:selected { background: alpha(black, 0.08); color: #202026; }
-.goosic-light .goosic-sidebar row:hover, .goosic-light .goosic-track-row:hover { background: alpha(black, 0.05); }
-.goosic-light .goosic-sidebar-section, .goosic-light .goosic-playlist-placeholder { color: #5c5c66; }
-.goosic-light .goosic-sidebar entry { background: alpha(black, 0.05); border-color: alpha(black, 0.10); color: #202026; }
-.goosic-light .goosic-sidebar button, .goosic-light .goosic-player-pill button,
-.goosic-light .goosic-player-pill togglebutton, .goosic-light .goosic-page button,
-.goosic-light .goosic-page togglebutton { color: #202026; }
-.goosic-light .goosic-page button { background-color: alpha(black, 0.05); border-color: alpha(black, 0.08); }
-.goosic-light .goosic-page button.flat, .goosic-light .goosic-page button.goosic-card { background: transparent; border-color: transparent; }
-.goosic-light .goosic-sidebar label.goosic-account-avatar { color: white; }
-.goosic-light .goosic-player-pill scale trough { background: alpha(black, 0.18); }
-.goosic-light .goosic-player-pill scale highlight { background: alpha(black, 0.75); }
-.goosic-light .goosic-player-pill scale.goosic-volume slider { background: #202026; }
-.goosic-light .goosic-player-pill frame { background: alpha(black, 0.10); }
-.goosic-light .goosic-settings-group { background: alpha(black, 0.05); }
+.goosic-page .goosic-song-menu > button:hover { background: alpha(white, 0.12); color: #ffffff; }
 
-/* Match the Windows player's hierarchy while preserving GTK focus and native window chrome. */
-.goosic-player-pill.goosic-player-stacked { padding-top: 12px; padding-bottom: 8px; }
-.goosic-player-pill menubutton > button { min-width: 34px; min-height: 42px; }
-.goosic-player-pill button.goosic-cover-button { min-width: 42px; min-height: 42px; border-radius: 8px; }
-.goosic-player-pill button.goosic-cover-button:hover { background: alpha(white, 0.16); }
-.goosic-player-pill button:checked, .goosic-player-pill togglebutton:checked { color: #ff0552; }
-.goosic-full-player { color: #f6f6f8; }
+frame.goosic-artwork {
+  border: 0;
+  border-radius: 8px;
+  background: alpha(#ff0552, 0.14);
+  box-shadow: none;
+}
+frame.goosic-artwork-round {
+  border: 0;
+  border-radius: 999px;
+  background: alpha(#ff0552, 0.14);
+  box-shadow: none;
+}
+
+/* Collection header (Album / Playlist). */
+frame.goosic-collection-cover {
+  border-radius: 10px;
+  box-shadow: 0 14px 32px alpha(black, 0.36);
+}
+.goosic-collection-title { font-size: 30px; font-weight: 700; }
+.goosic-collection-meta { font-size: 13px; }
+.goosic-page button.goosic-collection-circle {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  background: alpha(white, 0.12);
+  border: 1px solid alpha(white, 0.18);
+}
+.goosic-page button.goosic-collection-play {
+  min-width: 144px;
+  min-height: 36px;
+  border-radius: 999px;
+  background: alpha(white, 0.14);
+  border: 1px solid alpha(white, 0.20);
+  color: #ff0552;
+  font-weight: 600;
+}
+.goosic-page button.goosic-collection-play label { color: #ff0552; font-weight: 600; }
+.goosic-page button.goosic-collection-play:hover { background: alpha(white, 0.22); }
+
+/* Artist Hero (macOS NativeMacArtistHero). */
+.goosic-artist-hero-frame {
+  border-radius: 14px;
+  background: #1c1a28;
+}
+.goosic-artist-scrim {
+  background: linear-gradient(to bottom, alpha(black, 0.05) 0%, alpha(#12101a, 0.45) 55%, alpha(#12101a, 0.92) 100%);
+}
+.goosic-artist-hero-name {
+  font-size: 46px;
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow: 0 2px 14px alpha(black, 0.45);
+}
+.goosic-artist-hero-audience {
+  font-size: 14px;
+  font-weight: 500;
+  color: alpha(white, 0.82);
+}
+.goosic-page button.goosic-artist-play-button {
+  min-width: 68px;
+  min-height: 68px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #111116;
+  border: 0;
+  box-shadow: 0 8px 24px alpha(black, 0.35);
+}
+.goosic-page button.goosic-artist-play-button:hover { background: alpha(white, 0.90); }
+.goosic-page .goosic-artist-round-menu > button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  background: alpha(white, 0.16);
+  border: 1px solid alpha(white, 0.20);
+  color: #ffffff;
+}
+
+/* Floating Search pill & linked segmented selector (NO opaque header box). */
+.goosic-search-chrome {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.goosic-search-pill {
+  background: alpha(#221e2e, 0.72);
+  border: 1px solid alpha(white, 0.22);
+  border-radius: 999px;
+  padding: 4px 14px 4px 10px;
+  box-shadow: 0 8px 26px alpha(black, 0.28);
+}
+.goosic-search-entry {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-height: 34px;
+  color: #f6f6f9;
+}
+.goosic-search-entry:focus-within { outline: none; box-shadow: none; }
+button.goosic-search-submit {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: #ff0552;
+  font-weight: 600;
+  padding: 4px 8px;
+}
+button.goosic-search-submit:hover { background: alpha(white, 0.08); border-radius: 999px; }
+
+.goosic-search-segments {
+  background: alpha(#1b1826, 0.82);
+  border: 1px solid alpha(white, 0.18);
+  border-radius: 999px;
+  padding: 3px;
+}
+.goosic-search-segments button.goosic-segment-button,
+.goosic-page .goosic-search-segments button.goosic-segment-button {
+  background-image: none;
+  background-color: transparent;
+  border: 0;
+  border-color: transparent;
+  border-radius: 999px;
+  padding: 4px 14px;
+  min-height: 26px;
+  color: alpha(#f6f6f9, 0.78);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: none;
+}
+.goosic-search-segments button.goosic-segment-button:hover,
+.goosic-page .goosic-search-segments button.goosic-segment-button:hover {
+  background-color: alpha(white, 0.08);
+  color: #ffffff;
+}
+.goosic-search-segments button.goosic-segment-button:checked,
+.goosic-page .goosic-search-segments button.goosic-segment-button:checked {
+  background-image: none;
+  background-color: alpha(white, 0.22);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Search Browse category gradient cards. */
+.goosic-page button.goosic-browse-card {
+  border-radius: 12px;
+  border: 0;
+  padding: 0;
+  box-shadow: 0 8px 22px alpha(black, 0.24);
+}
+.goosic-page button.goosic-browse-blue {
+  background-image: linear-gradient(135deg, #2d9cff, #0066dd);
+}
+.goosic-page button.goosic-browse-orange {
+  background-image: linear-gradient(135deg, #ffb340, #e66b00);
+}
+.goosic-page button.goosic-browse-purple {
+  background-image: linear-gradient(135deg, #c77dff, #7b2cbf);
+}
+.goosic-page button.goosic-browse-pink {
+  background-image: linear-gradient(135deg, #ff4d7d, #d9044b);
+}
+.goosic-browse-glyph { color: alpha(white, 0.32); }
+.goosic-browse-title { font-size: 18px; font-weight: 700; color: #ffffff; }
+
+/* Settings groups. */
+.goosic-settings-group {
+  border-radius: 12px;
+  background: alpha(white, 0.07);
+  border: 1px solid alpha(white, 0.10);
+  padding: 18px;
+}
+
+/* Immersive Full Player (always dark over vivid blurred artwork). */
+window.goosic-shell.goosic-immersive { background: #0c0b10; }
+.goosic-full-player, .goosic-full-player label { color: #f6f6f9; }
+.goosic-full-player .dim-label { color: alpha(#f6f6f9, 0.64); opacity: 1; }
 .goosic-full-player list, .goosic-full-player row { background: transparent; }
-.goosic-full-player button, .goosic-full-player menubutton > button {
-  background: alpha(white, 0.08); border: 1px solid alpha(white, 0.12);
-  box-shadow: none; border-radius: 24px; color: #f6f6f8;
-}
-.goosic-full-player button:hover { background: alpha(white, 0.16); }
-.goosic-full-player .goosic-full-cover { border-radius: 18px; box-shadow: 0 18px 42px alpha(black, 0.3); }
-.goosic-full-player .goosic-full-cover image { border-radius: 18px; }
-.goosic-full-player .goosic-full-transport { padding: 0; background: transparent; }
-.goosic-full-transport .goosic-player-metadata label { font-size: 24px; font-weight: 700; }
-.goosic-full-transport .goosic-player-metadata .dim-label { font-size: 16px; font-weight: 400; }
-.goosic-full-transport button { min-width: 34px; min-height: 42px; padding: 0; }
-.goosic-full-transport .goosic-play-button { background: #ff0552; color: white; }
-.goosic-full-transport scale trough { min-height: 4px; background: alpha(white, 0.20); border-radius: 3px; }
-.goosic-full-transport scale highlight { background: #ff0552; border-radius: 3px; }
-.goosic-full-transport .goosic-time { font-size: 12px; }
-.goosic-full-transport scale.goosic-progress slider { min-width: 12px; min-height: 12px; margin: -4px; padding: 0; background: white; border: 0; box-shadow: none; }
-.goosic-queue-row { padding: 8px 0; border-radius: 8px; }
-.goosic-queue-current { background: alpha(#ff0552, 0.10); }
-.goosic-queue-row button { padding: 3px; min-width: 20px; background: transparent; border: 0; box-shadow: none; }
-.goosic-lyrics-lines label { font-size: 18px; font-weight: 600; padding: 8px 0; }
-.goosic-lyrics-lines label.goosic-lyric-active { color: #ff0552; }
-.goosic-full-lyrics .goosic-lyrics-lines label { font-size: 28px; padding: 12px 0; }
-.goosic-light .goosic-player-pill .goosic-play-button { background: #ff0552; color: white; }
-.goosic-full-player .dim-label { opacity: 0.65; }
 
-.goosic-full-transport .goosic-player-metadata label.goosic-time { font-size: 12px; font-weight: 400; }
-.goosic-sidebar .goosic-route-icon { color: #ff0552; }
+.goosic-glass-capsule {
+  background: alpha(white, 0.12);
+  border: 1px solid alpha(white, 0.20);
+  border-radius: 999px;
+  padding: 3px;
+  box-shadow: 0 8px 24px alpha(black, 0.28);
+}
+.goosic-full-volume-capsule { padding: 3px 6px 3px 12px; }
+.goosic-glass-capsule button {
+  background: transparent;
+  background-image: none;
+  border: 0;
+  border-radius: 999px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  color: #ffffff;
+  box-shadow: none;
+}
+.goosic-glass-capsule button:hover {
+  background: alpha(white, 0.14);
+}
+.goosic-pane-capsule button.goosic-pane-toggle:checked {
+  background-image: none;
+  background-color: alpha(white, 0.94);
+  color: #141418;
+}
+
+button.goosic-full-cover-button {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+}
+.goosic-full-cover {
+  border-radius: 12px;
+  background: alpha(white, 0.08);
+  box-shadow: 0 20px 48px alpha(black, 0.45);
+}
+.goosic-full-title { font-size: 20px; font-weight: 700; color: #ffffff; }
+.goosic-full-subtitle { font-size: 14px; }
+
+button.goosic-glass-circle, .goosic-glass-circle-menu > button {
+  background: alpha(white, 0.14);
+  background-image: none;
+  border: 1px solid alpha(white, 0.18);
+  border-radius: 999px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: #ffffff;
+  box-shadow: none;
+}
+button.goosic-glass-circle:hover, .goosic-glass-circle-menu > button:hover {
+  background: alpha(white, 0.22);
+}
+
+scale.goosic-full-progress { min-height: 14px; }
+scale.goosic-full-progress trough {
+  min-height: 5px;
+  border-radius: 999px;
+  background: alpha(white, 0.22);
+}
+scale.goosic-full-progress highlight {
+  background: alpha(white, 0.88);
+  border-radius: 999px;
+}
+scale.goosic-full-progress slider {
+  min-width: 12px;
+  min-height: 12px;
+  margin: -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.goosic-full-transport button {
+  background: transparent;
+  background-image: none;
+  border: 0;
+  border-radius: 999px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  color: #ffffff;
+  box-shadow: none;
+}
+.goosic-full-transport button:hover {
+  background: alpha(white, 0.12);
+}
+.goosic-full-transport button.goosic-full-play-btn {
+  min-width: 52px;
+  min-height: 52px;
+  background: transparent;
+  color: #ffffff;
+}
+.goosic-full-transport button:checked,
+.goosic-full-transport .goosic-control-active {
+  color: #ff0552;
+  background: alpha(white, 0.16);
+}
+
+/* Queue & Lyrics panels. */
+.goosic-queue-row { padding: 6px 6px; border-radius: 8px; }
+.goosic-queue-current { background: alpha(#ff0552, 0.14); }
 .goosic-queue-current label { color: #ff0552; }
+.goosic-queue-row button { padding: 3px; min-width: 24px; background: transparent; border: 0; box-shadow: none; }
 
-.goosic-page .goosic-song-menu > button { min-width: 26px; padding: 3px; background: transparent; border: 0; }
-.goosic-page .goosic-song-menu > button:hover { background: alpha(white, 0.10); }
-
-.goosic-search-chrome { background: alpha(#121214, 0.94); color: #f6f6f8; padding: 12px 16px; border-radius: 24px; border: 1px solid alpha(white, 0.12); }
-.goosic-search-chrome entry { border-radius: 20px; min-height: 30px; }
-.goosic-search-chrome flowbox { background: transparent; }
-.goosic-search-chrome flowboxchild { padding: 0; }
-.goosic-search-chrome button:checked { background: #ff0552; color: white; border-color: transparent; }
-.goosic-light .goosic-search-chrome { background: alpha(#fbfbfd, 0.95); color: #202026; border-color: alpha(black, 0.10); }
-window.goosic-shell.goosic-immersive { background: #121214; }
-.goosic-light .goosic-full-player, .goosic-light .goosic-full-player label { color: #f6f6f8; }
-.goosic-light .goosic-full-player button, .goosic-light .goosic-full-player menubutton > button {
-  background: alpha(white, 0.08); color: #f6f6f8; border-color: alpha(white, 0.12);
+.goosic-lyrics-lines label { font-size: 18px; font-weight: 600; padding: 8px 0; color: alpha(#f6f6f9, 0.42); }
+.goosic-lyrics-lines label.goosic-lyric-active { color: #ffffff; }
+.goosic-full-lyrics .goosic-lyrics-lines label { font-size: 26px; font-weight: 700; padding: 11px 0; color: alpha(white, 0.36); }
+.goosic-full-lyrics .goosic-lyrics-lines label.goosic-lyric-active {
+  color: #ffffff;
+  text-shadow: 0 0 18px alpha(white, 0.35);
 }
-.goosic-light .goosic-full-player .goosic-play-button { background: #ff0552; color: white; }
-.goosic-light .goosic-full-transport scale trough { background: alpha(white, 0.20); }
-.goosic-light .goosic-full-transport scale.goosic-progress slider { background: white; }
-.goosic-full-player .goosic-lyric-active, .goosic-light .goosic-full-player .goosic-lyric-active { color: #ff0552; }
-
 .goosic-lyrics-lines button.goosic-lyric-row { background: transparent; border: 0; padding: 0; box-shadow: none; }
 .goosic-lyrics-lines button.goosic-lyric-row:disabled { opacity: 1; }
 .goosic-lyrics-lines button.goosic-lyric-row:focus label,
-.goosic-lyrics-lines button.goosic-lyric-row:hover label { opacity: 1; }
+.goosic-lyrics-lines button.goosic-lyric-row:hover label { color: #ffffff; opacity: 1; }
+button.goosic-resume-lyrics {
+  border-radius: 999px;
+  background: alpha(#1b1826, 0.85);
+  border: 1px solid alpha(white, 0.20);
+  padding: 6px 14px;
+  color: #ffffff;
+}
 
-window.goosic-shell.goosic-high-contrast { background: #000; color: white; }
+/* Popovers. */
+popover.goosic-popover > contents {
+  border-radius: 12px;
+  padding: 4px;
+}
+popover.goosic-popover button {
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  padding: 6px 10px;
+  box-shadow: none;
+}
+popover.goosic-popover button:hover {
+  background: alpha(white, 0.10);
+}
+
+/* Light appearance (browser only — Full Player always stays dark). */
+window.goosic-shell.goosic-light { background: #f6f6fa; color: #1d1d24; }
+.goosic-light .goosic-page, .goosic-light .goosic-sidebar,
+.goosic-light .goosic-side-panel, .goosic-light .goosic-player-pill { color: #1d1d24; }
+.goosic-light .goosic-page label, .goosic-light .goosic-sidebar label,
+.goosic-light .goosic-side-panel label, .goosic-light .goosic-player-pill label { color: #1d1d24; }
+.goosic-light .goosic-page .dim-label, .goosic-light .goosic-sidebar .dim-label,
+.goosic-light .goosic-side-panel .dim-label, .goosic-light .goosic-player-pill .dim-label {
+  color: alpha(#1d1d24, 0.58);
+}
+.goosic-light .goosic-sidebar {
+  background: alpha(#f2f2f7, 0.62);
+  border-right-color: alpha(black, 0.08);
+}
+.goosic-light .goosic-sidebar.goosic-sidebar-overlay { background: alpha(#f6f6fa, 0.94); }
+.goosic-light .goosic-side-panel {
+  background: alpha(#f4f4f8, 0.95);
+  border-left-color: alpha(black, 0.08);
+}
+.goosic-light .goosic-sidebar row:selected { background: alpha(black, 0.08); color: #1d1d24; }
+.goosic-light .goosic-sidebar row:hover { background: alpha(black, 0.04); }
+.goosic-light .goosic-sidebar-section { color: alpha(#1d1d24, 0.48); }
+.goosic-light .goosic-sidebar-divider { background: alpha(black, 0.08); }
+.goosic-light .goosic-sidebar label.goosic-account-avatar { color: white; }
+.goosic-light .goosic-player-pill {
+  background: alpha(#ffffff, 0.92);
+  border-color: alpha(black, 0.12);
+  box-shadow: 0 12px 30px alpha(black, 0.14);
+}
+.goosic-light .goosic-player-pill button,
+.goosic-light .goosic-player-pill menubutton > button { color: #1d1d24; }
+.goosic-light .goosic-player-pill .goosic-subtle-control { color: alpha(#1d1d24, 0.56); }
+.goosic-light .goosic-player-pill .goosic-play-button { color: #1d1d24; }
+.goosic-light .goosic-player-pill button:checked,
+.goosic-light .goosic-player-pill .goosic-control-active {
+  color: #ff0552;
+  background-color: alpha(black, 0.08);
+}
+.goosic-light .goosic-player-pill scale trough { background: alpha(black, 0.16); }
+.goosic-light .goosic-player-pill scale highlight { background: alpha(black, 0.65); }
+.goosic-light .goosic-volume-capsule {
+  background: alpha(black, 0.06);
+  border-color: alpha(black, 0.10);
+}
+.goosic-light .goosic-page button {
+  background-color: alpha(black, 0.05);
+  border-color: alpha(black, 0.08);
+  color: #1d1d24;
+}
+.goosic-light .goosic-page button.flat, .goosic-light .goosic-page button.goosic-card {
+  background: transparent;
+  border-color: transparent;
+}
+.goosic-light .goosic-search-pill {
+  background: alpha(#ffffff, 0.84);
+  border-color: alpha(black, 0.12);
+  box-shadow: 0 8px 24px alpha(black, 0.10);
+}
+.goosic-light .goosic-search-entry { color: #1d1d24; }
+.goosic-light .goosic-search-segments {
+  background: alpha(black, 0.07);
+  border-color: alpha(black, 0.09);
+}
+.goosic-light .goosic-search-segments button.goosic-segment-button,
+.goosic-light .goosic-page .goosic-search-segments button.goosic-segment-button {
+  color: alpha(#1d1d24, 0.72);
+}
+.goosic-light .goosic-search-segments button.goosic-segment-button:checked,
+.goosic-light .goosic-page .goosic-search-segments button.goosic-segment-button:checked {
+  background-color: #ffffff;
+  color: #1d1d24;
+  box-shadow: 0 1px 4px alpha(black, 0.12);
+}
+.goosic-light .goosic-settings-group {
+  background: alpha(black, 0.04);
+  border-color: alpha(black, 0.07);
+}
+.goosic-light .goosic-browse-title { color: #ffffff; }
+.goosic-light .goosic-artist-hero-name { color: #ffffff; }
+.goosic-light .goosic-artist-hero-audience { color: alpha(white, 0.85); }
+.goosic-light .goosic-full-player, .goosic-light .goosic-full-player label { color: #f6f6f9; }
+.goosic-light .goosic-full-player .dim-label { color: alpha(#f6f6f9, 0.64); }
+.goosic-light .goosic-pane-capsule button.goosic-pane-toggle:checked { color: #141418; }
+
+/* High contrast mode: solid surfaces, crisp 2px borders, zero decorative translucency. */
+window.goosic-shell.goosic-high-contrast { background: #000000; color: #ffffff; }
 .goosic-high-contrast .goosic-page label, .goosic-high-contrast .goosic-sidebar label,
 .goosic-high-contrast .goosic-side-panel label, .goosic-high-contrast .goosic-player-pill label,
-.goosic-high-contrast .goosic-full-player label { color: white; opacity: 1; }
+.goosic-high-contrast .goosic-full-player label { color: #ffffff; opacity: 1; }
 .goosic-high-contrast .goosic-sidebar, .goosic-high-contrast .goosic-side-panel,
-.goosic-high-contrast .goosic-player-pill, .goosic-high-contrast .goosic-search-chrome { background: black; border: 2px solid white; box-shadow: none; }
-window.goosic-shell.goosic-high-contrast .goosic-play-button,
-.goosic-high-contrast .goosic-search-chrome button:checked { background: white; color: black; border-color: white; }
-.goosic-high-contrast .goosic-queue-current { border: 2px solid white; }
+.goosic-high-contrast .goosic-player-pill, .goosic-high-contrast .goosic-search-pill,
+.goosic-high-contrast .goosic-glass-capsule {
+  background: #000000;
+  border: 2px solid #ffffff;
+  box-shadow: none;
+}
+.goosic-high-contrast button.goosic-segment-button:checked,
+.goosic-high-contrast .goosic-pane-capsule button.goosic-pane-toggle:checked {
+  background: #ffffff;
+  color: #000000;
+}
+.goosic-high-contrast .goosic-queue-current { border: 2px solid #ffffff; }
 .goosic-high-contrast .goosic-lyric-active { text-decoration: underline; }
-.goosic-high-contrast .goosic-full-transport scale highlight { background: white; }
+.goosic-high-contrast scale highlight { background: #ffffff; }

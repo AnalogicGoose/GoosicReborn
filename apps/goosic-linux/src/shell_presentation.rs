@@ -94,31 +94,39 @@ impl Shell {
         let full = self.full_open.get();
         let panel = !full && (self.queue_visible.get() || self.lyrics.borrow().visible);
         let geometry = layout::window(width, self.sidebar_open.get(), panel);
-        self.sidebar.set_halign(gtk::Align::Fill);
-        self.sidebar.set_width_request(-1);
+        self.sidebar.root.set_halign(gtk::Align::Fill);
+        self.sidebar.root.set_width_request(-1);
         self.sidebar
-            .set_margin_end((width - geometry.sidebar - 8).max(8));
-        self.sidebar.set_visible(self.sidebar_open.get() && !full);
-        self.main.set_margin_start(geometry.left + 26);
-        self.main.set_margin_end(geometry.right + 26);
+            .root
+            .set_margin_end((width - geometry.sidebar).max(0));
+        if geometry.narrow {
+            self.sidebar.root.add_css_class("goosic-sidebar-overlay");
+        } else {
+            self.sidebar.root.remove_css_class("goosic-sidebar-overlay");
+        }
+        self.sidebar
+            .root
+            .set_visible(self.sidebar_open.get() && !full);
+        self.main.set_margin_start(geometry.left);
+        self.main.set_margin_end(geometry.right);
         // Clearance belongs to the scroll content, so rows can pass behind floating chrome.
         self.main.set_margin_top(0);
         self.main.set_margin_bottom(0);
         self.side.set_width_request(geometry.panel);
         self.side
-            .set_margin_bottom(if geometry.stacked_player { 148 } else { 108 });
+            .set_margin_bottom(if geometry.stacked_player { 126 } else { 88 });
         self.bar.set_stacked(geometry.stacked_player);
         self.bar.root.set_halign(gtk::Align::Fill);
         self.bar.root.set_margin_start(geometry.player_left);
         self.bar
             .root
             .set_margin_end((width - geometry.player_left - geometry.player_width).max(20));
-        // Request the available width; the maximum-width rule already lives in layout::window.
         self.bar
             .root
-            .set_width_request((geometry.player_width - 32).max(1));
+            .set_width_request((geometry.player_width - 28).max(1));
         self.bar.root.set_visible(!full);
-        self.sidebar_toggle.set_visible(!full);
+        self.sidebar_toggle
+            .set_visible(!full && (geometry.narrow || !self.sidebar_open.get()));
         self.main.set_visible(!full);
         self.content.set_visible(true);
         self.full_player.root.set_visible(full);
@@ -127,23 +135,27 @@ impl Shell {
         } else {
             self.window.remove_css_class("goosic-immersive");
         }
-        let available = (width - geometry.left - geometry.right - 52).max(1);
+        self.backdrop
+            .set_appearance(self.window.has_css_class("goosic-light"), full);
+        let available = (width - geometry.left - geometry.right).max(1);
         let search_inset = ((available - 620) / 2).max(0);
-        let navigation_clearance = if geometry.left == 0 { 32 } else { 0 };
+        let navigation_clearance = if geometry.left == 0 { 42 } else { 0 };
         self.search_bar
             .set_margin_start(search_inset + navigation_clearance);
         self.search_bar.set_margin_end(search_inset);
         let search_height = self
             .search_bar
-            .measure(gtk::Orientation::Vertical, available - navigation_clearance)
+            .measure(gtk::Orientation::Vertical, (available - navigation_clearance).max(1))
             .1;
         let top = if self.search_bar.is_visible() {
-            search_height + 32
-        } else {
+            search_height + 24
+        } else if geometry.left == 0 {
             42
+        } else {
+            12
         };
         let bar_height = self.bar.root.measure(gtk::Orientation::Vertical, -1).1;
-        ui::set_clearance(&self.rows, top, bar_height + 36);
+        ui::set_clearance(&self.rows, top, bar_height + 28);
         self.full_player.layout(
             width,
             height,
@@ -189,7 +201,7 @@ impl Shell {
     }
 
     pub(super) fn escape(self: &Rc<Self>) {
-        if self.bar.close_volume() || self.full_player.bar.close_volume() {
+        if self.bar.close_volume() {
             return;
         }
         if self.full_open.get() {

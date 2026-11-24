@@ -175,6 +175,7 @@ impl QueuePanel {
 
 pub struct LyricsPanel {
     pub root: gtk::Box,
+    header: gtk::Box,
     status: gtk::Label,
     lines: gtk::Box,
     scroller: gtk::ScrolledWindow,
@@ -264,15 +265,19 @@ impl LyricsPanel {
         let viewport = gtk::Overlay::new();
         viewport.set_child(Some(&scroller));
         viewport.add_overlay(&resume);
-        let root = panel("Lyrics", &gtk::Label::new(None));
+        let (root, header) = panel_with_header("Lyrics", &gtk::Label::new(None));
         {
             let needs_scroll = needs_scroll.clone();
             root.connect_map(move |_| needs_scroll.set(true));
         }
+        resume.add_css_class("goosic-resume-lyrics");
+        resume.set_margin_end(10);
+        resume.set_margin_bottom(10);
         root.append(&status);
         root.append(&viewport);
         LyricsPanel {
             root,
+            header,
             status,
             lines,
             scroller,
@@ -285,6 +290,11 @@ impl LyricsPanel {
             seek: Rc::new(seek),
             seekable: Cell::new(false),
         }
+    }
+
+    pub fn set_immersive(&self, immersive: bool) {
+        self.header.set_visible(!immersive);
+        self.status.set_visible(!immersive);
     }
 
     pub fn update(&self, lyrics: &Lyrics, position_seconds: f64) {
@@ -389,6 +399,10 @@ impl LyricsPanel {
 
 /// A panel: a heading with a detail on its right, and room below for the body.
 fn panel(title: &str, detail: &gtk::Label) -> gtk::Box {
+    panel_with_header(title, detail).0
+}
+
+fn panel_with_header(title: &str, detail: &gtk::Label) -> (gtk::Box, gtk::Box) {
     let heading = gtk::Label::builder()
         .label(format!("<b>{}</b>", glib::markup_escape_text(title)))
         .use_markup(true)
@@ -405,7 +419,7 @@ fn panel(title: &str, detail: &gtk::Label) -> gtk::Box {
     root.set_margin_start(12);
     root.set_margin_end(12);
     root.append(&header);
-    root
+    (root, header)
 }
 
 fn scrolled(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {

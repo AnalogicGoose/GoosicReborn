@@ -80,7 +80,7 @@ pub struct Shell {
     layout_size: Cell<(i32, i32)>,
     main: gtk::Box,
     content: gtk::Box,
-    sidebar: gtk::Box,
+    sidebar: ui::Sidebar,
     sidebar_toggle: gtk::Button,
     backdrop: ArtworkBackdrop,
     full_player: FullPlayer,
@@ -97,15 +97,10 @@ pub struct Shell {
     rows: gio::ListStore,
     scroller: gtk::ScrolledWindow,
     search_bar: gtk::Box,
-    routes: gtk::ListBox,
-    account: gtk::Label,
-    avatar: gtk::Label,
     bar: PlayerBar,
     side: gtk::Box,
     queue_panel: QueuePanel,
     lyrics_panel: LyricsPanel,
-    connection: gtk::Label,
-    status: gtk::Label,
     diagnostics: RefCell<String>,
     pending_preferences: RefCell<Option<PreferencesPatch>>,
     preference_token: Cell<u64>,
@@ -127,6 +122,7 @@ impl Shell {
         let artwork = ArtworkCache::new();
         let shell = Rc::new_cyclic(|weak: &Weak<Shell>| {
             let actions = Rc::new(ui::Actions {
+                navigate: Box::new(forward(weak, Shell::navigate)),
                 open: Box::new(forward(weak, Shell::open)),
                 play: Box::new({
                     let weak = weak.clone();
@@ -136,6 +132,7 @@ impl Shell {
                         }
                     }
                 }),
+                shuffle_play: Box::new(forward(weak, Shell::shuffle_play)),
                 retry: Box::new(forward_unit(weak, Shell::retry)),
                 back: Box::new(forward_unit(weak, Shell::back)),
                 set_theme: Box::new(forward(weak, Shell::set_theme)),
@@ -185,10 +182,15 @@ impl Shell {
                 forward(weak, Shell::submit_search),
                 forward(weak, Shell::select_filter),
             );
-            let sidebar = ui::sidebar(
-                forward(weak, Shell::navigate),
-                forward(weak, Shell::submit_search),
-            );
+            let sidebar = ui::sidebar(ui::SidebarActions {
+                navigate: Box::new(forward(weak, Shell::navigate)),
+                select_library: Box::new(forward(weak, Shell::select_library_section)),
+                open_entity: Box::new(forward(weak, Shell::open)),
+                sign_in: Box::new(forward_unit(weak, Shell::sign_in)),
+                switch_account: Box::new(forward(weak, Shell::switch_account)),
+                sign_out: Box::new(forward_unit(weak, Shell::sign_out)),
+                artwork: artwork.clone(),
+            });
             let official = OfficialHost::new(official_host::Handlers {
                 on_event: Box::new(forward(weak, Shell::receive_official)),
                 on_status: Box::new(forward(weak, Shell::host_status)),
@@ -228,6 +230,7 @@ impl Shell {
                 lyrics: Box::new(forward_unit(weak, Shell::toggle_lyrics)),
                 queue: Box::new(forward_unit(weak, Shell::toggle_queue)),
                 expand: Box::new(forward_unit(weak, Shell::toggle_full_player)),
+                like_current: Box::new(forward_unit(weak, Shell::like_current_track)),
                 sleep: Box::new(forward(weak, Shell::set_sleep_timer)),
             });
             let bar = PlayerBar::new(bar_actions.clone(), artwork.clone());
@@ -249,7 +252,7 @@ impl Shell {
                 Ok(client) => Some(client),
                 Err(error) => {
                     eprintln!("goosic: {error}");
-                    sidebar.connection.set_label("○ Service offline");
+                    sidebar.connection.set_label("Offline");
                     sidebar
                         .status
                         .set_label("The playback service could not start.");
@@ -262,12 +265,12 @@ impl Shell {
             panels.append(&queue_panel.root);
             panels.append(&lyrics_panel.root);
             let side = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            side.set_width_request(360);
+            side.set_width_request(320);
             side.set_halign(gtk::Align::End);
             side.set_valign(gtk::Align::Fill);
-            side.set_margin_top(8);
-            side.set_margin_bottom(8);
-            side.set_margin_end(8);
+            side.set_margin_top(0);
+            side.set_margin_bottom(0);
+            side.set_margin_end(0);
             side.add_css_class("goosic-side-panel");
             side.append(&panels);
             side.set_visible(false);
@@ -275,9 +278,9 @@ impl Shell {
             let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
             main.set_hexpand(true);
             main.set_vexpand(true);
-            main.set_margin_start(304);
-            main.set_margin_end(24);
-            main.set_margin_top(42);
+            main.set_margin_start(212);
+            main.set_margin_end(0);
+            main.set_margin_top(0);
             let page_overlay = gtk::Overlay::new();
             page_overlay.set_child(Some(&scroller));
             search_bar.set_valign(gtk::Align::Start);
@@ -293,31 +296,31 @@ impl Shell {
             let root = gtk::Overlay::new();
             root.set_child(Some(&backdrop.widget));
             root.add_overlay(&content);
-            sidebar.root.set_width_request(280);
+            sidebar.root.set_width_request(212);
             sidebar.root.set_halign(gtk::Align::Start);
             sidebar.root.set_valign(gtk::Align::Fill);
-            sidebar.root.set_margin_top(8);
-            sidebar.root.set_margin_bottom(8);
-            sidebar.root.set_margin_start(8);
+            sidebar.root.set_margin_top(0);
+            sidebar.root.set_margin_bottom(0);
+            sidebar.root.set_margin_start(0);
             sidebar.root.add_css_class("goosic-sidebar");
             root.add_overlay(&sidebar.root);
             root.add_overlay(&side);
             bar.root.set_halign(gtk::Align::Fill);
             bar.root.set_valign(gtk::Align::End);
-            bar.root.set_margin_start(304);
-            bar.root.set_margin_end(24);
-            bar.root.set_margin_bottom(18);
+            bar.root.set_margin_start(232);
+            bar.root.set_margin_end(20);
+            bar.root.set_margin_bottom(14);
             bar.root.add_css_class("goosic-player-pill");
             root.add_overlay(&bar.root);
             let sidebar_toggle = gtk::Button::builder()
-                .icon_name("view-list-symbolic")
+                .icon_name("sidebar-show-symbolic")
                 .tooltip_text("Toggle sidebar")
                 .width_request(34)
-                .height_request(30)
+                .height_request(34)
                 .halign(gtk::Align::Start)
                 .valign(gtk::Align::Start)
-                .margin_start(18)
-                .margin_top(18)
+                .margin_start(14)
+                .margin_top(14)
                 .build();
             sidebar_toggle.add_css_class("goosic-sidebar-toggle");
             sidebar_toggle.connect_clicked({
@@ -330,8 +333,8 @@ impl Shell {
             let window = gtk::ApplicationWindow::builder()
                 .application(app)
                 .title("Goosic")
-                .default_width(1100)
-                .default_height(760)
+                .default_width(1180)
+                .default_height(780)
                 .child(&root)
                 .build();
             window.set_size_request(480, 560);
@@ -363,10 +366,10 @@ impl Shell {
                 queue_visible: Cell::new(false),
                 full_open: Cell::new(false),
                 sidebar_open: Cell::new(true),
-                layout_size: Cell::new((1100, 760)),
+                layout_size: Cell::new((1180, 780)),
                 main,
                 content,
-                sidebar: sidebar.root,
+                sidebar,
                 sidebar_toggle,
                 backdrop,
                 full_player,
@@ -382,15 +385,10 @@ impl Shell {
                 rows,
                 scroller,
                 search_bar,
-                routes: sidebar.routes,
-                account: sidebar.account,
-                avatar: sidebar.avatar,
                 bar,
                 side,
                 queue_panel,
                 lyrics_panel,
-                connection: sidebar.connection,
-                status: sidebar.status,
                 diagnostics: RefCell::new(String::new()),
                 pending_preferences: RefCell::new(None),
                 preference_token: Cell::new(0),
@@ -449,8 +447,8 @@ impl Shell {
             if let Err(error) = &result {
                 if error.invalidates_connection() {
                     shell.facts.borrow_mut().connected = false;
-                    shell.connection.set_label("○ Service offline");
-                    shell.status.set_label(&error.to_string());
+                    shell.sidebar.connection.set_label("Offline");
+                    shell.sidebar.status.set_label(&error.to_string());
                 }
             }
             done(&shell, result);
@@ -478,16 +476,18 @@ impl Shell {
                     .unwrap_or_else(|| "goosic-service ready".to_owned());
                 eprintln!("goosic: connected — {message}");
                 self.facts.borrow_mut().connected = true;
-                self.connection.set_label("● Rust service connected");
-                self.status.set_label("");
+                self.sidebar.connection.set_label("Browsing as a guest");
+                self.sidebar.status.set_label("");
+                self.sidebar.status.set_visible(false);
                 self.load_preferences();
                 self.load_accounts();
             }
             Err(error) => {
                 let (code, message) = error.describe();
                 eprintln!("goosic: could not connect ({code}): {message}");
-                self.connection.set_label("○ Service offline");
-                self.status
+                self.sidebar.connection.set_label("Offline");
+                self.sidebar
+                    .status
                     .set_label(&format!("Could not reach goosic-service.\n{message}"));
             }
         }
@@ -518,7 +518,7 @@ impl Shell {
                             browser.select_library_section(LibrarySection::Songs);
                         }
                     }
-                    ui::select_route(&shell.routes, route);
+                    ui::select_route(&shell.sidebar.routes, route);
                 }
                 shell.refresh_player();
                 shell.show_new_page();
@@ -543,6 +543,8 @@ impl Shell {
         }
         theme::apply(theme);
         theme::apply_window(&self.window, theme);
+        self.backdrop
+            .set_appearance(self.window.has_css_class("goosic-light"), self.full_open.get());
         self.queue_visible.set(settings.queue_visible);
         self.sync_side_panels();
     }
@@ -576,6 +578,8 @@ impl Shell {
         self.facts.borrow_mut().theme = theme;
         theme::apply(theme);
         theme::apply_window(&self.window, theme);
+        self.backdrop
+            .set_appearance(self.window.has_css_class("goosic-light"), self.full_open.get());
         // Redrawn once the current signal has returned: the choice may come from the settings
         // page's own toggle, and rebuilding the page inside that toggle's signal would destroy it
         // mid-emission.
@@ -669,7 +673,7 @@ impl Shell {
         }
         self.browser.borrow_mut().navigate(route);
         // Selecting a row does not activate it, so this cannot come back here.
-        ui::select_route(&self.routes, route);
+        ui::select_route(&self.sidebar.routes, route);
         self.show_new_page();
         self.save_preferences(PreferencesPatch {
             last_route: Some(route.raw_value().to_owned()),
@@ -752,6 +756,7 @@ impl Shell {
     }
 
     fn select_library_section(self: &Rc<Self>, section: LibrarySection) {
+        ui::select_library_section(&self.sidebar.routes, section);
         if self.browser.borrow_mut().select_library_section(section) {
             self.show_new_page();
         }
@@ -1126,6 +1131,7 @@ impl Shell {
             let epoch = self.catalog_epoch.get();
             let weak = Rc::downgrade(self);
             self.render();
+            let is_playlists = browse_id == LibrarySection::Playlists.browse_id();
             self.personal
                 .browse(&browse_id, &title, None, shape, move |answer| {
                     let Some(shell) = weak.upgrade() else {
@@ -1141,6 +1147,17 @@ impl Shell {
                     {
                         shell.load_anonymous(key, true);
                         return;
+                    }
+                    if is_playlists {
+                        if let Ok(page) = &answer {
+                            let view = PageView::from_wire(page);
+                            let playlists: Vec<goosic_shell_support::catalog::Card> = view
+                                .shelves
+                                .into_iter()
+                                .flat_map(|shelf| shelf.cards)
+                                .collect();
+                            shell.sidebar.set_playlists(&playlists);
+                        }
                     }
                     shell
                         .browser
@@ -1206,9 +1223,18 @@ impl Shell {
 
     fn render(&self) {
         let facts = self.facts.borrow().clone();
-        self.account
-            .set_label(facts.account.as_deref().unwrap_or("Browsing as guest"));
-        self.avatar.set_label(
+        self.sidebar
+            .account
+            .set_label(facts.account.as_deref().unwrap_or("Guest"));
+        let detail = if !facts.connected {
+            "Offline"
+        } else if facts.account.is_some() {
+            "Signed in"
+        } else {
+            "Browsing as a guest"
+        };
+        self.sidebar.connection.set_label(detail);
+        self.sidebar.avatar.set_label(
             &facts
                 .account
                 .as_deref()
@@ -1217,6 +1243,7 @@ impl Shell {
                 .to_uppercase()
                 .to_string(),
         );
+        self.sidebar.update_account_menu(&facts);
         let (rows, searching) = {
             let browser = self.browser.borrow();
             (browser.rows(&facts), browser.shows_search_bar())
@@ -1224,6 +1251,28 @@ impl Shell {
         ui::set_rows(&self.rows, rows);
         self.search_bar.set_visible(searching);
         self.apply_layout();
+    }
+
+    fn shuffle_play(self: &Rc<Self>, tracks: Rc<[Track]>) {
+        if tracks.is_empty() {
+            return;
+        }
+        if !self.player.borrow().shuffle {
+            self.toggle_shuffle();
+        }
+        self.play(tracks[0].clone(), tracks);
+    }
+
+    fn like_current_track(self: &Rc<Self>) {
+        let id = self
+            .player
+            .borrow()
+            .current
+            .as_ref()
+            .map(|track| track.video_id.clone());
+        if let Some(id) = id {
+            self.like_track(id);
+        }
     }
 
     // MARK: playback
@@ -2608,7 +2657,7 @@ impl Shell {
         self.side
             .set_visible((queue || lyrics) && !self.full_open.get());
         self.bar.set_panels(lyrics, queue);
-        self.full_player.bar.set_panels(lyrics, queue);
+        self.full_player.set_panels(lyrics, queue);
         self.apply_layout();
         self.refresh_panels();
     }
@@ -2669,6 +2718,10 @@ impl Shell {
                 self.sleep_end_track.borrow_mut().take();
             }
             self.full_player.update(&player, loaded);
+            self.backdrop.set_appearance(
+                self.window.has_css_class("goosic-light"),
+                self.full_open.get(),
+            );
             self.backdrop.update(
                 player.current.as_ref().and_then(|t| t.thumbnail.as_deref()),
                 (self.facts.borrow().artwork_background || self.full_open.get())
@@ -2866,16 +2919,71 @@ mod presentation_tests {
         theme::apply(Theme::Dark);
         theme::apply_window(&shell.window, Theme::Dark);
         shell.refresh_player();
+
+        let cards = vec![
+            goosic_shell_support::catalog::Card {
+                id: "vid-1".into(),
+                title: "Midnight City (Official Video)".into(),
+                subtitle: "Video · M83 · 42M views".into(),
+                action: Some(goosic_shell_support::catalog::CardAction::Play(Box::new(
+                    tracks[0].clone(),
+                ))),
+                thumbnail: Some(remote.into()),
+            },
+            goosic_shell_support::catalog::Card {
+                id: "alb-1".into(),
+                title: "Hurry Up, We're Dreaming".into(),
+                subtitle: "Album · M83".into(),
+                action: Some(goosic_shell_support::catalog::CardAction::Show(
+                    EntityReference::Album("MPRE1".into()),
+                )),
+                thumbnail: Some(remote.into()),
+            },
+            goosic_shell_support::catalog::Card {
+                id: "alb-2".into(),
+                title: "Kid A".into(),
+                subtitle: "Album · Radiohead".into(),
+                action: Some(goosic_shell_support::catalog::CardAction::Show(
+                    EntityReference::Album("MPRE2".into()),
+                )),
+                thumbnail: Some(remote.into()),
+            },
+            goosic_shell_support::catalog::Card {
+                id: "art-1".into(),
+                title: "Beach House".into(),
+                subtitle: "Artist · 12M monthly audience".into(),
+                action: Some(goosic_shell_support::catalog::CardAction::Show(
+                    EntityReference::Artist("UC1".into()),
+                )),
+                thumbnail: Some(remote.into()),
+            },
+            goosic_shell_support::catalog::Card {
+                id: "alb-3".into(),
+                title: "Currents".into(),
+                subtitle: "Album · Tame Impala".into(),
+                action: Some(goosic_shell_support::catalog::CardAction::Show(
+                    EntityReference::Album("MPRE3".into()),
+                )),
+                thumbnail: Some(remote.into()),
+            },
+        ];
+        shell.sidebar.set_playlists(&cards[1..4]);
         ui::set_rows(
             &shell.rows,
             vec![
                 PageRow::Header {
                     title: "Home".into(),
-                    subtitle: "Music for your evening".into(),
+                    subtitle: String::new(),
                 },
-                PageRow::ShelfTitle("Listen again".into()),
-                PageRow::TrackShelf(tracks.clone()),
-                PageRow::ShelfTitle("Your favorites".into()),
+                PageRow::CardShelf {
+                    title: "Listen again".into(),
+                    cards: cards.clone(),
+                },
+                PageRow::CardShelf {
+                    title: "Mixed for you".into(),
+                    cards: cards[1..].to_vec(),
+                },
+                PageRow::ShelfTitle("Quick picks".into()),
                 PageRow::TrackShelf(tracks.clone()),
             ],
         );
@@ -2883,13 +2991,48 @@ mod presentation_tests {
         settle();
         capture(&shell.window, "home-wide");
         assert!(
-            shell.sidebar.width() <= 280,
+            shell.sidebar.root.width() <= 230,
             "a long status must not stretch the sidebar"
         );
+        check_volume_geometry(&shell, &shell.bar, "home-volume-wide");
         shell.toggle_queue();
         settle();
         capture(&shell.window, "queue-wide");
         shell.toggle_queue();
+
+        // Capture Search landing page (floating pill + segmented picker + colored Browse cards)
+        shell.search_focus();
+        settle();
+        capture(&shell.window, "search-wide");
+
+        // Capture Artist Hero page
+        ui::set_rows(
+            &shell.rows,
+            vec![
+                PageRow::Back,
+                PageRow::ArtistHero {
+                    name: "Beach House".into(),
+                    header: Box::new(goosic_protocol::ArtistHeader {
+                        banner: Some(remote.into()),
+                        portrait: None,
+                        audience: Some("12.4M monthly audience".into()),
+                        description: Some("Dream pop duo formed in Baltimore.".into()),
+                        subscribers: Some("1.8M".into()),
+                    }),
+                    tracks: tracks.clone(),
+                },
+                PageRow::ShelfTitle("Top Songs".into()),
+                PageRow::Track {
+                    track: Box::new(tracks[2].clone()),
+                    context: tracks.clone(),
+                },
+            ],
+        );
+        shell.search_bar.set_visible(false);
+        shell.apply_layout();
+        settle();
+        capture(&shell.window, "artist-hero-wide");
+
         shell.toggle_full_player();
         settle();
         capture(&shell.window, "full-cover");
@@ -2899,7 +3042,6 @@ mod presentation_tests {
             "the renderer stays mapped in full-player mode"
         );
         assert!(shell.content.is_visible());
-        check_volume_geometry(&shell, &shell.full_player.bar, "full-volume");
         shell.toggle_queue();
         settle();
         capture(&shell.window, "full-queue-wide");
@@ -2913,7 +3055,7 @@ mod presentation_tests {
         settle();
         capture(&shell.window, "full-queue-narrow");
         shell.toggle_queue();
-        shell.window.set_default_size(1100, 760);
+        shell.window.set_default_size(1180, 780);
         settle();
         shell.lyrics.borrow_mut().visible = true;
         shell.lyrics.borrow_mut().finish(
@@ -2995,6 +3137,7 @@ mod presentation_tests {
         shell.facts.borrow_mut().theme = Theme::Light;
         theme::apply(Theme::Light);
         theme::apply_window(&shell.window, Theme::Light);
+        shell.apply_layout();
         settle();
         capture(&shell.window, "settings-light-narrow");
         shell.toggle_full_player();

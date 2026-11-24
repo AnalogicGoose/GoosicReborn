@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use goosic_protocol::{AccountSummary, CatalogPage, RequestPayload, ResponseEnvelope};
+use goosic_protocol::{AccountSummary, ArtistHeader, CatalogPage, RequestPayload, ResponseEnvelope};
 use goosic_shell_support::catalog::{
     detail_subtitle, failure_text, Card, CardAction, PageView, Track,
 };
@@ -75,6 +75,23 @@ pub enum PageRow {
         title: String,
         subtitle: String,
     },
+    /// macOS-style album/playlist collection header with cover, metadata, Shuffle and Play.
+    CollectionHeader {
+        title: String,
+        subtitle: String,
+        kind: String,
+        thumbnail: Option<String>,
+        tracks: Rc<[Track]>,
+        playlist_id: Option<String>,
+    },
+    /// macOS-style artist page hero with edge-to-edge banner/portrait, audience and round actions.
+    ArtistHero {
+        name: String,
+        header: Box<ArtistHeader>,
+        tracks: Rc<[Track]>,
+    },
+    /// macOS Search landing page: colorful Browse category destination cards.
+    SearchBrowse,
     /// Says plainly that the catalog is anonymous, so nobody reads a guest shelf as their own mix.
     GuestNotice,
     LibrarySections(LibrarySection),
@@ -102,8 +119,13 @@ pub enum PageRow {
         context: Rc<[Track]>,
     },
     ShelfTitle(String),
-    /// Four compact song rows per horizontal column, matching the Windows shelf.
+    /// Four compact song rows per horizontal column, matching macOS Quick picks.
     TrackShelf(Rc<[Track]>),
+    /// A titled horizontal card carousel with leading/trailing scroll chevrons.
+    CardShelf {
+        title: String,
+        cards: Vec<Card>,
+    },
     Cards(Vec<Card>),
     /// The service clamped the page to fit one protocol frame, and the screen has to say so.
     Truncated,
@@ -496,20 +518,21 @@ impl Browser {
             return self.detail_rows(entity, facts);
         }
         let title = route_title(self.route);
-        let mut rows = vec![PageRow::Header {
-            title: title.to_owned(),
-            subtitle: route_subtitle(self.route).to_owned(),
-        }];
+        let mut rows = if self.route == Route::Search && self.current_key().is_none() {
+            Vec::new()
+        } else {
+            vec![PageRow::Header {
+                title: title.to_owned(),
+                subtitle: route_subtitle(self.route).to_owned(),
+            }]
+        };
         match self.route {
             Route::Search => match self.current_key() {
                 Some(key) => rows.extend(body_rows(
                     self.state(&key),
                     &format!("“{}”", self.submitted_query),
                 )),
-                None => rows.push(PageRow::Empty {
-                    title: "Start a search".to_owned(),
-                    message: "Every result is a real YouTube Music entry.".to_owned(),
-                }),
+                None => rows.push(PageRow::SearchBrowse),
             },
             Route::Settings => rows.push(PageRow::Settings(facts.clone())),
             Route::Library => match facts.account {
@@ -551,23 +574,66 @@ impl Browser {
     fn detail_rows(&self, entity: &EntityReference, facts: &ShellFacts) -> Vec<PageRow> {
         let state = self.state(&CatalogKey::entity(entity));
         let kind = entity.kind_label();
-        let header = match state {
-            LoadState::Loaded(page) => PageRow::Header {
-                title: page.title.clone(),
-                subtitle: detail_subtitle(kind, &page.subtitle),
-            },
-            _ => PageRow::Header {
-                title: kind.to_owned(),
-                subtitle: "Loading from YouTube Music".to_owned(),
-            },
-        };
-        let mut rows = vec![PageRow::Back, header];
-        if let (EntityReference::Playlist(id), Some(_)) = (entity, &facts.account) {
-            rows.push(PageRow::PlaylistActions(id.clone()));
-        }
-        if let LoadState::Loaded(page) = state {
-            if !page.tracks.is_empty() {
-                rows.push(PageRow::PlayAll(page.tracks.clone().into()));
+        let mut rows = vec![PageRow::Back];
+        match state {
+            LoadState::Loaded(page) => {
+                let tracks: Rc<[Track]> = page.listed_tracks().into();
+                if matches!(entity, EntityReference::Artist(_)) {
+                    if let Some(artist) = &page.artist {
+                        rows.push(PageRow::ArtistHero {
+                            name: page.title.clone(),
+                            header: Box::new(artist.clone()),
+                            tracks: tracks.clone(),
+                        });
+                    } else {
+                        rows.push(PageRow::Header {
+                            title: page.title.clone(),
+                            subtitle: detail_subtitle(kind, &page.subtitle),
+                        });
+                    }
+                    if !tracks.is_empty() {
+                        rows.push(PageRow::ShelfTitle("Top Songs".to_owned()));
+                    }
+                } else if matches!(
+                    entity,
+                    EntityReference::Album(_) | EntityReference::Playlist(_)
+                ) {
+                    let cover = tracks
+                        .first()
+                        .and_then(|t| t.thumbnail.clone())
+                        .or_else(|| {
+                            page.shelves
+                                .first()
+                                .and_then(|s| s.cards.first())
+                                .and_then(|c| c.thumbnail.clone())
+                        });
+                    let playlist_id = match (entity, &facts.account) {
+                        (EntityReference::Playlist(id), Some(_)) => Some(id.clone()),
+                        _ => None,
+                    };
+                    rows.push(PageRow::CollectionHeader {
+                        title: page.title.clone(),
+                        subtitle: detail_subtitle(kind, &page.subtitle),
+                        kind: kind.to_owned(),
+                        thumbnail: cover,
+                        tracks: tracks.clone(),
+                        playlist_id,
+                    });
+                } else {
+                    rows.push(PageRow::Header {
+                        title: page.title.clone(),
+                        subtitle: detail_subtitle(kind, &page.subtitle),
+                    });
+                }
+            }
+            _ => {
+                rows.push(PageRow::Header {
+                    title: kind.to_owned(),
+                    subtitle: "Loading from YouTube Music".to_owned(),
+                });
+                if let (EntityReference::Playlist(id), Some(_)) = (entity, &facts.account) {
+                    rows.push(PageRow::PlaylistActions(id.clone()));
+                }
             }
         }
         rows.extend(body_rows(state, &format!("this {}", kind.to_lowercase())));
@@ -629,14 +695,14 @@ pub fn route_title(route: Route) -> &'static str {
 
 fn route_subtitle(route: Route) -> &'static str {
     match route {
-        Route::Home => "Music picked for this session",
-        Route::Explore => "New releases, charts, moods, and genres",
-        Route::Search => "Search YouTube Music by title, artist, or album",
-        Route::Library => "Your saved music",
-        Route::Charts => "What is being played right now",
-        Route::MoodsAndGenres => "Find a feeling, then a playlist",
-        Route::NewReleases => "Albums and singles out now",
         Route::Settings => "Preferences, accounts, and the service",
+        Route::Home
+        | Route::Explore
+        | Route::Search
+        | Route::Library
+        | Route::Charts
+        | Route::MoodsAndGenres
+        | Route::NewReleases => "",
     }
 }
 
@@ -661,12 +727,17 @@ fn body_rows(state: &LoadState, subject: &str) -> Vec<PageRow> {
             message: format!("{subject} came back empty."),
         }],
         LoadState::Loaded(page) => {
-            let mut rows = track_rows(&page.tracks.clone().into());
-            for shelf in &page.shelves {
-                rows.push(PageRow::ShelfTitle(shelf.title.clone()));
+            let mut rows = track_rows(&page.listed_tracks().into());
+            for shelf in page.listed_shelves() {
                 match shelf.track_list() {
-                    Some(tracks) => rows.push(PageRow::TrackShelf(tracks.into())),
-                    None => rows.push(PageRow::Cards(shelf.cards.clone())),
+                    Some(tracks) => {
+                        rows.push(PageRow::ShelfTitle(shelf.title));
+                        rows.push(PageRow::TrackShelf(tracks.into()));
+                    }
+                    None => rows.push(PageRow::CardShelf {
+                        title: shelf.title,
+                        cards: shelf.cards,
+                    }),
                 }
             }
             if page.truncated {
@@ -709,6 +780,15 @@ fn without_explicit(row: PageRow) -> Option<PageRow> {
                 .into();
             (!tracks.is_empty()).then_some(PageRow::TrackShelf(tracks))
         }
+        PageRow::CardShelf { title, cards } => {
+            let cards = cards
+                .into_iter()
+                .filter(
+                    |card| !matches!(&card.action, Some(CardAction::Play(track)) if track.explicit),
+                )
+                .collect::<Vec<_>>();
+            (!cards.is_empty()).then_some(PageRow::CardShelf { title, cards })
+        }
         PageRow::Cards(cards) => {
             let cards = cards
                 .into_iter()
@@ -717,6 +797,46 @@ fn without_explicit(row: PageRow) -> Option<PageRow> {
                 )
                 .collect::<Vec<_>>();
             (!cards.is_empty()).then_some(PageRow::Cards(cards))
+        }
+        PageRow::CollectionHeader {
+            title,
+            subtitle,
+            kind,
+            thumbnail,
+            tracks,
+            playlist_id,
+        } => {
+            let tracks: Rc<[Track]> = tracks
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            Some(PageRow::CollectionHeader {
+                title,
+                subtitle,
+                kind,
+                thumbnail,
+                tracks,
+                playlist_id,
+            })
+        }
+        PageRow::ArtistHero {
+            name,
+            header,
+            tracks,
+        } => {
+            let tracks: Rc<[Track]> = tracks
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            Some(PageRow::ArtistHero {
+                name,
+                header,
+                tracks,
+            })
         }
         other => Some(other),
     }
@@ -834,8 +954,10 @@ mod tests {
         assert_eq!(rows[2], PageRow::ShelfTitle("Quick picks".into()));
         // Song shelves keep their playback context in one horizontal group.
         assert!(matches!(&rows[3], PageRow::TrackShelf(tracks) if tracks[0].video_id == "a"));
-        assert_eq!(rows[4], PageRow::ShelfTitle("Albums".into()));
-        assert!(matches!(&rows[5], PageRow::Cards(cards) if cards.len() == 1));
+        assert!(matches!(
+            &rows[4],
+            PageRow::CardShelf { title, cards } if title == "Albums" && cards.len() == 1
+        ));
         assert_eq!(rows.last(), Some(&PageRow::Truncated));
     }
 
@@ -859,8 +981,11 @@ mod tests {
             }),
         );
         let rows = rows(&browser);
-        assert!(matches!(&rows[2], PageRow::PlayAll(tracks) if tracks.len() == 2));
-        match &rows[4] {
+        assert!(matches!(
+            &rows[1],
+            PageRow::CollectionHeader { tracks, .. } if tracks.len() == 2
+        ));
+        match &rows[3] {
             PageRow::Track { track, context } => {
                 assert_eq!(track.video_id, "b");
                 let ids: Vec<&str> = context.iter().map(|t| t.video_id.as_str()).collect();
@@ -905,9 +1030,7 @@ mod tests {
         browser.navigate(Route::Search);
         assert!(browser.shows_search_bar());
         assert_eq!(browser.current_key(), None);
-        assert!(
-            matches!(&rows(&browser)[1], PageRow::Empty { title, .. } if title == "Start a search")
-        );
+        assert_eq!(rows(&browser), vec![PageRow::SearchBrowse]);
 
         assert!(!browser.submit_search("   "), "blank is not a query");
         assert!(browser.submit_search("  daft punk "));
@@ -1030,10 +1153,12 @@ mod tests {
             rows.contains(&PageRow::ShelfTitle("Quick picks".into())),
             "the first part stays"
         );
-        assert!(rows.contains(&PageRow::ShelfTitle("More picks".into())));
+        assert!(rows
+            .iter()
+            .any(|row| matches!(row, PageRow::CardShelf { title, .. } if title == "More picks")));
         assert!(
             !rows.iter().any(|row| matches!(row, PageRow::More(_))),
-            "a part without a cursor ends the feed"
+            "a part without a cursor ends the feed, not an error"
         );
     }
 
@@ -1043,7 +1168,9 @@ mod tests {
         let (cursor, _) = browser.begin_more(&key).unwrap();
 
         browser.finish_more(key.clone(), "an-older-cursor", next_part("Stale"));
-        assert!(!rows(&browser).contains(&PageRow::ShelfTitle("Stale".into())));
+        assert!(!rows(&browser)
+            .iter()
+            .any(|row| matches!(row, PageRow::CardShelf { title, .. } if title == "Stale")));
 
         browser.finish_more(
             key.clone(),
@@ -1172,9 +1299,11 @@ mod tests {
             ..Default::default()
         };
         let rows = browser.rows(&facts);
-        assert!(
-            matches!(rows.iter().find(|row| matches!(row, PageRow::PlayAll(_))), Some(PageRow::PlayAll(tracks)) if tracks.len() == 1)
-        );
+        assert!(matches!(
+            rows.iter()
+                .find(|row| matches!(row, PageRow::CollectionHeader { .. })),
+            Some(PageRow::CollectionHeader { tracks, .. }) if tracks.len() == 1
+        ));
         let tracks = rows
             .iter()
             .filter_map(|row| match row {
@@ -1185,5 +1314,35 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].0.video_id, "a");
         assert_eq!(tracks[0].1.len(), 1);
+    }
+
+    #[test]
+    fn artist_pages_with_headers_present_a_hero_before_top_songs() {
+        let mut browser = Browser::new();
+        browser.open(EntityReference::Artist("UC123".into()));
+        let key = browser.current_key().unwrap();
+        browser.begin(&key, false);
+        browser.finish(
+            key,
+            answer(CatalogPage {
+                id: "UC123".into(),
+                title: "Daft Punk".into(),
+                tracks: vec![item(CatalogItemKind::Song, "a", Some("a"))],
+                artist: Some(ArtistHeader {
+                    banner: Some("https://lh3.googleusercontent.com/banner".into()),
+                    portrait: None,
+                    audience: Some("25M monthly audience".into()),
+                    description: Some("Electronic duo.".into()),
+                    subscribers: Some("3.9M".into()),
+                }),
+                ..Default::default()
+            }),
+        );
+        let rows = rows(&browser);
+        assert!(matches!(
+            &rows[1],
+            PageRow::ArtistHero { name, tracks, .. } if name == "Daft Punk" && tracks.len() == 1
+        ));
+        assert_eq!(rows[2], PageRow::ShelfTitle("Top Songs".into()));
     }
 }
