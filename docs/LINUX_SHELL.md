@@ -117,8 +117,10 @@ way. The layout follows the macOS shell's composition: a grouped adaptive sideba
 Playing Next or Lyrics panel sit over the content, and a compact transport capsule floats at the
 bottom. Home presents song shelves as horizontally scrolling columns of four compact rows. GTK
 uses neutral light and dark palettes with native controls, and the floating surfaces are frosted
-glass, described [below](#frosted-glass-and-the-mesh-backdrop). The shared pink accent is
-`#FF0552`. The adaptive and immersive behavior follows [UI_DESIGN.md](UI_DESIGN.md).
+glass, described [below](#frosted-glass-and-the-mesh-backdrop). The GTK shell still draws the
+pink accent `#FF0552`, which 0.4.4 retired on macOS and Windows in favour of a neutral primary
+colour; that is a gap, not a choice, and is listed under [What is left](#what-is-left). The adaptive
+and immersive behavior follows [UI_DESIGN.md](UI_DESIGN.md).
 
 ## Frosted glass and the mesh backdrop
 
@@ -595,6 +597,7 @@ not the transport slider. They do not fail the fixture or establish compositor a
 | An update offered from a published Linux release | a person | The feed parsing and version ordering have unit tests; no `-linux-alpha` release existed to be offered when this was written |
 | A refused song left out of new queues and radio | `platform/linux` | The shell records refused songs and dims them, as macOS and Windows do, but queue and radio building do not yet filter on that set |
 | The early page swap with a real swapped or refused song | a person | `page_swap` decides the cases under shared tests; a real swap and a real refusal have not been heard on Linux |
+| The 0.4.4 changes: covers at their true shape, and the neutral accent in place of `#FF0552` | `platform/linux` | Shipped on macOS and Windows in 0.4.4 after this branch was cut from 0.4.3; the GTK shell still crops covers square and draws the pink in `ui.css` |
 | Saved queues | `platform/linux` | Queue editing, the full player and the Mini Player are present; queue persistence is not |
 | Window and playlist context menus | `platform/linux` | Track actions and a checked owned-playlist manager are present; the native window menu is still pending |
 | The `goosic-paths` crate from `rescue/native-mac-shell-and-paths` | `development` | Never merged, so path rules are still duplicated per crate |

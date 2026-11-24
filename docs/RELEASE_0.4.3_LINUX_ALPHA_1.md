@@ -5,7 +5,11 @@ Goosic, at home on the Linux desktop.
 This is the first Goosic download for Linux: a native GTK 4 app, packaged as a Flatpak, built on
 the same Rust playback authority as the Mac and Windows apps. It is an alpha. Some of what it
 does has been heard and seen on a real desktop, and some has only been built and tested; the
-section on live checks says which is which. macOS and Windows stay on Goosic 0.4.3.
+section on live checks says which is which.
+
+It is built from Goosic 0.4.3. macOS and Windows are already on 0.4.4, whose two changes are not
+in this alpha yet: Linux still draws every cover square, and still uses the pink accent that 0.4.4
+retired on the other two.
 
 ## A native Linux app
 
