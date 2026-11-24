@@ -30,11 +30,11 @@ public sealed partial class MainWindow
         _fullLyrics = new LyricsEffects(FullPlayerLyricsScroller, FullPlayerLyricsContent, FullPlayerLyricsItems,
             FullPlayerLyricsIntroduction, FullPlayerLyricsResume, immersive: true, Model.LyricFollower,
             () => AnimationsEnabled, () => PlainEffects, () => CanSeekLyrics);
-        // In the panel the sung line takes the accent, as on macOS; over a cover it stays white.
-        Application.Current.Resources.TryGetValue("GoosicAccentBrush", out var accent);
+        // The sung line keeps the text colour in the panel too, as on macOS: Goosic has no colour
+        // accent, so emphasis comes from opacity and the sweep alone.
         _panelLyrics = new LyricsEffects(LyricsScroller, LyricsContent, LyricsItems, LyricsIntroduction,
             LyricsResume, immersive: false, Model.LyricFollower,
-            () => AnimationsEnabled, () => PlainEffects, () => CanSeekLyrics, accent as Microsoft.UI.Xaml.Media.Brush);
+            () => AnimationsEnabled, () => PlainEffects, () => CanSeekLyrics);
         _fullLyrics.Resumed += () => FollowLyricOnScreen(Model.CurrentLyricIndex);
         _panelLyrics.Resumed += () => FollowLyricOnScreen(Model.CurrentLyricIndex);
         Model.LyricClockChanged += () =>
