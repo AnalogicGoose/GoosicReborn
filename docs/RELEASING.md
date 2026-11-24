@@ -11,40 +11,59 @@ The native shells are now integrated on development; releases no longer tag a pl
 
 ## Making one
 
-Start by freezing the version, before anything is promoted. Write `docs/RELEASE_<x.y.z>.md`,
-then run `sh tools/bump-version.sh <x.y.z>` on a `feature/` branch cut from development. It moves
-every default a release reads — the workspace version in `Cargo.toml` and the workspace's entries
-in `Cargo.lock`, the release workflow's default tag and notes file, the Windows and macOS
-packaging defaults, and the example tag below — refuses to finish if the notes file is missing,
-and lists every line that still mentions the old version so a missed default is visible. What it
-leaves is the README's prose and the protocol's own version, which shares numbers with a release
-but is not one. 0.3.0 was renamed late, after the deploy pull request had opened, and the rename
-cost a second full round of CI; freezing first means the deployment carries the final number.
+A release is three commands and one click, run from any clean checkout on the release Mac. Each
+command can be repeated: it finds what an earlier run already did and carries on, so a run cut
+short by a failed check or a closed laptop is resumed by running it again.
 
-Merge the coherent platform changes into development, run the required tests, and deploy
-by merging development into main. Tag that deployment commit with a numeric version such as
-`v0.4.3` and push the tag. The release workflow tests the tagged tree on Windows and macOS,
-builds the Windows installer and portable ZIP and the universal macOS app, verifies the Mac
-bundle signature and architectures, and attaches both checksum files to a draft release.
+1. **Write `docs/RELEASE_<x.y.z>.md`**, in the style described in AGENTS.md. It can sit
+   uncommitted in the checkout; the next step commits it.
+2. **`sh tools/release.sh <x.y.z>`** freezes the version, promotes the platform branches, opens
+   the deploy pull request and asks Codex to review it. In order: it cuts `release/<x.y.z>` from
+   development, runs `tools/bump-version.sh` there and adds the notes; it opens a promotion pull
+   request for each of `platform/macos` and `platform/windows` that holds work development lacks;
+   it waits for CI on all of them at once and merges each when its checks pass; then it opens
+   the deploy pull request from development into main and comments `@codex review` on it.
+3. **`sh tools/release.sh ship <x.y.z>`**, once Codex's findings are dealt with, merges the deploy
+   pull request when its CI is green. The release workflow sees a version on main that has no tag,
+   tags the merge `v<x.y.z>` itself, tests the tagged tree on Windows and macOS, builds the
+   Windows installer and portable ZIP and the universal macOS app, verifies the Mac bundle's
+   signature and architectures, and attaches both checksum files to a draft release.
+4. **Inspect the draft and publish it.** This stays a person's click on purpose: publication makes
+   the Windows updater offer the version, and nothing undoes that quietly. The macOS download
+   remains an alpha until native acceptance is complete.
+5. **`sh tools/release.sh feed <x.y.z>`** puts the release in front of installed Macs. Publishing
+   does not reach a Mac: every installed copy reads `updates/macos-alpha.xml` from `development`.
+   The command downloads the published ZIP, reads the app's `CFBundleVersion`, signs the ZIP with
+   Sparkle's `sign_update` and the private key in this Mac's keychain, adds an item to the top of
+   the feed, refuses if its build is not above the newest one there, and merges it into
+   `development` when CI is green.
 
-Inspect the downloads and their hashes before publishing the draft. Publication makes the
-Windows updater offer the version. The macOS download remains an alpha until native acceptance
-is complete.
+The script merges only after every check on a pull request has passed, and waits for them
+itself. The branches have no required checks, so `gh pr merge --auto` would merge at once rather
+than wait, which is why it is not part of the release. It works in a temporary worktree and never
+touches the checkout it is started from.
 
-Publishing does not reach a Mac. Every installed copy reads `updates/macos-alpha.xml` from
-`development`, and CI cannot sign that feed, so a release is not finished until someone on the
-release Mac has run Sparkle's `sign_update` on the published ZIP, added an item to the top of the
-feed, and landed it on `development`. The item's `sparkle:version` must equal the built app's
-`CFBundleVersion`, read from the downloaded ZIP with
-`/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Goosic.app/Contents/Info.plist`, and
+Why each step is where it is. The version is frozen before anything is promoted: 0.3.0 was
+renamed after its deploy pull request had opened, and the rename cost a second full round of CI.
+`tools/bump-version.sh` moves the workspace version in `Cargo.toml` and the workspace's entries in
+`Cargo.lock`, and the Windows and macOS packaging defaults; the release workflow reads the tag
+and the notes file from the version, so it has nothing to edit. The bump leaves the README's prose
+and the protocol's own version, which shares numbers with a release but is not one, and lists
+every line that still mentions the old version so a missed default is visible. Tagging in the
+workflow rather than by hand means a deployment cannot be merged and then forgotten untagged, and
+a push to main that is not a release — the CI workflow kept current there, a hotfix that did not
+move the version — finds its version already tagged and builds nothing. A tag pushed by hand
+still builds, for the rare release made another way.
+
+The feed item's `sparkle:version` must equal the built app's `CFBundleVersion`, and
 `sparkle:shortVersionString` the release version. Sparkle decides by the build number alone: an
 item whose `sparkle:version` is higher than the app inside it makes every Mac download the update,
-install it, and be offered it again. Skipping this looks like
-nothing at all: the feed stayed at 0.2.4 through later releases, and every Mac went on reporting
-0.2.4 as the newest version, even one already running something newer. Because the feed is read live, the
-correction reaches copies already installed without anyone reinstalling. Without the private
-signing key, publish the manual download and leave the signed feed unchanged. Never replace the
-key merely to make CI able to sign.
+install it, and be offered it again. Skipping the feed looks like nothing at all: it stayed at
+0.2.4 through later releases, and every Mac went on reporting 0.2.4 as the newest version, even
+one already running something newer. Because the feed is read live, a correction reaches copies
+already installed without anyone reinstalling. Without the private signing key, publish the manual
+download and leave the signed feed unchanged. Never replace the key merely to make CI able to
+sign.
 
 The two halves are built by scripts that also work locally, which is how they are debugged:
 
@@ -89,27 +108,45 @@ overrides the derivation for the one case it cannot cover: two macOS builds of t
 such as a second `-macos-alpha` of one base version, where the later one needs a number above the
 derived one.
 
+## Codex reviews the release
+
+Codex reviews a release, not every pull request. Its automatic reviews are switched off for this
+repository in the Codex settings (chatgpt.com/codex, Settings → Code review), so feature, fix and
+promotion pull requests merge on CI and a person's reading alone. That setting belongs to each
+Codex account, not to the repository: anyone whose account is connected to it switches it off in
+their own settings, or Codex keeps reviewing every pull request on their behalf. A review on each of those was
+the same code read several times on its way to `main` — once in the feature, again in each
+promotion — and its findings landed mid-chain, where every fix reopened a pull request and cost
+another round of CI.
+
+The deploy pull request is where it reads instead. Its diff, `main...development`, is exactly
+what changed since the last release, every platform together, so one review sees the whole of
+what is about to ship and nothing that already has. `tools/release.sh` asks for the review when it
+opens the deploy pull request, by commenting `@codex review` through `gh`, which posts as the
+person running it. It has to come from a person's account linked to Codex: a comment written by a
+workflow is not acted on, which is why this runs from the release Mac and not in CI. Run `ship`
+only once the review has arrived. A
+finding that blocks the release — it breaks what the release notes promise, loses data, or
+crosses one of the invariants in AGENTS.md — is fixed on a `fix/` branch into `development`,
+which updates the open deploy pull request; ask for another review of the new commits if the fix
+is not small. Any other finding goes into a `fix/` branch for the next version, as the next
+section says, rather than holding the release.
+
+A pull request that needs a second opinion before then can still ask for one with the same
+comment. That is a choice made for that change, not the routine.
+
 ## Keeping the release moving
 
-A release is a chain of pull requests — feature into `development`, any platform promotions,
-then the deploy pull request into `main` — and each waits 15 to 20 minutes for CI. 0.3.0 took
-about an hour and fifty minutes from start to draft, and almost none of that was work: it was
-CI running one pull request after another, and green pull requests sitting unmerged until
-someone looked. Three habits remove most of it.
+0.3.0 took about an hour and fifty minutes from start to draft, and almost none of that was
+work: it was CI running one pull request after another, and green pull requests sitting unmerged
+until someone looked. `tools/release.sh` removes both. The freeze and the promotions run their CI
+at the same time instead of in a chain, and each merges the moment its checks pass rather than
+when someone next looks. The deploy pull request carries the same tree development already
+tested, so CI there mostly finds a tree that has passed and skips the work.
 
-Freeze the version first, as above, so no rename reopens a pull request that has already passed.
-
-Queue each merge instead of watching for it. `gh pr merge <number> --auto --merge` merges a pull
-request the moment its required checks pass, so the next one in the chain can open straight
-away rather than whenever someone next looks. Use it on the promotion pull requests and on the
-deploy pull request; `--merge` keeps the merge commit that `main`'s history is built from. It
-needs auto-merge enabled in the repository's settings (General → Pull Requests → Allow
-auto-merge), which only an administrator can switch on; until it is, the command is refused and
-the merge stays a manual click.
-
-Treat a late review finding as the next patch unless it blocks the release. A finding that
-arrives after the deploy pull request is green, and does not break what the release notes
-promise, goes into a `fix/` branch for the following version. Reopening the deployment for it
+Treat a review finding as the next patch unless it blocks the release. A finding on the deploy
+pull request, or one that arrives after it is green, that does not break what the release notes
+promise goes into a `fix/` branch for the following version. Reopening the deployment for it
 costs another full round of CI on every pull request in the chain, which is what added two
 rounds to 0.3.0.
 
