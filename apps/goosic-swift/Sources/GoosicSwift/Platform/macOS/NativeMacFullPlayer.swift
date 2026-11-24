@@ -119,6 +119,7 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
 
     @MainActor
     final class ArtworkLayers: NSView {
+        private static let turn = 0.29
         private let base = CALayer()
         private let overlay = CALayer()
         private var animate = false
@@ -138,8 +139,6 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
             // Reorient the rear layer so it contributes different colour regions.
             base.transform = CATransform3DMakeScale(-1, -1, 1)
             overlay.opacity = 0.64
-            // An off-centre pivot makes colours travel across the field as the layer turns.
-            overlay.anchorPoint = CGPoint(x: 0.28, y: 0.69)
         }
 
         @available(*, unavailable)
@@ -197,11 +196,26 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
 
         override func layout() {
             super.layout()
+            let width = bounds.width
+            let height = bounds.height
+            guard width > 0, height > 0 else { return }
+
+            // Allow for the diagonal sweep of each side and the travel around the off-centre pivot.
+            let pivot = CGPoint(x: -0.22 * width, y: 0.19 * height)
+            let excursion = 2 * hypot(pivot.x, pivot.y) * sin(Self.turn / 2)
+            let crossAxis = sin(Self.turn)
+            let scale = max(1.46,
+                            1 + (height * crossAxis + 2 * excursion) / width,
+                            1 + (width * crossAxis + 2 * excursion) / height)
+            let centre = CGPoint(x: bounds.midX, y: bounds.midY)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             base.bounds = CGRect(origin: .zero, size: bounds.size)
-            base.position = CGPoint(x: bounds.midX, y: bounds.midY)
-            overlay.frame = bounds.insetBy(dx: -bounds.width * 0.23, dy: -bounds.height * 0.23)
+            base.position = centre
+            overlay.bounds = CGRect(x: 0, y: 0, width: width * scale, height: height * scale)
+            overlay.anchorPoint = CGPoint(x: 0.5 + pivot.x / overlay.bounds.width,
+                                          y: 0.5 + pivot.y / overlay.bounds.height)
+            overlay.position = CGPoint(x: centre.x + pivot.x, y: centre.y + pivot.y)
             CATransaction.commit()
         }
 
@@ -239,7 +253,7 @@ private struct NowPlayingArtworkBackground: NSViewRepresentable {
             }
             guard overlay.animation(forKey: "drift") == nil else { return }
             let drift = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-            drift.values = [0, 0.29, 0, -0.29, 0]
+            drift.values = [0, Self.turn, 0, -Self.turn, 0]
             drift.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
             drift.duration = 22
             drift.repeatCount = .infinity
