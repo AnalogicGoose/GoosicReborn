@@ -425,8 +425,9 @@ texture when the immersive player needs new artwork, applying a local warp and b
 display. Grade the texture to retain saturated midtones and limit highlights behind white
 text. Use the same texture at different orientations across the compositor layers so
 warm and cool regions can appear in several places. Animate the finished artwork so the soft
-colour boundaries travel visibly behind the controls over a few seconds. Give the moving layer an off-centre pivot to create that travel. Missing or
-unreadable artwork leaves the dark fallback. Stop decorative animation
+colour boundaries travel visibly behind the controls over a few seconds. An off-centre pivot
+creates that travel. Size the moving layer for the viewport so its edges stay outside the window
+as it turns. Missing or unreadable artwork leaves the dark fallback. Stop decorative animation
 when the player is hidden or minimised, or when the effective motion preference suppresses it.
 The still image must keep lyrics and controls readable. Browsing alone does not prepare this
 texture.
