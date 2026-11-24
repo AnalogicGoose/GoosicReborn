@@ -28,6 +28,7 @@ mod side_panels;
 mod status_icon;
 pub mod theme;
 mod ui;
+pub mod updater;
 mod web_profile;
 
 /// The application ID. It makes a second launch activate the running instance instead of starting

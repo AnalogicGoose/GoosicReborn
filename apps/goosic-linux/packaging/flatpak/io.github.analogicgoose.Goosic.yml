@@ -13,6 +13,8 @@ finish-args:
   - --device=dri
   - --own-name=org.mpris.MediaPlayer2.goosic
   - --talk-name=org.kde.StatusNotifierWatcher
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+  - --filesystem=xdg-run/discord-ipc-0
   - --filesystem=~/.local/share/com.github.ivasy.ytubic:ro
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin

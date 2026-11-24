@@ -48,6 +48,7 @@ pub struct ShellFacts {
     pub debug_mode: bool,
     pub autoplay: bool,
     pub shuffle: bool,
+    pub update_status: crate::updater::UpdateStatus,
 }
 
 impl Default for ShellFacts {
@@ -69,6 +70,7 @@ impl Default for ShellFacts {
             debug_mode: false,
             autoplay: true,
             shuffle: false,
+            update_status: crate::updater::UpdateStatus::Idle,
         }
     }
 }

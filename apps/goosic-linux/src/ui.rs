@@ -57,6 +57,8 @@ pub struct Actions {
     pub queue_track: Box<dyn Fn(Track, bool)>,
     pub submit_search: Box<dyn Fn(String)>,
     pub clear_recent_searches: Box<dyn Fn()>,
+    pub check_for_updates: Box<dyn Fn()>,
+    pub open_url: Box<dyn Fn(String)>,
     pub artwork: Rc<ArtworkCache>,
 }
 
@@ -1805,6 +1807,59 @@ fn settings_page(facts: &ShellFacts, actions: &Rc<Actions>) -> gtk::Box {
     }
     motion.append(&debug);
     page.append(&motion);
+
+    let updates = settings_group("Updates");
+    updates.append(&dim(&format!(
+        "Current version: v{}",
+        crate::updater::CURRENT_VERSION
+    )));
+    let update_row = row(10);
+    let check_btn = gtk::Button::builder()
+        .label(match &facts.update_status {
+            crate::updater::UpdateStatus::Checking => "Checking…",
+            _ => "Check for Updates…",
+        })
+        .sensitive(!matches!(
+            facts.update_status,
+            crate::updater::UpdateStatus::Checking
+        ))
+        .halign(gtk::Align::Start)
+        .build();
+    check_btn.add_css_class("goosic-glass-pill-action");
+    {
+        let actions = actions.clone();
+        check_btn.connect_clicked(move |_| (actions.check_for_updates)());
+    }
+    update_row.append(&check_btn);
+    if let crate::updater::UpdateStatus::Available {
+        version,
+        download_url,
+        ..
+    } = &facts.update_status
+    {
+        let dl_btn = gtk::Button::builder()
+            .label(format!("Download v{version}"))
+            .halign(gtk::Align::Start)
+            .build();
+        dl_btn.add_css_class("goosic-collection-play");
+        let (actions, url) = (actions.clone(), download_url.clone());
+        dl_btn.connect_clicked(move |_| (actions.open_url)(url.clone()));
+        update_row.append(&dl_btn);
+    }
+    updates.append(&update_row);
+    let update_note = match &facts.update_status {
+        crate::updater::UpdateStatus::Idle => {
+            "Checks GitHub Releases anonymously for newer Linux builds.".to_owned()
+        }
+        crate::updater::UpdateStatus::Checking => "Checking GitHub Releases…".to_owned(),
+        crate::updater::UpdateStatus::UpToDate => "Goosic is up to date.".to_owned(),
+        crate::updater::UpdateStatus::Available { version, .. } => {
+            format!("Goosic v{version} is available to download.")
+        }
+        crate::updater::UpdateStatus::Failed(reason) => reason.clone(),
+    };
+    updates.append(&dim(&update_note));
+    page.append(&updates);
     let shortcuts = gtk::Expander::builder().label("Keyboard shortcuts").build();
     let keys = column(6);
     for (key, action) in [

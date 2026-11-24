@@ -212,6 +212,15 @@ impl Shell {
                 }),
                 submit_search: Box::new(forward(weak, Shell::submit_search)),
                 clear_recent_searches: Box::new(forward_unit(weak, Shell::clear_recent_searches)),
+                check_for_updates: Box::new({
+                    let weak = weak.clone();
+                    move || {
+                        if let Some(shell) = weak.upgrade() {
+                            shell.check_for_updates(true);
+                        }
+                    }
+                }),
+                open_url: Box::new(forward(weak, Shell::open_url)),
                 artwork: artwork.clone(),
             });
             let (scroller, rows) = ui::page_list(actions);
@@ -500,6 +509,14 @@ impl Shell {
         shell.render();
         shell.refresh_player();
         shell.connect();
+        if shell.client.is_some() {
+            let weak = Rc::downgrade(&shell);
+            glib::timeout_add_seconds_local_once(4, move || {
+                if let Some(shell) = weak.upgrade() {
+                    shell.check_for_updates(false);
+                }
+            });
+        }
         shell
     }
 
@@ -751,6 +768,46 @@ impl Shell {
     fn set_debug_mode(self: &Rc<Self>, enabled: bool) {
         self.facts.borrow_mut().debug_mode = enabled;
         self.render_soon();
+    }
+
+    fn check_for_updates(self: &Rc<Self>, user_initiated: bool) {
+        if matches!(
+            self.facts.borrow().update_status,
+            crate::updater::UpdateStatus::Checking
+        ) {
+            return;
+        }
+        if user_initiated {
+            self.facts.borrow_mut().update_status = crate::updater::UpdateStatus::Checking;
+            self.render_soon();
+        }
+        let weak = Rc::downgrade(self);
+        crate::updater::check(move |status| {
+            let Some(shell) = weak.upgrade() else {
+                return;
+            };
+            if !user_initiated && matches!(status, crate::updater::UpdateStatus::Failed(_)) {
+                return;
+            }
+            if let crate::updater::UpdateStatus::Available { ref version, .. } = status {
+                shell.set_status(&format!(
+                    "Goosic v{version} is available in Settings → Updates."
+                ));
+            }
+            shell.facts.borrow_mut().update_status = status;
+            shell.render_soon();
+        });
+    }
+
+    fn open_url(self: &Rc<Self>, url: String) {
+        if !url.starts_with("https://") {
+            return;
+        }
+        gtk::UriLauncher::new(&url).launch(
+            Some(&self.window),
+            None::<&gio::Cancellable>,
+            |_| {},
+        );
     }
 
     fn clear_recent_searches(self: &Rc<Self>) {
