@@ -98,6 +98,11 @@ enum PageSwap {
         return " \(page) ".contains(" \(requested) ") || " \(requested) ".contains(" \(page) ")
     }
 
+    /// How many times one choice may be replaced by another version of the same song: the page
+    /// can swap a song for its video and, once set to prefer the song, the video back. A third
+    /// swap is the page going round in circles. `page_swap::MAX_ADOPTIONS` in the crate.
+    static let maxAdoptions = 2
+
     enum Decision: Equatable {
         /// Load the page's version in place of the requested one, still presented as the song
         /// the listener chose.
@@ -114,7 +119,7 @@ enum PageSwap {
     /// `currentTitle` is the title of the song the listener chose.
     static func decide(_ swap: OfficialPageSwap, loadedVideoID: String?, currentTitle: String?) -> Decision {
         guard swap.requestedVideoID == loadedVideoID else { return .ignore }
-        if swap.mayAdopt,
+        if swap.adoptions < maxAdoptions,
            swap.pageVideoID != swap.requestedVideoID,
            isSameSong(requested: currentTitle, page: swap.pageTitle) {
             return .adopt(videoID: swap.pageVideoID)

@@ -51,10 +51,9 @@ final class OfficialPlaybackHost: NSObject {
     /// page still showing what its player held before it reached the requested video; two in a
     /// row is the page having moved, which is the Windows shell's rule too.
     private var strayReports = 0
-    /// Whether this load is the listener's own choice, which the page may swap for another
-    /// version of the same song once. A version loaded in its place may not be swapped again:
-    /// that is the page wandering, not another version.
-    private var allowsSubstitute = true
+    /// How many versions of the listener's choice were loaded before this one. The page may swap
+    /// a load for another version of the same song only `PageSwap.maxAdoptions` times in all.
+    private var adoptions = 0
 
     func makeWebView(profile: OfficialPlaybackProfile = .guest) -> WKWebView {
         if let webView {
@@ -135,7 +134,7 @@ final class OfficialPlaybackHost: NSObject {
         generation: UInt64,
         volume: Double = 1,
         muted: Bool = false,
-        allowsSubstitute: Bool = true,
+        adoptions: Int = 0,
         startPaused: Bool = false
     ) {
         guard let webView else {
@@ -164,7 +163,7 @@ final class OfficialPlaybackHost: NSObject {
         heardRequested = false
         pageSwapHandled = false
         strayReports = 0
-        self.allowsSubstitute = allowsSubstitute
+        self.adoptions = adoptions
         isLoading = true
 
         var components = URLComponents()
@@ -459,6 +458,25 @@ final class OfficialPlaybackHost: NSObject {
         }
     }
 
+    /// Runs `OfficialBridge.songVersionScript` until the page's Song/Video switch has answered,
+    /// for this load only, so a song plays as the song rather than as its music video.
+    func preferSongVersion(token: String?, attempt: Int = 0) {
+        guard let webView, let token, token == expectedToken,
+              attempt < OfficialBridge.songVersionAttempts else { return }
+        webView.evaluateJavaScript(OfficialBridge.songVersionScript) { [weak self] value, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let answer = value as? String ?? "absent"
+                guard !OfficialBridge.songVersionSettled(answer) else {
+                    Diagnostics.note(.officialPlayback, "song-version", ["result": answer])
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.preferSongVersion(token: token, attempt: attempt + 1)
+            }
+        }
+    }
+
     private func handleMessage(_ message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame else { return }
         let origin = message.frameInfo.securityOrigin
@@ -555,15 +573,17 @@ final class OfficialPlaybackHost: NSObject {
     /// The observer in this document pauses any video other than the requested one, so nothing
     /// sounds while this runs. `getVideoData` is the player's own description of what it holds.
     private func resolveEarlySwitch(requested: String, actual: String, token: String) {
-        Diagnostics.note(.officialPlayback, "switched-before-playing")
-        let mayAdopt = allowsSubstitute
+        Diagnostics.note(.officialPlayback, "switched-before-playing", [
+            "requested": requested, "page": actual, "adoptions": "\(adoptions)",
+        ])
+        let adoptions = adoptions
         let report: @MainActor (String) -> Void = { [weak self] title in
             guard let self, self.expectedToken == token else { return }
             self.onPageSwappedBeforePlaying?(OfficialPageSwap(
                 requestedVideoID: requested,
                 pageVideoID: actual,
                 pageTitle: title,
-                mayAdopt: mayAdopt
+                adoptions: adoptions
             ))
         }
         readPageTitle(of: actual, requested: requested, token: token, attempt: 0, completion: report)
@@ -666,6 +686,7 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
             ])
             self?.probePage()
             self?.turnOffAutomix(token: self?.expectedToken)
+            self?.preferSongVersion(token: self?.expectedToken)
         }
     }
 

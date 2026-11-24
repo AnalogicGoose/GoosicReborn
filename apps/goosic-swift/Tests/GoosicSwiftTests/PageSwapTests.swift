@@ -41,8 +41,8 @@ final class PageSwapTests: XCTestCase {
         XCTAssertFalse(PageSwap.heardPlaying(state: "playing", duration: 15, isAdvertisement: true))
     }
 
-    private static func swap(_ page: String, title: String, mayAdopt: Bool = true) -> OfficialPageSwap {
-        OfficialPageSwap(requestedVideoID: "requested01", pageVideoID: page, pageTitle: title, mayAdopt: mayAdopt)
+    private static func swap(_ page: String, title: String, adoptions: Int = 0) -> OfficialPageSwap {
+        OfficialPageSwap(requestedVideoID: "requested01", pageVideoID: page, pageTitle: title, adoptions: adoptions)
     }
 
     func testTheSameSongUnderAnotherIDIsAdopted() {
@@ -64,9 +64,18 @@ final class PageSwapTests: XCTestCase {
             .refused)
     }
 
-    func testAnAdoptedVersionIsNotSwappedAgain() {
+    func testAnAdoptedVersionMayBeSwappedBackOnce() {
+        // The page swapped the song for its video, then the video back for the song.
         XCTAssertEqual(
-            PageSwap.decide(Self.swap("thirdone001", title: "Hold On, We're Going Home", mayAdopt: false),
+            PageSwap.decide(Self.swap("songversion", title: "Hold On, We're Going Home", adoptions: 1),
+                            loadedVideoID: "requested01", currentTitle: "Hold On, We're Going Home"),
+            .adopt(videoID: "songversion"))
+    }
+
+    func testAPageGoingRoundInCirclesIsARefusal() {
+        XCTAssertEqual(
+            PageSwap.decide(Self.swap("thirdone001", title: "Hold On, We're Going Home",
+                                      adoptions: PageSwap.maxAdoptions),
                             loadedVideoID: "requested01", currentTitle: "Hold On, We're Going Home"),
             .refused)
     }
