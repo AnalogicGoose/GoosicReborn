@@ -1,0 +1,71 @@
+name: Release (Linux alpha)
+
+# Builds the single-file x86_64 Flatpak bundle for a Linux alpha tag and publishes it as a
+# GitHub pre-release without moving the repository's Latest release.
+on:
+    push:
+        tags: ['v*-linux-alpha.*']
+
+permissions:
+    contents: write
+
+env:
+    RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+    flatpak:
+        name: Goosic (Linux, Flatpak alpha)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ env.RELEASE_TAG }}
+
+            - name: Install Flatpak builder and GNOME 50 runtime
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y flatpak flatpak-builder
+                  flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+                  flatpak install --user --noninteractive flathub \
+                      org.gnome.Platform//50 org.gnome.Sdk//50 \
+                      org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+            - name: Package and verify the Flatpak bundle
+              run: |
+                  set -euo pipefail
+                  version="${RELEASE_TAG#v}"
+                  sh tools/package-linux-flatpak.sh "$version"
+                  (cd dist && sha256sum -c SHA256SUMS-linux.txt)
+
+            - name: Locate release notes
+              id: notes
+              run: |
+                  set -euo pipefail
+                  version="${RELEASE_TAG#v}"
+                  base="${version%%-*}"
+                  suffix="${version#*-}"
+                  suffix_upper=$(printf '%s' "$suffix" | tr '[:lower:].-' '[:upper:]__')
+                  notes="docs/RELEASE_${base}_${suffix_upper}.md"
+                  test -f "$notes" || { echo "Missing release notes: $notes" >&2; exit 1; }
+                  echo "path=$notes" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: linux-flatpak
+                  path: |
+                      dist/*.flatpak
+                      dist/SHA256SUMS-linux.txt
+                  if-no-files-found: error
+
+            - uses: softprops/action-gh-release@v2
+              with:
+                  draft: false
+                  prerelease: true
+                  make_latest: "false"
+                  name: Goosic ${{ env.RELEASE_TAG }}
+                  tag_name: ${{ env.RELEASE_TAG }}
+                  body_path: ${{ steps.notes.outputs.path }}
+                  fail_on_unmatched_files: true
+                  files: |
+                      dist/*.flatpak
+                      dist/SHA256SUMS-linux.txt

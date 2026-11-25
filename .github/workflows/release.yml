@@ -3,7 +3,7 @@ name: Release
 # Downloads stay draft until their hashes and contents have been checked.
 on:
     push:
-        tags: ['v*', '!v*-macos-*']
+        tags: ['v*', '!v*-macos-*', '!v*-linux-*']
     workflow_dispatch:
         inputs:
             tag:
