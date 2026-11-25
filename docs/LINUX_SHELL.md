@@ -523,6 +523,20 @@ GNOME 50 runtime matched Flathub's current revision when checked. The available 
 whether this crash interrupted playback or caused the volume reset, so the WebKit failure needs its
 own reproduction and diagnosis.
 
+Songs can stop partway through. On 24 November 2026, in Fedora 45 under WSL with WebKitGTK 2.54 and
+libsoup 3.8.1, guest playback intermittently froze 20 to 60 seconds in. Decoding the page's own
+stream showed why: YouTube's stream carries a protection status, and when it turned to the one
+that requires a check the session had not passed, every later response carried that status and no
+media. The page played what it had buffered, then emptied its player and called itself paused.
+Several suspects were ruled out along the way: the hardware video decoder, page throttling (the
+view reported itself visible throughout), the Safari user agent, and HTTP/2 against HTTP/1.1. The
+token the page sends was present on every request. Whole fifteen-minute runs, one on a fresh profile,
+played clean, so why the check sometimes fails under WebKitGTK is still open. What changed is that
+the shell no longer shows "Paused" when it happens: the shared `PlaybackWatch` notices the stopped
+clock or the unrequested pause and the player bar says YouTube stopped the song and that choosing it
+again retries. That was checked in the same WSL session by cutting the stream and by pausing the
+page from inside, not against a natural failure, and not yet in the Flatpak.
+
 ## What is left
 
 The shell plays through Rust's lease and now has an offline Flatpak build. Signed-in Home and

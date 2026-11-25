@@ -9,7 +9,9 @@ use goosic_protocol::{Owner, PlaybackState, SettingsSnapshot};
 use goosic_shell_support::catalog::Track;
 use goosic_shell_support::media::MediaSnapshot;
 use goosic_shell_support::navigation::{PlaybackTransition, RepeatMode};
-use goosic_shell_support::playback::{clamp_volume, index_after, random_index, PendingSeek};
+use goosic_shell_support::playback::{
+    clamp_volume, index_after, random_index, PendingSeek, PlaybackWatch,
+};
 use std::collections::HashSet;
 use std::time::Instant;
 
@@ -71,6 +73,9 @@ pub struct Player {
     pub pause_after_radio: bool,
     /// When the last confirmed playback sample arrived, used to interpolate smooth lyrics motion.
     pub last_sample_at: Option<Instant>,
+    /// Notices when the official page stops delivering a song the listener wanted, so the status
+    /// says so instead of "Paused".
+    pub watch: PlaybackWatch,
     sample_base: u64,
     last_sample_sent: u64,
     queue_revision: u64,
@@ -120,6 +125,7 @@ impl Player {
             pause_next_load: false,
             pause_after_radio: false,
             last_sample_at: None,
+            watch: PlaybackWatch::default(),
             sample_base: 0,
             last_sample_sent: 0,
             queue_revision: 0,
@@ -170,6 +176,7 @@ impl Player {
         self.volume_applied_for_load = false;
         self.start_pending = true;
         self.last_sample_at = None;
+        self.watch.reset();
     }
 
     /// Takes a pause carried from a refused swap for the load about to start, restoring the
@@ -425,6 +432,26 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_track_forgets_the_previous_tracks_interruption() {
+        use goosic_shell_support::playback::{PlaybackInterruption, WatchSample, STALL_AFTER};
+        let mut player = Player::new();
+        let sample = WatchSample {
+            state: "playing",
+            position: 40.0,
+            duration: 226.0,
+            is_advertisement: false,
+            listener_paused: false,
+            pause_requested: false,
+        };
+        let t0 = Instant::now();
+        player.watch.observe(&sample, t0);
+        player.watch.observe(&sample, t0 + STALL_AFTER);
+        assert_eq!(player.watch.interruption(), Some(PlaybackInterruption::Stalled));
+        player.begin_track();
+        assert_eq!(player.watch.interruption(), None);
+    }
 
     fn track(id: &str) -> Track {
         Track {

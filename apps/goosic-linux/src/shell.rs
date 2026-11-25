@@ -31,7 +31,7 @@ use goosic_shell_support::page_swap::{decide_early_switch, EarlySwitch, EarlySwi
 use goosic_shell_support::playback::{
     believes_sample, clamp_seek, clamp_volume, is_seekable, merge_preferences,
     should_advance_after_end, volume_sync, EndSample, PendingSeek, ReportedSample, VolumeSync,
-    PREFERENCE_SAVE_DELAY,
+    WatchChange, WatchSample, PREFERENCE_SAVE_DELAY,
 };
 use goosic_shell_support::{ServiceClient, TransportError};
 use gtk::prelude::*;
@@ -1906,7 +1906,40 @@ impl Shell {
             player.advertisement = event.is_advertisement;
             player.current_time = event.current_time;
             player.duration = event.duration;
-            player.last_sample_at = Some(Instant::now());
+            let now = Instant::now();
+            player.last_sample_at = Some(now);
+            let listener_paused = player.listener_paused;
+            let watched = player.watch.observe(
+                &WatchSample {
+                    state: &event.state,
+                    position: event.current_time,
+                    duration: event.duration,
+                    is_advertisement: event.is_advertisement,
+                    listener_paused,
+                    // A pause request sets the listener's intent at once, before the page
+                    // confirms it, so there is no separate pending pause to report.
+                    pause_requested: false,
+                },
+                now,
+            );
+            match watched {
+                WatchChange::Interrupted(kind) => eprintln!(
+                    "goosic: playback interrupted ({kind:?}) at {:.1}/{:.1}s of {}, state {}{}",
+                    event.current_time,
+                    event.duration,
+                    event.video_id,
+                    event.state,
+                    if event.is_advertisement {
+                        ", advertisement"
+                    } else {
+                        ""
+                    }
+                ),
+                WatchChange::Recovered => {
+                    eprintln!("goosic: playback recovered at {:.1}s", event.current_time)
+                }
+                WatchChange::Unchanged => {}
+            }
             let sync = volume_sync(
                 player.volume_applied_for_load,
                 event.is_advertisement,
@@ -1963,7 +1996,9 @@ impl Shell {
                 .current
                 .as_ref()
                 .map_or(event.video_id.clone(), |track| track.title.clone());
-            player.status = if event.is_advertisement {
+            player.status = if let Some(kind) = player.watch.interruption() {
+                kind.message(event.is_advertisement).to_owned()
+            } else if event.is_advertisement {
                 "An advertisement is playing. Goosic reports it and never skips it.".to_owned()
             } else {
                 match event.state.as_str() {

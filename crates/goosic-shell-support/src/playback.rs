@@ -3,8 +3,9 @@
 //! `goosic-core` decides who may play. What is here is everything a shell decides around that:
 //! which queue position plays next, whether a requested seek or volume is meaningful, when a
 //! pending seek has settled, whether a renderer's report is worth believing before it is
-//! forwarded, when a finished track should advance, how a fresh page's volume is reconciled with
-//! the user's, and how rapid preference changes are coalesced. In the Swift shell every one of
+//! forwarded, when a finished track should advance, when the page has stopped delivering a song
+//! the listener wanted, how a fresh page's volume is reconciled with the user's, and how rapid
+//! preference changes are coalesced. In the Swift shell every one of
 //! these lived inside `GoosicAppModel`, reachable only by constructing the whole model.
 
 use std::time::{Duration, Instant};
@@ -107,6 +108,157 @@ impl AdPlaybackRecovery {
             return true;
         }
         false
+    }
+}
+
+/// How long the page's clock may stand still, while it says it is playing, before Goosic says the
+/// song has stopped arriving. Ordinary buffering recovers well inside this.
+pub const STALL_AFTER: Duration = Duration::from_secs(12);
+
+/// How long a pause nobody asked for must last before it counts as the page stopping on its own.
+/// A fresh page loads paused and is nudged once, which takes well under this.
+pub const UNREQUESTED_PAUSE_AFTER: Duration = Duration::from_secs(5);
+
+/// Playback the listener wanted that the official page stopped delivering.
+///
+/// YouTube can stop sending a song partway through: its stream switches to a status that carries
+/// no media, the page's clock stops, and soon after the page empties its player and calls itself
+/// paused. Nothing in the page reports that as an error, so without this a shell shows "Paused"
+/// for a song the listener never paused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackInterruption {
+    /// The page says it is playing, but its clock has not moved for [`STALL_AFTER`].
+    Stalled,
+    /// The page stopped, or emptied itself, without the listener pausing it.
+    StoppedByPage,
+}
+
+impl PlaybackInterruption {
+    /// What the listener is told, short enough for a player bar's status line. The cause is
+    /// YouTube's, and the way back is choosing the song again, because a page that has emptied its
+    /// player does not answer play. An advertisement is named as what stopped, and recovering
+    /// never skips it.
+    pub fn message(self, is_advertisement: bool) -> &'static str {
+        match (self, is_advertisement) {
+            (_, true) => "The ad stalled. Choose the song again.",
+            (Self::Stalled, false) => "YouTube stalled. Choose the song again.",
+            (Self::StoppedByPage, false) => "YouTube stopped. Choose the song again.",
+        }
+    }
+}
+
+/// A sample as [`PlaybackWatch`] needs to see it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WatchSample<'a> {
+    pub state: &'a str,
+    pub position: f64,
+    pub duration: f64,
+    pub is_advertisement: bool,
+    /// The listener paused, through Goosic or its system media controls.
+    pub listener_paused: bool,
+    /// Goosic has asked the page to pause and is waiting for it to confirm.
+    pub pause_requested: bool,
+}
+
+/// Notices when the official page stops delivering playback the listener wanted.
+///
+/// Feed it every believed sample with [`PlaybackWatch::observe`], and [`PlaybackWatch::reset`] it
+/// for each new load. It decides nothing about authority and requests nothing from the page: it
+/// only tells the shell when to say that playback stopped, and when that is no longer true.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PlaybackWatch {
+    last_position: Option<f64>,
+    progress_at: Option<Instant>,
+    unrequested_pause_since: Option<Instant>,
+    /// Whether this load's clock has been seen running. A page still loading can call itself
+    /// playing at zero and then sit paused there for as long as loading takes, and that is not the
+    /// page stopping.
+    played: bool,
+    current: Option<PlaybackInterruption>,
+}
+
+/// What one sample changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchChange {
+    Unchanged,
+    /// Playback has just been found interrupted; say so once.
+    Interrupted(PlaybackInterruption),
+    /// An interruption is over: the clock moved again, or the listener took over.
+    Recovered,
+}
+
+impl PlaybackWatch {
+    /// Forgets everything, for a new load.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// The interruption in force, if any.
+    pub fn interruption(&self) -> Option<PlaybackInterruption> {
+        self.current
+    }
+
+    pub fn observe(&mut self, sample: &WatchSample, now: Instant) -> WatchChange {
+        let finished = has_finished(
+            sample.state,
+            sample.position,
+            sample.duration,
+            sample.listener_paused,
+        );
+        let moved = match self.last_position {
+            Some(last) => (sample.position - last).abs() > 0.2,
+            None => true,
+        };
+        if moved {
+            self.last_position = Some(sample.position);
+            self.progress_at = Some(now);
+        }
+        if sample.state != "playing" || sample.listener_paused || sample.pause_requested {
+            // The clock is not expected to move, so a stall can only be timed from when it is.
+            self.progress_at = Some(now);
+        }
+
+        if sample.state == "playing" && sample.position > 0.5 {
+            self.played = true;
+        }
+
+        let detected = if sample.listener_paused || sample.pause_requested || finished {
+            // The listener's own pause, or a song that played through, is never an interruption.
+            self.unrequested_pause_since = None;
+            None
+        } else if sample.state == "playing" {
+            self.unrequested_pause_since = None;
+            let still_since = self.progress_at.unwrap_or(now);
+            (now.duration_since(still_since) >= STALL_AFTER)
+                .then_some(PlaybackInterruption::Stalled)
+        } else if sample.is_advertisement || !self.played {
+            // A paused advertisement is AdPlaybackRecovery's to resume, and a page that has not
+            // started yet is still loading; neither is the page stopping on its own.
+            self.unrequested_pause_since = None;
+            None
+        } else {
+            let since = *self.unrequested_pause_since.get_or_insert(now);
+            (now.duration_since(since) >= UNREQUESTED_PAUSE_AFTER)
+                .then_some(PlaybackInterruption::StoppedByPage)
+        };
+
+        match (self.current, detected) {
+            (None, Some(kind)) => {
+                self.current = Some(kind);
+                WatchChange::Interrupted(kind)
+            }
+            // A stall the page then gives up on is still the same interruption to the listener.
+            (Some(_), Some(_)) => WatchChange::Unchanged,
+            // Only a clock moving while playing is a recovery. A page that empties itself jumps its
+            // position back to zero, and that jump is the interruption getting worse.
+            (Some(_), None)
+                if (moved && sample.state == "playing") || sample.listener_paused || finished =>
+            {
+                self.current = None;
+                WatchChange::Recovered
+            }
+            _ => WatchChange::Unchanged,
+        }
     }
 }
 
@@ -378,6 +530,223 @@ pub fn now_playing_subtitle(track: Option<&Track>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn watch_sample(state: &str, position: f64) -> WatchSample<'_> {
+        WatchSample {
+            state,
+            position,
+            duration: 226.0,
+            is_advertisement: false,
+            listener_paused: false,
+            pause_requested: false,
+        }
+    }
+
+    /// Feeds `sample` every half second from `from` for `seconds`, as the bridge reports, and
+    /// returns every change that was not `Unchanged`.
+    fn feed(
+        watch: &mut PlaybackWatch,
+        sample: WatchSample,
+        from: Instant,
+        seconds: f64,
+        advancing: bool,
+    ) -> Vec<WatchChange> {
+        let mut changes = Vec::new();
+        let steps = (seconds * 2.0) as u32;
+        for step in 0..=steps {
+            let elapsed = f64::from(step) * 0.5;
+            let mut current = sample;
+            if advancing {
+                current.position += elapsed;
+            }
+            let change = watch.observe(&current, from + Duration::from_secs_f64(elapsed));
+            if change != WatchChange::Unchanged {
+                changes.push(change);
+            }
+        }
+        changes
+    }
+
+    #[test]
+    fn steady_playback_is_never_an_interruption() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        assert!(feed(&mut watch, watch_sample("playing", 0.0), t0, 120.0, true).is_empty());
+        assert_eq!(watch.interruption(), None);
+    }
+
+    #[test]
+    fn a_clock_standing_still_while_playing_is_a_stall_reported_once() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        feed(&mut watch, watch_sample("playing", 0.0), t0, 40.0, true);
+        let t1 = t0 + Duration::from_secs(40);
+        let short = feed(&mut watch, watch_sample("playing", 40.0), t1, 11.0, false);
+        assert!(
+            short.is_empty(),
+            "ordinary buffering is not a stall: {short:?}"
+        );
+        let changes = feed(&mut watch, watch_sample("playing", 40.0), t1, 30.0, false);
+        assert_eq!(
+            changes,
+            vec![WatchChange::Interrupted(PlaybackInterruption::Stalled)]
+        );
+        assert_eq!(watch.interruption(), Some(PlaybackInterruption::Stalled));
+    }
+
+    #[test]
+    fn a_stall_ends_when_the_clock_moves_again() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        feed(&mut watch, watch_sample("playing", 40.0), t0, 13.0, false);
+        assert_eq!(watch.interruption(), Some(PlaybackInterruption::Stalled));
+        let t1 = t0 + Duration::from_secs(14);
+        let changes = feed(&mut watch, watch_sample("playing", 40.0), t1, 5.0, true);
+        assert_eq!(changes, vec![WatchChange::Recovered]);
+        assert_eq!(watch.interruption(), None);
+    }
+
+    #[test]
+    fn a_page_that_empties_itself_after_a_stall_stays_one_interruption() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        feed(&mut watch, watch_sample("playing", 37.0), t0, 13.0, false);
+        let mut emptied = watch_sample("paused", 0.0);
+        emptied.duration = 0.0;
+        let t1 = t0 + Duration::from_secs(14);
+        let changes = feed(&mut watch, emptied, t1, 60.0, false);
+        assert!(
+            changes.is_empty(),
+            "no recovery and no second report: {changes:?}"
+        );
+        assert_eq!(watch.interruption(), Some(PlaybackInterruption::Stalled));
+    }
+
+    #[test]
+    fn a_pause_nobody_asked_for_is_the_page_stopping_on_its_own() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        feed(&mut watch, watch_sample("playing", 0.0), t0, 30.0, true);
+        let t1 = t0 + Duration::from_secs(31);
+        let mut emptied = watch_sample("paused", 0.0);
+        emptied.duration = 0.0;
+        let early = feed(&mut watch, emptied, t1, 4.0, false);
+        assert!(
+            early.is_empty(),
+            "a brief unrequested pause is not reported: {early:?}"
+        );
+        let changes = feed(&mut watch, emptied, t1, 10.0, false);
+        assert_eq!(
+            changes,
+            vec![WatchChange::Interrupted(
+                PlaybackInterruption::StoppedByPage
+            )]
+        );
+    }
+
+    #[test]
+    fn a_fresh_page_that_loads_paused_and_is_nudged_is_not_reported() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        let mut announced = watch_sample("playing", 0.0);
+        announced.duration = 0.0;
+        assert_eq!(watch.observe(&announced, t0), WatchChange::Unchanged);
+        let mut loading = watch_sample("paused", 0.0);
+        loading.duration = 0.0;
+        let slow = feed(&mut watch, loading, t0, 20.0, false);
+        assert!(
+            slow.is_empty(),
+            "a slow load is not the page stopping: {slow:?}"
+        );
+        let t1 = t0 + Duration::from_secs(20);
+        assert!(feed(&mut watch, watch_sample("playing", 0.0), t1, 60.0, true).is_empty());
+    }
+
+    #[test]
+    fn the_listeners_own_pause_is_never_an_interruption_and_ends_one() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        let mut paused = watch_sample("paused", 80.0);
+        paused.listener_paused = true;
+        assert!(feed(&mut watch, paused, t0, 120.0, false).is_empty());
+
+        let mut requested = watch_sample("playing", 80.0);
+        requested.pause_requested = true;
+        let t1 = t0 + Duration::from_secs(121);
+        assert!(feed(&mut watch, requested, t1, 30.0, false).is_empty());
+
+        let t2 = t1 + Duration::from_secs_f64(30.5);
+        let resumed = feed(&mut watch, watch_sample("playing", 80.0), t2, 11.0, false);
+        assert!(
+            resumed.is_empty(),
+            "the stall clock starts at the resume: {resumed:?}"
+        );
+        let t3 = t2 + Duration::from_secs(11);
+        feed(&mut watch, watch_sample("playing", 80.0), t3, 2.0, false);
+        assert_eq!(watch.interruption(), Some(PlaybackInterruption::Stalled));
+        let t4 = t3 + Duration::from_secs(3);
+        assert_eq!(watch.observe(&paused, t4), WatchChange::Recovered);
+    }
+
+    #[test]
+    fn a_song_that_played_through_is_not_an_interruption() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        feed(&mut watch, watch_sample("playing", 200.0), t0, 25.5, true);
+        let t1 = t0 + Duration::from_secs(26);
+        assert!(feed(&mut watch, watch_sample("paused", 225.6), t1, 30.0, false).is_empty());
+        let t2 = t1 + Duration::from_secs(31);
+        assert!(feed(&mut watch, watch_sample("ended", 226.0), t2, 30.0, false).is_empty());
+    }
+
+    #[test]
+    fn a_paused_advertisement_is_left_to_ad_recovery_but_a_stalled_one_is_reported() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        let mut ad = watch_sample("paused", 5.0);
+        ad.is_advertisement = true;
+        assert!(feed(&mut watch, ad, t0, 30.0, false).is_empty());
+        ad.state = "playing";
+        let t1 = t0 + Duration::from_secs(31);
+        let changes = feed(&mut watch, ad, t1, 13.0, false);
+        assert_eq!(
+            changes,
+            vec![WatchChange::Interrupted(PlaybackInterruption::Stalled)]
+        );
+        let message = PlaybackInterruption::Stalled.message(true);
+        assert!(message.contains("ad stalled"), "{message}");
+    }
+
+    #[test]
+    fn reset_forgets_an_interruption_for_the_next_load() {
+        let mut watch = PlaybackWatch::default();
+        let t0 = Instant::now();
+        feed(&mut watch, watch_sample("playing", 40.0), t0, 13.0, false);
+        assert!(watch.interruption().is_some());
+        watch.reset();
+        assert_eq!(watch.interruption(), None);
+        let t1 = t0 + Duration::from_secs(14);
+        assert!(feed(&mut watch, watch_sample("playing", 0.0), t1, 5.0, true).is_empty());
+    }
+
+    #[test]
+    fn interruption_messages_name_the_way_back_and_no_internals() {
+        for kind in [
+            PlaybackInterruption::Stalled,
+            PlaybackInterruption::StoppedByPage,
+        ] {
+            for ad in [false, true] {
+                let message = kind.message(ad);
+                assert!(message.contains("again"), "{message}");
+                assert!(
+                    message.chars().count() <= 40,
+                    "fits a status line: {message}"
+                );
+                assert!(!message.to_lowercase().contains("ump"), "{message}");
+                assert!(!message.contains("attestation"), "{message}");
+            }
+        }
+    }
 
     fn next(
         index: usize,
