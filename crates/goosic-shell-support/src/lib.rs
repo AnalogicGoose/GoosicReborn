@@ -19,7 +19,7 @@
 //! | [`bridge`] | `OfficialBridge.swift` | whether a web player's report is trustworthy |
 //! | [`media`] | `SystemMediaPlayback.swift` | what the system media controls show and allow |
 //! | [`catalog`] | `Catalog.swift` | which rows are playable and how a page is shaped |
-//! | [`playback`] | `Models.swift`, `VolumeTaper.swift` | what plays next, clamps, the volume taper, seek settling, preference saves |
+//! | [`playback`] | `Models.swift`, `VolumeTaper.swift` | what plays next, clamps, the volume taper, seek settling, preference saves, a page that stops delivering |
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
 //! | [`lyrics`] | `Models.swift` | which line is current |
 //! | [`lyrics_motion`] | `LyricsTiming.swift`, C# lyrics rules | drawing spans, rests, interludes and row motion |
