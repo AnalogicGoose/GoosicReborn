@@ -391,6 +391,7 @@ impl PlayerBar {
         self.status.set_label(&player.status);
         self.status.set_visible(
             player.advertisement
+                || player.watch.interruption().is_some()
                 || ["Could not", "unavailable", "failed", "refused"]
                     .iter()
                     .any(|word| player.status.contains(word)),
