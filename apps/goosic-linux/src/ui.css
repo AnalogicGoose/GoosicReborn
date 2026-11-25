@@ -211,14 +211,6 @@ scale.goosic-volume slider {
 /* Main catalog typography, cards, shelves, and circular carousel chevrons. */
 .goosic-page-title { font-size: 32px; font-weight: 700; }
 .goosic-shelf-title { font-size: 18px; font-weight: 600; }
-.goosic-guest-badge {
-  background: alpha(white, 0.12);
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
 .goosic-page button {
   background-image: none;
   background-color: alpha(white, 0.08);

@@ -85,6 +85,19 @@ pub fn install() {
     let Some(display) = gtk::gdk::Display::default() else {
         return;
     };
+    let icons = gtk::IconTheme::for_display(&display);
+    if [
+        "emote-love-symbolic",
+        "chat-message-new-symbolic",
+        "web-browser-symbolic",
+    ]
+    .iter()
+    .any(|name| !icons.has_icon(name))
+    {
+        if let Some(settings) = gtk::Settings::default() {
+            settings.set_gtk_icon_theme_name(Some("Adwaita"));
+        }
+    }
     let provider = gtk::CssProvider::new();
     provider.load_from_string(include_str!("ui.css"));
     gtk::style_context_add_provider_for_display(

@@ -731,17 +731,6 @@ fn row_widget(page_row: &PageRow, actions: &Rc<Actions>) -> gtk::Widget {
         } => padded(&artist_hero(artist_id, name, header, tracks, actions), 4, 18),
         PageRow::RecentSearches(queries) => padded(&recent_searches(queries, actions), 8, 12),
         PageRow::SearchBrowse => padded(&search_browse(actions), 8, 20),
-        PageRow::GuestNotice => {
-            let notice = row(8);
-            notice.add_css_class("goosic-guest-notice");
-            let pill = plain("Guest");
-            pill.add_css_class("goosic-guest-badge");
-            notice.append(&pill);
-            notice.append(&dim(
-                "Browsing live YouTube Music without an account",
-            ));
-            padded(&notice, 0, 8)
-        }
         PageRow::LibrarySections(active) => {
             let tabs = row(4);
             tabs.add_css_class("goosic-search-segments");

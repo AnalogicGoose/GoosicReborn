@@ -105,8 +105,6 @@ pub enum PageRow {
     RecentSearches(Vec<String>),
     /// macOS Search landing page: colorful Browse category destination cards.
     SearchBrowse,
-    /// Says plainly that the catalog is anonymous, so nobody reads a guest shelf as their own mix.
-    GuestNotice,
     LibrarySections(LibrarySection),
     LibraryActions,
     PlaylistActions(String),
@@ -617,9 +615,6 @@ impl Browser {
                 }
             },
             route if route.catalog_route().is_some() => {
-                if route != Route::Home || facts.account.is_none() {
-                    rows.push(PageRow::GuestNotice);
-                }
                 rows.extend(body_rows(
                     self.state(&CatalogKey::Route(route)),
                     &title.to_lowercase(),
@@ -1012,15 +1007,14 @@ mod tests {
     }
 
     #[test]
-    fn a_loaded_page_draws_its_header_notice_shelves_and_truncation() {
+    fn a_loaded_page_draws_its_header_shelves_and_truncation() {
         let rows = rows(&loaded_home());
         assert!(matches!(&rows[0], PageRow::Header { title, .. } if title == "Home"));
-        assert_eq!(rows[1], PageRow::GuestNotice);
-        assert_eq!(rows[2], PageRow::ShelfTitle("Quick picks".into()));
+        assert_eq!(rows[1], PageRow::ShelfTitle("Quick picks".into()));
         // Song shelves keep their playback context in one horizontal group.
-        assert!(matches!(&rows[3], PageRow::TrackShelf(tracks) if tracks[0].video_id == "a"));
+        assert!(matches!(&rows[2], PageRow::TrackShelf(tracks) if tracks[0].video_id == "a"));
         assert!(matches!(
-            &rows[4],
+            &rows[3],
             PageRow::CardShelf { title, cards } if title == "Albums" && cards.len() == 1
         ));
         assert_eq!(rows.last(), Some(&PageRow::Truncated));
@@ -1074,7 +1068,7 @@ mod tests {
         );
         let rows = rows(&browser);
         assert!(
-            matches!(&rows[2], PageRow::Failure { title, .. } if title == "Catalog unreachable")
+            matches!(&rows[1], PageRow::Failure { title, .. } if title == "Catalog unreachable")
         );
     }
 
@@ -1085,7 +1079,7 @@ mod tests {
         browser.fail_offline(key);
         let rows = rows(&browser);
         assert!(
-            matches!(&rows[2], PageRow::Failure { title, .. } if title == "Service not connected")
+            matches!(&rows[1], PageRow::Failure { title, .. } if title == "Service not connected")
         );
     }
 
@@ -1269,7 +1263,7 @@ mod tests {
     }
 
     #[test]
-    fn signed_in_home_shows_personal_shelves_without_a_guest_badge() {
+    fn signed_in_home_shows_personal_shelves() {
         let mut browser = Browser::new();
         let key = browser.current_key().unwrap();
         assert!(browser.begin_personal(&key, false));
@@ -1279,7 +1273,6 @@ mod tests {
             ..Default::default()
         };
         let rows = browser.rows(&facts);
-        assert!(!rows.contains(&PageRow::GuestNotice));
         assert!(rows.contains(&PageRow::ShelfTitle("Quick picks".into())));
     }
 
@@ -1316,7 +1309,6 @@ mod tests {
         let rows = browser.rows(&facts);
         assert!(rows.contains(&PageRow::LibrarySections(LibrarySection::Songs)));
         assert!(rows.iter().any(|row| matches!(row, PageRow::Track { .. })));
-        assert!(!rows.contains(&PageRow::GuestNotice));
         browser.clear_account_pages();
         assert_eq!(
             browser.state(&CatalogKey::Route(Route::Library)),

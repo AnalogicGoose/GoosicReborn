@@ -421,7 +421,8 @@ impl OfficialHost {
 }})();"
         );
         let weak = Rc::downgrade(self);
-        self.evaluate(&script, move |result| {
+        // The page defines seekTo; the isolated observer world cannot see that API.
+        self.evaluate_in_world(&script, None, move |result| {
             let Some(host) = weak.upgrade() else {
                 return;
             };
