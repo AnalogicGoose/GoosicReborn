@@ -10,6 +10,7 @@ use goosic_shell_support::catalog::Track;
 use goosic_shell_support::media::MediaSnapshot;
 use goosic_shell_support::navigation::{PlaybackTransition, RepeatMode};
 use goosic_shell_support::playback::{clamp_volume, index_after, random_index, PendingSeek};
+use std::collections::HashSet;
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -62,6 +63,14 @@ pub struct Player {
     pub radio_cursor: Option<String>,
     /// What the shell tells the user about playback.
     pub status: String,
+    /// Video IDs the official player refused this session. Rows stay visible, dimmed, with a reason.
+    pub refused_video_ids: HashSet<String>,
+    /// Carries a listener pause across a refused-swap automatic advance into the next load.
+    pub pause_next_load: bool,
+    /// Carries a listener pause across an automatic radio extension after a refused swap.
+    pub pause_after_radio: bool,
+    /// When the last confirmed playback sample arrived, used to interpolate smooth lyrics motion.
+    pub last_sample_at: Option<Instant>,
     sample_base: u64,
     last_sample_sent: u64,
     queue_revision: u64,
@@ -107,6 +116,10 @@ impl Player {
             radio_seed: None,
             radio_cursor: None,
             status: "Choose a track to begin.".to_owned(),
+            refused_video_ids: HashSet::new(),
+            pause_next_load: false,
+            pause_after_radio: false,
+            last_sample_at: None,
             sample_base: 0,
             last_sample_sent: 0,
             queue_revision: 0,
@@ -156,6 +169,42 @@ impl Player {
         self.confirmed = false;
         self.volume_applied_for_load = false;
         self.start_pending = true;
+        self.last_sample_at = None;
+    }
+
+    /// Takes a pause carried from a refused swap for the load about to start, restoring the
+    /// listener's paused intent and preventing the initial play nudge.
+    pub fn take_pause_next_load(&mut self) -> bool {
+        if !self.pause_next_load {
+            return false;
+        }
+        self.pause_next_load = false;
+        self.listener_paused = true;
+        self.start_pending = false;
+        true
+    }
+
+    /// Interpolates the current playback position for smooth word-timed lyrics rendering,
+    /// frozen whenever paused, unconfirmed, or showing an advertisement.
+    pub fn interpolated_position(&self, now: Instant) -> f64 {
+        let base = goosic_shell_support::playback::displayed_position(
+            self.current_time,
+            self.pending_seek,
+            now,
+        );
+        if !self.confirmed || self.paused || self.advertisement || self.pending_seek.is_some() {
+            return base;
+        }
+        let Some(at) = self.last_sample_at else {
+            return base;
+        };
+        let elapsed = now.saturating_duration_since(at).as_secs_f64().min(2.0);
+        let next = base + elapsed;
+        if self.duration.is_finite() && self.duration > 0.0 {
+            next.min(self.duration)
+        } else {
+            next
+        }
     }
 
     /// Makes `tracks` the queue, positioned on `chosen`. A deliberately chosen list is a fresh
@@ -409,7 +458,7 @@ mod tests {
         player.apply_lease(lease(Owner::OfficialWebView, 7));
         assert!(player.holds(Owner::OfficialWebView, 7));
         assert!(!player.holds(Owner::OfficialWebView, 6));
-        assert!(!player.holds(Owner::LocalDownloadedFile, 7));
+        assert!(!player.holds(Owner::None, 7));
         player.apply_lease(lease(Owner::None, 8));
         assert!(!player.holds(Owner::OfficialWebView, 8));
     }
@@ -591,5 +640,29 @@ mod tests {
         assert!(!player.autoplay);
         assert!(player.shuffle);
         assert_eq!(player.repeat, RepeatMode::One);
+    }
+
+    #[test]
+    fn carried_pause_restores_listener_intent_and_interpolation_freezes_when_paused() {
+        let mut player = Player::new();
+        player.pause_next_load = true;
+        player.begin_track();
+        assert!(player.take_pause_next_load());
+        assert!(player.listener_paused);
+        assert!(!player.start_pending);
+        assert!(!player.take_pause_next_load());
+
+        let t0 = Instant::now();
+        player.confirmed = true;
+        player.paused = false;
+        player.current_time = 10.0;
+        player.duration = 120.0;
+        player.last_sample_at = Some(t0);
+        let ahead = player.interpolated_position(t0 + std::time::Duration::from_millis(250));
+        assert!((ahead - 10.25).abs() < 0.01);
+
+        player.paused = true;
+        let frozen = player.interpolated_position(t0 + std::time::Duration::from_millis(500));
+        assert!((frozen - 10.0).abs() < 0.01);
     }
 }

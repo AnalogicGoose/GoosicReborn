@@ -22,12 +22,34 @@ const MEMORY_LIMIT: usize = 400;
 
 const TIMEOUT_SECONDS: u32 = 15;
 
+enum ArtworkTarget {
+    Image(glib::WeakRef<gtk::Image>),
+    Picture(glib::WeakRef<gtk::Picture>),
+}
+
+impl ArtworkTarget {
+    fn deliver(&self, texture: &gdk::Texture) {
+        match self {
+            Self::Image(weak) => {
+                if let Some(image) = weak.upgrade() {
+                    image.set_paintable(Some(texture));
+                }
+            }
+            Self::Picture(weak) => {
+                if let Some(picture) = weak.upgrade() {
+                    picture.set_paintable(Some(texture));
+                }
+            }
+        }
+    }
+}
+
 pub struct ArtworkCache {
     directory: PathBuf,
     session: soup::Session,
     textures: RefCell<HashMap<String, gdk::Texture>>,
-    /// Images waiting for a URL. Held weakly: a row scrolled away is not kept alive by its artwork.
-    waiting: RefCell<HashMap<String, Vec<glib::WeakRef<gtk::Image>>>>,
+    /// Widgets waiting for a URL. Held weakly: a row scrolled away is not kept alive by artwork.
+    waiting: RefCell<HashMap<String, Vec<ArtworkTarget>>>,
     in_flight: RefCell<HashSet<String>>,
     queued: RefCell<VecDeque<String>>,
     /// URLs that failed or were refused, so a broken image is not retried on every bind.
@@ -66,8 +88,46 @@ impl ArtworkCache {
             .borrow_mut()
             .entry(remote.to_owned())
             .or_default()
-            .push(image.downgrade());
+            .push(ArtworkTarget::Image(image.downgrade()));
         self.schedule(remote);
+    }
+
+    /// Shows `remote` in `picture` (which scales and crops cleanly with `ContentFit::Cover`).
+    pub fn show_picture(self: &Rc<Self>, remote: Option<&str>, picture: &gtk::Picture) {
+        let Some(remote) = remote.filter(|remote| !remote.is_empty()) else {
+            return;
+        };
+        if let Some(texture) = self.cached(remote) {
+            picture.set_paintable(Some(&texture));
+            return;
+        }
+        if self.failed.borrow().contains(remote) {
+            return;
+        }
+        self.waiting
+            .borrow_mut()
+            .entry(remote.to_owned())
+            .or_default()
+            .push(ArtworkTarget::Picture(picture.downgrade()));
+        self.schedule(remote);
+    }
+
+    /// Shows `remote` immediately and, when a larger YouTube/Google variant exists, also fetches
+    /// the high-resolution cover so Full Player and Mini Player artwork stays crisp.
+    pub fn show_high_res_picture(self: &Rc<Self>, remote: Option<&str>, picture: &gtk::Picture) {
+        let Some(remote) = remote.filter(|remote| !remote.is_empty()) else {
+            return;
+        };
+        if let Some(upgraded) = crate::mesh::high_resolution_variant(remote, 1080) {
+            if let Some(texture) = self.cached(&upgraded) {
+                picture.set_paintable(Some(&texture));
+                return;
+            }
+            self.show_picture(Some(remote), picture);
+            self.show_picture(Some(&upgraded), picture);
+        } else {
+            self.show_picture(Some(remote), picture);
+        }
     }
 
     fn file_for(&self, remote: &str) -> PathBuf {
@@ -186,9 +246,9 @@ impl ArtworkCache {
     }
 
     fn deliver(&self, remote: &str, texture: &gdk::Texture) {
-        let images = self.waiting.borrow_mut().remove(remote).unwrap_or_default();
-        for image in images.iter().filter_map(glib::WeakRef::upgrade) {
-            image.set_paintable(Some(texture));
+        let targets = self.waiting.borrow_mut().remove(remote).unwrap_or_default();
+        for target in &targets {
+            target.deliver(texture);
         }
     }
 

@@ -3,6 +3,24 @@
     <channel>
         <title>Goosic</title>
         <item>
+            <title>0.4.3 macOS alpha</title>
+            <pubDate>Mon, 23 Nov 2026 09:15:42 +0000</pubDate>
+            <sparkle:version>403</sparkle:version>
+            <sparkle:shortVersionString>0.4.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/AnalogicGoose/GoosicReborn/releases/tag/v0.4.3</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/AnalogicGoose/GoosicReborn/releases/download/v0.4.3/Goosic-0.4.3-macos-universal.zip" length="20312395" type="application/octet-stream" sparkle:edSignature="hdYMHiNkjStvdKGtk0IRhyJzPrF2cOPw8VaxmWMQvQ1vtYSF62w6qzDiztez0G2QpsuuxvJnmO7qSdIKVZurCQ==" />
+        </item>
+        <item>
+            <title>0.4.1 macOS alpha</title>
+            <pubDate>Mon, 16 Nov 2026 10:20:33 +0000</pubDate>
+            <sparkle:version>401</sparkle:version>
+            <sparkle:shortVersionString>0.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/AnalogicGoose/GoosicReborn/releases/tag/v0.4.1</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/AnalogicGoose/GoosicReborn/releases/download/v0.4.1/Goosic-0.4.1-macos-universal.zip" length="20255882" type="application/octet-stream" sparkle:edSignature="gW24fg0TL1h3ZY58zX5zFQZSRLmv30k8j5S7UVDtB+RwFuL5GKfXdxYLgujwnwZuHhPKVC6o09K2gl9KlLNKBA==" />
+        </item>
+        <item>
             <title>0.3.1 macOS alpha</title>
             <pubDate>Wed, 04 Nov 2026 02:39:11 +0000</pubDate>
             <sparkle:version>301</sparkle:version>

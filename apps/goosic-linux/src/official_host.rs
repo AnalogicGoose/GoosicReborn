@@ -17,6 +17,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use goosic_shell_support::bridge::{self, BridgeEvent};
+use goosic_shell_support::page_swap;
 use goosic_shell_support::playback::clamp_volume;
 use gtk::prelude::*;
 use gtk::{gio, glib};
@@ -114,6 +115,14 @@ const VOLUME_GUARD_SCRIPT: &str = r#"function(initialToken, initialVolume, initi
   scan();
 }"#;
 
+/// Owned description of an early video switch reported by the official page before playback started.
+pub struct PageSwapReport {
+    pub requested_video_id: String,
+    pub page_video_id: String,
+    pub page_title: String,
+    pub may_adopt: bool,
+}
+
 /// Where the host tells the shell what happened.
 pub struct Handlers {
     pub on_event: Box<dyn Fn(BridgeEvent)>,
@@ -121,6 +130,8 @@ pub struct Handlers {
     /// The official app followed its own "up next" away from the video Goosic asked for. Goosic
     /// owns the queue, so the shell decides what plays instead.
     pub on_page_advanced: Box<dyn Fn(String)>,
+    /// The official app switched to another video before the requested track was heard playing.
+    pub on_page_swapped: Box<dyn Fn(PageSwapReport)>,
     /// What the loaded page contains, for when playback does not start and the page is the reason.
     pub on_diagnostics: Box<dyn Fn(String)>,
 }
@@ -137,6 +148,12 @@ enum Verdict {
     Accepted,
     Rejected(String),
     MovedOn(String),
+    SwappedEarly {
+        requested: String,
+        actual: String,
+        token: String,
+    },
+    Ignore,
 }
 
 pub struct OfficialHost {
@@ -146,6 +163,10 @@ pub struct OfficialHost {
     expected: RefCell<Option<Expectation>>,
     last_sequence: Cell<u64>,
     advertisement: Cell<bool>,
+    heard_requested: Cell<bool>,
+    stray_reports: Cell<u32>,
+    page_swap_handled: Cell<bool>,
+    allows_substitute: Cell<bool>,
     desired_volume: Cell<f64>,
     desired_muted: Cell<bool>,
     volume_guard_sequence: Cell<u64>,
@@ -175,6 +196,10 @@ impl OfficialHost {
             expected: RefCell::new(None),
             last_sequence: Cell::new(0),
             advertisement: Cell::new(false),
+            heard_requested: Cell::new(false),
+            stray_reports: Cell::new(0),
+            page_swap_handled: Cell::new(false),
+            allows_substitute: Cell::new(true),
             desired_volume: Cell::new(1.0),
             desired_muted: Cell::new(false),
             volume_guard_sequence: Cell::new(0),
@@ -284,7 +309,14 @@ impl OfficialHost {
 
     /// Loads the official page for `video_id`. Only call this while Rust holds the lease for
     /// `generation`: the page starts playing as soon as it can.
-    pub fn load(&self, video_id: &str, generation: u64, volume: f64, muted: bool) {
+    pub fn load(
+        &self,
+        video_id: &str,
+        generation: u64,
+        volume: f64,
+        muted: bool,
+        allows_substitute: bool,
+    ) {
         let view = self.view.borrow().clone();
         let Some(view) = view else {
             self.status("Official host is not attached to the window.");
@@ -302,6 +334,10 @@ impl OfficialHost {
         });
         self.last_sequence.set(0);
         self.advertisement.set(false);
+        self.heard_requested.set(false);
+        self.stray_reports.set(0);
+        self.page_swap_handled.set(false);
+        self.allows_substitute.set(allows_substitute);
         self.desired_volume.set(clamp_volume(volume).unwrap_or(1.0));
         self.desired_muted.set(muted);
         self.volume_guard_sequence.set(0);
@@ -385,7 +421,8 @@ impl OfficialHost {
 }})();"
         );
         let weak = Rc::downgrade(self);
-        self.evaluate(&script, move |result| {
+        // The page defines seekTo; the isolated observer world cannot see that API.
+        self.evaluate_in_world(&script, None, move |result| {
             let Some(host) = weak.upgrade() else {
                 return;
             };
@@ -507,6 +544,9 @@ impl OfficialHost {
         *self.expected.borrow_mut() = None;
         self.last_sequence.set(0);
         self.advertisement.set(false);
+        self.heard_requested.set(false);
+        self.stray_reports.set(0);
+        self.page_swap_handled.set(false);
     }
 
     /// Quiesces and returns the renderer to a document that can play nothing.
@@ -605,7 +645,7 @@ impl OfficialHost {
         );
     }
 
-    fn handle_message(&self, body: &[u8]) {
+    fn handle_message(self: &Rc<Self>, body: &[u8]) {
         let Some(event) = bridge::parse_event(body) else {
             self.status("Rejected an invalid official-player bridge message.");
             return;
@@ -615,16 +655,34 @@ impl OfficialHost {
             let token = expected.as_ref().map(|e| e.token.as_str());
             let generation = expected.as_ref().map(|e| e.generation);
             let video = expected.as_ref().map(|e| e.video_id.as_str());
-            // A well-formed report for a different video means the official app moved on by itself.
-            // That is not noise to shrug at: it is the signal that Goosic's own queue takes over.
-            let moved_on = event.version == bridge::EVENT_VERSION
+            let stray = event.version == bridge::EVENT_VERSION
                 && Some(event.token.as_str()) == token
                 && Some(event.generation) == generation
                 && !event.is_advertisement
-                && !event.video_id.is_empty()
+                && bridge::is_valid_video_id(&event.video_id)
                 && video.is_some_and(|video| video != event.video_id);
-            if moved_on {
-                Verdict::MovedOn(video.unwrap_or_default().to_owned())
+            if stray {
+                if self.page_swap_handled.get() {
+                    Verdict::Ignore
+                } else {
+                    let count = self.stray_reports.get() + 1;
+                    self.stray_reports.set(count);
+                    if count < page_swap::STRAY_REPORTS_TO_ACT {
+                        Verdict::Ignore
+                    } else {
+                        self.page_swap_handled.set(true);
+                        let requested = video.unwrap_or_default().to_owned();
+                        if self.heard_requested.get() {
+                            Verdict::MovedOn(requested)
+                        } else {
+                            Verdict::SwappedEarly {
+                                requested,
+                                actual: event.video_id.clone(),
+                                token: token.unwrap_or_default().to_owned(),
+                            }
+                        }
+                    }
+                }
             } else {
                 match bridge::rejection_reason(
                     &event,
@@ -639,21 +697,101 @@ impl OfficialHost {
             }
         };
         match verdict {
+            Verdict::Ignore => {}
             Verdict::MovedOn(requested) => {
                 self.status(
                     "The official app moved to its own next video; Goosic's queue decides.",
                 );
                 (self.handlers.on_page_advanced)(requested);
             }
+            Verdict::SwappedEarly {
+                requested,
+                actual,
+                token,
+            } => {
+                self.resolve_early_switch(requested, actual, token, 0);
+            }
             Verdict::Rejected(reason) => {
                 self.status(&format!("Rejected an official-player report: {reason}."))
             }
             Verdict::Accepted => {
                 self.last_sequence.set(event.sequence);
+                self.stray_reports.set(0);
+                if page_swap::heard_playing(&event.state, event.duration, event.is_advertisement) {
+                    self.heard_requested.set(true);
+                }
                 self.advertisement.set(event.is_advertisement);
                 (self.handlers.on_event)(event);
             }
         }
+    }
+
+    /// Reads the player's own title for a video the page swapped to before the requested song
+    /// was heard playing, retrying briefly while YouTube Music populates `getVideoData`.
+    fn resolve_early_switch(
+        self: &Rc<Self>,
+        requested: String,
+        actual: String,
+        token: String,
+        attempt: u8,
+    ) {
+        const MAX_ATTEMPTS: u8 = 8;
+        let matches = self
+            .expected
+            .borrow()
+            .as_ref()
+            .is_some_and(|e| e.token == token);
+        if !matches {
+            return;
+        }
+        let script = format!(
+            "(() => {{
+  const player = document.querySelector('#movie_player');
+  const data = player && typeof player.getVideoData === 'function' ? player.getVideoData() : null;
+  if (data && data.video_id === {} && typeof data.title === 'string' && data.title.trim()) {{
+    return data.title.trim();
+  }}
+  const bar = document.querySelector('ytmusic-player-bar .title');
+  if (bar && bar.textContent && bar.textContent.trim()) return bar.textContent.trim();
+  return '';
+}})();",
+            bridge::js_string_literal(&actual)
+        );
+        let weak = Rc::downgrade(self);
+        let may_adopt = self.allows_substitute.get();
+        self.evaluate_in_world(&script, None, move |result| {
+            let Some(host) = weak.upgrade() else {
+                return;
+            };
+            let still_current = host
+                .expected
+                .borrow()
+                .as_ref()
+                .is_some_and(|e| e.token == token);
+            if !still_current {
+                return;
+            }
+            let title = result
+                .ok()
+                .flatten()
+                .and_then(|json| serde_json::from_str::<String>(&json).ok())
+                .unwrap_or_default();
+            if title.is_empty() && attempt + 1 < MAX_ATTEMPTS {
+                let weak = Rc::downgrade(&host);
+                glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                    if let Some(host) = weak.upgrade() {
+                        host.resolve_early_switch(requested, actual, token, attempt + 1);
+                    }
+                });
+                return;
+            }
+            (host.handlers.on_page_swapped)(PageSwapReport {
+                requested_video_id: requested,
+                page_video_id: actual,
+                page_title: title,
+                may_adopt,
+            });
+        });
     }
 
     fn status(&self, message: &str) {

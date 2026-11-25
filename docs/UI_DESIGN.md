@@ -393,7 +393,11 @@ import never changes audio or playback authority. See [LYRICS_TIMING.md](LYRICS_
 the timing contract and current native adoption.
 
 Full player is an immersive artwork-led surface with a dark readable treatment, even when the
-browser is light. Large artwork and track metadata occupy the leading column; Lyrics or Queue
+browser is light. Its backdrop is the cover's own colours at their full depth, darkened with
+black rather than veiled in grey, so a vivid cover gives a vivid field. While playback is
+paused the artwork steps back to about three quarters of its size and springs forward again
+on resume, as Music's does; the metadata and transport below it do not move, and with reduced
+motion the size changes without the spring. Large artwork and track metadata occupy the leading column; Lyrics or Queue
 can occupy the trailing column. The timeline and full transport sit below the artwork. Close
 and mini-player actions are grouped at the top leading edge, volume at the top trailing edge,
 and Lyrics/Queue in a bottom trailing capsule. Top and bottom chrome share material and
@@ -529,7 +533,7 @@ Windows/Linux playback or the user's visual acceptance; macOS acceptance remains
 | Search control | Mac segmented Picker; Windows independent filter buttons; GTK parity branch has floating grouped native toggles | Give all shells the same floating pill/selector composition and native single-selection semantics |
 | Volume | Mac corrected overlay; Windows fixed speaker capsule; GTK parity branch uses a homogeneous stack to cover utility icons while More and the speaker remain reachable | Keep geometry fixed; verify native assistive-technology behavior |
 | Player bar | Mac 740-wide capsule; Windows now the same width, with a Like button the Mac bar does not have, and it stays in place beside an opening panel until the panel would reach it; GTK parity branch has the same capsule width and native controls | Decide whether Like belongs in the bar on every platform; verify GTK text scaling |
-| Lyrics | Mac and Windows use contextual opacity/blur, supplied-end rests, interlude dots and per-row following; Windows uses character fill without word lift, swell or glow; GTK emphasizes synced lines with manual-follow suspension and line seeking | Inspect Windows motion live, including possible one-frame flashes; adopt native motion on GTK (parity #159); see LYRICS_TIMING.md |
+| Lyrics | Mac and Windows use contextual opacity/blur, supplied-end rests, interlude dots, per-row following on SwiftUI spring curves, a glow on the sung line, seekable lines with a pointer highlight, and timed-lyrics import; Windows sweeps each character with a feathered edge but has no word lift or held-note swell, which a TextBlock cannot draw; GTK emphasizes synced lines with manual-follow suspension and line seeking | Word lift and swell on Windows need a custom text renderer; adopt native motion on GTK (parity #159); see LYRICS_TIMING.md |
 | Accent | Mac uses #FF0552; GTK parity branch adopts that token; Windows #F53150 remains a gap | Align Windows while preserving native/contrast selection exceptions |
 | Density | Mac standard art 158; Windows palette card token 196; GTK artwork/card sizing differs | Compare at equivalent scaling and align perceived density to the current reference |
 | Navigation/inspector | Mac native split regions; Windows adaptive columns/overlays; GTK parity branch adapts navigation and panels down to a 480-pixel window | Preserve native hit areas and verify text scaling and desktop contrast |

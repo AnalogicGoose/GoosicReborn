@@ -24,12 +24,13 @@ the Swift port never had to face: on a fresh profile YouTube Music loads the tra
 waits. The shell therefore answers the first paused report of a load it was asked to play with a
 single play request, once, so a pause the user makes afterwards is kept.
 
-Downloaded files used to play through a GStreamer pipeline of their own, under the
-`localDownloadedFile` lease. Protocol 0.5.0 removed downloads from Goosic on every platform, so that
-pipeline, the Downloads screen and the lease switching between page and file are to be deleted from
-`platform/linux` when it next takes `development`; until then the branch will not build against it,
-because the owner it claims no longer exists. The work is tracked in
-[#145](https://github.com/AnalogicGoose/GoosicReborn/issues/145).
+The official page is now the only thing that makes sound. Downloaded files once played through a
+GStreamer pipeline of the shell's own, under a `localDownloadedFile` lease; protocol 0.5.0 removed
+downloads from Goosic on every platform, and the pipeline, the Downloads screen and the lease
+switching between page and file went with them
+([#145](https://github.com/AnalogicGoose/GoosicReborn/issues/145)). The shell no longer links
+GStreamer at all. The runtime still carries it, because WebKitGTK decodes the page's media through
+it, but that is WebKit's dependency and not the shell's.
 
 Accounts are real on Linux now, which the Swift port never managed. Add account releases whatever
 plays and opens Google's sign-in in a window of its own, whose cookies land in a staging directory
@@ -85,8 +86,8 @@ semantics for script worlds, profiles and navigation: every security argument in
 again for a second engine, from Rust through `cxx-qt`. That would buy a native look on KDE Plasma
 and nothing the product needs.
 
-So the shell uses GTK 4 through `gtk4-rs`, WebKitGTK 6.0 through `webkit6`, GStreamer through
-`gstreamer-rs`, and D-Bus through `gio` — the same libraries the Swift port already binds by hand.
+So the shell uses GTK 4 through `gtk4-rs`, WebKitGTK 6.0 through `webkit6`, and D-Bus through
+`gio` — the same libraries the Swift port already binds by hand.
 Because the shell is Rust, it links `goosic-shell-support` directly, with no foreign-function
 boundary in the way.
 
@@ -112,12 +113,87 @@ of its widgets without taking its look.
 
 Two design rules follow. The window keeps the system's own titlebar rather than a GNOME-style
 header bar — drawn by the window manager on X11 and by GTK on Wayland, styled by the theme either
-way. The first-release layout follows the Windows shell's composition: a grouped adaptive
-sidebar and the Playing Next or Lyrics panel sit over the content, and a compact transport pill
-floats at the bottom. Home presents song shelves as horizontally scrolling columns of four
-compact rows. GTK uses neutral light and dark palettes with translucent fills and native controls;
-WinUI's acrylic blur is not available through ordinary GTK widgets. The shared pink accent is
-`#FF0552`. The adaptive and immersive behavior follows [UI_DESIGN.md](UI_DESIGN.md).
+way. The layout follows the macOS shell's composition: a grouped adaptive sidebar and the
+Playing Next or Lyrics panel sit over the content, and a compact transport capsule floats at the
+bottom. Home presents song shelves as horizontally scrolling columns of four compact rows. GTK
+uses neutral light and dark palettes with native controls, and the floating surfaces are frosted
+glass, described [below](#frosted-glass-and-the-mesh-backdrop). The GTK shell still draws the
+pink accent `#FF0552`, which 0.4.4 retired on macOS and Windows in favour of a neutral primary
+colour; that is a gap, not a choice, and is listed under [What is left](#what-is-left). The adaptive
+and immersive behavior follows [UI_DESIGN.md](UI_DESIGN.md).
+
+## Frosted glass and the mesh backdrop
+
+GTK 4's CSS has no `backdrop-filter`, so a translucent fill over the page can only tint it, never
+blur it. `glass.rs` gets the frosted look the other way round: a glass container snapshots the
+sibling content behind its own bounds into GSK's render graph, clips it to its rounded shape, blurs
+it there, and then draws a frosted veil, a highlight along the top edge and a thin rim before
+snapshotting its own controls on top. The blur therefore happens in the renderer, on whatever GSK
+backend the desktop gives GTK, and no pixel is read back on the main loop. The sidebar, the side
+panel, the transport capsule in both its one-row and two-row forms, the search pill, the category
+selector and the Full Player's and Mini Player's chrome are all glass. A guard stops a glass
+surface from snapshotting another one inside it, which would recurse. High contrast skips the blur
+and the transparency entirely and draws solid surfaces with crisp borders, as UI_DESIGN.md asks.
+
+Behind the browser, `backdrop.rs` can still paint a full-bleed blurred crop of the playing cover
+tinted with the window colour, the ambient backdrop the Mac draws, controlled by the saved
+`artwork_background` setting. The Full Player and the Mini Player use something richer: `mesh.rs`
+samples the cover at 48 by 48, keeps its five most common colours, and lays them out as a seeded
+six-by-six grid of soft blobs that drift and breathe. The layout is seeded from that palette, so
+the same cover always produces the same arrangement, and the module also asks YouTube's image
+servers for a larger cover than the row was given. It is ported from the previous Goosic's
+now-playing background through the macOS `NowPlayingMesh`, and carries the GPL notice. Reduced
+motion stops the animation and high contrast replaces the mesh with a solid black surface.
+
+## Word-timed lyrics
+
+The lyrics panel beside the page and the one inside the Full Player are the same `LyricsPanel`,
+and its motion comes from `goosic_shell_support::lyrics_motion`, the rule the Mac follows. When the
+lyrics carry real word or segment timestamps, as LRCLIB's Lyricsfile 1.0 can, each word of the
+active line fills progressively as it is sung, with a soft halo in the immersive view. A
+line-timed song lights the whole active line. No word schedule is ever estimated from the text, as
+[LYRICS_TIMING.md](LYRICS_TIMING.md) requires. Instrumental gaps show three animated dots. Lines
+away from the active one are blurred by their distance from it, and come sharp under the pointer,
+under keyboard focus, while the listener scrolls by hand, and always in high contrast. Following is
+a spring anchored at 36% of the panel's height, and a manual scroll suspends it until Resume
+lyrics is chosen. The position between the page's half-second reports is interpolated so a word
+does not jump.
+
+Import Timed Lyrics opens the desktop's file chooser for a JSON timing file, validates it, and
+applies it to the playing song for the current session only. It never uploads the file and never
+changes the audio.
+
+## The Mini Player
+
+`mini_player.rs` is the compact window the Mac calls its mini player: 320 by 470 logical pixels,
+with the Full Player's mesh backdrop and glass capsules, a cover that steps back when playback
+pauses, and the same audio-taper volume curve as the main transport. It drives the existing leased
+host and holds no playback of its own. Closing it hides it and never interrupts the music.
+
+## Discord status
+
+When Discord status is turned on in Settings, `discord.rs` shows the playing song on the
+listener's Discord profile through the Discord desktop app's local IPC socket. Nothing goes from
+Goosic to Discord's servers: the desktop app, already signed in, publishes the activity, and the
+shell never sees a Discord credential. It uses the same public application ID as macOS and
+Windows. The shell looks for the socket under `$XDG_RUNTIME_DIR`, the Discord Flatpak's
+`app/com.discordapp.Discord` directory, the Snap's `snap.discord`, `$TMPDIR` and `/tmp`. All socket
+work runs on its own thread, updates are coalesced to at most one every four seconds because Discord
+ignores a client that writes faster, and a write that does not finish in half a second is
+abandoned, so a stalled Discord never blocks the main loop.
+
+## Update checks
+
+`updater.rs` checks GitHub Releases for a newer Linux build: once, quietly, a few seconds after
+launch, and on request from Settings → Updates. The request is anonymous, through libsoup with no
+cookie jar, and never touches an account profile or the service. Drafts are ignored. A
+`-linux-alpha.N` tag is compared with the running build's version, and a stable release sorts above
+any alpha of the same version, but a stable release is offered only when it carries a `.flatpak`
+asset, so a Linux listener is never pointed at a Mac or Windows download. Only HTTPS URLs on
+`github.com` and GitHub's download host are accepted. The shell does not install anything: it
+opens the `.flatpak` asset, or the release page when there is none, through the OpenURI portal, and
+the listener installs it as they installed the first. A failed check at launch stays silent; a
+failed check the listener asked for says so.
 
 ## How it talks to Rust
 
@@ -136,7 +212,18 @@ shipped with. That closes, for Linux, the pairing gap [COMPATIBILITY.md](COMPATI
 Everything the shell decides that has no machine in it comes from `goosic-shell-support`: where the
 sign-in window may navigate, whether a bridge event is trustworthy, what the media controls may
 offer, which catalog row is playable, what plays next. The shell holds only presentation state and
-the code that talks to GTK, WebKitGTK, GStreamer and D-Bus.
+the code that talks to GTK, WebKitGTK, D-Bus and the local Discord socket.
+
+When the page swaps the requested song for another video before any of it has played, the shell
+asks `goosic_shell_support::page_swap` what that was rather than deciding itself. One report of a
+different video is ignored, because the page can still be showing what its player held a moment
+ago; a second in a row is acted on. Another version of the same song, such as the music video for
+the audio track, is adopted once under the same lease and plays while Goosic keeps showing the song
+that was chosen. Anything else is a refusal: the song is dimmed wherever it is listed, with a note
+that it isn't available to play, and skipped, and a pause the listener pressed during the swap is
+kept. The macOS and Windows shells hold the same cases. They also leave a refused song out of new
+queues and radio for the rest of the session; the GTK shell records the refusal but does not yet
+filter on it, which is listed under [What is left](#what-is-left).
 
 ## Identity
 
@@ -205,10 +292,10 @@ portal *backends* implement, and an application never calls it.
 
 The shell uses the Inhibit portal for suspend while audible, the Background portal to run without a
 window, and the Notification portal for the one notice above, each through GTK and GIO, which choose
-the portal when one is there. OpenURI is for opening an outside link in the user's browser, and no
-screen offers one yet. Sign-in never goes there: it stays in the application's own window, under the shared
-navigation policy. The file chooser is used only if a feature needs a path picked, and none does
-today — the legacy import reads known locations. The status icon is not a portal; it is
+the portal when one is there. OpenURI opens an update's download or release page in the user's
+browser. Sign-in never goes there: it stays in the application's own window, under the shared
+navigation policy. The file chooser is used for one thing, Import Timed Lyrics; the legacy import
+reads known locations and needs no picker. The status icon is not a portal; it is
 StatusNotifierItem over D-Bus.
 
 ## Where things are stored
@@ -236,16 +323,19 @@ previous Goosic's data is read through `$HOME`, so the Flatpak needs read-only a
 ## Packaging
 
 The Linux package is a Flatpak on the GNOME runtime, version 49 or later — the first to carry GTK
-4.20. The runtime supplies GTK 4, WebKitGTK 6.0 and GStreamer, so the package ships only Goosic's
+4.20. The runtime supplies GTK 4, WebKitGTK 6.0 and the GStreamer that WebKit decodes media with,
+so the package ships only Goosic's
 own two programs: the shell and the service it launches. One package serves every desktop and every
 distribution, which is the point of choosing it.
 
 The permissions are few, and each has a reason. Network access, for the catalog and the player.
 Wayland, with X11 as a fallback. The GPU, for WebKit's compositing. The PulseAudio socket, which
 PipeWire also serves, for sound. Ownership of `org.mpris.MediaPlayer2.goosic`, for the media panel.
-Talking to `org.kde.StatusNotifierWatcher`, for the status icon. And read-only access to the previous
-Goosic's directory, for the legacy import. There is no access to the home directory and none to the
-host filesystem.
+Talking to `org.kde.StatusNotifierWatcher`, for the status icon. Access to `discord-ipc-0` in the
+runtime directory and to the Discord Flatpak's runtime directory, for Discord status; those are the
+two places a sandboxed Goosic can reach the socket, so a Snap or `/tmp` socket is found only by a
+native build. And read-only access to the previous Goosic's directory, for the legacy import. There
+is no access to the home directory and none to the host filesystem.
 
 The official player gets whatever the runtime's
 GStreamer can decode, so the GNOME 50 runtime was inspected rather than assumed: it carries GTK
@@ -294,8 +384,34 @@ flatpak-builder --user --install --force-clean build-dir \
 flatpak run io.github.analogicgoose.Goosic
 ```
 
+The two source lists must match their lock files exactly: a crate in `Cargo.lock` that is missing
+from its list stops `cargo build --offline` inside the sandbox, and a crate that is listed but no
+longer locked is fetched for nothing. Removing downloads left the lists vendoring GStreamer and the
+Matroska and Opus demuxers long after any lock file named them, so they were regenerated for
+0.4.3-linux-alpha.1: 132 crates for the service and 123 for the shell, every one from crates.io.
+Regenerate both whenever either lock file changes, in the same commit.
+
 The package has completed a local GNOME 50 SDK build, and its shell connected to the bundled
 service when launched in the sandbox. That smoke run did not sign in or play a whole track.
+
+### Packaging a release
+
+`tools/package-linux-flatpak.sh` builds the same manifest into a temporary repository, runs the
+shell's tests as part of that build, and exports a single-file bundle a tester can install:
+
+```sh
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+sh tools/package-linux-flatpak.sh v0.4.3-linux-alpha.1
+```
+
+It writes `dist/Goosic-<version>-linux-<arch>.flatpak` and `dist/SHA256SUMS-linux.txt`, where the
+architecture is the machine's own Flatpak architecture unless `GOOSIC_FLATPAK_ARCH` names another.
+It installs the GNOME runtime, SDK and Rust extension for the user from Flathub when they are
+missing, and keeps flatpak-builder's download cache under `$XDG_CACHE_HOME/goosic-flatpak-builder`
+so a second run does not fetch every crate again. The bundle records Flathub as its runtime
+source, so installing it on a machine without the GNOME runtime fetches the runtime from there.
+The asset name is the one the update checker looks for: a `.flatpak` attached to a
+`-linux-alpha.N` release.
 
 ## Workspace and layout
 
@@ -325,8 +441,12 @@ apps/goosic-linux/
         playback.rs        queue, lease and transport state, decided without GTK
         lyrics.rs          the lyrics panel's lookups and highlight, decided without GTK
         ui.rs              page rows, sidebar, search bar, settings screen
+        ui.css             the stylesheet, compiled in and loaded by theme.rs
         player_bar.rs      compact/full transport and the fixed-size volume layer
         full_player.rs     expanded cover, lyrics and queue presentation
+        mini_player.rs     the compact Mini Player window
+        glass.rs           frosted-glass containers blurred in GSK's render graph
+        mesh.rs            the cover palette and seeded 6x6 mesh behind the Full and Mini Player
         backdrop.rs        cropped artwork blur through GTK's render graph
         layout.rs          tested window breakpoints and transport placement
         shell_presentation.rs window layout, shortcuts and sleep-timer orchestration
@@ -337,8 +457,9 @@ apps/goosic-linux/
         personal_host.rs   signed-in catalog reader inside the active account's profile
         login_host.rs      sign-in window under the shared navigation policy
         web_profile.rs     profile and staging storage, and the main-frame navigation guard
-        local_host.rs      GStreamer playbin for decoded files; to be deleted (protocol 0.5.0)
         mpris.rs           org.mpris.MediaPlayer2 over gio
+        discord.rs         Discord status over the desktop app's local IPC socket
+        updater.rs         the anonymous GitHub Releases update check
         status_icon.rs     StatusNotifierItem and its dbusmenu, where a watcher exists
         background.rs      hiding on close, holding the app, Ctrl+Q, inhibit, the Background portal
     data/                  desktop file, metainfo and scalable icon
@@ -363,16 +484,17 @@ when the Linux shell, `goosic-shell-support` or the protocol changes.
 
 The plan's order for step four held. Transport, catalog, search,
 queue and settings came first, because they need no platform host and prove the shell against the
-service. Then the WebKitGTK player, local audio, the sign-in window, the media-player interface and
-the status icon, and running in the background. The Flatpak builds and launches, but the account and
-playback checks below still gate the first public release.
+service. Then the WebKitGTK player, the sign-in window, the media-player interface and the status
+icon, and running in the background. Local audio came and went with downloads. The macOS design
+language, the Mini Player, Discord status and update checks followed. The Flatpak builds and
+launches, but the account and playback checks below still gate a non-alpha release.
 
 One part of the order was not kept. The test that no host can sound without Rust's active lease was
-meant to come with the first host, not after the last, and it did not come at all: each host claims
-the lease before it loads, and the harness has heard that ordering work, but nothing fails a build if
-a later change breaks it. The GStreamer host now has a test that opens a file paused, which is the
-first half of that proof — a paused pipeline decodes without opening the audio device, so it runs
-silently in CI — and the rest is listed under [What is left](#what-is-left).
+meant to come with the first host, not after the last, and it did not come at all: the official
+host claims the lease before it loads, and the harness has heard that ordering work, but nothing
+fails a build if a later change breaks it. The paused-pipeline test that was the first half of that
+proof belonged to the GStreamer host and was removed with it, so the whole proof is still listed
+under [What is left](#what-is-left).
 
 ## Known risks
 
@@ -431,7 +553,9 @@ keeps controls below the auxiliary pane on a narrow one. Its dark treatment surv
 browser theme. Opening, closing and resizing never unmount the WebKitGTK playback host. The
 playing cover can also form a cropped, blurred browsing backdrop; GTK's render graph performs
 the blur, and the saved `artwork_background` setting now has an Appearance control and affects
-the browser. This is artwork blur, not a claim that GTK supplies WinUI acrylic compositor blur.
+the browser. The floating surfaces are frosted glass blurred in the same render graph, described
+[above](#frosted-glass-and-the-mesh-backdrop); that is GTK's own rendering, not a claim that the
+compositor blurs what lies behind the window.
 
 Song menus offer Play next and Add to queue for guests as well as signed-in listeners. Queue
 rows have artwork, move and remove actions; the playing occurrence cannot be removed. Clear
@@ -448,9 +572,10 @@ artwork and text in isolated XDG directories. It never signs in or produces soun
 browsing, search, light/dark settings, volume, queue, expanded cover and lyrics presentations;
 geometry assertions keep the transport in the window and preserve its bounds when volume opens. Pure tests cover queue occurrence preservation, clear/undo expiry
 and window breakpoints. These checks establish rendering and offline behavior, not real account,
-audio, screen-reader or compositor acceptance. Windows still has a mini player and installer
-updates that GTK does not implement, and word-timed listening effects remain separate work. The offline Flatpak build and its service
-exchange tests pass on GNOME 50. Plasma's native GTK scrollbar sliders emit minimum-size warnings
+audio, screen-reader or compositor acceptance. The Mini Player, word-timed lyrics, Discord status
+and update checks are now in the shell. The mesh, lyrics, Discord and update rules have unit tests;
+the Mini Player window and the glass containers have none of their own, and none of the four has
+had a live desktop check yet. The offline Flatpak build and its service exchange tests pass on GNOME 50. Plasma's native GTK scrollbar sliders emit minimum-size warnings
 during desktop capture; a debugger trace places them in scrolled-window scrollbar measurement,
 not the transport slider. They do not fail the fixture or establish compositor acceptance.
 
@@ -465,10 +590,16 @@ not the transport slider. They do not fail the fixture or establish compositor a
 | NVIDIA hardware, and GNOME, Xfce and COSMIC sessions | a person | Every live check ran on Plasma with Intel graphics |
 | Account-scoped mutations with a real account | a person | Read-only Home, playlists, liked songs and the owned-playlist list passed a live native test; mutations are built but have not been exercised against that account |
 | Exact owned-playlist item edits | `platform/linux` | Rename, privacy and delete are present; removing or moving one entry needs its per-entry `setVideoId`, which the current catalog projection drops |
-| Word-timed lyrics, listening effects and session-only timing import | `platform/linux`, after development is synchronized | The shared service accepts LRCLIB Lyricsfile; GTK rendering/import remain pending. See [the lyrics handoff](LYRICS_TIMING.md) |
-| Saved queues and a native mini player | `platform/linux` | Queue editing and the full player are present; queue persistence and a separate compact window are not |
+| Frosted glass and the mesh backdrop on a real compositor | a person | Compiled, with unit tests for the mesh palette and layout only; smoothness, GPU cost and appearance on Plasma, GNOME and NVIDIA are unobserved |
+| Word-timed highlight against a real song with word timing | a person | The sweep follows `lyrics_motion` and the imported-file path is wired; no live song with word timestamps has been watched on Linux |
+| The Mini Player during real playback | a person | The window drives the leased host; opening, closing and controlling it while a song plays has not been observed |
+| Discord status with a running Discord desktop app | a person | The IPC framing and coalescing are built; no presence has been seen on a real profile, natively or through the Flatpak's socket permissions |
+| An update offered from a published Linux release | a person | The feed parsing and version ordering have unit tests; no `-linux-alpha` release existed to be offered when this was written |
+| A refused song left out of new queues and radio | `platform/linux` | The shell records refused songs and dims them, as macOS and Windows do, but queue and radio building do not yet filter on that set |
+| The early page swap with a real swapped or refused song | a person | `page_swap` decides the cases under shared tests; a real swap and a real refusal have not been heard on Linux |
+| The 0.4.4 changes: covers at their true shape, and the neutral accent in place of `#FF0552` | `platform/linux` | Shipped on macOS and Windows in 0.4.4 after this branch was cut from 0.4.3; the GTK shell still crops covers square and draws the pink in `ui.css` |
+| Saved queues | `platform/linux` | Queue editing, the full player and the Mini Player are present; queue persistence is not |
 | Window and playlist context menus | `platform/linux` | Track actions and a checked owned-playlist manager are present; the native window menu is still pending |
-| Local playback removed: `local_host.rs`, the Downloads screen and the `localDownloadedFile` lease switching | `platform/linux`, when it next takes development | Protocol 0.5.0 dropped downloads on every platform; until this lands the branch does not build against development. Tracked in [#145](https://github.com/AnalogicGoose/GoosicReborn/issues/145) |
 | The `goosic-paths` crate from `rescue/native-mac-shell-and-paths` | `development` | Never merged, so path rules are still duplicated per crate |
 
 The credentialed Flatpak mutation/playback and renderer-level lease checks still gate the first

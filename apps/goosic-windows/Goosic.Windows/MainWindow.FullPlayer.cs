@@ -27,6 +27,8 @@ public sealed partial class MainWindow : Window
     private void WireFullPlayer()
     {
         FullPlayerBackdrop.Children.Add(_fullPlayerMesh);
+        FullPlayerCoverFrame.SizeChanged += (_, _) => UpdateCoverScale(animate: false);
+        UpdateCoverScale(animate: false);
         WireFullPlayerBlur();
         FullPlayerProgress.AddHandler(UIElement.PointerPressedEvent,
             new PointerEventHandler((_, _) => { _fullPlayerSeeking = true; Model.IsScrubbing = true; }), handledEventsToo: true);
@@ -53,11 +55,35 @@ public sealed partial class MainWindow : Window
             DispatcherQueue.TryEnqueue(UpdateFullPlayerBlur);
         Model.PropertyChanged += (_, args) =>
         {
+            if (args.PropertyName == nameof(ShellViewModel.IsPlaying))
+            {
+                UpdateCoverScale(animate: true);
+            }
             if (args.PropertyName == nameof(ShellViewModel.ArtworkBackground))
             {
                 UpdateBackdrop();
             }
         };
+    }
+
+    /// <summary>Lets the cover settle smaller while paused without moving the controls.</summary>
+    private void UpdateCoverScale(bool animate)
+    {
+        var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(FullPlayerCoverFrame);
+        visual.CenterPoint = new System.Numerics.Vector3((float)(FullPlayerCoverFrame.ActualWidth / 2),
+            (float)(FullPlayerCoverFrame.ActualHeight / 2), 0);
+        var scale = Model.IsPlaying ? 1f : (float)LyricsMotion.PausedCoverScale;
+        var target = new System.Numerics.Vector3(scale, scale, 1);
+        if (!animate || !AnimationsEnabled)
+        {
+            visual.StopAnimation("Scale");
+            visual.Scale = target;
+            return;
+        }
+
+        // macOS's .snappy(duration: 0.5, extraBounce: 0.1), on SwiftUI's own curve.
+        visual.StartAnimation("Scale", Views.SwiftUISpring.Vector3(visual.Compositor, LyricsMotion.CoverResponse,
+            LyricsMotion.CoverDamping, target));
     }
 
     /// <summary>
@@ -161,6 +187,7 @@ public sealed partial class MainWindow : Window
         var (horizontal, top, bottom) = FullPlayerLayout.Padding(width);
         var lyricsOnly = mode == FullPlayerMode.Lyrics;
         FullPlayerLyrics.Visibility = mode == FullPlayerMode.Cover ? Visibility.Collapsed : Visibility.Visible;
+        _fullLyrics?.SetVisible(FullPlayer.Visibility == Visibility.Visible && mode != FullPlayerMode.Cover);
         // The cover shrinks with the window's height too, so the controls under it stay on screen.
         var cover = FullPlayerLayout.CoverSize(RootGrid.ActualHeight, top, bottom);
 
@@ -257,6 +284,8 @@ public sealed partial class MainWindow : Window
         }
 
         FullPlayer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        _fullLyrics?.SetVisible(open && FullPlayerLyrics.Visibility == Visibility.Visible);
+        _panelLyrics?.SetVisible(!open && _sidePanel.Content == SidePanelContent.Lyrics);
         SetTitleBar(open ? FullPlayerDragStrip : TitleBarStrip);
         if (!open)
         {
@@ -338,16 +367,6 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Seeks to a synced line. Plain lyrics carry no times, so their lines do nothing.</summary>
-    private async void OnLyricLineClicked(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: long at } && at > 0 && _playback is not null && Model.IsSeekable)
-        {
-            // Choosing a line is choosing to listen from it, so the view follows the song again.
-            _fullLyrics?.SetFollowing(true);
-            await SeekToAsync(at / 1000.0);
-        }
-    }
-
     private async void OnAutoplayToggled(object sender, RoutedEventArgs e)
     {
         if (sender is ToggleSwitch toggle && toggle.IsOn != Model.Autoplay)

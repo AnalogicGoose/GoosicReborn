@@ -40,4 +40,19 @@ public sealed class LyricsLookupTests
     [InlineData("-1:30")]
     [InlineData("1:2:3:4")]
     public void AnythingElseIsNoDuration(string? text) => Assert.Null(LyricsLookup.Seconds(text));
+
+    [Fact]
+    public void TheRealRecordingLengthWinsOverTheCatalogText()
+    {
+        Assert.Equal(231, LyricsLookup.For("A", "B", "", null, "3:35", 230.6).DurationSeconds);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0.0)]
+    [InlineData(-3.0)]
+    public void AnUnknownRealLengthFallsBackToTheCatalogText(double? played)
+    {
+        Assert.Equal(215, LyricsLookup.For("A", "B", "", null, "3:35", played).DurationSeconds);
+    }
 }

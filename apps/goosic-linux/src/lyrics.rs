@@ -12,6 +12,24 @@ use goosic_shell_support::TransportError;
 
 const NOTHING_PLAYING: &str = "Nothing playing.";
 const NOT_FOUND: &str = "No lyrics were found for this track.";
+/// Local timed-lyrics import cap, matching `NativeMacLyricsImport.swift` (2 MB).
+pub const MAX_IMPORT_BYTES: usize = 2 * 1024 * 1024;
+
+/// Decodes a session-only local timed-lyrics JSON file (`LyricsDocument` wire format).
+pub fn decode_imported_lyrics(bytes: &[u8]) -> Result<LyricsDocument, String> {
+    if bytes.is_empty() {
+        return Err("The selected lyrics file is empty.".to_owned());
+    }
+    if bytes.len() > MAX_IMPORT_BYTES {
+        return Err("Lyrics files larger than 2 MB are refused.".to_owned());
+    }
+    let document: LyricsDocument = serde_json::from_slice(bytes)
+        .map_err(|_| "That file is not a valid Goosic timed-lyrics JSON document.".to_owned())?;
+    if document.lines.is_empty() {
+        return Err("The selected lyrics file contains no lines.".to_owned());
+    }
+    Ok(document)
+}
 
 #[derive(Debug)]
 pub struct Lyrics {
@@ -59,6 +77,50 @@ impl Lyrics {
     pub fn track_changed(&mut self) {
         self.video_id = None;
         self.set(None, NOTHING_PLAYING);
+    }
+
+    /// Installs session-only imported lyrics for `video_id`, without altering playback authority.
+    pub fn install_imported(&mut self, video_id: &str, mut document: LyricsDocument, label: &str) {
+        self.in_flight = false;
+        self.video_id = Some(video_id.to_owned());
+        if document.source.trim().is_empty() {
+            document.source = label.to_owned();
+        }
+        let status = if document.synced {
+            format!("Imported timed lyrics from {label} (this session only).")
+        } else {
+            format!("Imported lyrics from {label} (this session only).")
+        };
+        self.set(Some(document), &status);
+    }
+
+    /// Retries a failed lookup using the real duration reported by an adopted track version.
+    pub fn retry_with_duration(
+        &mut self,
+        track: &Track,
+        real_duration_seconds: f64,
+    ) -> Option<(String, LyricsQuery)> {
+        if !self.visible
+            || self.in_flight
+            || self.document.is_some()
+            || !real_duration_seconds.is_finite()
+            || real_duration_seconds <= 0.0
+        {
+            return None;
+        }
+        let rounded = real_duration_seconds.round() as u32;
+        if duration_seconds(&track.duration) == Some(rounded) {
+            return None;
+        }
+        self.in_flight = true;
+        self.video_id = Some(track.video_id.clone());
+        let query = LyricsQuery {
+            title: track.title.clone(),
+            artist: track.artist.clone(),
+            album: track.album.clone(),
+            duration_seconds: Some(rounded),
+        };
+        Some((track.video_id.clone(), query))
     }
 
     /// The lookup `current` needs, marked as in flight — or `None` when the panel is closed, the
@@ -282,5 +344,34 @@ mod tests {
         assert!(lyrics.document().is_none());
         assert_eq!(lyrics.status(), NOTHING_PLAYING);
         assert!(lyrics.revision() > before, "the panel is told to redraw");
+    }
+
+    #[test]
+    fn imported_lyrics_validate_bounds_and_clear_on_track_change() {
+        assert!(decode_imported_lyrics(b"").is_err());
+        assert!(decode_imported_lyrics(&vec![b' '; MAX_IMPORT_BYTES + 1]).is_err());
+        assert!(decode_imported_lyrics(b"{not json").is_err());
+        let empty = br#"{"source":"local","synced":true,"lines":[],"truncated":false}"#;
+        assert!(decode_imported_lyrics(empty).is_err());
+
+        let valid = br#"{
+            "source":"local",
+            "synced":true,
+            "lines":[
+                {"atMs":1000,"endMs":3000,"text":"hello world","words":[
+                    {"atMs":1000,"endMs":1800,"text":"hello "},
+                    {"atMs":1800,"endMs":3000,"text":"world"}
+                ]}
+            ],
+            "truncated":false
+        }"#;
+        let doc = decode_imported_lyrics(valid).expect("valid lyrics");
+        let mut lyrics = open();
+        lyrics.install_imported("a", doc, "song.json");
+        assert!(lyrics.document().is_some());
+        assert_eq!(lyrics.active_line(1.5), Some(0));
+        assert!(lyrics.status().contains("song.json"));
+        lyrics.track_changed();
+        assert!(lyrics.document().is_none());
     }
 }

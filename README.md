@@ -1,214 +1,122 @@
-# GoosicReborn
+<p align="center">
+  <img src="assets/logo.png" alt="GoosicReborn Logo" width="128" height="128" />
+</p>
 
-GoosicReborn is a native rewrite of Goosic around a Rust playback authority. The shells use SwiftUI/AppKit on macOS, GTK 4 in Rust on Linux, and WinUI 3 on Windows.
-SwiftCrossUI has been removed. Rust
-owns the versioned playback authority and the anonymous read-only catalog; each shell talks to it
-over newline-delimited JSON on a private stdio channel. Account-scoped content reads run inside
-the active WebKit profile and the ported reader keeps its GPL-3.0 notice; see Licensing below.
-The transition to one native shell per operating system is documented in
-[the native-shell migration plan](docs/NATIVE_SHELL_MIGRATION.md) and [the Linux shell notes](docs/LINUX_SHELL.md).
+<h1 align="center">GoosicReborn</h1>
 
-## What works today
+<p align="center">
+  <strong>A fast, native YouTube Music desktop client powered by a single Rust playback authority.</strong><br />
+  Tailored native shells: SwiftUI on macOS, WinUI 3 on Windows, and GTK 4 on Linux. Zero Electron.
+</p>
 
-Version 0.4.1 distributes the native Windows x64 WinUI app as a setup executable and portable
-ZIP. From 0.2.0 an installed copy updates itself: Settings checks GitHub Releases, verifies the
-new Setup against the release's checksums, and installs it. Home is laid out as YouTube Music
-lays it out, with Quick picks as a compact song list, and Settings adds a start page, hiding
-explicit songs, reduced motion, close to tray, launch at startup, now-playing notifications,
-remembered window placement and an efficiency mode. 0.2.1 adds editing your own playlists —
-choosing songs, removing them, and moving them — and Save to playlist from the player bar.
-0.2.2 brings the details of Apple Music, Spotify and YouTube Music: a like button, volume
-slider, sleep timer and mini player; search led by the top result; Moods & genres; sort and
-find in playlists; a library grid; pages that open instantly from the last copy; Discord
-status; and a debug mode with a log. See [the release notes](docs/RELEASE_0.2.2.md). 0.2.3 is a
-quick fix release: the keyboard's next and previous keys work, the volume slider follows an
-audio taper, and Setup shows both licences ([notes](docs/RELEASE_0.2.3.md)).
-Setup creates a Start menu shortcut and uninstaller, bundles .NET and the Windows App SDK, and
-installs WebView2 if missing (internet required). It is unsigned, so Windows may display an
-unknown-publisher warning. Download it from
-[GitHub Releases](https://github.com/AnalogicGoose/GoosicReborn/releases).
-The Swift package now builds only the native macOS application. The native Windows shell
-supports official WebView2 playback, sign-in, personal catalog, queue, lyrics and media controls;
-legacy preference import remains unavailable. Only Windows
-x64 binaries are distributed in the stable 0.4.1 release. The
-[0.4.1 macOS alpha](docs/RELEASE_0.4.1.md) provides a universal macOS download
-with the native UI and lyrics improvements. Windows gains matching player transitions, playback corrections and single-instance activation
-in 0.2.5; Linux packages
-remain pending. Version 0.2.6 reuses one volume control in a transient Windows player capsule,
-matching the macOS interaction without resizing the bar. Version 0.2.7 rebuilds the Windows
-player bar, the fade under the title bar, the full-screen player layout and the lyrics after
-the macOS shell ([notes](docs/RELEASE_0.2.7.md)). Version 0.2.8 continues the Songs and Videos
-search tabs past their first twenty results on both platforms, and on macOS scrolls long pages
-smoothly, fills the band under the toolbar with the artwork background, follows the system icon
-style, and stops playback when the service is lost ([notes](docs/RELEASE_0.2.8.md)). Version 0.2.9
-gives Windows a compact sidebar rail, a rebuilt Search page and pages that change once, and on
-macOS moves Settings into its own window, slides the full player up from the bottom, and cuts
-memory use ([notes](docs/RELEASE_0.2.9.md)). Version 0.3.0 opens artist pages with the
-artist's own banner, which blurs into the artist's colour as the page scrolls, makes Go to
-Artist work from the full player, gives the Windows full player a More menu, and puts the
-macOS volume slider on the same taper as Windows. See [the release notes](docs/RELEASE_0.3.0.md).
-Version 0.3.1 stops artist pages freezing a Mac with a second display, keeps the Add to Playlist
-menu still while a song plays, and shows an artist's top songs once ([notes](docs/RELEASE_0.3.1.md)).
-Version 0.3.2 makes a Windows song that YouTube Music swapped for another version play, tells you
-when a song cannot start instead of sitting silent, and keeps the log off the interface thread
-([notes](docs/RELEASE_0.3.2.md)). Windows only; the Mac app is unchanged.
-Version 0.4.0 docks the Windows sidebar on a wide window, gives it a black acrylic with a
-transparency slider, lets you hide destinations and pin music to it, reorganises Settings into
-categories, and removes Downloads from Windows and the Mac ([notes](docs/RELEASE_0.4.0.md)).
-Version 0.4.1 brings word sweeps, supplied-end rests, interlude dots and per-row lyric motion
-to Windows alongside the macOS motion update ([notes](docs/RELEASE_0.4.1.md)).
-Compilation does not establish live playback or visual acceptance.
+<p align="center">
+  <a href="https://github.com/AnalogicGoose/GoosicReborn/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/AnalogicGoose/GoosicReborn/ci.yml?branch=main&style=flat-square&label=CI" alt="CI Status" /></a>
+  <a href="https://github.com/AnalogicGoose/GoosicReborn/releases/latest"><img src="https://img.shields.io/github/v/release/AnalogicGoose/GoosicReborn?style=flat-square&color=blue" alt="Latest Release" /></a>
+  <img src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Supported Platforms" />
+  <a href="LICENSE-GPL-3.0"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square" alt="License" /></a>
+</p>
 
-- **Live catalog.** Home, Explore, Charts, Moods & genres, New releases, and Search read the real YouTube Music catalog through Rust. Home understands song shelves as well as artwork carousels and loads continuation pages instead of stopping after the first response. Albums, playlists, and artists open to their real track lists.
-- **Personal content.** On macOS and in the GTK Linux shell, signed-in Home and Library read inside the active account's WebKit profile. Linux adds playlist creation and management, song likes, save-to-library and add-to-playlist. A native live read of Home, playlists, liked songs and the owned-playlist list passed. A user completed sign-in in the Flatpak after its account storage was made writable; restart, authenticated reads and mutations still need a packaged live check. Cookies never cross the service protocol. See [the content parity map](docs/CONTENT_PARITY.md) and [the feature parity audit](docs/FEATURE_PARITY.md).
-- **Real playback.** Playing any song row claims the `officialWebView` lease from Rust and loads that video in the single web host — WKWebView on macOS, WebKitGTK on Linux. Advertisements are reported as informational markers and are never bypassed. The GTK Linux shell has been heard playing official audio; its packaged build still needs a full account and hidden-window session check.
-- **A real transport.** Elapsed and total time, seeking, volume and mute, and autoplay to the next queued track — all reflecting what the player confirms, never what was requested. Goosic's queue overrides the official app's own "up next", so it never plays something you did not choose.
-- **Preferences that persist.** Volume, mute, autoplay, shuffle, repeat, the queue panel, and the screen you were on are stored by Rust and restored on launch. Preferences from a previous Goosic install can be imported; the old data is read, never changed, and credentials are never carried over.
-- **Enforced ownership.** `goosic-core` allows one playback owner at a time, scopes transitions to a generation, and requires strictly increasing sample sequences.
-- **Appearance.** System, light, or dark, applied through each native toolkit and survives a restart. Imported from a previous Goosic install along with the rest of the preferences.
-- **Lyrics.** Synced lyrics from LRCLIB, with the current line highlighted as the track plays, falling back to plain text and saying plainly when a track has none.
-- **Shuffle and repeat.** Off / all / one, plus shuffle that never picks the track it is already on. Both persist, and both are carried over from a previous Goosic install.
-- **Radio.** When a queue runs out, playback continues with the radio that follows the last track, and any playing track can seed a new one. This is the previous Goosic's "auto radio", and the imported preference maps onto autoplay, so it stays off for anyone who had it off.
-- **Artwork.** Albums, playlists, artists, and tracks show their real cover art, fetched and cached by the shell over an anonymous, host-restricted HTTPS session.
-- **Native material.** The sidebar, queue, and now-playing surfaces sit on a real platform material: `NSGlassEffectView` on macOS 26+, `NSVisualEffectView` on macOS 14–25, and a plain background anywhere else. It is a background leaf that never wraps the controls, so buttons and their accessibility stay native.
+---
 
-## Crates and apps
+GoosicReborn replaces web wrappers with real native interfaces powered by a dedicated Rust core (`goosic-core`). Rust acts as the single playback authority and anonymous catalog reader, communicating with each platform shell over newline-delimited JSON across a private stdio channel.
 
-- `goosic-protocol` — the Codable/serde-compatible 0.5.0 request, response, catalog, settings, accounts, and event envelopes, and the conformance fixtures every shell is held to: canonical lines, lines that must be refused, lines that must be tolerated, and whole conversations with the service.
-- `goosic-core` — the playback authority: one owner, lease generations, increasing sample sequences, account-change resets, harmless advertisement markers.
-- `goosic-catalog` — read-only YouTube Music access, split into a pure parser and a guest-only HTTP client. It answers what exists, never who may play.
-- `goosic-settings` — durable preferences, and the reversible, credential-free import from a previous Goosic install.
-- `goosic-accounts` — durable account profiles, metadata only: no WebKit, cookie, or credential integration.
-- `goosic-lyrics` — LRCLIB lookups and LRC parsing; no account, no key, no credentials.
-- `goosic-service` — one request per stdin line, one response per stdout line, with no diagnostics on stdout.
-- `goosic-shell-support` — the NDJSON client and platform-neutral rules for sign-in navigation, bridge validation, media projection, catalog conversion and queue selection. The GTK Linux shell consumes it; the Swift shell keeps copies held to the same tests. It links no UI, WebView, cookie, audio or secure-storage dependency.
-- `apps/goosic-linux` — the native GTK shell on Linux, with official WebKitGTK playback, account profiles, MPRIS, background mode and a Flatpak manifest.
-- `apps/goosic-swift` — the native macOS SwiftUI/AppKit shell: routed navigation, live catalog screens, search with filter tabs, entity detail pages, a queue and now-playing bar, WKWebView official playback, secure account profiles, and system media controls.
+- **macOS:** Built with SwiftUI and AppKit, adopting `NSGlassEffectView` material styling, synced lyrics motion, and native system media controls.
+- **Windows:** Built with WinUI 3 and Windows App SDK, featuring Mica/acrylic materials, compact sidebar docking, matching lyrics motion, and smooth media transport.
+- **Linux:** Built with GTK 4 and WebKitGTK, integrating with desktop themes and MPRIS without depending on GNOME's Libadwaita.
 
-## Architecture
+---
 
-[The shared UI design specification](docs/UI_DESIGN.md) defines one visual and interaction
-philosophy for macOS, Windows and Linux, with native platform adaptations and an explicit
-implementation-gap audit. Every presentation change follows it; [the macOS adaptation](docs/MACOS_UI_GUIDELINES.md)
-records Apple-specific controls and materials.
-[Lyric timing and the Windows/Linux handoff](docs/LYRICS_TIMING.md) records LRCLIB Lyricsfile
-support, the approved effects, the no-estimated-timing rule and native adoption work.
+## Downloads
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the ownership, catalog, and wire contracts, and [docs/LEGACY_COMPATIBILITY.md](docs/LEGACY_COMPATIBILITY.md) for the migration, storage, and licensing boundaries. [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) declares which protocol version each shell speaks and which service it is paired with — today, exactly one version, demanded exactly by both sides. [docs/SHELL_CONTRACT.md](docs/SHELL_CONTRACT.md) records what the Swift shell's `Core` held and what of it moved to Rust, and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md) is the design of the GTK shell that replaces the Swift build on Linux.
+| Platform | Channel | Format | Notes |
+| :--- | :--- | :--- | :--- |
+| **Windows** (x64) | **Stable** (`v0.4.3`) | [**Setup Executable (`.exe`)**](https://github.com/AnalogicGoose/GoosicReborn/releases) \| [Portable ZIP](https://github.com/AnalogicGoose/GoosicReborn/releases) | Built with WinUI 3. Self-updating from `v0.2.0+`. Includes lyrics motion and dock customization. |
+| **macOS** (Universal) | **Alpha** (`v0.4.3`) | [**Universal `.zip`**](https://github.com/AnalogicGoose/GoosicReborn/releases) | SwiftUI/AppKit. macOS 14+ required. Universal x86_64/arm64 binary with lyrics motion. |
+| **Linux** (x86_64) | **Development** | Flatpak / Source | Native GTK 4 shell. See [the Linux shell notes](docs/LINUX_SHELL.md). |
 
-## Working in this repository
+*Unsigned builds may trigger an unknown-publisher warning on first launch.*
 
-Branches follow a five-branch model — `main` for deployments, `development` as the trunk, and one long-lived branch per platform. Which one a change is cut from depends on whether it would be wrong to leave out on another platform; [docs/BRANCHING.md](docs/BRANCHING.md) has the rule and the reasoning. [AGENTS.md](AGENTS.md) is the short version for AI coding agents, along with the invariants that are not open to change; [CLAUDE.md](CLAUDE.md) exists only to point Claude Code at it, so there is one file to keep current instead of two. Merges down the branch tree are automatic, and CI builds Rust on all three platforms, the Swift package on macOS and on Linux, and — wherever `apps/goosic-linux` exists — the Rust GTK shell, for every push.
+---
 
-## Prerequisites
+## Features
 
-Rust 1.88+ and Cargo everywhere. The Rust workspace is portable and needs nothing else: `rusqlite` is bundled and `ureq` uses rustls, so there is no system SQLite or OpenSSL to install.
+- **Blazing Fast Native UI:** No Electron bloat or heavy web container UI. Shells render directly with platform-native controls and materials.
+- **Live Catalog & Search:** Home shelves, Explore, Charts, Moods & genres, New releases, and instant search results backed directly by YouTube Music.
+- **Real Playback Authority:** Rust enforces strictly one playback owner at a time, lease generations, and monotonic sample sequencing.
+- **Synchronized Lyrics & Motion:** Live lyrics powered by LRCLIB with line-by-line timing, end timestamp tracking, and fluid kinetic scrolling.
+- **Personal Content & Accounts:** Authenticated sessions run inside platform-isolated WebKit stores. Cookies and credentials never touch the service protocol or network stdout.
+- **System Media Integration:** Native macOS `MPNowPlayingInfoCenter`, Windows System Media Transport Controls (SMTC), and Linux MPRIS support.
+- **Smart Queue & Radio:** Replaces automated web autoplay with a strict local queue that respects what you chose to play, falling back smoothly to infinite auto-radio when your queue ends.
+- **Persistent Preferences:** Volume curves (with natural audio tapers), shuffle, repeat, muted states, and window placements survive relaunches.
 
-A distribution-packaged Rust splits apart what `rustup` ships as one toolchain, and an editor is the first thing to notice. `rust-analyzer` resolves its sysroot from `rustc --print sysroot` — `/usr` on a packaged install — and reports ``can't load standard library, try installing `rust-src` sysroot_path=/usr`` when the standard-library sources are not there. Without them it cannot see `core`, so `Option` stops resolving and every `None` arm is read as a new binding (``Variable `None` should have snake_case name``) and macros like `matches!` fail to expand (`expected bool, found ()`). Those diagnostics are the missing sysroot, not the code: `cargo check` stays clean throughout. `cargo fmt` and `cargo clippy` are separate packages on the same installs.
+---
 
-| Distribution | Install |
-| --- | --- |
-| Fedora | `sudo dnf install rust-src rustfmt clippy` |
-| Debian/Ubuntu | `sudo apt install rust-src rustfmt` (clippy ships in `rust-clippy`) |
-| Arch | `sudo pacman -S rust-src` (`rust` already carries rustfmt and clippy) |
+## Shell Architecture
 
-Keep them at the same version as `rustc`; a mismatched `rust-src` produces the same errors it was meant to fix. `rustup` users get all three with `rustup component add rust-src rustfmt clippy`.
-
-The macOS app needs Swift 6 and Xcode, with macOS 14 as its deployment floor. SwiftPM resolves
-Sparkle on the first build; there is no cross-platform Swift UI dependency. The Linux app needs
-GTK 4.20, WebKitGTK 6, and GStreamer, provided by its GNOME Flatpak runtime. The Windows app
-uses .NET and the Windows App SDK; see [its build instructions](apps/goosic-windows/HANDOFF.md).
-
-## Build, run, and test
-
-```sh
-make test           # Rust tests everywhere; native Swift tests also run on macOS
-make test-rust-live # opt-in: hits music.youtube.com to check the catalog parser against reality
-make build-swift    # builds the native macOS shell
-make run-swift      # builds the service and launches the shell against it
-make build-linux    # builds the service and native GTK shell on Linux
-make test-linux     # builds the service and tests the native GTK shell
-make run-linux      # launches the GTK shell with that service
-make package-macos  # builds Goosic.app, the download a tester installs
+```
+                  ┌───────────────────────────────────────────────┐
+                  │                 goosic-core                   │
+                  │ (Single Playback Authority, Lease Generation) │
+                  └───────────────────────▲───────────────────────┘
+                                          │
+                                   goosic-service
+                           (Private NDJSON stdio channel)
+                                          │
+       ┌──────────────────────────────────┼──────────────────────────────────┐
+       │                                  │                                  │
+apps/goosic-swift                 apps/goosic-windows                 apps/goosic-linux
+ (macOS: SwiftUI)                   (Windows: WinUI 3)                 (Linux: GTK 4)
 ```
 
-`make run-linux` is the native Linux development path. It builds both Rust programs and points the
-shell at that exact service executable. The installable build uses the GNOME 50 Flatpak manifest
-under `apps/goosic-linux/packaging/flatpak/`; [the Linux notes](docs/LINUX_SHELL.md) show its build
-steps and the live acceptance checks still required. `make run-swift` launches the native macOS app.
+- `goosic-core` — The playback authority: one owner, lease generations, increasing sample sequences.
+- `goosic-catalog` — Anonymous, read-only YouTube Music client and parser. Answers what exists, never who may play.
+- `goosic-lyrics` — LRCLIB lyric lookups and LRC timestamp parsing.
+- `goosic-settings` & `goosic-accounts` — Durable local configuration and profile metadata.
+- `goosic-service` — Private, single-client stdio service. Requests in, responses out, zero telemetry.
+- `goosic-shell-support` — Platform-neutral translation rules, lyrics motion curves, and NDJSON client.
 
-A build for someone who is not working on Goosic is a *test build*, not a deployment:
-[docs/RELEASING.md](docs/RELEASING.md) explains how one is cut, and what each operating system
-asks a tester to click past when the download is not signed by a paying developer.
+For full architectural invariants, contracts, and boundaries, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/UI_DESIGN.md](docs/UI_DESIGN.md), and [docs/SHELL_CONTRACT.md](docs/SHELL_CONTRACT.md).
 
-Windows builds and packages the native WinUI application through the PowerShell scripts in
-`apps/goosic-windows`; the obsolete Swift Windows scripts have been removed. See
-[the Windows notes](apps/goosic-windows/HANDOFF.md) for commands and prerequisites.
+---
 
-The shell connects to the service on launch, so Home loads without any manual step. The sidebar button remains the way back if a transport failure drops the child process; playback stops when that happens, because the lease went with the service, and Play resumes the selected track once it reconnects.
+## Building and Testing
 
-### The GTK shell on Linux
+### Prerequisites
 
-`apps/goosic-linux` replaces the Swift build on Linux and is its own Cargo workspace. It needs Rust 1.92+ and the development headers for GTK 4.20+, WebKitGTK 6.0, GStreamer and libsoup 3 — `gtk4-devel webkitgtk6.0-devel gstreamer1-devel gstreamer1-plugins-base-devel libsoup3-devel` on Fedora — plus the same GStreamer runtime plugins as above. Until the Make targets exist, it runs against a service built from the root workspace:
+- **Rust:** 1.88+ with `rust-src`, `rustfmt`, and `clippy`.
+- **macOS:** Xcode with Swift 6 (macOS 14+ target).
+- **Windows:** .NET 8 / Windows App SDK (see [Windows Build Instructions](apps/goosic-windows/HANDOFF.md)).
+- **Linux:** GTK 4.20+, WebKitGTK 6, and GStreamer (or GNOME Flatpak SDK).
 
-```sh
-cargo build -p goosic-service
-cd apps/goosic-linux
-GOOSIC_SERVICE_PATH=../../target/debug/goosic-service cargo run
-cargo test
-```
-
-Closing its window keeps it playing; `Ctrl+Q` quits. Packaging it as a Flatpak, and the tools that needs, are in [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md), which also lists what the shell still lacks.
-
-To drive the authority without a shell at all, feed it compact JSON lines. Its stdout is protocol-only; diagnostics, if any, go to stderr.
+### Commands
 
 ```sh
-cargo build -p goosic-service
-echo '{"protocolVersion":"0.5.0","requestId":"1","command":"catalog.search","payload":{"query":"daft punk","filter":"songs"}}' \
-  | ./target/debug/goosic-service
+make test           # Run Rust tests and native Swift tests on macOS
+make test-rust      # Run Rust tests across crates
+make test-swift     # Run Swift tests only
+make build-swift    # Build native macOS shell
+make run-swift      # Build service and launch macOS shell
+make build-linux    # Build service and native GTK 4 shell on Linux
+make run-linux      # Launch GTK 4 shell against local service
+make package-macos  # Package Goosic.app for macOS
 ```
 
-## Current limitations
+---
 
-- **Linux account writes need live validation.** The GTK shell's read-only Home, playlist, liked-song and owned-playlist calls passed against an existing signed-in profile. Playlist creation, saving, renaming, privacy, deletion, likes and add-to-playlist are wired to the same reader but have not been tried against a real account. Exact playlist-entry removal and reordering still need the upstream per-entry identifier in the catalog projection.
-- **Online only.** Goosic has no downloads: it neither creates offline files nor imports the ones a previous Goosic saved, which stay untouched where they are. Everything plays through the official web player.
-- **The packaged Linux player needs full-session checks.** The GTK shell has played official audio on a live desktop, and the Flatpak builds offline, runs its tests, and connects to its bundled service. A complete sign-in, a track ending while the window is hidden, and playback on other desktop and graphics setups remain unverified.
-- **Windows preferences cannot be imported.** WebView2 keeps local storage in LevelDB rather than SQLite, and no reader for it exists here.
-- **Windows distribution is x64.** Native ARM64 packaging has not been validated for this release.
-- Catalog pages are clamped to one protocol frame; a clamped page says so rather than presenting a partial list as complete.
+## Release Notes & History
 
-`goosic-service` is a private, one-process-per-app, single-client child reached through inherited stdin/stdout. It is not a daemon or socket service; stdio must never be shared or multiplexed. Generation is freshness authorization within that boundary. Future multiplexing requires an unforgeable per-client capability and active-owner authorization before account resets.
+- [Release 0.4.3](docs/RELEASE_0.4.3.md): On macOS, a song YouTube Music swaps before it starts plays instead of skipping to the next row, and a song it refuses is named, dimmed and left out of new queues.
+- [Release 0.4.2](docs/RELEASE_0.4.2.md): Lyrics matched to the playing recording, Mac-style lyrics and timed import on Windows, and Go to Artist and Album on queue rows and song cards.
+- [Release 0.4.1](docs/RELEASE_0.4.1.md): Synchronized lyrics motion, end timestamps, and kinetic scrolling across platforms.
+- [Release 0.4.0](docs/RELEASE_0.4.0.md): Windows docked sidebar, black acrylic material, Settings categories, universal macOS alpha.
+- [Release 0.3.2](docs/RELEASE_0.3.2.md): Windows track fallback stability and responsive logging.
+- [Release 0.3.1](docs/RELEASE_0.3.1.md): Multi-display fixes and artist top songs deduplication.
+- [Release 0.3.0](docs/RELEASE_0.3.0.md): Dynamic artist hero banners and unified audio-taper volume curves.
+- [Release 0.2.9](docs/RELEASE_0.2.9.md): Compact sidebar rail and native macOS settings window.
+- [Browse all past releases](docs/)
 
-## Migration phases
-
-The rewrite from the previous Goosic:
-
-1. **Done** — protocol/core/service authority and the native shell.
-2. **Done** — the official WebView host and its origin-checked bridge: WKWebView on macOS and WebKitGTK in the native Linux shell.
-3. **Done** — the live catalog, search, and real playback from the catalog.
-4. **Done** — durable preferences and the legacy preference import.
-5. **Removed** — the legacy downloaded-media import, Rust decode cache and local-file playback were built, then dropped in protocol 0.5.0; Goosic plays online only.
-6. **Done (macOS and Linux)** — account profiles with isolated WebKit stores and system media controls; native platform material on macOS.
-7. **Done** — catalog artwork.
-8. **Built (macOS and native Linux)** — authenticated Home and Library reads through the active WebKit profile; native Linux reads passed a credentialed live check.
-9. **Built (macOS and native Linux)** — private playlist and album pages through that profile.
-10. **In progress** — Linux playlist creation, likes, saves and owned-playlist management are built; exact item edits and live mutation validation remain.
-11. **Next** — the remaining mutation surface and full packaged Linux acceptance.
-
-The move to native shells, from [the migration plan](docs/NATIVE_SHELL_MIGRATION.md):
-
-1. **Done** — the contract frozen: classification, conformance fixtures, and the compatibility manifest.
-2. **Done** — `goosic-shell-support`: the transport and the platform-neutral rules in Rust.
-3. **Implemented, live performance acceptance pending** — the native macOS shell.
-4. **Built, acceptance pending** — the GTK 4 shell and its offline Flatpak on Linux.
-5. **Implemented** — the WinUI 3 shell for Windows with an x64 installer and portable ZIP.
-6. **Done** — SwiftCrossUI dependencies, views, portable hosts, build scripts and CI have been removed. Native platform acceptance remains separate.
+---
 
 ## Licensing
 
-The original GoosicReborn code is MIT (`LICENSE`). Files that carry a GNU General Public
-License header — currently `apps/goosic-swift/Sources/GoosicSwift/Resources/PersonalCatalog.js`,
-ported from the previous Goosic — are GPL-3.0-or-later, with their original authors' copyright
-preserved. Because the shell links that program in, the application as distributed is under
-GPL-3.0 (`LICENSE-GPL-3.0`); the MIT grant continues to apply to the files that do not carry
-the GPL header.
+GoosicReborn is distributed under the GNU General Public License v3.0 ([LICENSE-GPL-3.0](LICENSE-GPL-3.0)). Core components and original GoosicReborn code are licensed under the MIT License ([LICENSE](LICENSE)), while components ported from the legacy Goosic codebase retain their original GPL-3.0 licensing.

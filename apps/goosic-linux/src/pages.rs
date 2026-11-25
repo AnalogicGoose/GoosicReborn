@@ -8,9 +8,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use goosic_protocol::{
-    AccountSummary, CatalogPage, DownloadedTrack, RequestPayload, ResponseEnvelope,
-};
+use goosic_protocol::{AccountSummary, ArtistHeader, CatalogPage, RequestPayload, ResponseEnvelope};
 use goosic_shell_support::catalog::{
     detail_subtitle, failure_text, Card, CardAction, PageView, Track,
 };
@@ -22,7 +20,7 @@ use goosic_shell_support::TransportError;
 pub enum LoadState {
     Idle,
     Loading,
-    Loaded(PageView),
+    Loaded(Box<PageView>),
     Failed { code: String, message: String },
 }
 
@@ -46,9 +44,11 @@ pub struct ShellFacts {
     pub start_page: String,
     pub reduce_motion: bool,
     pub artwork_background: bool,
-    pub downloads: DownloadsState,
-    /// A read or import of the downloaded files is in flight.
-    pub downloads_busy: bool,
+    pub discord_status: bool,
+    pub debug_mode: bool,
+    pub autoplay: bool,
+    pub shuffle: bool,
+    pub update_status: crate::updater::UpdateStatus,
 }
 
 impl Default for ShellFacts {
@@ -66,28 +66,12 @@ impl Default for ShellFacts {
             start_page: "home".into(),
             reduce_motion: false,
             artwork_background: true,
-            downloads: DownloadsState::NotRead,
-            downloads_busy: false,
+            discord_status: false,
+            debug_mode: false,
+            autoplay: true,
+            shuffle: false,
+            update_status: crate::updater::UpdateStatus::Idle,
         }
-    }
-}
-
-/// What the shell has read of the downloaded files.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub enum DownloadsState {
-    #[default]
-    NotRead,
-    Read(Vec<DownloadedTrack>),
-    Failed(String),
-}
-
-/// A file size as people read it.
-pub fn size_text(bytes: u64) -> String {
-    const MEGABYTE: f64 = 1024.0 * 1024.0;
-    if bytes as f64 >= MEGABYTE {
-        format!("{:.1} MB", bytes as f64 / MEGABYTE)
-    } else {
-        format!("{} KB", bytes.div_ceil(1024))
     }
 }
 
@@ -101,8 +85,26 @@ pub enum PageRow {
         title: String,
         subtitle: String,
     },
-    /// Says plainly that the catalog is anonymous, so nobody reads a guest shelf as their own mix.
-    GuestNotice,
+    /// macOS-style album/playlist collection header with cover, metadata, Shuffle and Play.
+    CollectionHeader {
+        title: String,
+        subtitle: String,
+        kind: String,
+        thumbnail: Option<String>,
+        tracks: Rc<[Track]>,
+        playlist_id: Option<String>,
+    },
+    /// macOS-style artist page hero with edge-to-edge banner/portrait, audience and round actions.
+    ArtistHero {
+        artist_id: String,
+        name: String,
+        header: Box<ArtistHeader>,
+        tracks: Rc<[Track]>,
+    },
+    /// Recently searched queries on the Search landing page, with a Clear button.
+    RecentSearches(Vec<String>),
+    /// macOS Search landing page: colorful Browse category destination cards.
+    SearchBrowse,
     LibrarySections(LibrarySection),
     LibraryActions,
     PlaylistActions(String),
@@ -128,8 +130,13 @@ pub enum PageRow {
         context: Rc<[Track]>,
     },
     ShelfTitle(String),
-    /// Four compact song rows per horizontal column, matching the Windows shelf.
+    /// Four compact song rows per horizontal column, matching macOS Quick picks.
     TrackShelf(Rc<[Track]>),
+    /// A titled horizontal card carousel with leading/trailing scroll chevrons.
+    CardShelf {
+        title: String,
+        cards: Vec<Card>,
+    },
     Cards(Vec<Card>),
     /// The service clamped the page to fit one protocol frame, and the screen has to say so.
     Truncated,
@@ -137,11 +144,6 @@ pub enum PageRow {
     Settings(ShellFacts),
     /// The end of a page that continues upstream.
     More(MoreRow),
-    /// Refresh and import, with what the screen does and does not do.
-    DownloadsToolbar {
-        busy: bool,
-    },
-    Download(DownloadedTrack),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,6 +209,8 @@ pub struct Browser {
     route: Route,
     detail: Option<EntityReference>,
     submitted_query: String,
+    recent_searches: Vec<String>,
+    track_find: String,
     filter: SearchFilter,
     library_section: LibrarySection,
     pages: HashMap<CatalogKey, LoadState>,
@@ -225,6 +229,8 @@ impl Browser {
             route: Route::Home,
             detail: None,
             submitted_query: String::new(),
+            recent_searches: Vec::new(),
+            track_find: String::new(),
             filter: SearchFilter::All,
             library_section: LibrarySection::Playlists,
             pages: HashMap::new(),
@@ -239,21 +245,50 @@ impl Browser {
     pub fn navigate(&mut self, route: Route) {
         self.route = route;
         self.detail = None;
+        self.track_find.clear();
     }
 
     pub fn open(&mut self, entity: EntityReference) {
         self.detail = Some(entity);
+        self.track_find.clear();
     }
 
     pub fn back(&mut self) {
         self.detail = None;
+        self.track_find.clear();
+    }
+
+    pub fn set_track_find(&mut self, query: &str) {
+        self.track_find = query.trim().to_owned();
+    }
+
+    pub fn clear_recent_searches(&mut self) {
+        self.recent_searches.clear();
+    }
+
+    pub fn can_find_tracks(&self) -> bool {
+        matches!(
+            self.detail,
+            Some(EntityReference::Album(_) | EntityReference::Playlist(_))
+        ) || (self.detail.is_none()
+            && self.route == Route::Library
+            && self.library_section == LibrarySection::Songs)
     }
 
     /// Records the query to search for. An empty one clears the results rather than searching
     /// for nothing, and returns false.
     pub fn submit_search(&mut self, text: &str) -> bool {
         self.submitted_query = text.trim().to_owned();
-        !self.submitted_query.is_empty()
+        if !self.submitted_query.is_empty() {
+            let query = self.submitted_query.clone();
+            self.recent_searches
+                .retain(|existing| !existing.eq_ignore_ascii_case(&query));
+            self.recent_searches.insert(0, query);
+            self.recent_searches.truncate(8);
+            true
+        } else {
+            false
+        }
     }
 
     /// Each filter is its own upstream query, so switching tabs is a new page rather than a
@@ -345,7 +380,7 @@ impl Browser {
         let state = match result {
             Ok(page) => {
                 self.set_cursor(&key, page.next_cursor.clone());
-                LoadState::Loaded(PageView::from_wire(&page))
+                LoadState::Loaded(Box::new(PageView::from_wire(&page)))
             }
             Err(message) => LoadState::Failed {
                 code: "accountUnavailable".to_owned(),
@@ -392,7 +427,7 @@ impl Browser {
             Ok(response) => match response.payload.and_then(|payload| payload.catalog) {
                 Some(page) => {
                     self.set_cursor(&key, page.next_cursor.clone());
-                    LoadState::Loaded(PageView::from_wire(&page))
+                    LoadState::Loaded(Box::new(PageView::from_wire(&page)))
                 }
                 None => LoadState::Failed {
                     code: "invalidResponse".to_owned(),
@@ -519,6 +554,17 @@ impl Browser {
         if facts.hide_explicit {
             rows = rows.into_iter().filter_map(without_explicit).collect();
         }
+        if !self.track_find.is_empty() && self.can_find_tracks() {
+            let needle = self.track_find.to_lowercase();
+            rows.retain(|row| match row {
+                PageRow::Track { track, .. } => {
+                    track.title.to_lowercase().contains(&needle)
+                        || track.artist.to_lowercase().contains(&needle)
+                        || track.album.to_lowercase().contains(&needle)
+                }
+                _ => true,
+            });
+        }
         rows
     }
 
@@ -527,47 +573,28 @@ impl Browser {
             return self.detail_rows(entity, facts);
         }
         let title = route_title(self.route);
-        let mut rows = vec![PageRow::Header {
-            title: title.to_owned(),
-            subtitle: route_subtitle(self.route).to_owned(),
-        }];
+        let mut rows = if self.route == Route::Search && self.current_key().is_none() {
+            Vec::new()
+        } else {
+            vec![PageRow::Header {
+                title: title.to_owned(),
+                subtitle: route_subtitle(self.route).to_owned(),
+            }]
+        };
         match self.route {
             Route::Search => match self.current_key() {
                 Some(key) => rows.extend(body_rows(
                     self.state(&key),
                     &format!("“{}”", self.submitted_query),
                 )),
-                None => rows.push(PageRow::Empty {
-                    title: "Start a search".to_owned(),
-                    message: "Every result is a real YouTube Music entry.".to_owned(),
-                }),
+                None => {
+                    if !self.recent_searches.is_empty() {
+                        rows.push(PageRow::RecentSearches(self.recent_searches.clone()));
+                    }
+                    rows.push(PageRow::SearchBrowse);
+                }
             },
             Route::Settings => rows.push(PageRow::Settings(facts.clone())),
-            Route::Downloads => {
-                rows.push(PageRow::DownloadsToolbar {
-                    busy: facts.downloads_busy,
-                });
-                match &facts.downloads {
-                    DownloadsState::NotRead => rows.push(PageRow::Loading {
-                        subject: "downloaded files".to_owned(),
-                    }),
-                    DownloadsState::Failed(message) => rows.push(PageRow::Failure {
-                        title: "Could not read downloaded files".to_owned(),
-                        detail: message.clone(),
-                    }),
-                    DownloadsState::Read(tracks) if tracks.is_empty() => {
-                        rows.push(PageRow::Empty {
-                            title: "No downloaded files".to_owned(),
-                            message: "Import the finalized files a previous Goosic left on this \
-                                      machine. Nothing is downloaded here."
-                                .to_owned(),
-                        })
-                    }
-                    DownloadsState::Read(tracks) => {
-                        rows.extend(tracks.iter().cloned().map(PageRow::Download))
-                    }
-                }
-            }
             Route::Library => match facts.account {
                 None => rows.push(PageRow::Empty {
                     title: "Not connected to an account".to_owned(),
@@ -588,9 +615,6 @@ impl Browser {
                 }
             },
             route if route.catalog_route().is_some() => {
-                if route != Route::Home || facts.account.is_none() {
-                    rows.push(PageRow::GuestNotice);
-                }
                 rows.extend(body_rows(
                     self.state(&CatalogKey::Route(route)),
                     &title.to_lowercase(),
@@ -607,23 +631,67 @@ impl Browser {
     fn detail_rows(&self, entity: &EntityReference, facts: &ShellFacts) -> Vec<PageRow> {
         let state = self.state(&CatalogKey::entity(entity));
         let kind = entity.kind_label();
-        let header = match state {
-            LoadState::Loaded(page) => PageRow::Header {
-                title: page.title.clone(),
-                subtitle: detail_subtitle(kind, &page.subtitle),
-            },
-            _ => PageRow::Header {
-                title: kind.to_owned(),
-                subtitle: "Loading from YouTube Music".to_owned(),
-            },
-        };
-        let mut rows = vec![PageRow::Back, header];
-        if let (EntityReference::Playlist(id), Some(_)) = (entity, &facts.account) {
-            rows.push(PageRow::PlaylistActions(id.clone()));
-        }
-        if let LoadState::Loaded(page) = state {
-            if !page.tracks.is_empty() {
-                rows.push(PageRow::PlayAll(page.tracks.clone().into()));
+        let mut rows = vec![PageRow::Back];
+        match state {
+            LoadState::Loaded(page) => {
+                let tracks: Rc<[Track]> = page.listed_tracks().into();
+                if let EntityReference::Artist(artist_id) = entity {
+                    if let Some(artist) = &page.artist {
+                        rows.push(PageRow::ArtistHero {
+                            artist_id: artist_id.clone(),
+                            name: page.title.clone(),
+                            header: Box::new(artist.clone()),
+                            tracks: tracks.clone(),
+                        });
+                    } else {
+                        rows.push(PageRow::Header {
+                            title: page.title.clone(),
+                            subtitle: detail_subtitle(kind, &page.subtitle),
+                        });
+                    }
+                    if !tracks.is_empty() {
+                        rows.push(PageRow::ShelfTitle("Top Songs".to_owned()));
+                    }
+                } else if matches!(
+                    entity,
+                    EntityReference::Album(_) | EntityReference::Playlist(_)
+                ) {
+                    let cover = tracks
+                        .first()
+                        .and_then(|t| t.thumbnail.clone())
+                        .or_else(|| {
+                            page.shelves
+                                .first()
+                                .and_then(|s| s.cards.first())
+                                .and_then(|c| c.thumbnail.clone())
+                        });
+                    let playlist_id = match (entity, &facts.account) {
+                        (EntityReference::Playlist(id), Some(_)) => Some(id.clone()),
+                        _ => None,
+                    };
+                    rows.push(PageRow::CollectionHeader {
+                        title: page.title.clone(),
+                        subtitle: detail_subtitle(kind, &page.subtitle),
+                        kind: kind.to_owned(),
+                        thumbnail: cover,
+                        tracks: tracks.clone(),
+                        playlist_id,
+                    });
+                } else {
+                    rows.push(PageRow::Header {
+                        title: page.title.clone(),
+                        subtitle: detail_subtitle(kind, &page.subtitle),
+                    });
+                }
+            }
+            _ => {
+                rows.push(PageRow::Header {
+                    title: kind.to_owned(),
+                    subtitle: "Loading from YouTube Music".to_owned(),
+                });
+                if let (EntityReference::Playlist(id), Some(_)) = (entity, &facts.account) {
+                    rows.push(PageRow::PlaylistActions(id.clone()));
+                }
             }
         }
         rows.extend(body_rows(state, &format!("this {}", kind.to_lowercase())));
@@ -679,22 +747,20 @@ pub fn route_title(route: Route) -> &'static str {
         Route::Charts => "Charts",
         Route::MoodsAndGenres => "Moods & genres",
         Route::NewReleases => "New releases",
-        Route::Downloads => "Downloads",
         Route::Settings => "Settings",
     }
 }
 
 fn route_subtitle(route: Route) -> &'static str {
     match route {
-        Route::Home => "Music picked for this session",
-        Route::Explore => "New releases, charts, moods, and genres",
-        Route::Search => "Search YouTube Music by title, artist, or album",
-        Route::Library => "Your saved music",
-        Route::Charts => "What is being played right now",
-        Route::MoodsAndGenres => "Find a feeling, then a playlist",
-        Route::NewReleases => "Albums and singles out now",
-        Route::Downloads => "Finalized files from the previous Goosic",
         Route::Settings => "Preferences, accounts, and the service",
+        Route::Home
+        | Route::Explore
+        | Route::Search
+        | Route::Library
+        | Route::Charts
+        | Route::MoodsAndGenres
+        | Route::NewReleases => "",
     }
 }
 
@@ -719,12 +785,17 @@ fn body_rows(state: &LoadState, subject: &str) -> Vec<PageRow> {
             message: format!("{subject} came back empty."),
         }],
         LoadState::Loaded(page) => {
-            let mut rows = track_rows(&page.tracks.clone().into());
-            for shelf in &page.shelves {
-                rows.push(PageRow::ShelfTitle(shelf.title.clone()));
+            let mut rows = track_rows(&page.listed_tracks().into());
+            for shelf in page.listed_shelves() {
                 match shelf.track_list() {
-                    Some(tracks) => rows.push(PageRow::TrackShelf(tracks.into())),
-                    None => rows.push(PageRow::Cards(shelf.cards.clone())),
+                    Some(tracks) => {
+                        rows.push(PageRow::ShelfTitle(shelf.title));
+                        rows.push(PageRow::TrackShelf(tracks.into()));
+                    }
+                    None => rows.push(PageRow::CardShelf {
+                        title: shelf.title,
+                        cards: shelf.cards,
+                    }),
                 }
             }
             if page.truncated {
@@ -767,6 +838,15 @@ fn without_explicit(row: PageRow) -> Option<PageRow> {
                 .into();
             (!tracks.is_empty()).then_some(PageRow::TrackShelf(tracks))
         }
+        PageRow::CardShelf { title, cards } => {
+            let cards = cards
+                .into_iter()
+                .filter(
+                    |card| !matches!(&card.action, Some(CardAction::Play(track)) if track.explicit),
+                )
+                .collect::<Vec<_>>();
+            (!cards.is_empty()).then_some(PageRow::CardShelf { title, cards })
+        }
         PageRow::Cards(cards) => {
             let cards = cards
                 .into_iter()
@@ -775,6 +855,48 @@ fn without_explicit(row: PageRow) -> Option<PageRow> {
                 )
                 .collect::<Vec<_>>();
             (!cards.is_empty()).then_some(PageRow::Cards(cards))
+        }
+        PageRow::CollectionHeader {
+            title,
+            subtitle,
+            kind,
+            thumbnail,
+            tracks,
+            playlist_id,
+        } => {
+            let tracks: Rc<[Track]> = tracks
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            Some(PageRow::CollectionHeader {
+                title,
+                subtitle,
+                kind,
+                thumbnail,
+                tracks,
+                playlist_id,
+            })
+        }
+        PageRow::ArtistHero {
+            artist_id,
+            name,
+            header,
+            tracks,
+        } => {
+            let tracks: Rc<[Track]> = tracks
+                .iter()
+                .filter(|track| !track.explicit)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+            Some(PageRow::ArtistHero {
+                artist_id,
+                name,
+                header,
+                tracks,
+            })
         }
         other => Some(other),
     }
@@ -885,15 +1007,16 @@ mod tests {
     }
 
     #[test]
-    fn a_loaded_page_draws_its_header_notice_shelves_and_truncation() {
+    fn a_loaded_page_draws_its_header_shelves_and_truncation() {
         let rows = rows(&loaded_home());
         assert!(matches!(&rows[0], PageRow::Header { title, .. } if title == "Home"));
-        assert_eq!(rows[1], PageRow::GuestNotice);
-        assert_eq!(rows[2], PageRow::ShelfTitle("Quick picks".into()));
+        assert_eq!(rows[1], PageRow::ShelfTitle("Quick picks".into()));
         // Song shelves keep their playback context in one horizontal group.
-        assert!(matches!(&rows[3], PageRow::TrackShelf(tracks) if tracks[0].video_id == "a"));
-        assert_eq!(rows[4], PageRow::ShelfTitle("Albums".into()));
-        assert!(matches!(&rows[5], PageRow::Cards(cards) if cards.len() == 1));
+        assert!(matches!(&rows[2], PageRow::TrackShelf(tracks) if tracks[0].video_id == "a"));
+        assert!(matches!(
+            &rows[3],
+            PageRow::CardShelf { title, cards } if title == "Albums" && cards.len() == 1
+        ));
         assert_eq!(rows.last(), Some(&PageRow::Truncated));
     }
 
@@ -917,8 +1040,11 @@ mod tests {
             }),
         );
         let rows = rows(&browser);
-        assert!(matches!(&rows[2], PageRow::PlayAll(tracks) if tracks.len() == 2));
-        match &rows[4] {
+        assert!(matches!(
+            &rows[1],
+            PageRow::CollectionHeader { tracks, .. } if tracks.len() == 2
+        ));
+        match &rows[3] {
             PageRow::Track { track, context } => {
                 assert_eq!(track.video_id, "b");
                 let ids: Vec<&str> = context.iter().map(|t| t.video_id.as_str()).collect();
@@ -942,7 +1068,7 @@ mod tests {
         );
         let rows = rows(&browser);
         assert!(
-            matches!(&rows[2], PageRow::Failure { title, .. } if title == "Catalog unreachable")
+            matches!(&rows[1], PageRow::Failure { title, .. } if title == "Catalog unreachable")
         );
     }
 
@@ -953,7 +1079,7 @@ mod tests {
         browser.fail_offline(key);
         let rows = rows(&browser);
         assert!(
-            matches!(&rows[2], PageRow::Failure { title, .. } if title == "Service not connected")
+            matches!(&rows[1], PageRow::Failure { title, .. } if title == "Service not connected")
         );
     }
 
@@ -963,9 +1089,7 @@ mod tests {
         browser.navigate(Route::Search);
         assert!(browser.shows_search_bar());
         assert_eq!(browser.current_key(), None);
-        assert!(
-            matches!(&rows(&browser)[1], PageRow::Empty { title, .. } if title == "Start a search")
-        );
+        assert_eq!(rows(&browser), vec![PageRow::SearchBrowse]);
 
         assert!(!browser.submit_search("   "), "blank is not a query");
         assert!(browser.submit_search("  daft punk "));
@@ -1088,10 +1212,12 @@ mod tests {
             rows.contains(&PageRow::ShelfTitle("Quick picks".into())),
             "the first part stays"
         );
-        assert!(rows.contains(&PageRow::ShelfTitle("More picks".into())));
+        assert!(rows
+            .iter()
+            .any(|row| matches!(row, PageRow::CardShelf { title, .. } if title == "More picks")));
         assert!(
             !rows.iter().any(|row| matches!(row, PageRow::More(_))),
-            "a part without a cursor ends the feed"
+            "a part without a cursor ends the feed, not an error"
         );
     }
 
@@ -1101,7 +1227,9 @@ mod tests {
         let (cursor, _) = browser.begin_more(&key).unwrap();
 
         browser.finish_more(key.clone(), "an-older-cursor", next_part("Stale"));
-        assert!(!rows(&browser).contains(&PageRow::ShelfTitle("Stale".into())));
+        assert!(!rows(&browser)
+            .iter()
+            .any(|row| matches!(row, PageRow::CardShelf { title, .. } if title == "Stale")));
 
         browser.finish_more(
             key.clone(),
@@ -1135,55 +1263,7 @@ mod tests {
     }
 
     #[test]
-    fn downloads_show_what_was_read_and_say_why_when_nothing_was() {
-        let mut browser = Browser::new();
-        browser.navigate(Route::Downloads);
-        assert_eq!(
-            browser.current_key(),
-            None,
-            "downloads read no catalog page"
-        );
-
-        let mut facts = ShellFacts::default();
-        assert!(matches!(browser.rows(&facts)[2], PageRow::Loading { .. }));
-
-        let track = DownloadedTrack {
-            video_id: "dQw4w9WgXcQ".into(),
-            title: "Song".into(),
-            artist: "Artist".into(),
-            bytes: 3 * 1024 * 1024,
-            available: true,
-            imported: true,
-        };
-        facts.downloads = DownloadsState::Read(vec![track.clone()]);
-        facts.downloads_busy = true;
-        let rows = browser.rows(&facts);
-        assert_eq!(rows[1], PageRow::DownloadsToolbar { busy: true });
-        assert_eq!(rows[2], PageRow::Download(track));
-
-        facts.downloads = DownloadsState::Read(Vec::new());
-        assert!(matches!(
-            &browser.rows(&facts)[2],
-            PageRow::Empty { title, .. } if title == "No downloaded files"
-        ));
-
-        facts.downloads = DownloadsState::Failed("store unavailable".into());
-        assert!(matches!(
-            &browser.rows(&facts)[2],
-            PageRow::Failure { detail, .. } if detail == "store unavailable"
-        ));
-    }
-
-    #[test]
-    fn sizes_read_as_people_say_them() {
-        assert_eq!(size_text(0), "0 KB");
-        assert_eq!(size_text(1), "1 KB");
-        assert_eq!(size_text(512 * 1024), "512 KB");
-        assert_eq!(size_text(5 * 1024 * 1024 + 512 * 1024), "5.5 MB");
-    }
-
-    #[test]
-    fn signed_in_home_shows_personal_shelves_without_a_guest_badge() {
+    fn signed_in_home_shows_personal_shelves() {
         let mut browser = Browser::new();
         let key = browser.current_key().unwrap();
         assert!(browser.begin_personal(&key, false));
@@ -1193,7 +1273,6 @@ mod tests {
             ..Default::default()
         };
         let rows = browser.rows(&facts);
-        assert!(!rows.contains(&PageRow::GuestNotice));
         assert!(rows.contains(&PageRow::ShelfTitle("Quick picks".into())));
     }
 
@@ -1230,7 +1309,6 @@ mod tests {
         let rows = browser.rows(&facts);
         assert!(rows.contains(&PageRow::LibrarySections(LibrarySection::Songs)));
         assert!(rows.iter().any(|row| matches!(row, PageRow::Track { .. })));
-        assert!(!rows.contains(&PageRow::GuestNotice));
         browser.clear_account_pages();
         assert_eq!(
             browser.state(&CatalogKey::Route(Route::Library)),
@@ -1278,9 +1356,11 @@ mod tests {
             ..Default::default()
         };
         let rows = browser.rows(&facts);
-        assert!(
-            matches!(rows.iter().find(|row| matches!(row, PageRow::PlayAll(_))), Some(PageRow::PlayAll(tracks)) if tracks.len() == 1)
-        );
+        assert!(matches!(
+            rows.iter()
+                .find(|row| matches!(row, PageRow::CollectionHeader { .. })),
+            Some(PageRow::CollectionHeader { tracks, .. }) if tracks.len() == 1
+        ));
         let tracks = rows
             .iter()
             .filter_map(|row| match row {
@@ -1291,5 +1371,35 @@ mod tests {
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].0.video_id, "a");
         assert_eq!(tracks[0].1.len(), 1);
+    }
+
+    #[test]
+    fn artist_pages_with_headers_present_a_hero_before_top_songs() {
+        let mut browser = Browser::new();
+        browser.open(EntityReference::Artist("UC123".into()));
+        let key = browser.current_key().unwrap();
+        browser.begin(&key, false);
+        browser.finish(
+            key,
+            answer(CatalogPage {
+                id: "UC123".into(),
+                title: "Daft Punk".into(),
+                tracks: vec![item(CatalogItemKind::Song, "a", Some("a"))],
+                artist: Some(ArtistHeader {
+                    banner: Some("https://lh3.googleusercontent.com/banner".into()),
+                    portrait: None,
+                    audience: Some("25M monthly audience".into()),
+                    description: Some("Electronic duo.".into()),
+                    subscribers: Some("3.9M".into()),
+                }),
+                ..Default::default()
+            }),
+        );
+        let rows = rows(&browser);
+        assert!(matches!(
+            &rows[1],
+            PageRow::ArtistHero { name, tracks, .. } if name == "Daft Punk" && tracks.len() == 1
+        ));
+        assert_eq!(rows[2], PageRow::ShelfTitle("Top Songs".into()));
     }
 }

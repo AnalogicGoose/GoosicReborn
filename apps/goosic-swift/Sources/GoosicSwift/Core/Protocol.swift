@@ -73,6 +73,9 @@ struct GoosicLyricsLine: Codable, Hashable, Identifiable {
     var words: [GoosicLyricsWord]? = nil
     /// Milliseconds into the track, or negative when the lyrics are not synced.
     var atMs: Int64
+    /// Where the line stops being sung, when the provider says. `nil` means unknown: the line
+    /// then stays current until the next one starts.
+    var endMs: Int64? = nil
     var text: String
 
     /// `ForEach` needs a stable identity, and repeated lyric lines share their text.

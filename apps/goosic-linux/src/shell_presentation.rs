@@ -85,8 +85,6 @@ impl Shell {
         };
         if owner == Owner::OfficialWebView && self.official.is_loaded_for(generation) {
             self.official.pause();
-        } else if owner == Owner::LocalDownloadedFile && self.local.is_loaded_for(generation) {
-            self.local.pause();
         }
         self.set_status("Sleep timer finished. Pause requested.");
     }
@@ -96,62 +94,91 @@ impl Shell {
         let full = self.full_open.get();
         let panel = !full && (self.queue_visible.get() || self.lyrics.borrow().visible);
         let geometry = layout::window(width, self.sidebar_open.get(), panel);
-        self.sidebar.set_halign(gtk::Align::Fill);
-        self.sidebar.set_width_request(-1);
-        self.sidebar
-            .set_margin_end((width - geometry.sidebar - 8).max(8));
-        self.sidebar.set_visible(self.sidebar_open.get() && !full);
-        self.main.set_margin_start(geometry.left + 26);
-        self.main.set_margin_end(geometry.right + 26);
-        // Clearance belongs to the scroll content, so rows can pass behind floating chrome.
+        self.sidebar_glass.set_halign(gtk::Align::Fill);
+        self.sidebar_glass.set_width_request(-1);
+        self.sidebar_glass
+            .set_margin_end((width - geometry.sidebar).max(0));
+        self.sidebar_glass.set_kind(if geometry.narrow {
+            GlassKind::SidebarOverlay
+        } else {
+            GlassKind::Sidebar
+        });
+        if geometry.narrow {
+            self.sidebar.root.add_css_class("goosic-sidebar-overlay");
+        } else {
+            self.sidebar.root.remove_css_class("goosic-sidebar-overlay");
+        }
+        self.sidebar_glass
+            .set_visible(self.sidebar_open.get() && !full);
+        self.main.set_margin_start(geometry.left);
+        self.main.set_margin_end(geometry.right);
+        // Clearance belongs to the scroll content, so rows pass smoothly behind frosted glass.
         self.main.set_margin_top(0);
         self.main.set_margin_bottom(0);
-        self.side.set_width_request(geometry.panel);
-        self.side
-            .set_margin_bottom(if geometry.stacked_player { 148 } else { 108 });
+        self.side_glass.set_width_request(geometry.panel);
+        self.side_glass
+            .set_margin_bottom(if geometry.stacked_player { 126 } else { 88 });
+        self.side_glass.set_visible(panel);
         self.bar.set_stacked(geometry.stacked_player);
-        self.bar.root.set_halign(gtk::Align::Fill);
-        self.bar.root.set_margin_start(geometry.player_left);
-        self.bar
-            .root
+        self.bar_glass.set_kind(if geometry.stacked_player {
+            GlassKind::PlayerStacked
+        } else {
+            GlassKind::PlayerPill
+        });
+        self.bar_glass.set_halign(gtk::Align::Fill);
+        self.bar_glass.set_margin_start(geometry.player_left);
+        self.bar_glass
             .set_margin_end((width - geometry.player_left - geometry.player_width).max(20));
-        // Request the available width; the maximum-width rule already lives in layout::window.
-        self.bar
-            .root
-            .set_width_request((geometry.player_width - 32).max(1));
-        self.bar.root.set_visible(!full);
-        self.sidebar_toggle.set_visible(!full);
+        self.bar_glass
+            .set_width_request((geometry.player_width - 28).max(1));
+        self.bar_glass.set_visible(!full);
+        self.sidebar_toggle_glass
+            .set_visible(!full && (geometry.narrow || !self.sidebar_open.get()));
         self.main.set_visible(!full);
         self.content.set_visible(true);
         self.full_player.root.set_visible(full);
         if full {
             self.window.add_css_class("goosic-immersive");
+            self.find_bar.set_visible(false);
         } else {
             self.window.remove_css_class("goosic-immersive");
         }
-        let available = (width - geometry.left - geometry.right - 52).max(1);
+        self.sync_appearance();
+        let available = (width - geometry.left - geometry.right).max(1);
         let search_inset = ((available - 620) / 2).max(0);
-        let navigation_clearance = if geometry.left == 0 { 32 } else { 0 };
+        let navigation_clearance = if geometry.left == 0 { 42 } else { 0 };
         self.search_bar
-            .set_margin_start(search_inset + navigation_clearance);
-        self.search_bar.set_margin_end(search_inset);
-        let search_height = self
-            .search_bar
-            .measure(gtk::Orientation::Vertical, available - navigation_clearance)
-            .1;
-        let top = if self.search_bar.is_visible() {
-            search_height + 32
+            .set_margin_start(geometry.left + search_inset + navigation_clearance);
+        self.search_bar
+            .set_margin_end(geometry.right + search_inset);
+        self.find_bar.set_margin_end(geometry.right + 24);
+        let search_showing = self.search_bar.is_visible() && !full;
+        let search_height = if search_showing {
+            self.search_bar
+                .measure(
+                    gtk::Orientation::Vertical,
+                    (available - navigation_clearance).max(1),
+                )
+                .1
         } else {
-            42
+            0
         };
-        let bar_height = self.bar.root.measure(gtk::Orientation::Vertical, -1).1;
-        ui::set_clearance(&self.rows, top, bar_height + 36);
+        let top = if search_showing {
+            search_height + 24
+        } else if geometry.left == 0 {
+            42
+        } else {
+            12
+        };
+        let bar_height = self.bar_glass.measure(gtk::Orientation::Vertical, -1).1;
+        ui::set_clearance(&self.rows, top, bar_height + 28);
         self.full_player.layout(
             width,
             height,
             self.lyrics.borrow().visible,
             full && self.queue_visible.get(),
         );
+        self.glass.invalidate();
     }
 
     pub(super) fn toggle_sidebar(self: &Rc<Self>) {
@@ -191,7 +218,10 @@ impl Shell {
     }
 
     pub(super) fn escape(self: &Rc<Self>) {
-        if self.bar.close_volume() || self.full_player.bar.close_volume() {
+        if self.find_bar.is_visible() {
+            return self.close_find_bar();
+        }
+        if self.bar.close_volume() {
             return;
         }
         if self.full_open.get() {
@@ -230,36 +260,47 @@ impl Shell {
     }
 
     pub(super) fn wire_keyboard(self: &Rc<Self>) {
-        type Shortcut = (&'static str, &'static str, fn(&Rc<Shell>));
+        type Shortcut = (&'static str, &'static [&'static str], fn(&Rc<Shell>));
         let bindings: &[Shortcut] = &[
-            ("next", "<Control>Right", Shell::next),
-            ("previous", "<Control>Left", Shell::previous),
-            ("mute", "<Control>m", Shell::toggle_muted),
-            ("shuffle", "<Control>s", Shell::toggle_shuffle),
-            ("repeat", "<Control>r", Shell::cycle_repeat),
-            ("search", "<Control>f", Shell::search_focus),
-            ("lyrics", "<Control>l", Shell::toggle_lyrics),
+            ("next", &["<Control>Right"], Shell::next),
+            ("previous", &["<Control>Left"], Shell::previous),
+            ("mute", &["<Control>m"], Shell::toggle_muted),
+            ("like", &["<Alt><Shift>b"], Shell::like_current_track),
+            ("shuffle", &["<Control>s"], Shell::toggle_shuffle),
+            ("repeat", &["<Control>r"], Shell::cycle_repeat),
+            ("search", &["<Control>f", "<Control>k"], Shell::search_focus),
+            ("find-in-list", &["<Control><Shift>f"], Shell::open_find_bar),
+            (
+                "lyrics",
+                &["<Control>l", "<Control><Alt>l"],
+                Shell::toggle_lyrics,
+            ),
             // Ctrl+Q remains Linux's explicit Quit action.
-            ("queue", "<Control><Shift>q", Shell::toggle_queue),
-            ("back", "<Alt>Left", Shell::back),
+            (
+                "queue",
+                &["<Control><Shift>q", "<Control><Alt>u"],
+                Shell::toggle_queue,
+            ),
+            ("mini-player", &["<Control><Alt>m"], Shell::open_mini_player),
+            ("back", &["<Alt>Left", "<Control>bracketleft"], Shell::back),
             (
                 "full-player",
-                "<Control><Shift>f",
+                &["<Control><Shift><Alt>f"],
                 Shell::toggle_full_player,
             ),
-            ("fullscreen", "F11", Shell::toggle_fullscreen),
-            ("escape", "Escape", Shell::escape),
-            ("sidebar", "<Control>b", Shell::toggle_sidebar),
+            ("fullscreen", &["F11"], Shell::toggle_fullscreen),
+            ("escape", &["Escape"], Shell::escape),
+            ("sidebar", &["<Control>b"], Shell::toggle_sidebar),
         ];
         let Some(app) = self.window.application() else {
             return;
         };
-        for &(name, key, method) in bindings {
+        for &(name, keys, method) in bindings {
             let action = gio::SimpleAction::new(name, None);
             let call = forward_unit(&Rc::downgrade(self), method);
             action.connect_activate(move |_, _| call());
             self.window.add_action(&action);
-            app.set_accels_for_action(&format!("win.{name}"), &[key]);
+            app.set_accels_for_action(&format!("win.{name}"), keys);
         }
         for (name, key, seek, delta) in [
             ("seek-forward", "<Shift>Right", true, 10.0),

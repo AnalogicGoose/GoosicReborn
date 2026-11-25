@@ -8,11 +8,14 @@ mod artwork;
 mod backdrop;
 mod background;
 pub mod bridge;
+pub mod discord;
 mod full_player;
+mod glass;
 pub mod layout;
-pub mod local_host;
 mod login_host;
 pub mod lyrics;
+pub mod mesh;
+mod mini_player;
 mod mpris;
 pub mod official_host;
 pub mod pages;
@@ -25,6 +28,7 @@ mod side_panels;
 mod status_icon;
 pub mod theme;
 mod ui;
+pub mod updater;
 mod web_profile;
 
 /// The application ID. It makes a second launch activate the running instance instead of starting

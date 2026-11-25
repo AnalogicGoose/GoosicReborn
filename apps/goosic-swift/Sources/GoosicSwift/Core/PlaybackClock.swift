@@ -10,3 +10,15 @@ import Combine
 final class PlaybackClock: ObservableObject {
     @Published var position: Double = 0
 }
+
+/// The position the renderer last confirmed, for the lyrics alone, and never throttled.
+///
+/// `PlaybackClock` is copied about once a second so the progress bars redraw that often. The
+/// lyrics interpolate between confirmations and may run ahead by only
+/// `LyricsTiming.interpolationLimit`, so anchoring them on a value up to a second stale made
+/// the sweep stall every second and the highlight jump back on pause. This one is written on
+/// every accepted sample of the loaded recording and observed only by the lyrics view.
+@MainActor
+final class LyricsClock: ObservableObject {
+    @Published var position: Double = 0
+}

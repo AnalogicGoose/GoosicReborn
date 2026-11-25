@@ -691,19 +691,6 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/matroska-demuxer/matroska-demuxer-0.8.1.crate",
-        "sha256": "4cbf36668475a45a46bf8710e927e7458b7c387e7c46ddb5457ae0c71cf5e817",
-        "dest": "cargo/vendor/matroska-demuxer-0.8.1"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"4cbf36668475a45a46bf8710e927e7458b7c387e7c46ddb5457ae0c71cf5e817\", \"files\": {}}",
-        "dest": "cargo/vendor/matroska-demuxer-0.8.1",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/memchr/memchr-2.8.3.crate",
         "sha256": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98",
         "dest": "cargo/vendor/memchr-2.8.3"
@@ -751,19 +738,6 @@
         "type": "inline",
         "contents": "{\"package\": \"9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50\", \"files\": {}}",
         "dest": "cargo/vendor/once_cell-1.21.4",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/opus-pure/opus-pure-0.2.1.crate",
-        "sha256": "de6a3cef053e1fdea38a5e50edb0789590a31184c5a59f6cd5e462fe844793e7",
-        "dest": "cargo/vendor/opus-pure-0.2.1"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"de6a3cef053e1fdea38a5e50edb0789590a31184c5a59f6cd5e462fe844793e7\", \"files\": {}}",
-        "dest": "cargo/vendor/opus-pure-0.2.1",
         "dest-filename": ".cargo-checksum.json"
     },
     {

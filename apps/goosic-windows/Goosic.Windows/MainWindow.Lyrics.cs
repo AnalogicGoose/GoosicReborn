@@ -1,4 +1,6 @@
+using System;
 using Goosic.Windows.Service;
+using Goosic.Windows.ViewModels;
 using Goosic.Windows.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -25,14 +27,31 @@ public sealed partial class MainWindow
 
     private void WireLyrics()
     {
-        _fullLyrics = new LyricsEffects(FullPlayerLyricsScroller, FullPlayerLyricsResume, immersive: true,
-            () => AnimationsEnabled, () => PlainEffects);
+        _fullLyrics = new LyricsEffects(FullPlayerLyricsScroller, FullPlayerLyricsContent, FullPlayerLyricsItems,
+            FullPlayerLyricsIntroduction, FullPlayerLyricsResume, immersive: true, Model.LyricFollower,
+            () => AnimationsEnabled, () => PlainEffects, () => CanSeekLyrics);
         // In the panel the sung line takes the accent, as on macOS; over a cover it stays white.
         Application.Current.Resources.TryGetValue("GoosicAccentBrush", out var accent);
-        _panelLyrics = new LyricsEffects(LyricsScroller, LyricsResume, immersive: false,
-            () => AnimationsEnabled, () => PlainEffects, accent as Microsoft.UI.Xaml.Media.Brush);
+        _panelLyrics = new LyricsEffects(LyricsScroller, LyricsContent, LyricsItems, LyricsIntroduction,
+            LyricsResume, immersive: false, Model.LyricFollower,
+            () => AnimationsEnabled, () => PlainEffects, () => CanSeekLyrics, accent as Microsoft.UI.Xaml.Media.Brush);
         _fullLyrics.Resumed += () => FollowLyricOnScreen(Model.CurrentLyricIndex);
         _panelLyrics.Resumed += () => FollowLyricOnScreen(Model.CurrentLyricIndex);
+        Model.LyricClockChanged += () =>
+        {
+            _fullLyrics.ClockChanged();
+            _panelLyrics.ClockChanged();
+        };
+        Closed += (_, _) =>
+        {
+            _fullLyrics.SetVisible(false);
+            _panelLyrics.SetVisible(false);
+        };
+        Model.LyricsLoaded += () =>
+        {
+            FollowLyricsAgain();
+            DispatcherQueue.TryEnqueue(() => FollowLyricOnScreen(Model.CurrentLyricIndex));
+        };
         if (PlainEffects)
         {
             return;
@@ -57,6 +76,89 @@ public sealed partial class MainWindow
 
     private void OnPanelLyricLineUnloaded(object sender, RoutedEventArgs e) => _panelLyrics?.Remove((TextBlock)sender);
 
+    /// <summary>
+    /// Seeks to a synced line the listener chose, from either view, as on macOS. Choosing a line is
+    /// choosing to listen from it, so that view follows the song again. Unsynced lines carry no
+    /// time and are not buttons in effect: a click on one does nothing.
+    /// </summary>
+    private async void OnLyricLineClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: LyricLineViewModel { Synced: true } line } button
+            || _playback is null || !CanSeekLyrics)
+        {
+            return;
+        }
+
+        (IsInFullPlayer(button) ? _fullLyrics : _panelLyrics)?.SetFollowing(true);
+        await SeekToAsync(line.AtMilliseconds / 1000.0);
+    }
+
+    /// <summary>Whether a lyric line may seek right now: the macOS shell's <c>canSeek</c>.</summary>
+    private bool CanSeekLyrics => Model.IsSeekable && _playback is not null;
+
+    private bool IsInFullPlayer(DependencyObject element)
+    {
+        for (var node = element; node is not null; node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node))
+        {
+            if (ReferenceEquals(node, FullPlayerLyricsScroller))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Lets the listener choose a timed-lyrics JSON file for the song playing now, for this
+    /// listening session, as the macOS context menu does. The file is read here and checked by the
+    /// model; nothing about it reaches the service or changes playback.
+    /// </summary>
+    private async void OnImportTimedLyrics(object sender, RoutedEventArgs e)
+    {
+        if (Model.ConfirmedTrack is not { } track)
+        {
+            Model.ReportStatus("Nothing is playing.");
+            return;
+        }
+
+        var picker = new global::Windows.Storage.Pickers.FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+        picker.FileTypeFilter.Add(".json");
+        picker.SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary;
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var size = (await file.GetBasicPropertiesAsync()).Size;
+            if (size == 0 || size > ShellViewModel.MaxImportedLyricsBytes)
+            {
+                Model.ReportStatus("Choose a lyrics file smaller than 2 MB.");
+                return;
+            }
+
+            var json = await global::Windows.Storage.FileIO.ReadTextAsync(file);
+            var document = System.Text.Json.JsonSerializer.Deserialize<LyricsDocument>(json, ServiceProtocol.Json);
+            if (document is null)
+            {
+                throw new System.Text.Json.JsonException("empty document");
+            }
+
+            Model.InstallImportedLyrics(document, track);
+        }
+        catch (Exception error)
+        {
+            // This is an async void handler: anything that escaped it would end the app. A file the
+            // listener chose is untrusted input, so every failure becomes a message.
+            BridgeLog.Write($"lyrics import failed: {error.GetType().Name}");
+            Model.ReportStatus("Could not read that lyrics file. Check its JSON format and try again.");
+        }
+    }
+
     private void OnResumeFullLyrics(object sender, RoutedEventArgs e) => _fullLyrics?.SetFollowing(true);
 
     private void OnResumePanelLyrics(object sender, RoutedEventArgs e) => _panelLyrics?.SetFollowing(true);
@@ -73,27 +175,22 @@ public sealed partial class MainWindow
     {
         _fullLyrics?.Refresh();
         _panelLyrics?.Refresh();
-        if (index < 0)
+        if (FullPlayer.Visibility == Visibility.Visible)
         {
-            return;
+            _fullLyrics?.Follow(true);
         }
 
-        if (FullPlayer.Visibility == Visibility.Visible && _fullLyrics?.Following == true
-            && FullPlayerLyricsItems.ContainerFromIndex(index) is FrameworkElement fullLine)
+        if (LyricsPanel.Visibility == Visibility.Visible)
         {
-            fullLine.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.36, AnimationDesired = true });
-        }
-
-        if (LyricsPanel.Visibility == Visibility.Visible && _panelLyrics?.Following == true
-            && LyricsItems.ContainerFromIndex(index) is FrameworkElement line)
-        {
-            line.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0.36, AnimationDesired = true });
+            _panelLyrics?.Follow(true);
         }
     }
 
     /// <summary>A new song is followed from its start, however the last one was left.</summary>
     private void FollowLyricsAgain()
     {
+        _fullLyrics?.Reset();
+        _panelLyrics?.Reset();
         _fullLyrics?.SetFollowing(true);
         _panelLyrics?.SetFollowing(true);
     }

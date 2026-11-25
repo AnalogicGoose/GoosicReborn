@@ -139,7 +139,7 @@ public sealed partial class MainWindow : Window
         if (sender is Button button)
         {
             button.IsEnabled = false;
-            await Model.LoadLyricsAsync();
+            await Model.LoadLyricsAsync(force: true);
             button.IsEnabled = true;
         }
 
@@ -155,6 +155,7 @@ public sealed partial class MainWindow : Window
         LyricsButton.IsChecked = lyrics;
         QueueButton.IsChecked = queue;
         LyricsPanel.Visibility = lyrics ? Visibility.Visible : Visibility.Collapsed;
+        _panelLyrics?.SetVisible(lyrics && FullPlayer.Visibility != Visibility.Visible);
         QueuePanel.Visibility = queue ? Visibility.Visible : Visibility.Collapsed;
         if (!queue)
         {
