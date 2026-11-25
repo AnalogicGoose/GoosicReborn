@@ -25,7 +25,8 @@ CloseApplications=yes
 RestartApplications=no
 
 [Tasks]
-Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
+; Require a fresh opt-in so an upgrade respects a shortcut the user deleted.
+Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked checkedonce
 
 [Files]
 Source: "..\..\dist\Goosic-{#AppVersion}-windows-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
