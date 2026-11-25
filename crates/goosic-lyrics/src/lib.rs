@@ -266,6 +266,26 @@ impl Default for LyricsClient {
     }
 }
 
+fn title_without_feature_credit(title: &str) -> Option<&str> {
+    let title = title.trim();
+    let (opening, closing) = match title.as_bytes().last()? {
+        b')' => ('(', ')'),
+        b']' => ('[', ']'),
+        _ => return None,
+    };
+    let (base, credit) = title.rsplit_once(opening)?;
+    let base = base.trim_end();
+    let credit = credit.strip_suffix(closing)?.trim();
+    let featured = ["feat. ", "feat ", "ft. ", "ft ", "featuring "]
+        .iter()
+        .any(|prefix| {
+            credit
+                .get(..prefix.len())
+                .is_some_and(|value| value.eq_ignore_ascii_case(prefix))
+        });
+    (!base.is_empty() && featured).then_some(base)
+}
+
 impl LyricsClient {
     pub fn new() -> Self {
         Self {
@@ -358,10 +378,10 @@ impl LyricsClient {
             }
         }
 
-        let mut request = self
-            .agent
-            .get(&format!("{BASE_URL}/search"))
-            .query("track_name", title);
+        let mut request = self.agent.get(&format!("{BASE_URL}/search")).query(
+            "track_name",
+            title_without_feature_credit(title).unwrap_or(title),
+        );
         if !query.artist.trim().is_empty() {
             request = request.query("artist_name", query.artist.trim());
         }
@@ -482,6 +502,32 @@ impl LyricsClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lyrics_search_only_removes_trailing_feature_credits() {
+        for title in [
+            "Song (feat. Artist)",
+            "Song [FT. Artist]",
+            "Song (featuring Artist)",
+        ] {
+            assert_eq!(title_without_feature_credit(title), Some("Song"));
+        }
+        assert_eq!(
+            title_without_feature_credit("Song (Live) (feat. Artist)"),
+            Some("Song (Live)")
+        );
+        for title in [
+            "Song (Live)",
+            "Song [Remix]",
+            "(Don't Fear) The Reaper",
+            "Song (feat. Artist) (Live)",
+            "(feat. Artist)",
+            "Song (日本語)",
+            "",
+        ] {
+            assert_eq!(title_without_feature_credit(title), None, "{title}");
+        }
+    }
 
     #[test]
     fn display_durations_become_seconds() {
