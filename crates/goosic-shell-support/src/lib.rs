@@ -21,6 +21,8 @@
 //! | [`catalog`] | `Catalog.swift` | which rows are playable and how a page is shaped |
 //! | [`playback`] | `Models.swift`, `VolumeTaper.swift` | what plays next, clamps, the volume taper, seek settling, preference saves |
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
+//! | [`queue_engine`] | `Models.swift`, C# `ShellViewModel.Queue` and `PlaybackOrder` | the whole listening queue: launch, Next/Previous, natural ends, shuffle, repeat, radio, editing, Clear and Undo |
+//! | [`player_text`] | `ListRules.swift`, C# `ListRules` | Up Next, song-count and sleep-timer copy |
 //! | [`lyrics`] | `Models.swift` | which line is current |
 //! | [`lyrics_motion`] | `LyricsTiming.swift`, C# lyrics rules | drawing spans, rests, interludes and row motion |
 //! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key, the playing cover's shape |
@@ -43,7 +45,9 @@ pub mod media;
 pub mod navigation;
 pub mod page_swap;
 pub mod playback;
+pub mod player_text;
 pub mod queue;
+pub mod queue_engine;
 pub mod response;
 mod text;
 

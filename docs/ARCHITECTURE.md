@@ -156,6 +156,56 @@ The official app runs its own "up next" queue. When it follows that queue to a v
 
 That rule alone cost every song its ending. With YouTube Music's Automix on, the app does not wait for a track to finish: it fades into its own choice some seconds early, so the move the observer reported came before the song was over. After each load the host therefore switches the page's Automix off (`AUTOMIX_OFF_SCRIPT` in `goosic-shell-support`, `OfficialBridge.automixOffScript` in Swift), and the page plays the requested track through. With Automix off the page does not report `ended`, though: it stops a fraction of a second short and reports `paused`. A pause within `END_TOLERANCE_SECONDS` of the length is treated as the end unless the listener paused it (`has_finished`, `TrackEnd.hasFinished`); without that, playback sat silent after every song.
 
+## The listening queue
+
+The queue is decided once, in Rust, by `QueueEngine` in `goosic-shell-support`
+(`queue_engine.rs`). Each shell used to keep its own, and the copies drifted in ways no operating
+system explained: a song chosen from a search played the search list in order on macOS and
+started a radio on Windows; shuffle jumped to a random position on one and reordered what was
+left on the other; Next on the last song wrapped to the top on one and continued with
+recommendations on the other. A shell now tells the engine what happened — a song was chosen,
+Next or Previous was pressed, the track ended, a page of recommendations arrived — and the engine
+answers with effects (play this entry, seek to the start, fetch recommendations, stop for the
+sleep timer, save shuffle and repeat, say this sentence) and a snapshot the shell draws. The
+macOS shell links `goosic-shell-support-ffi` statically and the Windows shell loads it as a DLL;
+commands and outcomes cross as JSON, with the serde shapes in the crate as the one definition.
+
+The engine holds no audio, web view, network or clock. It asks for recommendations rather than
+fetching them, because an account's recommendations are read inside that account's web profile,
+where its cookies live; the shell fetches, then reports the page or the failure, and a personal
+station that fails before its first page falls back once to the anonymous catalog's. It is not a
+second authority either: whether a track may play is still `goosic-core`'s answer through the
+lease, and the engine only decides what to ask for.
+
+The rules it holds, which every shell now shares:
+
+- Where a song was chosen decides how it starts. An album, a playlist, Liked Music or an artist's
+  songs play in their order; a search result, a shelf card or a quick pick starts a station from
+  that one song, which plays at once while its recommendations load.
+- A radio keeps three songs ahead of the one playing, so Next never waits, and asks again after a
+  short page only when that page added something, so a station answering with nothing new cannot
+  spin. A cursor that repeats the one just used ends the station; it is never re-seeded from its
+  last recommendation, which is what made long queues wander. Recommendations already queued,
+  played in the last 200 songs, or refused this session are left out, and a page never repeats a
+  song within itself. A late page for a queue that has since been replaced or cleared is dropped.
+- At the end of the queue, autoplay continues with a radio from the last song. Autoplay governs
+  only that continuation: with it off, the list the listener chose still plays through, and then
+  stops. Next on the last song continues a running radio even with autoplay off, because pressing
+  Next asks for something to play.
+- Repeat-one governs natural ends and reloads the song; Next and Previous still move, and wrap at
+  either end as they do under repeat-all. Without repeat, Previous on the first song, or more
+  than three seconds into any song, starts that song again; Next on the last song never wraps to
+  the top.
+- Shuffle reorders only what follows the playing song and remembers the order it replaced, so
+  turning it off puts the rest back; a shuffled launch leads with the chosen song, so Previous
+  never reaches a song that was never heard.
+- One end is acted on once per play, however often the player reports it. The sleep timer's
+  "end of this song" is honoured exactly where that end would otherwise advance.
+- Entries have engine-assigned ids, so a queue may hold a song twice and the one asked for is
+  the one with that id. The playing entry cannot be removed; Clear keeps history and the playing
+  entry, drops a pending page, and can be undone for ten seconds unless anything else changes the
+  queue first.
+
 ## System media controls
 
 The desktop's own transport — Now Playing on macOS, MPRIS over D-Bus on Linux — is an adapter

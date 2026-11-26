@@ -118,11 +118,14 @@ shell-support crate are the shared contract, while account profiles, windows and
 belong to each operating system. A platform-only change stays in that app; a shared rule change
 lands on `development` first.
 
-Those platform-neutral rules now also live in Rust, in `goosic-shell-support` — login
-navigation policy, bridge event validation, media projection, catalog conversion, queue
-selection and the rest; the crate documentation has the table. Until the Swift shell consumes
-that crate, the two copies are held to the same test cases and nothing else keeps them in step,
-so a change to one of those rules is a change to both, in the same commit.
+Those platform-neutral rules live in Rust, in `goosic-shell-support` — login navigation policy,
+bridge event validation, media projection, catalog conversion, the listening queue and the rest;
+the crate documentation has the table. Both shells call it through `goosic-shell-support-ffi`:
+Windows loads the DLL, macOS links the static library, and the queue (`QueueEngine`) and the
+player's queue copy come only from there. **A new rule goes into the crate, not into a shell.**
+Rules a shell has not yet moved over keep a copy held to the same test cases, and a change to one
+of those is a change to the Rust rule and every copy, in the same commit; moving the copy onto the
+crate is better still.
 
 A stub reports the limitation. It must never produce sound or silently succeed, because that
 would let a renderer escape Rust's authority. When you implement one for a platform, keep the
