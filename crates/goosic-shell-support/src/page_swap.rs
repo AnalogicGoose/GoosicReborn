@@ -79,10 +79,17 @@ pub struct EarlySwitch<'a> {
     pub page_video_id: &'a str,
     /// The page's own title for that video; empty when it could not be read.
     pub page_title: &'a str,
-    /// Whether the load was the listener's own choice rather than a version already loaded in its
-    /// place. A version may be swapped in once; swapping again is the page wandering.
-    pub may_adopt: bool,
+    /// How many versions have already been loaded in place of the listener's choice.
+    pub adoptions: u32,
 }
+
+/// How many times one choice may be replaced by another version of the same song.
+///
+/// One was not enough. The page follows its Song/Video setting: a load can be swapped for the
+/// music video, and the video swapped back once the shell has set the page to prefer the song.
+/// Refusing that second swap skipped songs the page was perfectly willing to play. A third is the
+/// page going round in circles, and the song is skipped rather than reloaded for ever.
+pub const MAX_ADOPTIONS: u32 = 2;
 
 /// What a shell does with an [`EarlySwitch`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,7 +112,7 @@ pub fn decide_early_switch(
     if loaded_video_id != Some(switch.requested_video_id) {
         return EarlySwitchDecision::Ignore;
     }
-    if switch.may_adopt
+    if switch.adoptions < MAX_ADOPTIONS
         && switch.page_video_id != switch.requested_video_id
         && is_same_song(chosen_title, switch.page_title)
     {
@@ -161,12 +168,12 @@ mod tests {
         assert!(!heard_playing("playing", 15.0, true));
     }
 
-    fn switch<'a>(page: &'a str, title: &'a str, may_adopt: bool) -> EarlySwitch<'a> {
+    fn switch<'a>(page: &'a str, title: &'a str, adoptions: u32) -> EarlySwitch<'a> {
         EarlySwitch {
             requested_video_id: "requested01",
             page_video_id: page,
             page_title: title,
-            may_adopt,
+            adoptions,
         }
     }
 
@@ -177,7 +184,7 @@ mod tests {
                 &switch(
                     "musicvideo1",
                     "Hold On, We're Going Home (feat. Majid Jordan)",
-                    true
+                    0
                 ),
                 Some("requested01"),
                 "Hold On, We\u{2019}re Going Home",
@@ -191,26 +198,37 @@ mod tests {
     #[test]
     fn another_song_or_an_unread_title_is_a_refusal() {
         let chosen = "Hold On, We're Going Home";
-        let other = switch("othersong01", "Moment 4 Life (feat. Drake)", true);
+        let other = switch("othersong01", "Moment 4 Life (feat. Drake)", 0);
         assert_eq!(
             decide_early_switch(&other, Some("requested01"), chosen),
             EarlySwitchDecision::Refused
         );
         assert_eq!(
-            decide_early_switch(
-                &switch("othersong01", "", true),
-                Some("requested01"),
-                chosen
-            ),
+            decide_early_switch(&switch("othersong01", "", 0), Some("requested01"), chosen),
             EarlySwitchDecision::Refused
         );
     }
 
     #[test]
-    fn an_adopted_version_is_not_swapped_again() {
+    fn an_adopted_version_may_be_swapped_back_once() {
+        // The page swapped the song for its video, then the video back for the song.
         assert_eq!(
             decide_early_switch(
-                &switch("thirdone001", "Hold On, We're Going Home", false),
+                &switch("songversion", "Hold On, We're Going Home", 1),
+                Some("requested01"),
+                "Hold On, We're Going Home",
+            ),
+            EarlySwitchDecision::Adopt {
+                video_id: "songversion".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn a_page_going_round_in_circles_is_a_refusal() {
+        assert_eq!(
+            decide_early_switch(
+                &switch("thirdone001", "Hold On, We're Going Home", MAX_ADOPTIONS),
                 Some("requested01"),
                 "Hold On, We're Going Home",
             ),
@@ -222,14 +240,14 @@ mod tests {
     fn a_report_for_an_earlier_load_is_ignored() {
         assert_eq!(
             decide_early_switch(
-                &switch("othersong01", "Anything", true),
+                &switch("othersong01", "Anything", 0),
                 Some("nextsong001"),
                 "x"
             ),
             EarlySwitchDecision::Ignore
         );
         assert_eq!(
-            decide_early_switch(&switch("othersong01", "Anything", true), None, "x"),
+            decide_early_switch(&switch("othersong01", "Anything", 0), None, "x"),
             EarlySwitchDecision::Ignore
         );
     }
