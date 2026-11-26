@@ -1939,11 +1939,9 @@ private struct NativeMacPageMenu: SwiftUI.View {
                     let shown = model.visible(page.listedTracks)
                     SwiftUI.Button("Shuffle", systemImage: "shuffle") {
                         if !model.shuffle { model.toggleShuffle() }
-                        if let pick = shown.randomElement() {
-                            model.launch(.ordered(pick, shown), source: QueueSource(
-                                title: page.title, key: .entity(entity)
-                            ))
-                        }
+                        model.launch(shown, shuffled: true, source: QueueSource(
+                            title: page.title, key: .entity(entity)
+                        ))
                     }
                     .disabled(shown.isEmpty)
                 }
@@ -2081,7 +2079,7 @@ struct NativeMacQueuePanel: SwiftUI.View {
     private func queueRow(_ track: GoosicTrack, index: Int) -> some SwiftUI.View {
         let isCurrent = index == model.queue.currentIndex
         return SwiftUI.Button {
-            model.play(track, queueIndex: index)
+            model.play(queueIndex: index)
         } label: {
             SwiftUI.HStack(spacing: 10) {
                 NativeMacPanelArtwork(url: track.thumbnail, size: 40)

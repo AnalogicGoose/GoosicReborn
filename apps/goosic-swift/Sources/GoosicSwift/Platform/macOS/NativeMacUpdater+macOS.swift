@@ -8,7 +8,7 @@ import Sparkle
 ///
 /// The feed holds stable items and experimental ones, which carry a `sparkle:channel`. Which
 /// channels this copy may install from is `goosic-shell-support`'s `updates` rule, the one the
-/// Windows updater asks; Sparkle skips every item on a channel that is not allowed.
+/// Windows updater asks too; Sparkle skips every item on a channel that is not allowed.
 @MainActor
 final class NativeMacUpdater: NSObject {
     static let shared = NativeMacUpdater()
@@ -68,20 +68,10 @@ final class NativeMacUpdater: NSObject {
     }
 }
 
-extension NativeMacUpdater {
-    /// The Sparkle channels, beyond the default one, a copy on `channel` may install from.
-    ///
-    /// The Swift copy of `sparkle_channels` in `goosic-shell-support`'s `updates` module, held
-    /// to its test cases, until this app links the rules library and asks it directly.
-    nonisolated static func sparkleChannels(for channel: String) -> [String] {
-        channel == "experimental" ? ["experimental"] : []
-    }
-}
-
 #if canImport(Sparkle)
 extension NativeMacUpdater: @preconcurrency SPUUpdaterDelegate {
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
-        Set(Self.sparkleChannels(for: channel))
+        Set(SharedRules.updateChannels(channel))
     }
 }
 #endif
