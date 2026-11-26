@@ -32,6 +32,14 @@ enum StartWatch {
     }
 }
 
+/// `shows_loading` in goosic-shell-support, which Windows asks too: a requested track not yet
+/// heard, or one the page reports buffering, shows as loading unless the listener paused.
+enum PlayerLoading {
+    static func shows(awaitingStart: Bool, buffering: Bool, listenerPaused: Bool) -> Bool {
+        goosic_player_shows_loading(awaitingStart, buffering, listenerPaused)
+    }
+}
+
 /// What the shared play script concluded; see `OfficialBridge.listenerPlayScript`.
 enum PlayOutcome: Equatable {
     case played

@@ -41,6 +41,16 @@ final class OfficialPlaybackHost: NSObject {
     private var startWatchTask: Task<Void, Never>?
     /// The last state a validated sample reported, to notice the page pausing by itself.
     private var lastSampleState = ""
+    /// Whether the latest transport request, or the load itself, asked for a pause.
+    private var requestedPaused = false
+    /// Whether the start watch has stopped watching this load: the track was heard, the listener
+    /// took over, or it gave up. The loading indicator never outlives it.
+    private var startWatchEnded = false
+    /// Whether the latest validated sample said the media is buffering.
+    private var lastBuffering = false
+    private var loadingShown = false
+    /// Whether the player should show that it is loading; see `PlayerLoading`.
+    var onLoadingChanged: ((Bool) -> Void)?
     private var activeProfile = OfficialPlaybackProfile.guest
     private(set) var loadedVideoID: String?
     private(set) var isLoading = false
@@ -172,6 +182,9 @@ final class OfficialPlaybackHost: NSObject {
         heardPlaying = false
         listenerTookOver = startPaused
         lastSampleState = ""
+        requestedPaused = startPaused
+        startWatchEnded = false
+        lastBuffering = false
         let token = UUID().uuidString
         expectedToken = token
         expectedGeneration = generation
@@ -224,6 +237,7 @@ final class OfficialPlaybackHost: NSObject {
         // version loaded in place of a swapped song keeps a pause the listener asked for while
         // its title was being read, instead of starting anyway.
         transport.request(paused: startPaused)
+        refreshLoading()
         onStatus?("Official host loading \(videoID)…")
     }
 
@@ -329,6 +343,9 @@ final class OfficialPlaybackHost: NSObject {
         heardPlaying = false
         listenerTookOver = false
         lastSampleState = ""
+        requestedPaused = false
+        startWatchEnded = false
+        lastBuffering = false
         expectedToken = nil
         expectedGeneration = nil
         expectedVideoID = nil
@@ -340,6 +357,7 @@ final class OfficialPlaybackHost: NSObject {
         strayReports = 0
         loadedVideoID = nil
         isLoading = false
+        refreshLoading()
     }
 
     func detach(completion: (@MainActor () -> Void)? = nil) {
@@ -373,8 +391,22 @@ final class OfficialPlaybackHost: NSObject {
         }
         if fromListener { listenerTookOver = true }
         transportFromListener = fromListener
+        requestedPaused = paused
         transport.request(paused: paused)
+        refreshLoading()
         drainTransport()
+    }
+
+    /// Tells the shell when the loading indicator should appear or go. Only a change is sent.
+    private func refreshLoading() {
+        let shows = PlayerLoading.shows(
+            awaitingStart: expectedToken != nil && !heardPlaying && !startWatchEnded,
+            buffering: lastBuffering,
+            listenerPaused: requestedPaused
+        )
+        guard shows != loadingShown else { return }
+        loadingShown = shows
+        onLoadingChanged?(shows)
     }
 
     /// Keep an early click until a validated sample proves that the media element exists.
@@ -445,12 +477,16 @@ final class OfficialPlaybackHost: NSObject {
                 case .wait:
                     continue
                 case .done:
+                    self.startWatchEnded = true
+                    self.refreshLoading()
                     return
                 case .nudge:
                     nudged = true
                     self.nudgePlay(token: token)
                 case .giveUp:
                     Diagnostics.note(.officialPlayback, "never-started")
+                    self.startWatchEnded = true
+                    self.refreshLoading()
                     self.probePage()
                     let requested = self.expectedVideoID ?? ""
                     self.onNeverStarted?(requested)
@@ -644,6 +680,8 @@ final class OfficialPlaybackHost: NSObject {
             noticeIdlePrompt(token: token)
         }
         lastSampleState = event.state
+        lastBuffering = event.buffering ?? false
+        refreshLoading()
         if PageSwap.heardPlaying(
             state: event.state, duration: event.duration, isAdvertisement: event.isAdvertisement
         ) {

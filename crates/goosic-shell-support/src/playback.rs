@@ -553,6 +553,17 @@ pub fn start_watch(
     StartWatchAction::Wait
 }
 
+/// Whether the player shows that it is loading instead of a Play or Pause it cannot honour yet.
+///
+/// Loading is the wait between a request and sound: a requested track not yet heard playing
+/// (`awaiting_start`, which the start watch ends within [`START_GIVE_UP_AFTER_SECONDS`]), or a
+/// playing track the page reports as buffering. A pause the listener asked for always shows as
+/// paused, so the indicator never stands in for their choice, and it can never outlive the
+/// watch: the specification forbids a permanent preparation spinner.
+pub fn shows_loading(awaiting_start: bool, buffering: bool, listener_paused: bool) -> bool {
+    !listener_paused && (awaiting_start || buffering)
+}
+
 #[cfg(test)]
 mod start_watch_tests {
     use super::{start_watch, StartWatchAction::*};
@@ -586,6 +597,21 @@ mod start_watch_tests {
     fn a_pause_the_listener_chose_is_left_alone() {
         assert_eq!(start_watch(5.0, false, true, false), Done);
         assert_eq!(start_watch(60.0, false, true, false), Done);
+    }
+
+    #[test]
+    fn loading_shows_while_waiting_for_sound_but_never_over_a_pause() {
+        use super::shows_loading;
+        assert!(
+            shows_loading(true, false, false),
+            "a requested track not yet heard"
+        );
+        assert!(
+            shows_loading(false, true, false),
+            "a playing track that is buffering"
+        );
+        assert!(!shows_loading(false, false, false), "playing");
+        assert!(!shows_loading(true, true, true), "the listener paused");
     }
 }
 

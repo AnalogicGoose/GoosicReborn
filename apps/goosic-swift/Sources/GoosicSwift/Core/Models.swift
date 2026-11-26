@@ -326,6 +326,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published private(set) var isAdvertisement = false
     /// System media controls stay empty until the active renderer confirms one valid sample.
     @Combine.Published private(set) var hasConfirmedPlaybackSample = false
+    /// The player is waiting to hear a requested track, or the page reports it buffering. Shown
+    /// as a spinner in Play's place; it never outlives the host's start watch.
+    @Combine.Published private(set) var isLoadingTrack = false
     @Combine.Published private(set) var autoplay = true
     @Combine.Published private(set) var shuffle = false
     @Combine.Published private(set) var repeatMode: RepeatMode = .off
@@ -530,6 +533,10 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         officialPlaybackHost.onNeverStarted = { [weak self] requestedVideoID in
             self?.officialTrackNeverStarted(requestedVideoID)
+        }
+        officialPlaybackHost.onLoadingChanged = { [weak self] loading in
+            guard let self, self.isLoadingTrack != loading else { return }
+            self.isLoadingTrack = loading
         }
         officialPlaybackHost.onStatus = { [weak self] message in
             self?.hostStatus = message

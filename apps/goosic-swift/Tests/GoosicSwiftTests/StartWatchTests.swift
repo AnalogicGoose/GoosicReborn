@@ -31,6 +31,13 @@ final class StartWatchTests: XCTestCase {
         XCTAssertEqual(after(60, listener: true), .done)
     }
 
+    func testLoadingShowsWhileWaitingForSoundButNeverOverAPause() {
+        XCTAssertTrue(PlayerLoading.shows(awaitingStart: true, buffering: false, listenerPaused: false))
+        XCTAssertTrue(PlayerLoading.shows(awaitingStart: false, buffering: true, listenerPaused: false))
+        XCTAssertFalse(PlayerLoading.shows(awaitingStart: false, buffering: false, listenerPaused: false))
+        XCTAssertFalse(PlayerLoading.shows(awaitingStart: true, buffering: true, listenerPaused: true))
+    }
+
     func testPlayOutcomesKeepTheErrorName() {
         XCTAssertEqual(PlayOutcome("played"), .played)
         XCTAssertEqual(PlayOutcome("no-media"), .noMedia)

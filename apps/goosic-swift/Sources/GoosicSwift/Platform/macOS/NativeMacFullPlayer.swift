@@ -205,6 +205,8 @@ struct NativeMacFullPlayer: View {
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
+    /// The spinner in Play's place; see the player bar's. It disables nothing.
+    private var loading: Bool { busy || model.isLoadingTrack }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
     private var paletteFile: URL? { model.artworkFile(for: model.currentTrack?.thumbnail) }
     private var lyricsUnavailable: Bool {
@@ -582,14 +584,15 @@ struct NativeMacFullPlayer: View {
                 Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
                     .font(.system(size: 34))
                     .modifier(NativeMacSymbolTransition(symbol: model.isPaused ? "play.fill" : "pause.fill"))
-                    .opacity(busy ? 0 : 1)
-                if busy { ProgressView().controlSize(.regular) }
+                    .opacity(loading ? 0 : 1)
+                if loading { ProgressView().controlSize(.regular) }
             }
             .frame(width: 52, height: 52)
             .contentShape(Rectangle())
         }
         .buttonStyle(NativeMacPlayerButtonStyle())
         .accessibilityLabel(model.isPaused ? "Play" : "Pause")
+        .accessibilityValue(loading ? "Loading" : "")
 
         .disabled(!canControl)
     }

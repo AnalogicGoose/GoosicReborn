@@ -97,6 +97,17 @@ pub extern "C" fn goosic_start_watch(
     ) as u8
 }
 
+/// Whether the player shows that it is loading: a requested track not yet heard, or one the page
+/// reports buffering, unless the listener paused.
+#[no_mangle]
+pub extern "C" fn goosic_player_shows_loading(
+    awaiting_start: bool,
+    buffering: bool,
+    listener_paused: bool,
+) -> bool {
+    playback::shows_loading(awaiting_start, buffering, listener_paused)
+}
+
 /// What to do when the page switched to `page_video_id` before `requested_video_id` was heard:
 /// `0` ignore it (the load is no longer current), `1` treat the track as refused, `2` adopt the
 /// page's video, which is another version of the chosen song, in the requested one's place.
@@ -214,5 +225,7 @@ mod tests {
         assert_eq!(goosic_start_watch(4.0, false, false, false), 1);
         assert_eq!(goosic_start_watch(20.0, false, false, true), 2);
         assert_eq!(goosic_start_watch(60.0, true, false, false), 3);
+        assert!(goosic_player_shows_loading(true, false, false));
+        assert!(!goosic_player_shows_loading(true, false, true));
     }
 }

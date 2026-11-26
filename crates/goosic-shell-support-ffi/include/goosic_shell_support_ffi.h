@@ -59,6 +59,7 @@ bool goosic_seek_settle(double confirmed, double target, double elapsed_seconds,
 /* 0 wait, 1 ask the page to play once, 2 give the track up, 3 stop watching. */
 uint8_t goosic_start_watch(double since_loaded_seconds, bool heard_playing,
                            bool listener_took_over, bool nudged);
+bool goosic_player_shows_loading(bool awaiting_start, bool buffering, bool listener_paused);
 
 /* Page scripts and limits a host injects or obeys. */
 char *goosic_bridge_active_media_element_script(void);
