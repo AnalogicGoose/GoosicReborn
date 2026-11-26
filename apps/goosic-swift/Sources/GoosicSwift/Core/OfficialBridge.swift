@@ -20,9 +20,8 @@ struct OfficialPageSwap: Equatable {
     let pageVideoID: String
     /// The page's own title for the video it switched to; empty when it could not be read.
     let pageTitle: String
-    /// Whether the requested load was the listener's own choice rather than a version already
-    /// loaded in its place.
-    let mayAdopt: Bool
+    /// How many versions have already been loaded in place of the listener's choice.
+    let adoptions: Int
 }
 
 struct OfficialPlaybackProfile: Equatable {
@@ -146,6 +145,35 @@ enum OfficialBridge {
     static let automixOffScript = sharedText(goosic_bridge_automix_off_script())
 
     static let automixAttempts = Int(goosic_bridge_automix_attempts())
+
+    /// Sets the official page's Song/Video switch to Song, reporting what it found.
+    ///
+    /// A song with both an audio version and a music video plays whichever the switch prefers,
+    /// and the page swaps the requested id for the other version before it starts. With the
+    /// switch on Video a song was swapped for its video, and the video could be swapped back,
+    /// which was taken for a refusal. Goosic plays the song, as the web app does when Song is
+    /// chosen. The switch is disabled when a track has one version, and a video with no song
+    /// version plays as a video. The Swift copy of `bridge::SONG_VERSION_SCRIPT` in
+    /// `goosic-shell-support`; it answers `absent`, `song`, `switched`, `pending` or
+    /// `no song version`.
+    static let songVersionScript = """
+    (() => {
+      const toggle = document.querySelector('ytmusic-av-toggle');
+      const song = toggle?.querySelector('.song-button');
+      if (!song) return 'absent';
+      if (song.getAttribute('aria-pressed') === 'true') return 'song';
+      if (toggle.hasAttribute('toggle-disabled')) return 'no song version';
+      song.click();
+      return song.getAttribute('aria-pressed') === 'true' ? 'switched' : 'pending';
+    })()
+    """
+
+    /// Whether a host stops running `songVersionScript` after this answer.
+    static func songVersionSettled(_ answer: String) -> Bool {
+        ["song", "switched", "no song version"].contains(answer)
+    }
+
+    static let songVersionAttempts = 20
 
     /// The per-load page observer.
     ///

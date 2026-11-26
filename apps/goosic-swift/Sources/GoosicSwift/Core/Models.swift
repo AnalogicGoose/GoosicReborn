@@ -3443,7 +3443,7 @@ final class GoosicAppModel: Combine.ObservableObject {
                 generation: playbackState.generation,
                 volume: volume,
                 muted: isMuted,
-                allowsSubstitute: false,
+                adoptions: swap.adoptions + 1,
                 // A pause pressed while the title was being read still holds.
                 startPaused: listenerPaused
             )

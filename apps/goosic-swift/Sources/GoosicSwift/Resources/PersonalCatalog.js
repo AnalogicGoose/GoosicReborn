@@ -502,6 +502,13 @@ const GoosicPersonalCatalog = (() => {
     return sorted.at(-1)?.url ?? null;
   };
 
+  function artistLine(artists) {
+    const names = (artists ?? []).map((artist) => artist?.name ?? "").filter((name) => name);
+    if (names.length === 0) return null;
+    if (names.length === 1) return names[0];
+    return `${names.slice(0, -1).join(", ")} & ${names.at(-1)}`;
+  }
+
   function toWireItem(item) {
     if (!item) return null;
     const playable = item.kind === "song" || item.kind === "video";
@@ -510,7 +517,9 @@ const GoosicPersonalCatalog = (() => {
       id: item.id,
       title: item.title,
       subtitle: item.subtitle ?? "",
-      artist: item.artists?.[0]?.name ?? null,
+      // Every artist of a collaboration, joined the way YouTube Music writes them, as
+      // "A & B" or "A, B & C"; the id stays the first artist's, where its button leads.
+      artist: artistLine(item.artists),
       artistId: item.artists?.[0]?.id ?? null,
       album: item.album ?? null,
       albumId: item.albumId ?? null,
