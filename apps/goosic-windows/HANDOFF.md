@@ -113,7 +113,8 @@ is a separate toggle / F11 inside it) over a moving mesh of the cover's colours.
 | `MainWindow.Keyboard.cs` / `.SystemMedia.cs` | Accelerators; SMTC wiring |
 | `Presentation/` | UI-free rules the partials apply: breakpoints and insets, which side panel is open and where focus returns, key bindings and seek/volume arithmetic |
 | `ViewModels/ShellViewModel.cs` | Pages (route / search / entity), history, now-playing state, lyrics |
-| `ViewModels/ShellViewModel.Queue.cs` | Queue, shuffle, repeat, radio, entity play, continuations, links |
+| `ViewModels/ShellViewModel.Queue.cs` | Draws the shared queue engine's snapshot, fetches its radio pages, entity play, continuations, links |
+| `Service/SharedQueue.cs` | The channel to `QueueEngine` in `goosic-shell-support`, which decides every queue rule for both shells |
 | `ViewModels/ShellViewModel.Account.cs` | Accounts, personal pages, likes, playlists edits |
 | `ViewModels/ShellViewModel.Settings.cs` | Preferences via `settings.*`, page flags, volume persistence |
 | `ViewModels/NowPlayingMesh.cs`, `Views/MeshBackground.cs` | Cover palette and animated background (GPL port) |
@@ -153,7 +154,7 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Autoplay at queue end | Yes | ✅ appends recommendations after the queue (never replaces it), skipping queued and recently played songs; page's own auto-advance intercepted |
 | Queue: view, play next, add, remove, clear | Yes | ✅ Now playing / Up next split; Clear is immediate with Undo |
 | Queue reorder by drag | Yes | ✅ drag handle, or Alt+↑/↓ on a row (drag not hand-tested) |
-| Start radio | Yes | ✅ signed in: the account's own Up Next via `PersonalCatalog.js` `radio()`; guest: `catalog.radio`. A song card or search result starts a station; only albums, playlists and liked songs play in order (`Presentation/PlaybackOrder`) |
+| Start radio | Yes | ✅ signed in: the account's own Up Next via `PersonalCatalog.js` `radio()`; guest: `catalog.radio`. A song card or search result starts a station; albums, playlists, liked songs and artists play in order (`launch_kind_for` in `goosic-shell-support`) |
 | Like / dislike | Shows current state | 🟡 works, but only ratings set this session show — current like state is never read |
 | Save to playlist, new playlist | Yes | ✅ |
 | Go to artist / album, share link | Yes | ✅ copy link |

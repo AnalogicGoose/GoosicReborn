@@ -58,6 +58,21 @@ internal static class ShellSupport
         [MarshalAs(UnmanagedType.LPUTF8Str)] string expectedVideoId,
         ulong lastSequence);
 
+    [DllImport(Library, EntryPoint = "goosic_bridge_automix_off_script")]
+    private static extern IntPtr AutomixOffScriptRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_automix_attempts")]
+    private static extern uint AutomixAttemptsRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_login_completion_script")]
+    private static extern IntPtr LoginCompletionScriptRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_login_completion_timeout_seconds")]
+    private static extern double LoginCompletionTimeoutSecondsRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_artwork_max_concurrent_fetches")]
+    private static extern uint ArtworkMaxConcurrentFetchesRaw();
+
     [DllImport(Library, EntryPoint = "goosic_login_is_allowed_url")]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool LoginIsAllowedUrlRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string url);
@@ -90,6 +105,21 @@ internal static class ShellSupport
             StringFree(value);
         }
     }
+
+    /// <summary>The script that turns the page's Automix off, answering absent, off, turned off or still on.</summary>
+    internal static string AutomixOffScript { get; } = Consume(AutomixOffScriptRaw());
+
+    /// <summary>How many times, half a second apart, the Automix script runs while it answers absent.</summary>
+    internal static int AutomixAttempts { get; } = checked((int)AutomixAttemptsRaw());
+
+    /// <summary>The body of the async function that recognises a finished sign-in.</summary>
+    internal static string LoginCompletionScript { get; } = Consume(LoginCompletionScriptRaw());
+
+    /// <summary>How long one page may sit before a sign-in is abandoned.</summary>
+    internal static TimeSpan LoginCompletionTimeout { get; } = TimeSpan.FromSeconds(LoginCompletionTimeoutSecondsRaw());
+
+    /// <summary>How many artwork downloads may run at once.</summary>
+    internal static int ArtworkMaxConcurrentFetches { get; } = checked((int)ArtworkMaxConcurrentFetchesRaw());
 
     /// <summary>The only host the official playback surface may load.</summary>
     internal static string AllowedHost { get; } = Consume(AllowedHostRaw());

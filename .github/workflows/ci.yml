@@ -90,6 +90,8 @@ jobs:
                         while IFS= read -r FILE; do
                             [ -z "$FILE" ] && continue
                             case "$FILE" in
+                                crates/goosic-shell-support*|crates/goosic-protocol/*)
+                                                                RUST=true; SWIFT=true; LINUX=true; WINDOWS=true ;;
                                 crates/*|Cargo.toml|Cargo.lock) RUST=true; LINUX=true; WINDOWS=true ;;
                                 apps/goosic-linux/*)            LINUX=true ;;
                                 apps/goosic-windows/*)          WINDOWS=true ;;
