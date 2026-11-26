@@ -58,6 +58,12 @@ internal static class ShellSupport
         [MarshalAs(UnmanagedType.LPUTF8Str)] string expectedVideoId,
         ulong lastSequence);
 
+    [DllImport(Library, EntryPoint = "goosic_update_choose_release")]
+    private static extern int UpdateChooseReleaseRaw(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? current,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string channel,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string releases);
+
     [DllImport(Library, EntryPoint = "goosic_login_is_allowed_url")]
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool LoginIsAllowedUrlRaw([MarshalAs(UnmanagedType.LPUTF8Str)] string url);
@@ -90,6 +96,14 @@ internal static class ShellSupport
             StringFree(value);
         }
     }
+
+    /// <summary>
+    /// The release to offer from <paramref name="releases"/> (a JSON array of tag, draft and
+    /// prerelease), or -1 when nothing on <paramref name="channel"/> is newer than
+    /// <paramref name="current"/>. The rule is <c>goosic_shell_support::updates</c>.
+    /// </summary>
+    internal static int ChooseRelease(string? current, string channel, string releases) =>
+        UpdateChooseReleaseRaw(current, channel, releases);
 
     /// <summary>The only host the official playback surface may load.</summary>
     internal static string AllowedHost { get; } = Consume(AllowedHostRaw());
