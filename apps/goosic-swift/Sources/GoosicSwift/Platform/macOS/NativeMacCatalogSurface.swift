@@ -481,17 +481,15 @@ private struct NativeMacCollectionHeader: SwiftUI.View {
     private var collectionActionItems: some SwiftUI.View {
         circleButton("Shuffle", "shuffle", active: model.shuffle) {
             if !model.shuffle { model.toggleShuffle() }
-            if let pick = shownTracks.randomElement() {
-                model.launch(.ordered(pick, shownTracks), source: source)
-            }
+            model.launch(shownTracks, shuffled: true, source: source)
         }
         .disabled(shownTracks.isEmpty)
 
         SwiftUI.Button {
             if playingHere {
                 model.togglePause()
-            } else if let first = shownTracks.first {
-                model.launch(.ordered(first, shownTracks), source: source)
+            } else {
+                model.launch(shownTracks, shuffled: false, source: source)
             }
         } label: {
             SwiftUI.Label(
@@ -544,7 +542,7 @@ private struct NativeMacCollectionHeader: SwiftUI.View {
     /// "100+" while more rows are still to come.
     private var metaLine: String {
         var parts = lines.facts
-        parts.append(PlayerText.songCount(page.tracks.count, hasMore: page.hasMore)
+        parts.append(SharedRules.songCount(page.tracks.count, hasMore: page.hasMore)
             + (page.hasMore ? "" : totalLength.map { ", \($0)" } ?? ""))
         return parts.joined(separator: " · ")
     }
@@ -741,7 +739,7 @@ private struct NativeMacTrackColumns: SwiftUI.View {
     private func cell(_ track: GoosicTrack) -> some SwiftUI.View {
         let playing = model.currentTrack?.videoID == track.videoID
         return SwiftUI.Button {
-            model.launch(.ordered(track, tracks), source: source)
+            model.launch(track, in: tracks, from: .shelf, source: source)
         } label: {
             SwiftUI.HStack(spacing: 10) {
                 NativeMacArtwork(url: track.thumbnail, width: 48, height: 48)
@@ -875,7 +873,7 @@ private struct NativeMacTrackList: SwiftUI.View {
     }
 
     private func play(_ track: GoosicTrack) {
-        model.launch(.ordered(track, tracks), source: source)
+        model.launch(track, in: tracks, from: LaunchSurface(page: source?.key), source: source)
     }
 
     private func row(_ track: GoosicTrack, index: Int, isHovered: Bool) -> some SwiftUI.View {
@@ -1228,7 +1226,7 @@ private struct NativeMacCatalogCard: SwiftUI.View {
     private func activate() {
         switch card.action {
         case .show(let entity): model.show(entity)
-        case .play(let track): model.launch(.resolve(track: track, explicitTracks: playbackContext))
+        case .play(let track): model.launch(track, in: [track], from: .shelf)
         case .none: break
         }
     }
@@ -1298,7 +1296,9 @@ struct NativeMacTrackMenuItems: SwiftUI.View {
     private var items: some SwiftUI.View {
         if includePlay {
             SwiftUI.Button("Play", systemImage: "play.fill") {
-                model.launch(.resolve(track: track, explicitTracks: context), source: source)
+                model.launch(track, in: context,
+                             from: context.isEmpty ? .shelf : LaunchSurface(page: source?.key),
+                             source: source)
             }
         }
         if queueIndex == nil {
