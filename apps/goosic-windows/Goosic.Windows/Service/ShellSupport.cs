@@ -58,11 +58,20 @@ internal static class ShellSupport
         [MarshalAs(UnmanagedType.LPUTF8Str)] string expectedVideoId,
         ulong lastSequence);
 
-    [DllImport(Library, EntryPoint = "goosic_update_choose_release")]
-    private static extern int UpdateChooseReleaseRaw(
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string? current,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string channel,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string releases);
+    [DllImport(Library, EntryPoint = "goosic_bridge_automix_off_script")]
+    private static extern IntPtr AutomixOffScriptRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_automix_attempts")]
+    private static extern uint AutomixAttemptsRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_login_completion_script")]
+    private static extern IntPtr LoginCompletionScriptRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_login_completion_timeout_seconds")]
+    private static extern double LoginCompletionTimeoutSecondsRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_artwork_max_concurrent_fetches")]
+    private static extern uint ArtworkMaxConcurrentFetchesRaw();
 
     [DllImport(Library, EntryPoint = "goosic_login_is_allowed_url")]
     [return: MarshalAs(UnmanagedType.I1)]
@@ -97,13 +106,20 @@ internal static class ShellSupport
         }
     }
 
-    /// <summary>
-    /// The release to offer from <paramref name="releases"/> (a JSON array of tag, draft and
-    /// prerelease), or -1 when nothing on <paramref name="channel"/> is newer than
-    /// <paramref name="current"/>. The rule is <c>goosic_shell_support::updates</c>.
-    /// </summary>
-    internal static int ChooseRelease(string? current, string channel, string releases) =>
-        UpdateChooseReleaseRaw(current, channel, releases);
+    /// <summary>The script that turns the page's Automix off, answering absent, off, turned off or still on.</summary>
+    internal static string AutomixOffScript { get; } = Consume(AutomixOffScriptRaw());
+
+    /// <summary>How many times, half a second apart, the Automix script runs while it answers absent.</summary>
+    internal static int AutomixAttempts { get; } = checked((int)AutomixAttemptsRaw());
+
+    /// <summary>The body of the async function that recognises a finished sign-in.</summary>
+    internal static string LoginCompletionScript { get; } = Consume(LoginCompletionScriptRaw());
+
+    /// <summary>How long one page may sit before a sign-in is abandoned.</summary>
+    internal static TimeSpan LoginCompletionTimeout { get; } = TimeSpan.FromSeconds(LoginCompletionTimeoutSecondsRaw());
+
+    /// <summary>How many artwork downloads may run at once.</summary>
+    internal static int ArtworkMaxConcurrentFetches { get; } = checked((int)ArtworkMaxConcurrentFetchesRaw());
 
     /// <summary>The only host the official playback surface may load.</summary>
     internal static string AllowedHost { get; } = Consume(AllowedHostRaw());

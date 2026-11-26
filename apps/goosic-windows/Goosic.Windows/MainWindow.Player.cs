@@ -268,12 +268,7 @@ public sealed partial class MainWindow : Window
     private async Task PreviousAsync()
     {
         if (!Model.HasPlayback || Model.NowPlayingEntry is null || !Model.CanChangeTrack()) return;
-        if (_playback is not null && Model.IsSeekable && Model.PlaybackPosition > 3)
-        {
-            await SeekToAsync(0);
-            return;
-        }
-
+        // Whether that is a restart or the song before is the engine's call; see MoveAsync.
         await AdvanceAsync(forward: false, natural: false);
     }
 
@@ -301,28 +296,29 @@ public sealed partial class MainWindow : Window
 
     private async Task AdvanceCoreAsync(bool forward, bool natural)
     {
-        // The sleep timer's "end of this song": the song has ended, so nothing follows it.
-        if (natural && TakeSleepAtEndOfSong())
-        {
-            Model.ReportStatus("Sleep timer: stopped at the end of the song.");
-            return;
-        }
-
         var move = await Model.MoveAsync(forward, natural);
-        if (move.Entry is null)
+
+        // The sleep timer's "end of this song": the song has ended, so nothing follows it.
+        if (move.StopForSleep)
         {
+            CancelSleepTimer();
+            await PauseForSleepAsync();
             return;
         }
 
-        // Previous on the first song starts it again. A natural end under repeat-one has to load
-        // the song afresh, because the page has already finished it.
-        if (move.Restart && !natural && _playback is not null)
+        // Previous early in the first song, or late in any, starts it again. A natural end under
+        // repeat-one comes back as a play instead, because the page has already finished it.
+        if (move.SeekToStart)
         {
-            await SeekToAsync(0);
+            if (_playback is not null)
+            {
+                await SeekToAsync(0);
+            }
+
             return;
         }
 
-        await PlayEntryAsync(move.Entry, natural);
+        await PlayEntryAsync(move.Played, natural);
     }
 
     private async void OnPlayPause(object sender, RoutedEventArgs e) => await TogglePauseAsync();
