@@ -1,28 +1,16 @@
 import Foundation
 import GoosicShellSupportFFI
 
-/// Swift copy of `AdPlaybackRecovery` in goosic-shell-support. An ad's stopped media can be
-/// reported after its DOM marker disappears; wait for content before accepting another end.
+/// `AdPlaybackRecovery` in goosic-shell-support. An ad's stopped media can be reported after its
+/// DOM marker disappears; wait for content before accepting another end, and resume content the
+/// handoff left paused once.
 struct AdPlaybackRecovery {
-    private(set) var awaitingContent = false
-    private var resumeRequested = false
+    private var state = GoosicAdRecovery(awaiting_content: false, resume_requested: false)
 
-    mutating func observe(advertisement: Bool, state: String, listenerPaused: Bool) -> Bool {
-        if advertisement {
-            awaitingContent = true
-            resumeRequested = false
-            return false
-        }
-        if state == "playing" {
-            awaitingContent = false
-            resumeRequested = false
-            return false
-        }
-        if awaitingContent && state == "paused" && !listenerPaused && !resumeRequested {
-            resumeRequested = true
-            return true
-        }
-        return false
+    var awaitingContent: Bool { state.awaiting_content }
+
+    mutating func observe(advertisement: Bool, state sampleState: String, listenerPaused: Bool) -> Bool {
+        goosic_ad_recovery_observe(&state, advertisement, sampleState, listenerPaused)
     }
 }
 

@@ -502,7 +502,7 @@ final class OfficialPlaybackHost: NSObject {
         }
 
         if let reason = OfficialBridge.rejectionReason(
-            for: event,
+            body: body,
             expectedToken: expectedToken,
             expectedGeneration: expectedGeneration,
             expectedVideoID: expectedVideoID,
