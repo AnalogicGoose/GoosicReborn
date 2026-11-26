@@ -1,0 +1,7 @@
+// The shared shell rules, built by `cargo build -p goosic-shell-support-ffi` (the Makefile's
+// `build-ffi`) and linked statically by Package.swift. The header is the crate's own, so the
+// declarations Swift sees are the ones a test in that crate holds to its exports.
+module GoosicShellSupportFFI [system] {
+    header "../../../../crates/goosic-shell-support-ffi/include/goosic_shell_support_ffi.h"
+    export *
+}

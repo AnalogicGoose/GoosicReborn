@@ -56,25 +56,29 @@ final class ListRulesTests: XCTestCase {
     }
 
     func testUpNextSaysWhereTheQueueCameFrom() {
-        XCTAssertEqual(PlayerText.upNext(source: "Liked Music", remaining: 99, findingMore: false),
-                       "From Liked Music · 99 songs")
-        XCTAssertEqual(PlayerText.upNext(source: nil, remaining: 1, findingMore: false), "1 song")
-        XCTAssertEqual(PlayerText.upNext(source: "Song radio", remaining: 0, findingMore: true),
-                       "From Song radio · Finding songs like this…")
-        XCTAssertEqual(PlayerText.upNext(source: "", remaining: 0, findingMore: false), "Nothing after this")
+        // The sentence is Rust's; this checks it arrives through the library intact.
+        func upNext(_ source: String?, _ remaining: Int, _ findingMore: Bool) -> String? {
+            var arguments: [String: Any] = ["remaining": remaining, "findingMore": findingMore]
+            if let source { arguments["source"] = source }
+            return SharedRules.call("upNext", arguments)
+        }
+        XCTAssertEqual(upNext("Liked Music", 99, false), "From Liked Music · 99 songs")
+        XCTAssertEqual(upNext(nil, 1, false), "1 song")
+        XCTAssertEqual(upNext("Song radio", 0, true), "From Song radio · Finding songs like this…")
+        XCTAssertEqual(upNext("", 0, false), "Nothing after this")
     }
 
     func testAnUnfinishedListDoesNotCountItselfAsComplete() {
-        XCTAssertEqual(PlayerText.songCount(100, hasMore: true), "100+ songs")
-        XCTAssertEqual(PlayerText.songCount(100, hasMore: false), "100 songs")
-        XCTAssertEqual(PlayerText.songCount(1, hasMore: false), "1 song")
+        XCTAssertEqual(SharedRules.songCount(100, hasMore: true), "100+ songs")
+        XCTAssertEqual(SharedRules.songCount(100, hasMore: false), "100 songs")
+        XCTAssertEqual(SharedRules.songCount(1, hasMore: false), "1 song")
     }
 
     func testTheSleepTimerLabelRoundsUp() {
-        XCTAssertEqual(PlayerText.sleepTimer(remaining: nil, endOfSong: false), "Sleep timer")
-        XCTAssertEqual(PlayerText.sleepTimer(remaining: 20, endOfSong: false), "Sleep timer: 1 min left")
-        XCTAssertEqual(PlayerText.sleepTimer(remaining: 61, endOfSong: false), "Sleep timer: 2 min left")
-        XCTAssertEqual(PlayerText.sleepTimer(remaining: 61, endOfSong: true), "Sleep timer: end of song")
+        XCTAssertEqual(SharedRules.sleepTimer(remaining: nil, endOfSong: false), "Sleep timer")
+        XCTAssertEqual(SharedRules.sleepTimer(remaining: 20, endOfSong: false), "Sleep timer: 1 min left")
+        XCTAssertEqual(SharedRules.sleepTimer(remaining: 61, endOfSong: false), "Sleep timer: 2 min left")
+        XCTAssertEqual(SharedRules.sleepTimer(remaining: 61, endOfSong: true), "Sleep timer: end of song")
     }
 
     func testMovingQueueRowsFollowsTheListGesture() {
