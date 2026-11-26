@@ -81,8 +81,11 @@ public sealed partial class ShellViewModel
         }
     }
 
-    /// <summary>Segoe Fluent Icons: RepeatOne for one track, RepeatAll otherwise.</summary>
-    public string RepeatGlyph => Repeat == RepeatMode.One ? "" : "";
+    /// <summary>
+    /// Segoe Fluent Icons: RepeatOne for one track, RepeatAll otherwise. Escaped, because a
+    /// private-use character is easy to lose in an edit, and an empty glyph is a blank button.
+    /// </summary>
+    public string RepeatGlyph => Repeat == RepeatMode.One ? "\uE8ED" : "\uE8EE";
 
     public string RepeatLabel => Repeat switch
     {
@@ -278,7 +281,7 @@ public sealed partial class ShellViewModel
     /// <summary>A page whose list is already playing offers Pause, as Apple Music and Spotify do.</summary>
     public string PagePlayLabel => IsPageQueued && IsPlaying ? "Pause" : "Play";
 
-    public string PagePlayGlyph => IsPageQueued && IsPlaying ? "" : "";
+    public string PagePlayGlyph => IsPageQueued && IsPlaying ? "\uE769" : "\uE768";
 
     private void PagePlaybackChanged()
     {
