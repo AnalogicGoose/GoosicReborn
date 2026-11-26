@@ -90,7 +90,12 @@ public sealed partial class MainWindow
                     // With nothing playing the first song starts the queue and the rest follow it.
                     TrackViewModel? started = null;
                     foreach (var track in tracks)
-                        started ??= Model.Enqueue(track, next: false);
+                    {
+                        // Enqueued unconditionally: `started ??= Enqueue(...)` would stop calling
+                        // it once the first song was in, and drop the rest of the list.
+                        var queued = Model.Enqueue(track, next: false);
+                        started ??= queued;
+                    }
                     await PlayEntryAsync(started);
                     return;
                 }
