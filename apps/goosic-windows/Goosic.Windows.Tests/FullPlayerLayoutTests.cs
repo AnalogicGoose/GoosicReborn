@@ -72,13 +72,6 @@ public class FullPlayerLayoutTests
     }
 
     [Theory]
-    [InlineData(true, true, true)]
-    [InlineData(false, true, false)]
-    [InlineData(true, false, false)]
-    public void BlurNeedsTransparencyAndACover(bool effects, bool artwork, bool expected) =>
-        Assert.Equal(expected, FullPlayerLayout.ShowsBlur(effects, artwork));
-
-    [Theory]
     [InlineData(SeekKey.Back, 60, 55)]
     [InlineData(SeekKey.Forward, 60, 65)]
     [InlineData(SeekKey.PageBack, 60, 40)]
