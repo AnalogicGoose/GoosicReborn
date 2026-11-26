@@ -555,22 +555,24 @@ impl QueueEngine {
         shuffle: Option<bool>,
     ) {
         let start = start.filter(|index| *index < tracks.len());
-        let tracks: Vec<QueueTrack> = match (kind, start) {
+        // Each track keeps its index in the command's list: the shell resolves `Added.input`
+        // against that list, so a station started from the third row must say 2, not 0.
+        let candidates: Vec<(usize, QueueTrack)> = match (kind, start) {
             // A station starts from the one song; its list was only where it was found.
-            (LaunchKind::Station, Some(index)) => vec![tracks[index].clone()],
-            (LaunchKind::Station, None) => tracks.into_iter().take(1).collect(),
-            (LaunchKind::Ordered, _) => tracks,
+            (LaunchKind::Station, Some(index)) => vec![(index, tracks[index].clone())],
+            (LaunchKind::Station, None) => tracks.into_iter().take(1).enumerate().collect(),
+            (LaunchKind::Ordered, _) => tracks.into_iter().enumerate().collect(),
         };
         let start = if kind == LaunchKind::Station {
-            Some(0).filter(|_| !tracks.is_empty())
+            candidates.first().map(|(input, _)| *input)
         } else {
             start
         };
 
         // Songs the player refused this session are left out, unless one is the song chosen:
         // asking for it again is the listener's call.
-        let mut kept: Vec<(usize, QueueTrack)> = Vec::with_capacity(tracks.len());
-        for (input, track) in tracks.into_iter().enumerate() {
+        let mut kept: Vec<(usize, QueueTrack)> = Vec::with_capacity(candidates.len());
+        for (input, track) in candidates {
             let chosen = Some(input) == start;
             if track.video_id.is_empty() || (!chosen && self.refused.contains(&track.video_id)) {
                 continue;
