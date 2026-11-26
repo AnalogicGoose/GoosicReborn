@@ -34,6 +34,7 @@ targets:
     preBuildScripts:
       - name: Build the shared shell rules
         script: |
+          export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
           cd "$SRCROOT/../.." && cargo build -p goosic-shell-support-ffi
         basedOnDependencyAnalysis: false
     settings:

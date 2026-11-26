@@ -22,7 +22,6 @@ struct GoosicMacApp: SwiftUI.App {
         // activation policy during development. Packaged builds already receive this behavior.
         NSApplication.shared.setActivationPolicy(.regular)
         NativeMacApplicationIcon.install()
-        NativeMacUpdater.shared.start()
     }
 
     var body: some SwiftUI.Scene {
@@ -32,6 +31,13 @@ struct GoosicMacApp: SwiftUI.App {
                 .frame(minWidth: 920, minHeight: 680)
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
+                    store.model.onUpdateChannelLoaded = { channel in
+                        if let channel {
+                            NativeMacUpdater.shared.syncPersistedChannel(channel)
+                        } else {
+                            NativeMacUpdater.shared.start()
+                        }
+                    }
                     store.model.onUpdateChannelChanged = { NativeMacUpdater.shared.setChannel($0) }
                     if !store.model.usesDebugSidebarFixture { store.model.connect() }
                     NativeMacScrollBenchmark.startIfRequested()

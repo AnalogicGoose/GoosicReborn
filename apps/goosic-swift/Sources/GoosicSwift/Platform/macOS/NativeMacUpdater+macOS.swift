@@ -13,25 +13,31 @@ import Sparkle
 final class NativeMacUpdater: NSObject {
     static let shared = NativeMacUpdater()
 
-    /// The listener's update channel, `stable` or `experimental`. The setting lives in the
-    /// service, which answers after Sparkle has started and may already be checking; the last
-    /// choice is kept here too, so the launch check reads the right channel.
-    private(set) var channel = UserDefaults.standard.string(forKey: NativeMacUpdater.channelKey) ?? "stable"
+    /// The listener's update channel, `stable` or `experimental`. The authoritative setting lives
+    /// in `goosic-service`, so startup waits for `syncPersistedChannel(_:)` before starting Sparkle
+    /// and keeps the last confirmed value here only as a fallback if the service cannot be reached.
+    private(set) var channel: String
 
     private static let channelKey = "GoosicUpdateChannel"
+    private let defaults: UserDefaults
+    private var hasStarted = false
 
     #if canImport(Sparkle)
     private var controller: SPUStandardUpdaterController?
     #endif
 
-    override private init() {
+    init(defaults: UserDefaults = .standard, createController: Bool = true) {
+        self.defaults = defaults
+        self.channel = defaults.string(forKey: Self.channelKey) ?? "stable"
         super.init()
         #if canImport(Sparkle)
-        controller = SPUStandardUpdaterController(
-            startingUpdater: false,
-            updaterDelegate: self,
-            userDriverDelegate: nil
-        )
+        if createController {
+            controller = SPUStandardUpdaterController(
+                startingUpdater: false,
+                updaterDelegate: self,
+                userDriverDelegate: nil
+            )
+        }
         #endif
     }
 
@@ -46,8 +52,10 @@ final class NativeMacUpdater: NSObject {
     }
 
     func start() {
+        guard !hasStarted else { return }
         #if canImport(Sparkle)
         guard isAvailable else { return }
+        hasStarted = true
         controller?.startUpdater()
         #endif
     }
@@ -55,8 +63,22 @@ final class NativeMacUpdater: NSObject {
     func check() {
         #if canImport(Sparkle)
         guard isAvailable else { return }
+        if !hasStarted { start() }
         controller?.updater.checkForUpdates()
         #endif
+    }
+
+    /// Applies the authoritative channel read from `goosic-service` and starts Sparkle once it is
+    /// known, so launch checks never run on a stale cached channel or miss a first-launch upgrade.
+    func syncPersistedChannel(_ channel: String) {
+        let changed = channel != self.channel
+        self.channel = channel
+        defaults.set(channel, forKey: Self.channelKey)
+        if !hasStarted {
+            start()
+        } else if changed {
+            checkExperimentalIfIdle(channel)
+        }
     }
 
     /// Follows the listener's choice. Joining the experimental channel looks for its newest
@@ -64,7 +86,15 @@ final class NativeMacUpdater: NSObject {
     func setChannel(_ channel: String) {
         guard channel != self.channel else { return }
         self.channel = channel
-        UserDefaults.standard.set(channel, forKey: Self.channelKey)
+        defaults.set(channel, forKey: Self.channelKey)
+        if !hasStarted {
+            start()
+        } else {
+            checkExperimentalIfIdle(channel)
+        }
+    }
+
+    private func checkExperimentalIfIdle(_ channel: String) {
         #if canImport(Sparkle)
         guard isAvailable, channel == "experimental", let updater = controller?.updater,
               updater.sessionInProgress == false else { return }
