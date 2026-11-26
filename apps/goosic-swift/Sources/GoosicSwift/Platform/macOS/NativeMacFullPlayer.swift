@@ -226,8 +226,13 @@ struct NativeMacFullPlayer: View {
                 playerColumn(cover: cover, width: compact ? proxy.size.width - 44 : cover)
                     .frame(maxWidth: 608)
                 if !compact && visibleRightPane == .lyrics {
+                    // The full height of the window, as Music's lyrics are: lines pass under the
+                    // top controls and fade out toward the bottom edge instead of stopping in a
+                    // box above it. The negative padding undoes the row's own top and bottom.
                     lyricsColumn
-                        .frame(maxWidth: 768, maxHeight: min(proxy.size.height * 0.7, 832))
+                        .frame(maxWidth: 768, maxHeight: .infinity)
+                        .padding(.top, -32)
+                        .padding(.bottom, -80)
                         .transition(.opacity)
                 } else if !compact && visibleRightPane == .queue {
                     NativeMacQueuePanel(store: store)

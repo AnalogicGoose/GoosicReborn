@@ -422,7 +422,10 @@ appearance. The top capsules are clear glass, as Music's are: a light wash and r
 background, never a dark plate, and the volume fill is white rather than the system accent.
 Like and More are clear glass circles to match. Windows, which has no Liquid Glass, draws
 the same capsule and circles as a translucent white fill and rim. Full-player lyrics are 48
-points on both platforms, the size of Music's full-screen lyrics; the side panel stays at 25. Native toolbar backing must not create an extra light plate behind dark capsules.
+points on both platforms, the size of Music's full-screen lyrics; the side panel stays at 25.
+Beside the cover the lyrics take the window's full height, passing under the top controls and
+fading out gradually toward the bottom edge, with the followed line about a third of the way
+down, as Music's do. Native toolbar backing must not create an extra light plate behind dark capsules.
 Small individual Like and More actions are circular, side by side after the track metadata;
 More opens the playing song's menu. Switching presentation preserves the
 same session, track, queue, volume, position and mounted playback host. Choosing a page from

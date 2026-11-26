@@ -87,10 +87,19 @@ struct NativeMacLyricsView: View {
                         if contrast == .increased {
                             Rectangle()
                         } else {
-                            LinearGradient(stops: [
+                            // The full player's column fills the window, so its fade is Music's:
+                            // short under the title-bar controls, long and gradual toward the
+                            // bottom edge, where the coming lines thin out rather than stop.
+                            LinearGradient(stops: immersive ? [
                                 .init(color: .clear, location: 0),
-                                .init(color: .black, location: immersive ? 0.14 : 0.1),
-                                .init(color: .black, location: immersive ? 0.84 : 0.86),
+                                .init(color: .black, location: 0.16),
+                                .init(color: .black, location: 0.58),
+                                .init(color: .black.opacity(0.35), location: 0.82),
+                                .init(color: .clear, location: 1)
+                            ] : [
+                                .init(color: .clear, location: 0),
+                                .init(color: .black, location: 0.1),
+                                .init(color: .black, location: 0.86),
                                 .init(color: .clear, location: 1)
                             ], startPoint: .top, endPoint: .bottom)
                         }

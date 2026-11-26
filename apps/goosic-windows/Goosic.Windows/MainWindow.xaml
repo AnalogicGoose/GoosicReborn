@@ -2353,9 +2353,11 @@
                                    AutomationProperties.AccessibilityView="Raw">
                             <Rectangle.Fill>
                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <!-- Music's fade: short under the top buttons, long toward the bottom edge. -->
                                     <GradientStop Color="#00000000" Offset="0" />
-                                    <GradientStop Color="#FF000000" Offset="0.14" />
-                                    <GradientStop Color="#FF000000" Offset="0.84" />
+                                    <GradientStop Color="#FF000000" Offset="0.16" />
+                                    <GradientStop Color="#FF000000" Offset="0.58" />
+                                    <GradientStop Color="#59000000" Offset="0.82" />
                                     <GradientStop Color="#00000000" Offset="1" />
                                 </LinearGradientBrush>
                             </Rectangle.Fill>
