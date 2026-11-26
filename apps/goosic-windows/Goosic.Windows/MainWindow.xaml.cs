@@ -102,6 +102,7 @@ public sealed partial class MainWindow : Window
             _playback.Failed += message => Model.ReportStatus(message);
             _playback.IsSubstitute = Model.AcceptSubstitute;
             _playback.PageRefused += Model.ReportRefused;
+            _playback.LoadingChanged += Model.ReportLoading;
             Model.ResumeAfterAdvertisement += () => _ = _playback.ResumeAfterAdvertisementAsync();
             _playback.PageMovedOn += videoId =>
             {

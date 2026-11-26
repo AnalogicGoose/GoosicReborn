@@ -21,11 +21,13 @@ final class OfficialPlaybackHost {
         onStatus?("Official playback is disabled in this preview.")
     }
 
-    func play() { onStatus?("Official playback is disabled in this preview.") }
+    func play(fromListener: Bool = true) { onStatus?("Official playback is disabled in this preview.") }
     func pause() { onStatus?("Official playback is disabled in this preview.") }
     func probePage() {}
     var onPageAdvanced: ((String) -> Void)?
     var onPageSwappedBeforePlaying: ((OfficialPageSwap) -> Void)?
+    var onNeverStarted: ((String) -> Void)?
+    var onLoadingChanged: ((Bool) -> Void)?
     func seek(to seconds: Double) { onStatus?("Official playback is disabled in this preview.") }
     func setVolume(_ volume: Double) { onStatus?("Official playback is disabled in this preview.") }
     func setMuted(_ muted: Bool) { onStatus?("Official playback is disabled in this preview.") }

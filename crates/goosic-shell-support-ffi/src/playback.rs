@@ -79,6 +79,35 @@ pub unsafe extern "C" fn goosic_is_same_song(
     }
 }
 
+/// What to do about a requested track not yet heard playing: `0` wait, `1` ask the page to play
+/// once, `2` give the track up as unplayable, `3` stop watching. A NaN `since_loaded_seconds`
+/// waits.
+#[no_mangle]
+pub extern "C" fn goosic_start_watch(
+    since_loaded_seconds: f64,
+    heard_playing: bool,
+    listener_took_over: bool,
+    nudged: bool,
+) -> u8 {
+    playback::start_watch(
+        since_loaded_seconds,
+        heard_playing,
+        listener_took_over,
+        nudged,
+    ) as u8
+}
+
+/// Whether the player shows that it is loading: a requested track not yet heard, or one the page
+/// reports buffering, unless the listener paused.
+#[no_mangle]
+pub extern "C" fn goosic_player_shows_loading(
+    awaiting_start: bool,
+    buffering: bool,
+    listener_paused: bool,
+) -> bool {
+    playback::shows_loading(awaiting_start, buffering, listener_paused)
+}
+
 /// [`goosic_early_switch_counted`] for a shell that still says only whether the load may be
 /// replaced: `may_adopt` false is a choice already replaced as often as it may be.
 ///
@@ -243,5 +272,12 @@ mod tests {
         assert!(unsafe { goosic_seek_settle(119.5, 120.0, 0.3, &mut shown) });
         assert_eq!(shown, 119.5);
         assert!(unsafe { goosic_seek_settle(1.0, 2.0, 0.0, std::ptr::null_mut()) });
+
+        assert_eq!(goosic_start_watch(1.0, false, false, false), 0);
+        assert_eq!(goosic_start_watch(4.0, false, false, false), 1);
+        assert_eq!(goosic_start_watch(20.0, false, false, true), 2);
+        assert_eq!(goosic_start_watch(60.0, true, false, false), 3);
+        assert!(goosic_player_shows_loading(true, false, false));
+        assert!(!goosic_player_shows_loading(true, false, true));
     }
 }

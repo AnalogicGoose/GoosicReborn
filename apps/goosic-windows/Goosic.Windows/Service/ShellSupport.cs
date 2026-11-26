@@ -64,6 +64,21 @@ internal static class ShellSupport
     [DllImport(Library, EntryPoint = "goosic_bridge_automix_attempts")]
     private static extern uint AutomixAttemptsRaw();
 
+    [DllImport(Library, EntryPoint = "goosic_bridge_active_media_element_script")]
+    private static extern IntPtr ActiveMediaElementScriptRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_play_script")]
+    private static extern IntPtr PlayScriptRaw([MarshalAs(UnmanagedType.I1)] bool answerPrompt);
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_play_outcome_script")]
+    private static extern IntPtr PlayOutcomeScriptRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_pause_script")]
+    private static extern IntPtr PauseScriptRaw();
+
+    [DllImport(Library, EntryPoint = "goosic_bridge_idle_prompt_script")]
+    private static extern IntPtr IdlePromptScriptRaw();
+
     [DllImport(Library, EntryPoint = "goosic_login_completion_script")]
     private static extern IntPtr LoginCompletionScriptRaw();
 
@@ -111,6 +126,29 @@ internal static class ShellSupport
 
     /// <summary>How many times, half a second apart, the Automix script runs while it answers absent.</summary>
     internal static int AutomixAttempts { get; } = checked((int)AutomixAttemptsRaw());
+
+    /// <summary>The expression that picks the page's active media element, as the observer does.</summary>
+    internal static string ActiveMediaElementScript { get; } = Consume(ActiveMediaElementScriptRaw());
+
+    /// <summary>
+    /// Asks the active media element to play for a listener's press, retrying a request the page
+    /// interrupted, and answers the page's "still listening?" prompt. Its answer -- played,
+    /// no-media, superseded or failed:&lt;ErrorName&gt; -- is read afterwards with
+    /// <see cref="PlayOutcomeScript"/>, because WebView2 does not wait for the promise.
+    /// </summary>
+    internal static string ListenerPlayScript { get; } = Consume(PlayScriptRaw(true));
+
+    /// <summary>The same request made by the host on its own, which never answers the prompt.</summary>
+    internal static string HostPlayScript { get; } = Consume(PlayScriptRaw(false));
+
+    /// <summary>Reads and clears the last play script's answer, or pending while it is still trying.</summary>
+    internal static string PlayOutcomeScript { get; } = Consume(PlayOutcomeScriptRaw());
+
+    /// <summary>Pauses the active media element and ends any play retries still in flight.</summary>
+    internal static string PauseScript { get; } = Consume(PauseScriptRaw());
+
+    /// <summary>Answers whether YouTube Music's "still listening?" prompt is showing.</summary>
+    internal static string IdlePromptScript { get; } = Consume(IdlePromptScriptRaw());
 
     /// <summary>The body of the async function that recognises a finished sign-in.</summary>
     internal static string LoginCompletionScript { get; } = Consume(LoginCompletionScriptRaw());
