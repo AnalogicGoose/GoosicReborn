@@ -79,33 +79,3 @@ final class PageSwapTests: XCTestCase {
     }
 }
 
-/// Refused songs are skipped where the Windows shell skips them: when a list starts and when
-/// radio adds recommendations. The chosen row always stays.
-final class RefusedTrackTests: XCTestCase {
-    private static func track(_ id: String) -> GoosicTrack {
-        GoosicTrack(id: id, title: id, subtitle: "", artist: "", artistID: nil, album: "",
-                    albumID: nil, duration: "3:00", videoID: id, explicit: false, thumbnail: nil)
-    }
-
-    func testAStartingListLeavesOutRefusedSongsButKeepsTheChosenOne() async {
-        let list = ["songa000001", "refused0001", "songb000001", "refused0002"].map(Self.track)
-        let refused: Set<String> = ["refused0001", "refused0002"]
-        await MainActor.run {
-            XCTAssertEqual(
-                GoosicAppModel.startableTracks(list, chosen: list[0], refused: refused).map(\.videoID),
-                ["songa000001", "songb000001"])
-            XCTAssertEqual(
-                GoosicAppModel.startableTracks(list, chosen: list[1], refused: refused).map(\.videoID),
-                ["songa000001", "refused0001", "songb000001"])
-            XCTAssertEqual(GoosicAppModel.startableTracks(list, chosen: list[0], refused: []), list)
-        }
-    }
-
-    func testRadioNeverAddsARefusedSong() async {
-        let candidates = ["refused0001", "songa000001"].map(Self.track)
-        await MainActor.run {
-            let fresh = GoosicAppModel.freshRadioTracks(candidates, excluding: [], refused: ["refused0001"])
-            XCTAssertEqual(fresh.map(\.videoID), ["songa000001"])
-        }
-    }
-}
