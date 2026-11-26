@@ -23,6 +23,7 @@ public sealed partial class ShellViewModel
     private bool _hideExplicit;
     private bool _reduceMotion;
     private string _startPage = "home";
+    private string _updateChannel = "stable";
     private bool _isSettingsPage;
     private bool _settingsLoaded;
     private string _nowPlayingArtist = "";
@@ -45,6 +46,9 @@ public sealed partial class ShellViewModel
 
     /// <summary>Where Goosic opens: <c>home</c>, <c>library</c>, <c>liked</c>, or <c>last</c>.</summary>
     public string StartPage { get => _startPage; private set => Set(ref _startPage, value); }
+
+    /// <summary>Which releases the updater offers: <c>stable</c>, or <c>experimental</c> for pre-releases too.</summary>
+    public string UpdateChannel { get => _updateChannel; private set => Set(ref _updateChannel, value); }
 
     /// <summary>The route Rust last remembered, for a "last page" start.</summary>
     internal string LastRoute { get; private set; } = "home";
@@ -175,14 +179,12 @@ public sealed partial class ShellViewModel
             HideExplicit = settings["hideExplicit"]?.GetValue<bool>() ?? false;
             ReduceMotion = settings["reduceMotion"]?.GetValue<bool>() ?? false;
             StartPage = settings["startPage"]?.GetValue<string>() ?? "home";
+            UpdateChannel = settings["updateChannel"]?.GetValue<string>() ?? "stable";
             LastRoute = settings["lastRoute"]?.GetValue<string>() ?? "home";
-            IsShuffled = settings["shuffle"]?.GetValue<bool>() ?? false;
-            Repeat = (settings["repeatMode"]?.GetValue<string>()) switch
-            {
-                "all" => RepeatMode.All,
-                "one" => RepeatMode.One,
-                _ => RepeatMode.Off,
-            };
+            ConfigureQueue(
+                settings["shuffle"]?.GetValue<bool>() ?? false,
+                ParseRepeat(settings["repeatMode"]?.GetValue<string>() ?? "off"),
+                Autoplay);
             _settingsLoaded = true;
             if (settings["volume"]?.GetValue<double>() is { } volume)
             {
@@ -242,6 +244,7 @@ public sealed partial class ShellViewModel
     internal Task SetAutoplayAsync(bool value)
     {
         Autoplay = value;
+        Dispatch(Command("setAutoplay", ("enabled", value)));
         return SaveAsync("autoplay", value);
     }
 
@@ -255,6 +258,12 @@ public sealed partial class ShellViewModel
     {
         HideExplicit = value;
         return SaveAsync("hideExplicit", value);
+    }
+
+    internal Task SetUpdateChannelAsync(string value)
+    {
+        UpdateChannel = value;
+        return SaveAsync("updateChannel", value);
     }
 
     internal Task SetReduceMotionAsync(bool value)
@@ -283,7 +292,7 @@ public sealed partial class ShellViewModel
     private void SaveQueueModes()
     {
         _ = SaveAsync("shuffle", IsShuffled);
-        _ = SaveAsync("repeatMode", Repeat switch { RepeatMode.All => "all", RepeatMode.One => "one", _ => "off" });
+        _ = SaveAsync("repeatMode", RepeatName(Repeat));
     }
 
     internal void ShowSettingsPage()
@@ -323,11 +332,7 @@ public sealed partial class ShellViewModel
         }
     }
 
-    private static string Short(double seconds)
-    {
-        var value = TimeSpan.FromSeconds(Math.Max(0, seconds));
-        return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : $"{(int)value.TotalMinutes}:{value.Seconds:D2}";
-    }
+    private static string Short(double seconds) => PlaybackRules.TimeText(seconds);
 
     /// <summary>The cover on disk, larger when YouTube's servers have a larger one.</summary>
     internal async Task<string?> LargeArtworkFileAsync(string? thumbnail)

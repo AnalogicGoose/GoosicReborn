@@ -1,337 +1,54 @@
-# Branching model
+# Branching
 
-GoosicReborn is one product built for three platforms out of one repository. Most of the
-code — every Rust crate, the protocol, and the majority of the Swift shell — is shared, and
-only a thin layer at the edge is platform-specific: the playback hosts, the system media
-controls, the window material, and the WebKit profile plumbing. The branching model exists
-to keep that shared core from being forked three ways by accident.
-
-## The five long-lived branches
-
-| Branch | Role | Receives from | Never receives from |
-| --- | --- | --- | --- |
-| `main` | Deployment. What has shipped. | `development`, at a deployment | Anything else |
-| `development` | Integration. The working trunk. | Cross-platform work branches, and `platform/*` when a platform slice is done | — |
-| `platform/macos` | macOS-only work | `development`, and its own work branches | Another `platform/*` |
-| `platform/linux` | Linux-only work | `development`, and its own work branches | Another `platform/*` |
-| `platform/windows` | Windows-only work | `development`, and its own work branches | Another `platform/*` |
-
-`main` is not the trunk. Nothing is branched from it and nothing is merged into it except a
-deployment, so its history is a list of releases rather than a list of changes. Day-to-day,
-`development` is the branch that matters: it is the one that must always build and pass its
-tests, because it is what every other branch is cut from and re-synced against.
-
-One exception exists, and it is narrow: `.github/workflows/ci.yml`. A branch may read a build
-cache written by itself or by the default branch and by nothing else, and only the default
-branch's own copy of a workflow is what a scheduled run executes. With `main` as the default
-branch, the workflow has to exist here in its current form or caching stops working for every
-branch at once. Workflow infrastructure that the default branch must carry may therefore land
-on `main` directly. Code and documentation still arrive only through a deployment.
-
-Such a commit leaves `main` one commit ahead of `development` and several behind, which looks
-like the start of a divergence and is not. The cascade merges `main` into `development` after
-every green run here, and that merge changes no files: `development` already contains
-everything that shipped, so the merge records the deployment commit and nothing else. The gap
-closes on the next run instead of accumulating.
-
-The three `platform/*` branches are long-lived on purpose. A platform port is not one
-change; it is a sequence of them that stays incomplete for a while, and merging half a port
-into `development` would leave the trunk claiming support it does not have. They collect the
-port until it is coherent, then land in one piece.
-
-```
-main            ─────────────────────────────●──────────────────────●  deployments only
-                                            ╱                      ╱
-development     ──●────●──────────●─────────●────────●────────────●   the trunk
-                   ╲    ╲        ╱           ╲      ╱
-                    ╲    ●──────●  feature/…  ╲    ╱   (cross-platform work)
-                     ╲                         ╲  ╱
-platform/linux        ●────●────●───────────────●     (Linux-only work)
-                            ╲  ╱
-                             ●●  feature/linux/…
-```
-
-## Where to cut a branch from
-
-One question decides it: **would this change be wrong to leave out on another platform?**
-
-If the answer is yes — the protocol, a Rust crate, a shared Swift view, a document, the build
-files — it is cross-platform work. Cut from `development`, merge back to `development`. It
-reaches the platform branches when they sync down.
-
-If the answer is no, because the change only exists to satisfy one operating system's API,
-cut from that `platform/<os>` branch and merge back to it.
-
-Uncertainty resolves toward `development`. A cross-platform change that lands there is
-available to all three platforms immediately; a shared change made on `platform/linux`
-is invisible to the other two until that branch lands, and by then the same file has usually
-been edited on `platform/macos` too. That is the one way this model produces a genuinely
-painful conflict, and cutting from `development` when unsure is what avoids it.
-
-### The rule that follows from this
-
-**A `platform/*` branch should not be the first place a shared file changes.** If Linux work
-needs a new field in `goosic-protocol` or a change in `goosic-core`, that need is not
-Linux-specific — the other platforms will want the same field. Make that change on a branch
-off `development`, land it, sync it down, and then build the Linux-only part on top of it.
-
-The practical test is the diff: if a `platform/linux` branch is touching `crates/`, stop and
-ask whether that hunk belongs on `development` instead. It usually does. Files under
-`crates/` that are genuinely platform-gated (a `#[cfg(target_os = ...)]` block) are the
-exception, not the pattern.
-
-The native shells follow the same line. `apps/goosic-linux` exists only for Linux, so it lives
-on `platform/linux` and each slice of it is a `feature/linux/<slug>`; the crates it links are
-shared and change on `development`. A Windows shell will stand in the same relation to
-`platform/windows`. The Swift package is the case worth knowing about: it is one package
-compiled for more than one platform, so its `Core/` directory is shared work even though it
-sits under `apps/`.
-
-## Work-branch names
-
-Long-lived branches are the five above. Everything else is short-lived, named for what it
-does, and deleted after it lands.
-
-| Cut from | Name | Example |
-| --- | --- | --- |
-| `development` | `feature/<slug>` | `feature/authenticated-catalog` |
-| `development` | `fix/<slug>` | `fix/queue-drops-last-track` |
-| `platform/<os>` | `feature/<os>/<slug>` | `feature/linux/playback-hosts` |
-| `platform/<os>` | `fix/<os>/<slug>` | `fix/macos/material-on-sonoma` |
-| `main` | `hotfix/<slug>` | `hotfix/service-spawn-path` |
-
-The `<os>` segment is not decoration. It is what tells a reader — and a merge — that the
-branch is aimed at `platform/<os>` and not at the trunk, at the moment when the two look
-alike from the outside.
-
-`<os>` is exactly `macos`, `linux`, or `windows`: the same spelling as the platform branch,
-lowercase, no version numbers.
-
-## Local workspace
-
-`GoosicReborn` is the canonical local checkout. Day-to-day work happens in that directory, and
-the repository must not accumulate sibling `GoosicReborn-*` worktree folders merely to isolate a
-small task. A separate worktree is created only when the user explicitly asks for one or when a
-concurrent task cannot safely share the working tree. Before it is removed, its uncommitted work
-must be merged or deliberately discarded with the user's approval; once that is settled, remove
-the worktree so the canonical checkout is the only GoosicReborn folder left in the workspace.
-
-## Merge direction
-
-Merges go two ways, and only these ways:
-
-**Down, constantly.** `development` → each `platform/*`. Do this whenever `development`
-moves, not when the port is finished. A platform branch that has not seen the trunk in three
-weeks is a merge conflict being saved up. This is a merge, never a rebase: the platform
-branches are shared, and rewriting their history breaks everyone else's copy.
-
-**Up, when coherent.** `platform/*` → `development`, once the slice is complete enough that
-the trunk can honestly claim it. Not per commit — per feature. `development` → `main`, only
-at a deployment.
-
-Sideways merges — `platform/linux` into `platform/macos` — are never correct. The two share
-nothing that `development` does not already carry, and a sideways merge drags one platform's
-half-finished port into the other's history. If both platforms need the same thing, that
-thing belongs on `development`.
-
-## What CI checks
-
-`.github/workflows/ci.yml` runs on every push and pull request, and it exists because of a
-specific failure mode this repository has: a change can be correct on the platform you are
-sitting at and broken on another, and nobody finds out until someone with that machine is
-free. The Swift 6 language mode landed that way — two errors that only a Mac could see, each
-costing a round trip through a colleague.
-
-Five jobs. The Rust workspace builds and tests on Linux, macOS, and Windows, because it is
-portable by construction and there is no excuse for it to break anywhere. The Swift package
-builds and tests only on macOS against SwiftUI and AppKit. SwiftCrossUI and the Swift Linux
-reference CI job have been removed. On a branch that contains
-`apps/goosic-linux` — `platform/linux` and its feature branches — the Rust GTK shell builds,
-passes clippy and runs its tests in a Fedora container, because `ubuntu-latest` ships a GTK
-older than the 4.20 that shell requires. The Flatpak builder on the GNOME runtime takes that job
-over once the shell has a manifest, since building the package users install is the better test.
-The WinUI shell in `apps/goosic-windows` runs its presentation tests and builds the app in Debug
-x64, the build `run.ps1` makes, on Windows. Until that job existed the shell was first compiled
-by the release workflow on a version tag, and 0.2.9 failed there on a missing `using` that no Mac
-or Linux machine could have reported; it took a hotfix to ship.
-
-A change runs only the suites it can affect. Documentation runs nothing; the crates run the Rust
-workspace, the GTK shell, which links two of them and runs the service, and the WinUI shell,
-which builds the rules library from them; `apps/goosic-linux` runs only the GTK shell,
-`apps/goosic-windows` only the WinUI shell and `apps/goosic-swift` only the Swift package, except
-the personal catalog reader both the Swift and WinUI shells ship; anything else runs everything.
-
-The Rust workspace's Windows entry is still marked `continue-on-error`, a leftover from when no
-Windows shell existed. The WinUI job is not: a shell that fails to compile blocks the merge and
-the passing stamp like any other.
-
-The rule this makes enforceable is the one `development` already had: it must always build
-and pass. Before it was an intention; now the trunk is red or green in public.
-
-## Automatic propagation
-
-Merges *down* are mechanical and were being done by hand, which is how `platform/macos` and
-`platform/windows` once sat three weeks behind the trunk. A workflow does them now. What is
-never automatic is promotion — nothing is merged *toward* `main`, because deciding that
-something is ready to ship is a judgement, not a chore.
-
-The cascade follows the branch names, which is what makes it need no configuration:
-
-| A push lands on | It is merged into |
+| Branch | Purpose |
 | --- | --- |
-| `main` | `development` |
-| `development` | `platform/macos`, `platform/linux`, `platform/windows`, and every `feature/<slug>` / `fix/<slug>` |
-| `platform/<os>` | every `feature/<os>/<slug>` and `fix/<os>/<slug>` |
+| `development` | Integrates shared code, documentation, macOS and Windows. |
+| `main` | Holds deployed versions and remains the default branch. |
+| `platform/linux` | Integrates the Linux alpha while it develops separately. |
 
-Each step triggers the next, so a hotfix reaches every branch in the repository through one
-push and no further instructions.
+Start a short-lived `feature/<slug>` or `fix/<slug>` from `development` and open a pull
+request back to it. A change that touches shared playback rules and both native shells can
+land in one pull request. Cut Linux-only work from `platform/linux` and merge it back there.
+Changes to shared contracts go through `development` first.
 
-`main` is in that table because of hotfixes. A hotfix is cut from `main`, fixed, and merged
-back to `main` — and at that moment the trunk does not have it. Merging `main` into
-`development` by hand is the step everyone forgets, and forgetting it is expensive in a
-specific way: nothing breaks, the fix simply disappears at the next deployment, when
-`development` overwrites `main` with a history that never learned about it. The bug returns
-and looks new.
+Update a work branch when its pull request needs new dependencies or has a conflict. Linux
+maintainers merge `development` into `platform/linux` when they need upstream changes. Keep
+long-lived branch history intact.
 
-After an ordinary deployment the same merge is a no-op — `main` holds nothing `development`
-lacks — so it costs nothing and stays silent. The step only does work in the case where
-skipping it would quietly lose a fix.
+## CI
 
-This is the point where the naming convention stops being documentation and starts being
-executable. A branch called `fix/macos/thing` is a child of `platform/macos`; one called
-`fix/macos-thing` is a child of `development`, and the hyphen is the whole difference. Name a
-branch wrong and the robot syncs it from the wrong parent.
+Work branches run CI on pull requests. Push checks run on `development`, `main` and
+`platform/linux`, where the integrated trees live. A newer run for the same ref cancels the
+older one.
 
-Three rules keep the cascade from becoming noise or damage:
+CI tests GitHub's proposed merge. It compares that tree with the PR base and selects suites
+from the changed paths. Documentation-only changes skip app builds. A change confined to
+one shell runs that shell's checks, except the personal catalog reader runs both macOS and
+Windows because both ship it. Changes to shared shell rules or the protocol run the Rust
+workspace and all applicable shell suites. When the comparison baseline is unavailable, CI
+runs all applicable suites.
 
-**A conflict opens a pull request; it never forces anything.** A merge between a platform port
-and a change to the core is exactly the kind of thing a person has to resolve, and a robot
-that guesses is worse than one that stops. There is no `push --force` anywhere in this: a
-platform branch's own installers, scripts, and configuration survive by construction.
+The Rust matrix tests on Linux, macOS and Windows. macOS builds and tests Swift against
+AppKit. Windows runs its presentation tests and builds WinUI. Where the GTK source is
+present, Linux checks the native shell and the Flatpak. GitHub records a `ci-passed/` tag
+when CI ran the complete set of applicable build suites and the workflow's success criteria
+were met. A later run for that exact Git tree can reuse the result. A full run is always
+available through manual dispatch.
 
-**Work branches already contained in their parent are skipped.** A finished `feature/*` or
-`fix/*` branch still exists until someone deletes it, and merging into it produces a commit
-nobody will ever read and a CI run nobody will read either.
-
-**Stale work branches are skipped.** A work branch with no activity for weeks is not waiting
-for updates.
-
-Neither skip applies to `development` or a `platform/*` branch, because for a long-lived branch
-being contained in its parent does not mean it is finished. It is the ordinary state right
-after a deployment, when `development` is an ancestor of `main`, and right after a promotion,
-when `platform/macos` or `platform/windows` has just been merged into `development`. The
-cascade once treated those the same as a finished work branch and skipped them, so every later
-change stopped at the parent; for the 0.2.9 release `development` and both platform branches
-had to be fast-forwarded by hand. A contained long-lived branch is now fast-forwarded to its
-parent instead. That is not a merge commit and not a force push: the branch has no commits of
-its own to lose, and the server refuses the push if it would not be a fast-forward. A quiet
-platform branch is likewise still waiting for the trunk, so the staleness rule leaves it alone.
-
-A change to `propagate.yml` itself takes effect late. The workflow starts from a `workflow_run`
-event, and GitHub runs such a workflow from the default branch's copy, so an edit is live only
-once a deployment carries it to `main`. Until then the cascade keeps its old behaviour, even on
-`development`, where the new copy already sits.
-
-The propagated push is a normal push, so CI runs on the result — and it should, because merging
-a parent into a branch that has its own work produces a tree that has never been compiled. That
-is not waste: it is the check that tells you your in-progress branch still builds against the
-trunk. What the tree-hash skip removes is the *other* case, where the merge changed nothing.
-
-## Skipping work that is provably identical
-
-CI compares the git tree hash of what it is about to build against the trees that have already
-passed. If it matches, the jobs are skipped; the bytes are identical, so the answer is known.
-
-The hash is of the *content*, not of where it came from, and that distinction is the whole
-design. A merge result is not the branch that was tested: it is that branch combined with
-whatever the target had gained meanwhile, and that combination may never have been compiled.
-Trusting a green light because of a branch's ancestry would skip exactly the runs worth doing.
-
-The repository has already produced both cases in one afternoon. Four branches — a fix, the
-trunk, and two platform branches — ended up sharing one tree hash and were compiled four
-times. In the same batch, a merge into the Linux playback work produced a new tree: the first
-that combined WebKitGTK, the shared bridge, and the Swift 6 mode. Content hashing skips the
-first three and builds the fourth.
-
-## Who writes the build cache
-
-A repository gets 10 GB of Actions cache, and this one filled it: 34 entries, 12.7 GB, with
-every branch holding its own copy of the same dependency tree — 1.3 GB each across ten live
-branches, of which 5.9 GB was ten copies of one macOS Swift build. Nothing was broken;
-GitHub simply evicts the least recently used entries once you pass the limit, so the cost was
-paid as thrash rather than as an error.
-
-Copies accumulate because of how the scope works. A run may restore a cache written by its
-own branch or by the *default* branch, and by nothing else — a branch cannot read its
-parent's. So a branch that saves its own copy helps only itself, and the tree of branches
-this repository keeps guarantees one copy per branch. Only the default branch writes now, and
-every branch reads from it; the condition is derived from
-`github.event.repository.default_branch` rather than naming a branch, because which branch is
-default has already changed twice and a stale name here would silently stop all caching.
-
-That creates one problem worth stating plainly, because it is the reason the workflow has a
-schedule. The default branch is `main`, and `main` is deployment-only: it builds a few times
-a year. A cache only `main` may write, on a branch that almost never runs, is a cache nobody
-has. So CI also runs on a weekly schedule and on `workflow_dispatch`, and a run started
-either way ignores the passport — otherwise the tree would be recognised as already passed,
-every heavy job would skip, and the run would write nothing. Scheduled runs always use the
-default branch, which is exactly the branch that has to hold the cache.
-
-The keys are the hash of `Package.resolved`, so an entry stays correct until a dependency
-moves, and restoring counts as access, which keeps it from expiring. In practice `main`
-rebuilds the cache when the schedule notices a new key, and every other branch reads it.
-
-## Pruning finished branches
-
-A weekly workflow deletes work branches from the remote, on one condition: every commit on the
-branch is already an ancestor of its parent. That is what makes it safe rather than merely
-careful — deleting such a branch removes a label, not work, because the commits go on living
-in the parent.
-
-Age is never the reason. A branch untouched for months may hold the only copy of something
-half-finished, and "stale" is how you delete a colleague's work while believing you tidied up.
-Age is only a grace period on top: a branch merged less than a week ago is kept, so one merged
-this morning and still in use is not swept away this afternoon. A branch with an open pull
-request is kept too, because someone is still talking about it.
-
-The long-lived branches — `main`, `development`, and the three `platform/*` — are never
-candidates, whatever their state.
-
-Each deletion is logged with the branch's SHA, and GitHub can restore a deleted branch from
-its branch list. Run it manually from the Actions tab to see the list before anything happens;
-the manual run defaults to a dry run.
+The default branch writes shared build caches and runs weekly to refresh them. Feature
+branches and pull requests restore those caches. Scheduled and manually dispatched builds
+ignore passing-tree tags so the scheduled run can refresh the caches.
 
 ## Deployment
 
-A deployment is `development` → `main`, and nothing else reaches `main`. Before it:
-`make test` passes, the three platform branches have been synced down and none is mid-port
-in a way the release claims otherwise, and the README's "What works today" and "Migration
-phases" describe what actually ships. The deploy pull request is the one Codex reviews: its
-diff is everything since the last release, and automatic reviews on every other pull request
-are switched off. The release workflow tags the merge commit on `main` with the version.
-[RELEASING.md](RELEASING.md) describes the release itself, which `tools/release.sh` runs:
-freezing the version before the deploy pull request opens, promoting the platform branches,
-asking Codex for its review, and merging each pull request only once its CI is green.
+Deploy through a pull request from `development` into `main`. Use
+[RELEASING.md](RELEASING.md) to freeze the version, request the release review and build
+the draft. An urgent production fix can use a `hotfix/<slug>` branch from `main`. Merge the
+fix into `main`, then bring it into `development` before the next deployment.
 
-A hotfix is the single exception to "nothing is cut from `main`": cut `hotfix/<slug>` from
-`main`, fix the one thing, merge it to `main`, and then merge `main` back into
-`development` immediately so the fix is not lost at the next deployment.
+## Pruning
 
-## What this looks like in practice
-
-Porting the macOS hosts to Linux was Linux-only work: WebKitGTK, GStreamer, MPRIS and
-per-account network sessions all exist to satisfy one platform's API. Each was cut from
-`platform/linux` as its own `feature/linux/<slug>` and merged back there, and `platform/linux`
-now holds the port as one coherent slice waiting to land on `development`.
-
-Two things in that port were not Linux-only, and telling them apart is the whole skill. The
-script that decides a sign-in finished and the list of hosts a login window may reach were
-private to the macOS file; Linux needed the same answers, and copying them would have
-produced two versions of a security rule. Both were cut from `development` instead, landed
-there, and synced down before the Linux work continued. The test for the second one lost its
-`#if os(macOS)` in the process and now runs everywhere, which is the sort of thing that only
-shows up once a second platform asks the same question.
-
-Authenticated catalog reads are the opposite: `goosic-catalog` is shared and every platform
-needs them. That is `feature/authenticated-catalog` off `development`, and the platform
-branches pick it up when they sync down.
+The weekly pruning workflow deletes finished work branches after a week when their exact
+commits are already in `development`, `main` or `platform/linux`. Both ends of open pull
+requests are protected. Manual runs default to a dry run and show the candidate branch
+names and commit IDs.

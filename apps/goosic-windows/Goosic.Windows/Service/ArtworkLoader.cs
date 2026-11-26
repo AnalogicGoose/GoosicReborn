@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 
 namespace Goosic.Windows.Service;
 
@@ -25,16 +25,11 @@ namespace Goosic.Windows.Service;
 /// </remarks>
 internal sealed class ArtworkLoader
 {
-    /// <summary>Hosts YouTube Music serves artwork from, as <c>goosic_shell_support::artwork</c> lists them.</summary>
-    /// <remarks><c>gstatic.com</c> holds the art of YouTube Music's own playlists, such as Liked Music.</remarks>
-    private static readonly string[] AllowedHostSuffixes =
-        ["googleusercontent.com", "ggpht.com", "ytimg.com", "youtube.com", "gstatic.com"];
-
     /// <summary>Artwork is small. Anything larger is not a thumbnail and is discarded.</summary>
-    private const int MaxBytes = 4 * 1024 * 1024;
+    private static readonly long MaxBytes = PlaybackRules.ArtworkMaxBytes;
 
     /// <summary>So opening a dense screen cannot start hundreds of connections at once.</summary>
-    private const int MaxConcurrentFetches = 6;
+    private static readonly int MaxConcurrentFetches = ShellSupport.ArtworkMaxConcurrentFetches;
 
     private readonly HttpClient _http;
     private readonly SemaphoreSlim _slots = new(MaxConcurrentFetches, MaxConcurrentFetches);
@@ -64,57 +59,18 @@ internal sealed class ArtworkLoader
     }
 
     /// <summary>
-    /// Whether this build is willing to fetch <paramref name="remote"/> at all.
+    /// Whether this build is willing to fetch <paramref name="remote"/> at all: HTTPS from the hosts
+    /// YouTube Music serves artwork from, matched on a label boundary. The rule is
+    /// <c>goosic_shell_support::artwork::is_allowed</c>, which the Mac asks too.
     /// </summary>
-    /// <remarks>
-    /// The suffix is matched on a label boundary, so <c>evilgoogleusercontent.com</c> is not
-    /// <c>googleusercontent.com</c>.
-    /// </remarks>
-    internal static bool IsAllowed(string remote)
-    {
-        if (!Uri.TryCreate(remote, UriKind.Absolute, out var url))
-        {
-            return false;
-        }
-
-        if (url.Scheme != Uri.UriSchemeHttps)
-        {
-            return false;
-        }
-
-        var host = url.Host.ToLowerInvariant();
-        return AllowedHostSuffixes.Any(suffix =>
-            host == suffix || host.EndsWith("." + suffix, StringComparison.Ordinal));
-    }
+    internal static bool IsAllowed(string remote) => PlaybackRules.ArtworkIsAllowed(remote);
 
     /// <summary>
-    /// A stable, collision-resistant file name for a remote URL.
+    /// A stable, collision-resistant file name for a remote URL: 32 hex digits and nothing else,
+    /// so a path built from it cannot climb out of the cache directory. The Rust rule names the
+    /// same file on every platform.
     /// </summary>
-    /// <remarks>
-    /// Two independent FNV-1a passes give 128 bits, the second over the reversed bytes so a
-    /// transposition changes the key. The result is 32 hex digits and nothing else, so a path
-    /// built from it cannot climb out of the cache directory whatever the URL contained. Kept
-    /// identical to the Rust implementation so both name the same file.
-    /// </remarks>
-    internal static string CacheKey(string remote)
-    {
-        static ulong Fnv1a(IEnumerable<byte> bytes, ulong seed)
-        {
-            var hash = seed;
-            foreach (var b in bytes)
-            {
-                hash = unchecked((hash ^ b) * 0x100_0000_01b3UL);
-            }
-
-            return hash;
-        }
-
-        var bytes = System.Text.Encoding.UTF8.GetBytes(remote);
-        var low = Fnv1a(bytes, 0xcbf2_9ce4_8422_2325UL);
-        var high = Fnv1a(((IEnumerable<byte>)bytes).Reverse(), 0x9dc5_bb15_8f2c_1e37UL);
-        return low.ToString("x16", CultureInfo.InvariantCulture)
-            + high.ToString("x16", CultureInfo.InvariantCulture);
-    }
+    internal static string CacheKey(string remote) => PlaybackRules.ArtworkCacheKey(remote);
 
     /// <summary>
     /// The local file for <paramref name="remote"/>, fetching it if this is the first ask.

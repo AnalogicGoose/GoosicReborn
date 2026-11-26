@@ -86,7 +86,8 @@ pub fn index_before(index: usize, count: usize, repeat: RepeatMode) -> Option<us
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AdPlaybackRecovery {
     pub awaiting_content: bool,
-    resume_requested: bool,
+    /// Play has been asked for once since the advertisement ended; it is not asked again.
+    pub resume_requested: bool,
 }
 
 impl AdPlaybackRecovery {
@@ -198,8 +199,45 @@ impl PendingSeek {
     /// Whether a confirmed position means this seek is over — it landed, or it has had long
     /// enough that the player's own report is the truth again.
     pub fn is_settled_by(&self, confirmed_time: f64, now: Instant) -> bool {
-        (confirmed_time - self.position).abs() < SEEK_LANDED_TOLERANCE_SECONDS
-            || now.saturating_duration_since(self.requested_at) >= SEEK_SETTLE_WINDOW
+        let elapsed = now
+            .saturating_duration_since(self.requested_at)
+            .as_secs_f64();
+        settle_seek(confirmed_time, self.position, elapsed).settled
+    }
+}
+
+/// What the position line shows while a seek is on its way.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SeekShown {
+    /// The position to draw.
+    pub shown: f64,
+    /// Whether the pending seek is finished with and can be forgotten.
+    pub settled: bool,
+}
+
+/// Where the position line sits for a seek to `target` asked for `elapsed_seconds` ago, when the
+/// player now reports `confirmed`.
+///
+/// The player keeps reporting the old position for a moment after a seek, and drawing it made the
+/// thumb jump back before jumping forward. The target is shown until a report lands near it or
+/// the settle window has passed; a clock that cannot be read counts as the window having passed,
+/// so a broken timer never pins the thumb in place. This is the clock-free form both shells call,
+/// with the elapsed time measured on their own clocks.
+pub fn settle_seek(confirmed: f64, target: f64, elapsed_seconds: f64) -> SeekShown {
+    let landed = (confirmed - target).abs() < SEEK_LANDED_TOLERANCE_SECONDS;
+    let waited = !elapsed_seconds.is_finite()
+        || elapsed_seconds < 0.0
+        || elapsed_seconds >= SEEK_SETTLE_WINDOW.as_secs_f64();
+    if landed || waited || !target.is_finite() {
+        SeekShown {
+            shown: confirmed,
+            settled: true,
+        }
+    } else {
+        SeekShown {
+            shown: target,
+            settled: false,
+        }
     }
 }
 
@@ -263,6 +301,16 @@ pub fn has_finished(state: &str, position: f64, duration: f64, listener_paused: 
             && duration > 0.0
             && position.is_finite()
             && position >= duration - END_TOLERANCE_SECONDS)
+}
+
+/// The song is playing somewhere short of its end, which only a replay produces once that end
+/// has been acted on.
+fn is_playing_before_the_end(state: &str, position: f64, duration: f64) -> bool {
+    state == "playing"
+        && duration.is_finite()
+        && duration > 0.0
+        && position.is_finite()
+        && position < duration - END_TOLERANCE_SECONDS
 }
 
 /// A sample as [`should_advance_after_end`] needs to see it.
@@ -357,6 +405,7 @@ pub fn merge_preferences(
         hide_explicit: update.hide_explicit.or(pending.hide_explicit),
         start_page: update.start_page.or(pending.start_page),
         reduce_motion: update.reduce_motion.or(pending.reduce_motion),
+        update_channel: update.update_channel.or(pending.update_channel),
     }
 }
 
@@ -375,8 +424,195 @@ pub fn now_playing_subtitle(track: Option<&Track>) -> String {
     }
 }
 
+/// What one sample means for the queue.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EndVerdict {
+    /// The track has played through, reported for the first time: move the queue on.
+    pub advance: bool,
+    /// An advertisement's handoff left content paused: ask the page to play, once.
+    pub resume: bool,
+}
+
+/// When a play's natural end moves the queue, decided identically by every shell.
+///
+/// The Mac and Windows once kept different guards, and each had a hole the other did not. The
+/// Mac counted any finish for a new video id, so a sample could end a play that had never been
+/// heard; Windows required the play to be heard but never resumed content an advertisement left
+/// paused. This holds all of it: an end counts only for the play being requested, only after it
+/// has been heard playing, never during or straight after an advertisement, and only once. A
+/// shell calls [`EndGuard::begin`] for every load, including a repeat of the same song.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EndGuard {
+    /// The current play has been heard playing, so an end for it is real.
+    pub heard: bool,
+    /// The current play's end has been acted on already.
+    pub handled: bool,
+    pub ads: AdPlaybackRecovery,
+}
+
+impl EndGuard {
+    /// Starts a new play.
+    pub fn begin(&mut self) {
+        *self = EndGuard::default();
+    }
+
+    /// Feeds one accepted sample. `is_current` says the sample describes the requested play; an
+    /// advertisement inside that play counts as current.
+    pub fn observe(
+        &mut self,
+        is_current: bool,
+        advertisement: bool,
+        state: &str,
+        position: f64,
+        duration: f64,
+        listener_paused: bool,
+    ) -> EndVerdict {
+        if !is_current {
+            return EndVerdict::default();
+        }
+        let resume = self.ads.observe(advertisement, state, listener_paused);
+        if self.handled && !advertisement && is_playing_before_the_end(state, position, duration) {
+            // Heard again after its end was acted on: a replay from Previous, a seek back, or
+            // Play after the queue stopped. Its next end is a new one, and must not be swallowed.
+            self.handled = false;
+        }
+        if !advertisement && state == "playing" && !self.handled {
+            self.heard = true;
+        }
+        let advance = !advertisement
+            && !self.handled
+            && self.heard
+            && !self.ads.awaiting_content
+            && has_finished(state, position, duration, listener_paused);
+        if advance {
+            self.handled = true;
+            self.heard = false;
+        }
+        EndVerdict { advance, resume }
+    }
+
+    /// The page moved past the requested play on its own after it was heard. Answers whether this
+    /// is the first end recorded for it, so the queue advances once.
+    pub fn page_ended(&mut self, is_current: bool) -> bool {
+        if !is_current || self.handled {
+            return false;
+        }
+        self.handled = true;
+        self.heard = false;
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_replay_after_the_end_arms_a_new_end() {
+        let mut guard = EndGuard::default();
+        guard.begin();
+        guard.observe(true, false, "playing", 10.0, 200.0, false);
+        assert!(
+            guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+        assert!(
+            !guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance,
+            "the same end reported again"
+        );
+        assert!(
+            !guard
+                .observe(true, false, "playing", 199.5, 200.0, false)
+                .advance,
+            "a last sample at the end is not a replay"
+        );
+        assert!(
+            !guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+        guard.observe(true, false, "playing", 0.5, 200.0, false);
+        assert!(
+            guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance,
+            "heard again from the start, so it ends again"
+        );
+        assert!(!guard.page_ended(true), "and only once");
+    }
+
+    #[test]
+    fn an_end_counts_once_and_only_after_the_play_was_heard() {
+        let mut guard = EndGuard::default();
+        guard.begin();
+        assert!(
+            !guard
+                .observe(true, false, "ended", 0.0, 200.0, false)
+                .advance,
+            "a play never heard cannot end"
+        );
+        guard.observe(true, false, "playing", 10.0, 200.0, false);
+        assert!(
+            !guard
+                .observe(false, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+        assert!(
+            guard
+                .observe(true, false, "paused", 199.5, 200.0, false)
+                .advance
+        );
+        assert!(
+            !guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+        assert!(!guard.page_ended(true), "already handled");
+        guard.begin();
+        guard.observe(true, false, "playing", 1.0, 200.0, false);
+        assert!(
+            guard.page_ended(true),
+            "a repeat of the same song is a new play"
+        );
+    }
+
+    #[test]
+    fn an_advertisement_neither_ends_the_play_nor_leaves_it_paused() {
+        let mut guard = EndGuard::default();
+        guard.observe(true, false, "playing", 1.0, 200.0, false);
+        let during = guard.observe(true, true, "ended", 30.0, 30.0, false);
+        assert_eq!(during, EndVerdict::default());
+        let after = guard.observe(true, false, "paused", 200.0, 200.0, false);
+        assert!(
+            after.resume && !after.advance,
+            "content left paused is resumed, not ended"
+        );
+        assert!(
+            !guard
+                .observe(true, false, "paused", 200.0, 200.0, true)
+                .resume
+        );
+        guard.observe(true, false, "playing", 199.0, 200.0, false);
+        assert!(
+            guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+    }
+
+    #[test]
+    fn a_listener_pause_near_the_end_is_not_the_end() {
+        let mut guard = EndGuard::default();
+        guard.observe(true, false, "playing", 198.0, 200.0, false);
+        assert!(
+            !guard
+                .observe(true, false, "paused", 199.5, 200.0, true)
+                .advance
+        );
+    }
+
     use super::*;
 
     fn next(
@@ -532,6 +768,29 @@ mod tests {
         }
         assert_eq!(volume_gain(f64::NAN), 0.0);
         assert_eq!(volume_position(-0.5), 0.0);
+    }
+
+    #[test]
+    fn a_seek_is_shown_until_the_player_lands_near_it_or_a_second_passes() {
+        let held = settle_seek(30.0, 120.0, 0.3);
+        assert_eq!(
+            held,
+            SeekShown {
+                shown: 120.0,
+                settled: false
+            }
+        );
+        assert_eq!(
+            settle_seek(119.5, 120.0, 0.4),
+            SeekShown {
+                shown: 119.5,
+                settled: true
+            }
+        );
+        assert!(settle_seek(30.0, 120.0, 1.0).settled, "the window ran out");
+        assert!(settle_seek(30.0, 120.0, f64::NAN).settled);
+        assert!(settle_seek(30.0, 120.0, -1.0).settled);
+        assert!(settle_seek(30.0, f64::NAN, 0.1).settled);
     }
 
     #[test]

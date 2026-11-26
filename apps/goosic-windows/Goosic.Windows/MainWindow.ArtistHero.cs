@@ -82,10 +82,26 @@ public sealed partial class MainWindow
         {
             var first = Model.Tracks[0];
             Add(menu, "Start radio", "\uEC05", async () => await PlayEntryAsync(Model.StartStation(first)));
-            Add(menu, "Play next", "\uE7AC", () =>
+            Add(menu, "Play next", "\uE7AC", async () =>
             {
-                for (var index = Model.Tracks.Count - 1; index >= 0; index--)
-                    Model.Enqueue(Model.Tracks[index], next: true);
+                var tracks = new List<TrackViewModel>(Model.Tracks);
+                if (!Model.HasNowPlayingEntry)
+                {
+                    // With nothing playing the first song starts the queue and the rest follow it.
+                    TrackViewModel? started = null;
+                    foreach (var track in tracks)
+                    {
+                        // Enqueued unconditionally: `started ??= Enqueue(...)` would stop calling
+                        // it once the first song was in, and drop the rest of the list.
+                        var queued = Model.Enqueue(track, next: false);
+                        started ??= queued;
+                    }
+                    await PlayEntryAsync(started);
+                    return;
+                }
+
+                for (var index = tracks.Count - 1; index >= 0; index--)
+                    Model.Enqueue(tracks[index], next: true);
             });
         }
         Add(menu, "Copy artist link", "\uE71B", () => OnCopyArtistLink(sender, e));

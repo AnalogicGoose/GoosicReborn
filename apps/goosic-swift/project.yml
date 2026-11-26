@@ -29,8 +29,17 @@ targets:
     dependencies:
       - package: Sparkle
         product: Sparkle
+    # The shared shell rules, as Package.swift links them: the crate's static archive, named by
+    # path because the dylib beside it would win a -l, and its module map for the header.
+    preBuildScripts:
+      - name: Build the shared shell rules
+        script: |
+          cd "$SRCROOT/../.." && cargo build -p goosic-shell-support-ffi
+        basedOnDependencyAnalysis: false
     settings:
       base:
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/Sources/GoosicShellSupportFFI"
+        OTHER_LDFLAGS: "$(inherited) $(SRCROOT)/../../target/debug/libgoosic_shell_support_ffi.a"
         PRODUCT_BUNDLE_IDENTIFIER: com.goosic.preview
         PRODUCT_NAME: Goosic
         ASSETCATALOG_COMPILER_APPICON_NAME: Goosic

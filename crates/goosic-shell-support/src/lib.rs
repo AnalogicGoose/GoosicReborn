@@ -15,18 +15,21 @@
 //! | Module | Moved from | What it decides |
 //! | --- | --- | --- |
 //! | [`client`], [`framing`], [`response`] | `ServiceClient.swift` | the transport |
-//! | [`login`] | `AccountLoginModel.swift` | where sign-in may go, when it is complete |
-//! | [`bridge`] | `OfficialBridge.swift` | whether a web player's report is trustworthy |
-//! | [`media`] | `SystemMediaPlayback.swift` | what the system media controls show and allow |
+//! | [`login`] | `AccountLoginModel.swift`, C# `AccountLoginWindow` | where sign-in may go, when it is complete |
+//! | [`bridge`] | `OfficialBridge.swift`, `OfficialPlaybackHost+macOS.swift` | whether a web player's report is trustworthy |
+//! | [`media`] | `SystemMediaPlayback.swift`, C# media controls | what the system media controls show and allow |
 //! | [`catalog`] | `Catalog.swift` | which rows are playable and how a page is shaped |
-//! | [`playback`] | `Models.swift`, `VolumeTaper.swift` | what plays next, clamps, the volume taper, seek settling, preference saves |
+//! | [`playback`] | `Models.swift`, `VolumeTaper.swift`, `TrackEnd.swift` (with `AdPlaybackRecovery`), C# `VolumeTaper`, `SeekSettle` and `PlaybackOrder` | clamps, the volume taper, time text, seek settling, when a track has finished, preference saves |
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
+//! | [`queue_engine`] | `Models.swift`, C# `ShellViewModel.Queue` and `PlaybackOrder` | the whole listening queue: launch, Next/Previous, natural ends, shuffle, repeat, radio, editing, Clear and Undo |
+//! | [`player_text`] | `ListRules.swift`, C# `ListRules` | Up Next, song-count and sleep-timer copy |
 //! | [`lyrics`] | `Models.swift` | which line is current |
 //! | [`lyrics_motion`] | `LyricsTiming.swift`, C# lyrics rules | drawing spans, rests, interludes and row motion |
-//! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key, the playing cover's shape |
-//! | [`hero`] | `ArtistHero.swift` | an artist hero's height and the colour its page takes |
+//! | [`artwork`] | `ArtworkCache.swift`, `CoverShape.swift`, C# `CoverShape` | which hosts artwork may come from, its cache key, the playing cover's shape |
+//! | [`hero`] | `ArtistHero.swift`, C# `ArtistHero` | an artist hero's height and the colour its page takes |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
-//! | [`page_swap`] | `TrackEnd.swift`, C# `PlaybackOrder` | a page that switches video before the requested track plays |
+//! | [`updates`] | C# `UpdateRules`, `AppUpdater` | which release the updater offers on each channel |
+//! | [`page_swap`] | `TrackEnd.swift`, C# `PlaybackOrder.IsSameSong` | a page that switches video before the requested track plays |
 
 use std::time::Duration;
 
@@ -43,9 +46,12 @@ pub mod media;
 pub mod navigation;
 pub mod page_swap;
 pub mod playback;
+pub mod player_text;
 pub mod queue;
+pub mod queue_engine;
 pub mod response;
 mod text;
+pub mod updates;
 
 pub use client::{ServiceClient, ServiceClientBuilder};
 pub use framing::FrameReader;

@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,7 +36,12 @@ internal sealed record AvailableUpdate(Version Version, string SetupName, string
 /// </remarks>
 internal static class AppUpdater
 {
-    private const string LatestRelease = "https://api.github.com/repos/AnalogicGoose/GoosicReborn/releases/latest";
+    /// <summary>
+    /// The newest releases, pre-releases included. The list rather than <c>releases/latest</c>,
+    /// because the experimental channel needs the pre-releases that endpoint leaves out; which one
+    /// is offered is <c>goosic_shell_support::updates::choose_release</c>, the Mac's rule too.
+    /// </summary>
+    private const string Releases = "https://api.github.com/repos/AnalogicGoose/GoosicReborn/releases?per_page=30";
 
     private static readonly HttpClient Http = CreateClient();
 
@@ -57,16 +63,39 @@ internal static class AppUpdater
     internal static bool CanInstall =>
         CurrentVersion is not null && File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
 
-    /// <summary>The newest release if it is newer than this build, else null.</summary>
-    internal static async Task<AvailableUpdate?> CheckAsync(CancellationToken cancel)
+    /// <summary>The release <paramref name="channel"/> offers if it is newer than this build, else null.</summary>
+    internal static async Task<AvailableUpdate?> CheckAsync(string channel, CancellationToken cancel)
     {
-        using var response = await Http.GetAsync(LatestRelease, cancel).ConfigureAwait(false);
+        using var response = await Http.GetAsync(Releases, cancel).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
-        var release = await JsonSerializer.DeserializeAsync<Release>(
+        var releases = await JsonSerializer.DeserializeAsync<Release[]>(
             await response.Content.ReadAsStreamAsync(cancel).ConfigureAwait(false), cancellationToken: cancel)
-            .ConfigureAwait(false);
-        var version = UpdateRules.ParseVersion(release?.Tag);
-        if (release is null || release.Draft || release.Prerelease || !UpdateRules.IsNewer(CurrentVersion, version))
+            .ConfigureAwait(false) ?? [];
+        var listed = new JsonArray();
+        foreach (var candidate in releases)
+        {
+            listed.Add(new JsonObject
+            {
+                ["tag"] = candidate.Tag ?? "",
+                ["draft"] = candidate.Draft,
+                ["prerelease"] = candidate.Prerelease,
+            });
+        }
+
+        var chosen = SharedQueue.Rule("chooseRelease", new JsonObject
+        {
+            ["current"] = CurrentVersion is { } current ? UpdateRules.Format(current) : null,
+            ["channel"] = channel,
+            ["releases"] = listed,
+        });
+        if (chosen is not JsonValue value || !value.TryGetValue<int>(out var index) || index < 0 || index >= releases.Length)
+        {
+            return null;
+        }
+
+        var release = releases[index];
+        var version = UpdateRules.ParseVersion(release.Tag);
+        if (version is null)
         {
             return null;
         }
