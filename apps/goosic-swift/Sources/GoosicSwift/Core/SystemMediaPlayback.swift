@@ -1,4 +1,5 @@
 import Foundation
+import GoosicShellSupportFFI
 
 /// The state needed to project Goosic's confirmed playback into the system media controls.
 /// Keeping this value type independent from MediaPlayer makes the policy testable on every
@@ -61,27 +62,42 @@ struct SystemMediaNowPlayingProjection: Equatable {
     var playbackState: SystemMediaPlaybackState
     var isActive: Bool
 
+    /// What the system shows. When it is active, and the clamped clock, are
+    /// `NowPlaying::from_snapshot` in `goosic-shell-support`; only the text is filled in here.
     static func make(from snapshot: SystemMediaPlaybackSnapshot) -> SystemMediaNowPlayingProjection {
-        let active = snapshot.isReady && snapshot.owner != .none && snapshot.track != nil
-        let safeDuration = snapshot.duration.isFinite && snapshot.duration > 0 ? snapshot.duration : 0
-        let rawElapsed = snapshot.currentTime.isFinite ? max(0, snapshot.currentTime) : 0
-        let elapsed = safeDuration > 0 ? min(rawElapsed, safeDuration) : rawElapsed
-        // Advertisement status affects which commands are available, not the confirmed media
-        // state. A playing ad is still reported as playing; play/pause remains model-governed.
-        let playing = active && !snapshot.isPaused
-        let track = active ? snapshot.track : nil
-
+        let shown = snapshot.projected
+        let track = shown.is_active ? snapshot.track : nil
         return SystemMediaNowPlayingProjection(
             title: track?.title.nilIfEmpty,
             artist: track?.artist.nilIfEmpty,
             album: track?.album.nilIfEmpty,
             artworkURL: track?.thumbnail.flatMap(URL.init(string:)),
-            elapsedTime: elapsed,
-            duration: safeDuration,
-            playbackRate: playing ? 1 : 0,
-            playbackState: active ? (playing ? .playing : .paused) : .stopped,
-            isActive: active
+            elapsedTime: shown.elapsed_time,
+            duration: shown.duration,
+            playbackRate: shown.playback_rate,
+            playbackState: shown.playback_state == 2 ? .playing : shown.playback_state == 1 ? .paused : .stopped,
+            isActive: shown.is_active
         )
+    }
+}
+
+extension SystemMediaPlaybackSnapshot {
+    /// The projection and command availability Rust computes from this confirmed state.
+    var projected: GoosicMediaProjection {
+        var input = GoosicMediaInput(
+            has_track: track != nil,
+            is_ready: isReady,
+            has_owner: owner != .none,
+            current_time: currentTime,
+            duration: duration,
+            is_paused: isPaused,
+            is_advertisement: isAdvertisement,
+            has_queue: hasQueue,
+            is_idle: transition == .idle
+        )
+        var output = GoosicMediaProjection()
+        goosic_media_project(&input, &output)
+        return output
     }
 }
 
@@ -119,22 +135,18 @@ struct SystemMediaCommandAvailability: Equatable {
         }
     }
 
+    /// Which buttons may work: `CommandAvailability::from_snapshot` in `goosic-shell-support`.
     static func make(from snapshot: SystemMediaPlaybackSnapshot) -> SystemMediaCommandAvailability {
-        let active = snapshot.isReady && snapshot.owner != .none && snapshot.track != nil
-        let ready = active && snapshot.transition == .idle
-        let playing = active && !snapshot.isPaused
-        let paused = active && snapshot.isPaused
-        let contentCommands = ready && !snapshot.isAdvertisement
-
+        let allowed = snapshot.projected
         return SystemMediaCommandAvailability(
-            play: ready && paused,
-            pause: ready && playing,
-            togglePlayPause: ready,
-            next: contentCommands && snapshot.hasQueue,
-            previous: contentCommands && snapshot.hasQueue,
-            changePosition: contentCommands && snapshot.duration.isFinite && snapshot.duration > 0,
-            stop: ready,
-            changeVolume: ready
+            play: allowed.play,
+            pause: allowed.pause,
+            togglePlayPause: allowed.toggle_play_pause,
+            next: allowed.next,
+            previous: allowed.previous,
+            changePosition: allowed.change_position,
+            stop: allowed.stop,
+            changeVolume: allowed.change_volume
         )
     }
 }
