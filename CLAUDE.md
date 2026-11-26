@@ -28,6 +28,9 @@ touch anything:
    on its own `platform/<os>` branch. The only exemption is a change that exists solely for one
    operating system's API. Linux is out of scope for now and is not ported to unless the user
    asks. Section 8 of `AGENTS.md` has the steps.
-5. **`make test` must pass**, and CI repeats it on Linux, macOS, and Windows. Code behind a
+5. **Work in your own checkout.** Run `sh tools/agent-worktree.sh claude <branch>` and work
+   from the directory it prints. The main checkout is the user's, and other assistants have
+   theirs; section 9 of `AGENTS.md` says what stays shared.
+6. **`make test` must pass**, and CI repeats it on Linux, macOS, and Windows. Code behind a
    `#if` is invisible to the compiler you are running, so a green local build proves less
    than it looks.

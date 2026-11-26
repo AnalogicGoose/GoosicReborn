@@ -3,6 +3,26 @@
     <channel>
         <title>Goosic</title>
         <item>
+            <title>0.4.7 macOS experimental</title>
+            <pubDate>Thu, 26 Nov 2026 12:46:33 +0000</pubDate>
+            <sparkle:version>407</sparkle:version>
+            <sparkle:shortVersionString>0.4.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/AnalogicGoose/GoosicReborn/releases/tag/v0.4.7</sparkle:releaseNotesLink>
+            <sparkle:channel>experimental</sparkle:channel>
+            <enclosure url="https://github.com/AnalogicGoose/GoosicReborn/releases/download/v0.4.7/Goosic-0.4.7-macos-universal.zip" sparkle:edSignature="FQ3dRiCY3gzDl4jrPa10FFHZyYOTpwfF4DqivzHBqTFIuHKxT5QWWxuh9DTkqC2/cf0FttD5RiT8k2+OM3WEAw==" length="23032120" type="application/octet-stream" />
+        </item>
+        <item>
+            <title>0.4.6 macOS alpha</title>
+            <pubDate>Thu, 26 Nov 2026 10:05:11 +0000</pubDate>
+            <sparkle:version>406</sparkle:version>
+            <sparkle:shortVersionString>0.4.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/AnalogicGoose/GoosicReborn/releases/tag/v0.4.6</sparkle:releaseNotesLink>
+
+            <enclosure url="https://github.com/AnalogicGoose/GoosicReborn/releases/download/v0.4.6/Goosic-0.4.6-macos-universal.zip" sparkle:edSignature="rl+mmQEWwHoWAIXcUAgQw6nz8rnzADD5lxxM7zy+PK7/4lkqv/QNb8MCuvK311oQI/LHscHTyvyLOQmibyE6BA==" length="20340390" type="application/octet-stream" />
+        </item>
+        <item>
             <title>0.4.4 macOS alpha</title>
             <pubDate>Tue, 24 Nov 2026 06:43:09 +0000</pubDate>
             <sparkle:version>404</sparkle:version>

@@ -17,12 +17,11 @@ short by a failed check or a closed laptop is resumed by running it again.
 
 1. **Write `docs/RELEASE_<x.y.z>.md`**, in the style described in AGENTS.md. It can sit
    uncommitted in the checkout; the next step commits it.
-2. **`sh tools/release.sh <x.y.z>`** freezes the version, promotes the platform branches, opens
-   the deploy pull request and asks Codex to review it. In order: it cuts `release/<x.y.z>` from
-   development, runs `tools/bump-version.sh` there and adds the notes; it opens a promotion pull
-   request for each of `platform/macos` and `platform/windows` that holds work development lacks;
-   it waits for CI on all of them at once and merges each when its checks pass; then it opens
-   the deploy pull request from development into main and comments `@codex review` on it.
+2. **`sh tools/release.sh <x.y.z>`** cuts `release/<x.y.z>` from development, runs
+   `tools/bump-version.sh` there, adds the notes, and merges the freeze pull request when CI
+   passes. It then opens the deploy pull request from development into main and comments
+   `@codex review` on it. macOS and Windows changes arrive directly on development through
+   their regular pull requests.
 3. **`sh tools/release.sh ship <x.y.z>`**, once Codex's findings are dealt with, merges the deploy
    pull request when its CI is green. The release workflow sees a version on main that has no tag,
    tags the merge `v<x.y.z>` itself, tests the tagged tree on Windows and macOS, builds the
@@ -43,7 +42,7 @@ itself. The branches have no required checks, so `gh pr merge --auto` would merg
 than wait, which is why it is not part of the release. It works in a temporary worktree and never
 touches the checkout it is started from.
 
-Why each step is where it is. The version is frozen before anything is promoted: 0.3.0 was
+The version is frozen before the deploy pull request opens. Version 0.3.0 was
 renamed after its deploy pull request had opened, and the rename cost a second full round of CI.
 `tools/bump-version.sh` moves the workspace version in `Cargo.toml` and the workspace's entries in
 `Cargo.lock`, and the Windows and macOS packaging defaults; the release workflow reads the tag
@@ -84,6 +83,31 @@ Each carries its own copy of the service because that is how the shells find it.
 looks beside its executable when `GOOSIC_SERVICE_PATH` is unset, which is the case for anything
 opened from the Finder; the Windows shell has always looked beside its own executable first.
 
+## Stable and experimental releases
+
+Every copy of Goosic follows one of two update channels, chosen in Settings and saved by the
+service with the other preferences: **stable**, the default, and **experimental**. An
+experimental release is an ordinary release marked as a GitHub pre-release. It keeps a plain
+`x.y.z` version, so the numbers simply rise across both channels and a stable listener never sees
+the ones spent on experiments. A suffixed name such as `0.5.0-beta.1` was the alternative and was
+refused on purpose: the macOS build number is derived from the version, the Windows Setup file is
+named after it, and every installed copy compares versions as plain triples, so a suffix would
+have needed a new rule in each of those places and in every copy already installed.
+
+To make one, start `docs/RELEASE_<x.y.z>.md` with the line `<!-- channel: experimental -->`. GitHub
+does not render the comment. The release workflow reads it, creates the draft as a pre-release,
+and leaves the last stable release marked as latest. After publication, `tools/release.sh feed`
+sees the pre-release flag and gives the Mac feed item `<sparkle:channel>experimental</sparkle:channel>`.
+
+Which release a copy is offered is one rule, `goosic_shell_support::updates`, asked by both shells.
+Windows reads the release list and lets `choose_release` pick the newest release its channel
+allows; macOS tells Sparkle which channels it may install from through `sparkle_channels`, and
+Sparkle skips any item whose channel is not allowed. (0.4.6's Mac app does not link the rules
+library yet, so it keeps a one-line Swift copy of `sparkle_channels` held to the same cases; the
+release after it asks Rust.) Copies older than 0.4.6 allow no channel, read
+`releases/latest`, and so stay on stable without any change. Leaving the experimental channel never
+downgrades: the copy keeps what it has until a stable release passes it.
+
 ## The macOS build number
 
 Sparkle offers an update only when its `sparkle:version` is higher than the installed app's
@@ -110,14 +134,9 @@ derived one.
 
 ## Codex reviews the release
 
-Codex reviews a release, not every pull request. Its automatic reviews are switched off for this
-repository in the Codex settings (chatgpt.com/codex, Settings → Code review), so feature, fix and
-promotion pull requests merge on CI and a person's reading alone. That setting belongs to each
-Codex account, not to the repository: anyone whose account is connected to it switches it off in
-their own settings, or Codex keeps reviewing every pull request on their behalf. A review on each of those was
-the same code read several times on its way to `main` — once in the feature, again in each
-promotion — and its findings landed mid-chain, where every fix reopened a pull request and cost
-another round of CI.
+Codex reviews the deployment. Automatic reviews are switched off for feature and fix pull
+requests in the Codex settings (chatgpt.com/codex, Settings → Code review). Each connected
+Codex account controls this setting for its own reviews.
 
 The deploy pull request is where it reads instead. Its diff, `main...development`, is exactly
 what changed since the last release, every platform together, so one review sees the whole of
@@ -137,18 +156,12 @@ comment. That is a choice made for that change, not the routine.
 
 ## Keeping the release moving
 
-0.3.0 took about an hour and fifty minutes from start to draft, and almost none of that was
-work: it was CI running one pull request after another, and green pull requests sitting unmerged
-until someone looked. `tools/release.sh` removes both. The freeze and the promotions run their CI
-at the same time instead of in a chain, and each merges the moment its checks pass rather than
-when someone next looks. The deploy pull request carries the same tree development already
-tested, so CI there mostly finds a tree that has passed and skips the work.
+The freeze pull request merges as soon as its checks pass. The deploy pull request can reuse
+CI's stamp if the exact combined tree already passed all applicable suites. The release workflow
+tests and packages the tagged deployment.
 
-Treat a review finding as the next patch unless it blocks the release. A finding on the deploy
-pull request, or one that arrives after it is green, that does not break what the release notes
-promise goes into a `fix/` branch for the following version. Reopening the deployment for it
-costs another full round of CI on every pull request in the chain, which is what added two
-rounds to 0.3.0.
+Treat a review finding as the next patch unless it blocks what the release promises. A blocking
+finding goes through a fix pull request into development and updates the open deployment.
 
 ## What a tester has to click
 

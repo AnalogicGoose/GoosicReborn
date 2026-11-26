@@ -84,9 +84,9 @@ without the field, from an older service, is cards, as before.
 ## Read these first
 
 `AGENTS.md`, then `docs/NATIVE_SHELL_MIGRATION.md` (step 5 is this work) and
-`docs/SHELL_CONTRACT.md` (what may and may not be reimplemented per shell). The branch is
-`platform/windows`. Work that only exists for Windows stays here; anything in `crates/`, the
-protocol, `PersonalCatalog.js` or the docs is cross-platform and lands on `development` first.
+`docs/SHELL_CONTRACT.md` (what may and may not be reimplemented per shell). Open work branches
+from `development`. Windows integrations live in this app, and shared rules belong in the
+shared crates.
 
 ## What the app is
 
@@ -98,7 +98,8 @@ Layout follows the macOS shell: content fills the window on Mica; the sidebar (D
 Library, the account's playlists, account row, settings) and the Lyrics / Playing Next panel
 float over it as rounded acrylic panels; the player is a floating acrylic pill at the bottom;
 rows of cards slide under the panels. The full-screen player fills the window (window full screen
-is a separate toggle / F11 inside it) over a moving mesh of the cover's colours.
+is a separate toggle / F11 inside it). See the full-player backdrop contract in
+[UI_DESIGN.md](../../docs/UI_DESIGN.md).
 
 ## Map of the code
 
@@ -113,10 +114,12 @@ is a separate toggle / F11 inside it) over a moving mesh of the cover's colours.
 | `MainWindow.Keyboard.cs` / `.SystemMedia.cs` | Accelerators; SMTC wiring |
 | `Presentation/` | UI-free rules the partials apply: breakpoints and insets, which side panel is open and where focus returns, key bindings and seek/volume arithmetic |
 | `ViewModels/ShellViewModel.cs` | Pages (route / search / entity), history, now-playing state, lyrics |
-| `ViewModels/ShellViewModel.Queue.cs` | Queue, shuffle, repeat, radio, entity play, continuations, links |
+| `ViewModels/ShellViewModel.Queue.cs` | Draws the shared queue engine's snapshot, fetches its radio pages, entity play, continuations, links |
+| `Service/SharedQueue.cs` | The channel to `QueueEngine` in `goosic-shell-support`, which decides every queue rule for both shells |
 | `ViewModels/ShellViewModel.Account.cs` | Accounts, personal pages, likes, playlists edits |
 | `ViewModels/ShellViewModel.Settings.cs` | Preferences via `settings.*`, page flags, volume persistence |
-| `ViewModels/NowPlayingMesh.cs`, `Views/MeshBackground.cs` | Cover palette and animated background (GPL port) |
+| `ViewModels/NowPlayingMesh.cs` | Cover URL upscaling and legacy palette rules (GPL port) |
+| `Views/FullPlayerArtworkBackdrop.cs` | Cached artwork texture and compositor motion |
 | `Service/OfficialPlaybackHost.cs` | WebView2 player: lease claim, observer, validation, volume, page auto-advance |
 | `Service/PersonalCatalogHost.cs` | Signed-in reads/mutations via the Swift shell's `PersonalCatalog.js` |
 | `Service/AccountLoginWindow.cs`, `WebProfiles.cs` | Google sign-in in staged per-account WebView2 profiles |
@@ -153,7 +156,7 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
 | Autoplay at queue end | Yes | ✅ appends recommendations after the queue (never replaces it), skipping queued and recently played songs; page's own auto-advance intercepted |
 | Queue: view, play next, add, remove, clear | Yes | ✅ Now playing / Up next split; Clear is immediate with Undo |
 | Queue reorder by drag | Yes | ✅ drag handle, or Alt+↑/↓ on a row (drag not hand-tested) |
-| Start radio | Yes | ✅ signed in: the account's own Up Next via `PersonalCatalog.js` `radio()`; guest: `catalog.radio`. A song card or search result starts a station; only albums, playlists and liked songs play in order (`Presentation/PlaybackOrder`) |
+| Start radio | Yes | ✅ signed in: the account's own Up Next via `PersonalCatalog.js` `radio()`; guest: `catalog.radio`. A song card or search result starts a station; albums, playlists, liked songs and artists play in order (`launch_kind_for` in `goosic-shell-support`) |
 | Like / dislike | Shows current state | 🟡 works, but only ratings set this session show — current like state is never read |
 | Save to playlist, new playlist | Yes | ✅ |
 | Go to artist / album, share link | Yes | ✅ copy link |
@@ -176,6 +179,12 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
   switch off after each load (bridge.log: `automix "turned off"`). It is behaviour every shell
   wants, so the script belongs in `goosic-shell-support` beside the observer once that crate's FFI
   question is settled.
+- **The renderer plays the song version.** A song with an audio version and a music video plays
+  whichever the page's Song/Video switch prefers, and the page swaps the requested id before it
+  starts. `OfficialPlaybackHost.PreferSongVersionAsync` presses the page's Song button after each
+  load (bridge.log: `song version "switched"`), and an early swap to another version of the same
+  song is adopted up to `PlaybackOrder.MaxAdoptions` times, so a song swapped to its video and
+  back plays instead of being refused.
 - **A track replaced before it played is not an end.** The host reads the page's title: the same
   song under another id is kept, anything else is reported as refused, dimmed, and skipped for the
   session. Unreleased tracks on pre-release albums arrive from the catalog with a video id and no
@@ -246,12 +255,11 @@ Advertisements are reported, never bypassed. Ported GPL code keeps its notice.
 
 ## Prompt for the next agent
 
-> You are continuing the native Windows shell of GoosicReborn on branch `platform/windows`
+> You are continuing the native Windows shell of GoosicReborn on a work branch from `development`
 > (repo root `C:\DEV\GoosicReborn`). Read `AGENTS.md`, then `apps/goosic-windows/HANDOFF.md`
 > fully. The app is WinUI 3 / C# / .NET 9 in `apps/goosic-windows/Goosic.Windows`. Work through
 > "What is left, in priority order" in that file, top to bottom. Rules: keep every invariant in
-> the handoff; Windows-only changes stay on `platform/windows`, anything in `crates/`, the
-> protocol, `PersonalCatalog.js` or docs goes to a branch cut from `development` first; commit
+> the handoff and open the pull request against `development`; commit
 > in small pieces with imperative messages that explain why; `dotnet build` must succeed and
 > `make test` must pass before you hand back; never automate the user's mouse or keyboard —
 > ask them to test and read `%LOCALAPPDATA%\Goosic\logs\bridge.log`; update HANDOFF.md's audit
