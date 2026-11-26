@@ -46,6 +46,7 @@ pub mod playback;
 pub mod queue;
 pub mod response;
 mod text;
+pub mod updates;
 
 pub use client::{ServiceClient, ServiceClientBuilder};
 pub use framing::FrameReader;

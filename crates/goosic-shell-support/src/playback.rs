@@ -357,6 +357,7 @@ pub fn merge_preferences(
         hide_explicit: update.hide_explicit.or(pending.hide_explicit),
         start_page: update.start_page.or(pending.start_page),
         reduce_motion: update.reduce_motion.or(pending.reduce_motion),
+        update_channel: update.update_channel.or(pending.update_channel),
     }
 }
 

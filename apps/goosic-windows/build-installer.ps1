@@ -1,5 +1,5 @@
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.4.5',
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version = '0.4.6',
     [switch]$SkipPublish
 )
 $ErrorActionPreference = 'Stop'

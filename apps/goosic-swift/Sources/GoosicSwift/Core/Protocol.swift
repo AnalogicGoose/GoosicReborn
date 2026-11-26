@@ -103,6 +103,7 @@ struct GoosicPreferencesPatch: Codable {
     var hideExplicit: Bool?
     var startPage: String?
     var reduceMotion: Bool?
+    var updateChannel: String?
 
     init(
         theme: String? = nil,
@@ -116,7 +117,8 @@ struct GoosicPreferencesPatch: Codable {
         artworkBackground: Bool? = nil,
         hideExplicit: Bool? = nil,
         startPage: String? = nil,
-        reduceMotion: Bool? = nil
+        reduceMotion: Bool? = nil,
+        updateChannel: String? = nil
     ) {
         self.theme = theme
         self.volume = volume
@@ -130,6 +132,7 @@ struct GoosicPreferencesPatch: Codable {
         self.hideExplicit = hideExplicit
         self.startPage = startPage
         self.reduceMotion = reduceMotion
+        self.updateChannel = updateChannel
     }
 }
 
@@ -307,6 +310,8 @@ struct GoosicSettings: Codable {
     var startPage: String?
     /// Skip decorative motion, on top of the system's own setting.
     var reduceMotion: Bool?
+    /// `stable` or `experimental`. Optional so an older service still decodes; absent is stable.
+    var updateChannel: String?
     /// Whether preferences from a previous Goosic install have been imported.
     var importedFromLegacy: Bool
     /// Whether a previous Goosic install's preferences are present to import.
