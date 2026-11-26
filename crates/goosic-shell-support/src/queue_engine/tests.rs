@@ -394,7 +394,7 @@ fn previous_restarts_a_song_past_its_first_seconds_and_the_first_song() {
 }
 
 #[test]
-fn one_end_is_acted_on_once() {
+fn every_end_the_shell_reports_moves_the_queue() {
     let mut engine = engine();
     ordered(&mut engine, &["a", "b", "c"], None);
     engine.handle(Command::Ended);
@@ -402,17 +402,38 @@ fn one_end_is_acted_on_once() {
     assert_eq!(
         played_video(&engine, &repeated).as_deref(),
         Some("c"),
-        "a new play arms a new end"
+        "the shell's EndGuard reports each hearing's end once"
     );
-    // But the same play's second report is ignored.
-    let mut engine = super::QueueEngine::with_seed(1);
-    ordered(&mut engine, &["a", "b", "c"], None);
-    engine.handle(Command::Ended);
-    let snapshot_before = engine.snapshot();
-    engine.end_handled = Some(engine.play_sequence);
-    let ignored = engine.handle(Command::Ended);
-    assert!(ignored.effects.is_empty());
-    assert_eq!(engine.snapshot().current, snapshot_before.current);
+}
+
+#[test]
+fn a_song_replayed_after_its_end_ends_again() {
+    // Autoplay off: the queue stops on the last song and the listener plays it again.
+    let mut engine = engine();
+    engine.handle(Command::SetAutoplay { enabled: false });
+    ordered(&mut engine, &["a"], None);
+    let stopped = engine.handle(Command::Ended);
+    assert_eq!(notices(&stopped), ["Track finished. Autoplay is off."]);
+    let replay = engine.handle(Command::Previous { position: 200.0 });
+    assert!(replay.effects.contains(&Effect::SeekToStart));
+    engine.handle(Command::PlayNext { track: track("b") });
+    let ended = engine.handle(Command::Ended);
+    assert_eq!(
+        played_video(&engine, &ended).as_deref(),
+        Some("b"),
+        "the replay's end is not swallowed"
+    );
+
+    // The sleep timer's stop leaves the song where it was; hearing it again ends it again.
+    let mut engine = self::engine();
+    ordered(&mut engine, &["a", "b"], None);
+    engine.handle(Command::SetSleepAtEnd { enabled: true });
+    assert!(engine
+        .handle(Command::Ended)
+        .effects
+        .contains(&Effect::StopForSleep));
+    let ended = engine.handle(Command::Ended);
+    assert_eq!(played_video(&engine, &ended).as_deref(), Some("b"));
 }
 
 #[test]
@@ -719,6 +740,82 @@ fn an_account_change_replaces_a_personal_station_at_the_end() {
     assert_eq!(seed, "seed");
     assert_eq!(continuation, None, "another account's cursor is never sent");
     assert_eq!(account.as_deref(), Some("two"));
+}
+
+#[test]
+fn an_account_change_restarts_a_personal_station_for_the_new_reader() {
+    let mut engine = engine();
+    engine.handle(Command::SetRadioAccount {
+        account_id: Some("one".into()),
+    });
+    let first = engine.handle(Command::StartRadio {
+        track: track("seed"),
+    });
+    let (request, ..) = radio_request(&first).unwrap();
+    engine.handle(Command::RadioLoaded {
+        request,
+        tracks: tracks(&["r1", "r2", "r3", "r4"]),
+        next_cursor: Some("p".into()),
+    });
+    engine.handle(Command::SetRadioAccount {
+        account_id: Some("two".into()),
+    });
+    // A skip that tops the station up asks with the new account, from the seed.
+    let mut asked = None;
+    for _ in 0..3 {
+        if let Some(found) = radio_request(&engine.handle(Command::Next)) {
+            asked = Some(found);
+            break;
+        }
+    }
+    let (_, seed, continuation, account) = asked.expect("the station tops up");
+    assert_eq!(seed, "seed");
+    assert_eq!(continuation, None, "another account's cursor is never sent");
+    assert_eq!(account.as_deref(), Some("two"));
+}
+
+#[test]
+fn an_account_change_mid_request_asks_the_new_account() {
+    let mut engine = engine();
+    engine.handle(Command::SetRadioAccount {
+        account_id: Some("one".into()),
+    });
+    let first = engine.handle(Command::StartRadio {
+        track: track("seed"),
+    });
+    assert!(first.snapshot.radio_loading);
+    let switched = engine.handle(Command::SetRadioAccount {
+        account_id: Some("two".into()),
+    });
+    let (request, _, _, account) = radio_request(&switched).expect("asked again");
+    assert_eq!(account.as_deref(), Some("two"));
+    engine.handle(Command::RadioLoaded {
+        request,
+        tracks: tracks(&["r1"]),
+        next_cursor: None,
+    });
+    assert_eq!(video_ids(&engine), ["seed", "r1"]);
+}
+
+#[test]
+fn autoplay_does_not_refill_a_cleared_up_next() {
+    let mut engine = engine();
+    ordered(&mut engine, &["a", "b", "c"], None);
+    assert!(engine.snapshot().autoplay);
+    engine.handle(Command::ClearUpcoming { now: 0.0 });
+    let ended = engine.handle(Command::Ended);
+    assert!(
+        radio_request(&ended).is_none(),
+        "a deliberate clear stays clear"
+    );
+    assert_eq!(notices(&ended), ["The queue has finished."]);
+    let skipped = engine.handle(Command::Next);
+    assert!(radio_request(&skipped).is_none());
+
+    // Something new is a new listening context, and autoplay is back.
+    ordered(&mut engine, &["d"], None);
+    let ended = engine.handle(Command::Ended);
+    assert!(radio_request(&ended).is_some());
 }
 
 #[test]
