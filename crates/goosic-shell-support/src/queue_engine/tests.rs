@@ -798,6 +798,27 @@ fn an_account_change_mid_request_asks_the_new_account() {
 }
 
 #[test]
+fn autoplay_does_not_refill_a_cleared_up_next() {
+    let mut engine = engine();
+    ordered(&mut engine, &["a", "b", "c"], None);
+    assert!(engine.snapshot().autoplay);
+    engine.handle(Command::ClearUpcoming { now: 0.0 });
+    let ended = engine.handle(Command::Ended);
+    assert!(
+        radio_request(&ended).is_none(),
+        "a deliberate clear stays clear"
+    );
+    assert_eq!(notices(&ended), ["The queue has finished."]);
+    let skipped = engine.handle(Command::Next);
+    assert!(radio_request(&skipped).is_none());
+
+    // Something new is a new listening context, and autoplay is back.
+    ordered(&mut engine, &["d"], None);
+    let ended = engine.handle(Command::Ended);
+    assert!(radio_request(&ended).is_some());
+}
+
+#[test]
 fn reset_forgets_the_queue_but_not_the_preferences() {
     let mut engine = engine();
     engine.handle(Command::CycleRepeat);

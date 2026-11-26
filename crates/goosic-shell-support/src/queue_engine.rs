@@ -366,6 +366,9 @@ pub struct QueueEngine {
     next_request: u64,
     /// Bumped by every Play effect, so a radio page answers the play that asked for it.
     play_sequence: u64,
+    /// Up Next was cleared on purpose: nothing, autoplay included, refills it until the
+    /// listener starts something new or undoes the clear.
+    cleared_on_purpose: bool,
     rng: u64,
 }
 
@@ -404,6 +407,7 @@ impl QueueEngine {
             next_entry: 1,
             next_request: 1,
             play_sequence: 0,
+            cleared_on_purpose: false,
             // Zero would stick xorshift at zero forever.
             rng: seed | 1,
         }
@@ -588,6 +592,7 @@ impl QueueEngine {
         self.awaiting_more = None;
         self.unshuffled = None;
         self.cleared = None;
+        self.cleared_on_purpose = false;
         self.entries.clear();
 
         let mut first = None;
@@ -690,6 +695,10 @@ impl QueueEngine {
     /// The queue ran out going forward. A running station continues when skipped into, and on a
     /// natural end when autoplay is on; without one, autoplay starts one from the last song.
     fn continue_with_radio(&mut self, out: &mut Output, index: usize, natural: bool) {
+        if self.cleared_on_purpose {
+            out.notice("The queue has finished.");
+            return;
+        }
         let may_continue = if self.station.is_some() {
             self.autoplay || !natural
         } else {
@@ -981,6 +990,7 @@ impl QueueEngine {
         self.station_revision += 1;
         self.pending_radio = None;
         self.awaiting_more = None;
+        self.cleared_on_purpose = true;
         self.revision += 1;
         self.cleared = Some(Cleared {
             removed,
@@ -1009,6 +1019,7 @@ impl QueueEngine {
         self.unshuffled = cleared.unshuffled;
         self.station = cleared.station;
         self.station_revision += 1;
+        self.cleared_on_purpose = false;
         self.revision += 1;
         out.notice("Restored Up Next");
     }
@@ -1057,6 +1068,7 @@ impl QueueEngine {
         self.pending_radio = None;
         self.awaiting_more = None;
         self.cleared = None;
+        self.cleared_on_purpose = false;
         self.sleep_at_end = false;
         self.recently_played.clear();
         self.revision += 1;
