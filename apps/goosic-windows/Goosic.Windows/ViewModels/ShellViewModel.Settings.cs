@@ -23,6 +23,7 @@ public sealed partial class ShellViewModel
     private bool _hideExplicit;
     private bool _reduceMotion;
     private string _startPage = "home";
+    private string _updateChannel = "stable";
     private bool _isSettingsPage;
     private bool _settingsLoaded;
     private string _nowPlayingArtist = "";
@@ -45,6 +46,9 @@ public sealed partial class ShellViewModel
 
     /// <summary>Where Goosic opens: <c>home</c>, <c>library</c>, <c>liked</c>, or <c>last</c>.</summary>
     public string StartPage { get => _startPage; private set => Set(ref _startPage, value); }
+
+    /// <summary>Which releases the updater offers: <c>stable</c>, or <c>experimental</c> for pre-releases too.</summary>
+    public string UpdateChannel { get => _updateChannel; private set => Set(ref _updateChannel, value); }
 
     /// <summary>The route Rust last remembered, for a "last page" start.</summary>
     internal string LastRoute { get; private set; } = "home";
@@ -175,6 +179,7 @@ public sealed partial class ShellViewModel
             HideExplicit = settings["hideExplicit"]?.GetValue<bool>() ?? false;
             ReduceMotion = settings["reduceMotion"]?.GetValue<bool>() ?? false;
             StartPage = settings["startPage"]?.GetValue<string>() ?? "home";
+            UpdateChannel = settings["updateChannel"]?.GetValue<string>() ?? "stable";
             LastRoute = settings["lastRoute"]?.GetValue<string>() ?? "home";
             ConfigureQueue(
                 settings["shuffle"]?.GetValue<bool>() ?? false,
@@ -253,6 +258,12 @@ public sealed partial class ShellViewModel
     {
         HideExplicit = value;
         return SaveAsync("hideExplicit", value);
+    }
+
+    internal Task SetUpdateChannelAsync(string value)
+    {
+        UpdateChannel = value;
+        return SaveAsync("updateChannel", value);
     }
 
     internal Task SetReduceMotionAsync(bool value)

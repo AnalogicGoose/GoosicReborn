@@ -69,6 +69,54 @@ public static class PlaybackRules
     [DllImport(Library, EntryPoint = "goosic_artwork_max_bytes")]
     private static extern ulong ArtworkMaxBytesRaw();
 
+    [DllImport(Library, EntryPoint = "goosic_end_guard_begin")]
+    private static extern void EndGuardBeginRaw(ref EndGuardState guard);
+
+    [DllImport(Library, EntryPoint = "goosic_end_guard_observe")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool EndGuardObserveRaw(
+        ref EndGuardState guard,
+        [MarshalAs(UnmanagedType.I1)] bool isCurrent,
+        [MarshalAs(UnmanagedType.I1)] bool advertisement,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string state,
+        double position,
+        double duration,
+        [MarshalAs(UnmanagedType.I1)] bool listenerPaused,
+        [MarshalAs(UnmanagedType.I1)] out bool resume);
+
+    [DllImport(Library, EntryPoint = "goosic_end_guard_page_ended")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool EndGuardPageEndedRaw(ref EndGuardState guard, [MarshalAs(UnmanagedType.I1)] bool isCurrent);
+
+    /// <summary>What the shared end guard remembers for the current play.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct EndGuardState
+    {
+        [MarshalAs(UnmanagedType.I1)] public bool Heard;
+        [MarshalAs(UnmanagedType.I1)] public bool Handled;
+        [MarshalAs(UnmanagedType.I1)] public bool AwaitingContent;
+        [MarshalAs(UnmanagedType.I1)] public bool ResumeRequested;
+    }
+
+    /// <summary>Starts a new play, a repeat of the same song included.</summary>
+    public static void EndGuardBegin(ref EndGuardState guard) => EndGuardBeginRaw(ref guard);
+
+    /// <summary>
+    /// Feeds one accepted sample: whether the queue should move on, and whether to ask the page to
+    /// play because an advertisement left content paused.
+    /// </summary>
+    public static (bool Advance, bool Resume) EndGuardObserve(ref EndGuardState guard, bool isCurrent,
+        bool advertisement, string state, double position, double duration, bool listenerPaused)
+    {
+        var advance = EndGuardObserveRaw(ref guard, isCurrent, advertisement, state, position, duration,
+            listenerPaused, out var resume);
+        return (advance, resume);
+    }
+
+    /// <summary>The page moved past the requested play by itself; true the first time only.</summary>
+    public static bool EndGuardPageEnded(ref EndGuardState guard, bool isCurrent) =>
+        EndGuardPageEndedRaw(ref guard, isCurrent);
+
     [DllImport(Library, EntryPoint = "goosic_media_project")]
     private static extern void MediaProjectRaw(in MediaInput input, out MediaProjection output);
 

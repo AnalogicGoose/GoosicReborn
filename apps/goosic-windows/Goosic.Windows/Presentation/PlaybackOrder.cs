@@ -8,14 +8,6 @@ namespace Goosic.Windows.Presentation;
 public static class PlaybackOrder
 {
     /// <summary>
-    /// Whether a track's natural end should be acted on: only for the entry being played, only
-    /// once, and only after that entry has actually played — a late "ended" from the song before
-    /// must not skip the one that replaced it.
-    /// </summary>
-    public static bool AcceptsEnd(string? endedVideoId, string? currentVideoId, bool armed) =>
-        armed && !string.IsNullOrEmpty(endedVideoId) && endedVideoId == currentVideoId;
-
-    /// <summary>
     /// Whether a report says the track has finished; the rule is <c>has_finished</c> in
     /// <c>goosic-shell-support</c>.
     /// </summary>
