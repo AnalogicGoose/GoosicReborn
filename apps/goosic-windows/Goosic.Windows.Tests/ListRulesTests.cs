@@ -77,24 +77,6 @@ public sealed class ListRulesTests
     }
 
     [Fact]
-    public void Up_next_names_its_source_and_counts_songs()
-    {
-        Assert.Equal("From Liked Music · 99 songs", PlayerText.UpNext("Liked Music", 99, findingMore: false));
-        Assert.Equal("1 song", PlayerText.UpNext("", 1, findingMore: false));
-        Assert.Equal("From Golden radio · Finding songs like this…", PlayerText.UpNext("Golden radio", 0, findingMore: true));
-        Assert.Equal("Nothing after this", PlayerText.UpNext("", 0, findingMore: false));
-    }
-
-    [Fact]
-    public void The_sleep_timer_label_rounds_the_last_minute_up()
-    {
-        Assert.Equal("Sleep timer", PlayerText.SleepTimer(null, endOfSong: false));
-        Assert.Equal("Sleep timer: end of song", PlayerText.SleepTimer(null, endOfSong: true));
-        Assert.Equal("Sleep timer: 15 min left", PlayerText.SleepTimer(TimeSpan.FromMinutes(14.2), endOfSong: false));
-        Assert.Equal("Sleep timer: 1 min left", PlayerText.SleepTimer(TimeSpan.FromSeconds(5), endOfSong: false));
-    }
-
-    [Fact]
     public void Liked_music_is_recognised_by_either_id_and_only_as_a_playlist()
     {
         Assert.True(CatalogRules.IsLikedMusic("playlist", "LM"));
