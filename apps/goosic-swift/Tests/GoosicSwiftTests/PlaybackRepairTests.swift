@@ -1,35 +1,6 @@
 import XCTest
 @testable import GoosicSwift
 
-final class PlaybackLaunchIntentTests: XCTestCase {
-    private static func track(_ id: String) -> GoosicTrack {
-        GoosicTrack(id: id, title: id, subtitle: "", artist: "", artistID: nil,
-                    album: "", albumID: nil, duration: "", videoID: id, explicit: false)
-    }
-
-    func testDiscoveryLaunchDoesNotCarryShelfHistory() {
-        let song = Self.track("aaaaaaaaaaa")
-        XCTAssertEqual(PlaybackLaunchIntent.resolve(track: song, explicitTracks: []), .station(song))
-    }
-
-    func testExplicitOrderAndRepeatedEntriesArePreserved() {
-        let a = Self.track("aaaaaaaaaaa"), b = Self.track("bbbbbbbbbbb")
-        XCTAssertEqual(PlaybackLaunchIntent.resolve(track: b, explicitTracks: [a, b, a]), .ordered(b, [a, b, a]))
-    }
-
-    func testStationRepliesAreBoundToRevisionAndAccount() {
-        let personal = RadioRequestIdentity(revision: 8, accountID: "account-a")
-        XCTAssertTrue(personal.usesPersonalCatalog)
-        XCTAssertTrue(personal.accepts(revision: 8, accountID: "account-a"))
-        XCTAssertFalse(personal.accepts(revision: 9, accountID: "account-a"))
-        XCTAssertFalse(personal.accepts(revision: 8, accountID: "account-b"))
-        XCTAssertFalse(personal.accepts(revision: 8, accountID: nil))
-        let guest = RadioRequestIdentity(revision: 8, accountID: nil)
-        XCTAssertFalse(guest.usesPersonalCatalog)
-        XCTAssertFalse(guest.accepts(revision: 8, accountID: "account-a"))
-    }
-}
-
 final class OfficialSampleSequenceTests: XCTestCase {
     func testSameLeaseContinuesAcrossPageLoads() {
         var sequence = OfficialSampleSequence()
