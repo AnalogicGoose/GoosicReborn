@@ -1058,11 +1058,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// Records that the requested track finished because the page moved past it.
     /// </summary>
     /// <returns>Whether this is the first end recorded for it, so the queue advances once.</returns>
-    /// <summary>Songs the official player refused this session, by video id.</summary>
-    private readonly HashSet<string> _refusedVideos = [];
-
-    internal bool IsRefused(string? videoId) => videoId is not null && _refusedVideos.Contains(videoId);
-
     /// <summary>
     /// Records that the page would not play the requested track, marks it wherever it is shown,
     /// and says so; the queue then moves past it like a finished track.
@@ -1074,7 +1069,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
             return;
         }
 
-        _refusedVideos.Add(videoId);
+        // The engine keeps it out of lists and recommendations for the rest of the session.
+        Dispatch(Command("refused", ("videoId", videoId)));
         foreach (var row in Tracks.Concat(Queue).Where(row => row.VideoId == videoId))
         {
             row.MarkRefused();

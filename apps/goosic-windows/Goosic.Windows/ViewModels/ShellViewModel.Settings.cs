@@ -176,13 +176,10 @@ public sealed partial class ShellViewModel
             ReduceMotion = settings["reduceMotion"]?.GetValue<bool>() ?? false;
             StartPage = settings["startPage"]?.GetValue<string>() ?? "home";
             LastRoute = settings["lastRoute"]?.GetValue<string>() ?? "home";
-            IsShuffled = settings["shuffle"]?.GetValue<bool>() ?? false;
-            Repeat = (settings["repeatMode"]?.GetValue<string>()) switch
-            {
-                "all" => RepeatMode.All,
-                "one" => RepeatMode.One,
-                _ => RepeatMode.Off,
-            };
+            ConfigureQueue(
+                settings["shuffle"]?.GetValue<bool>() ?? false,
+                ParseRepeat(settings["repeatMode"]?.GetValue<string>() ?? "off"),
+                Autoplay);
             _settingsLoaded = true;
             if (settings["volume"]?.GetValue<double>() is { } volume)
             {
@@ -242,6 +239,7 @@ public sealed partial class ShellViewModel
     internal Task SetAutoplayAsync(bool value)
     {
         Autoplay = value;
+        Dispatch(Command("setAutoplay", ("enabled", value)));
         return SaveAsync("autoplay", value);
     }
 
@@ -283,7 +281,7 @@ public sealed partial class ShellViewModel
     private void SaveQueueModes()
     {
         _ = SaveAsync("shuffle", IsShuffled);
-        _ = SaveAsync("repeatMode", Repeat switch { RepeatMode.All => "all", RepeatMode.One => "one", _ => "off" });
+        _ = SaveAsync("repeatMode", RepeatName(Repeat));
     }
 
     internal void ShowSettingsPage()
