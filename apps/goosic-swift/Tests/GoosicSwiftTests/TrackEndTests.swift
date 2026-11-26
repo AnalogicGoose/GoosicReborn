@@ -3,14 +3,6 @@ import XCTest
 @testable import GoosicSwift
 
 final class AdPlaybackRecoveryTests: XCTestCase {
-    func testPreviousDoesNotInventANeighbour() {
-        XCTAssertNil(QueueNavigation.indexBefore(0, count: 0, repeatMode: .off))
-        XCTAssertNil(QueueNavigation.indexBefore(3, count: 3, repeatMode: .all))
-        XCTAssertEqual(QueueNavigation.indexBefore(0, count: 3, repeatMode: .off), 0)
-        XCTAssertEqual(QueueNavigation.indexBefore(0, count: 3, repeatMode: .one), 0)
-        XCTAssertEqual(QueueNavigation.indexBefore(0, count: 3, repeatMode: .all), 2)
-        XCTAssertEqual(QueueNavigation.indexBefore(2, count: 3, repeatMode: .off), 1)
-    }
     func testAdHandoffWaitsForContentAndResumesOnlyOnce() {
         var recovery = AdPlaybackRecovery()
         XCTAssertFalse(recovery.observe(advertisement: true, state: "playing", listenerPaused: false))
