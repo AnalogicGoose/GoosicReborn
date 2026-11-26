@@ -204,6 +204,15 @@ feed() {
     done
     [ -n "$sign" ] || { echo "sign_update not found: run make build-swift, or set SPARKLE_SIGN_UPDATE." >&2; exit 1; }
 
+    # An experimental release reaches only Macs that chose the experimental channel: Sparkle
+    # skips an item whose channel the copy has not allowed, and older copies allow none.
+    channel_line=""
+    label="macOS alpha"
+    if [ "$(gh release view "$tag" --json isPrerelease --jq .isPrerelease)" = true ]; then
+        channel_line="            <sparkle:channel>experimental</sparkle:channel>"
+        label="macOS experimental"
+    fi
+
     zip="Goosic-$version-macos-universal.zip"
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/goosic-feed.XXXXXX")
     gh release download "$tag" --pattern "$zip" --dir "$scratch"
@@ -226,12 +235,13 @@ feed() {
         item=$(mktemp)
         cat > "$item" <<EOF
         <item>
-            <title>$version macOS alpha</title>
+            <title>$version $label</title>
             <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
             <sparkle:version>$build</sparkle:version>
             <sparkle:shortVersionString>$version</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>$url/tag/$tag</sparkle:releaseNotesLink>
+$channel_line
             <enclosure url="$url/download/$tag/$zip" $signature type="application/octet-stream" />
         </item>
 EOF
