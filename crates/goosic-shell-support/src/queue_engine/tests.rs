@@ -143,6 +143,31 @@ fn a_search_result_starts_a_station_from_that_song_alone() {
 }
 
 #[test]
+fn a_station_from_a_later_row_reports_that_row() {
+    let mut engine = engine();
+    let outcome = engine.handle(Command::Launch {
+        tracks: tracks(&["first", "chosen", "last"]),
+        start: Some(1),
+        kind: launch_kind_for(LaunchSurface::Search),
+        source_title: Some("Songs".into()),
+        source_key: Some("search:chosen".into()),
+        shuffle: None,
+    });
+    assert_eq!(video_ids(&engine), ["chosen"]);
+    assert_eq!(
+        outcome.added,
+        [Added {
+            input: 1,
+            entry: outcome.snapshot.entries[0]
+        }],
+        "the shell looks the input up in the list it sent"
+    );
+    assert_eq!(played_video(&engine, &outcome).as_deref(), Some("chosen"));
+    let (_, seed, _, _) = radio_request(&outcome).expect("recommendations are asked for");
+    assert_eq!(seed, "chosen");
+}
+
+#[test]
 fn recommendations_extend_the_station_without_repeats() {
     let mut engine = engine();
     let outcome = engine.handle(Command::StartRadio {
