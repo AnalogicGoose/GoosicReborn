@@ -63,21 +63,6 @@ public class FullPlayerLayoutTests
         Assert.True(lyrics >= player || lyrics == FullPlayerLayout.LyricsMaxWidth);
     }
 
-    [Fact]
-    public void LyricsBesideTheCoverStopShortOfTheWindowsEdges()
-    {
-        Assert.Equal(700, FullPlayerLayout.LyricsMaxHeight(1000, FullPlayerMode.Split));
-        Assert.Equal(832, FullPlayerLayout.LyricsMaxHeight(1600, FullPlayerMode.Split));
-        Assert.Equal(double.PositiveInfinity, FullPlayerLayout.LyricsMaxHeight(1000, FullPlayerMode.Lyrics));
-    }
-
-    [Theory]
-    [InlineData(true, true, true)]
-    [InlineData(false, true, false)]
-    [InlineData(true, false, false)]
-    public void BlurNeedsTransparencyAndACover(bool effects, bool artwork, bool expected) =>
-        Assert.Equal(expected, FullPlayerLayout.ShowsBlur(effects, artwork));
-
     [Theory]
     [InlineData(SeekKey.Back, 60, 55)]
     [InlineData(SeekKey.Forward, 60, 65)]

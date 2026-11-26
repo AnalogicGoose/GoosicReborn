@@ -51,7 +51,7 @@ internal static class AppUpdater
     /// </summary>
     internal static Version? CurrentVersion { get; } = UpdateRules.ParseVersion(
         Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion)
-        is { } stamped && stamped > new Version(0, 0, 0) ? stamped : null;
+        is { } stamped && stamped > new Version(0, 0, 0, UpdateRules.ReleaseRank) ? stamped : null;
 
     internal static string CurrentVersionText =>
         CurrentVersion is { } version ? UpdateRules.Format(version) : "development build";
@@ -84,7 +84,7 @@ internal static class AppUpdater
 
         var chosen = SharedQueue.Rule("chooseRelease", new JsonObject
         {
-            ["current"] = CurrentVersion is { } current ? UpdateRules.Format(current) : null,
+            ["current"] = CurrentVersion is { } current ? UpdateRules.Spelled(current) : null,
             ["channel"] = channel,
             ["releases"] = listed,
         });
