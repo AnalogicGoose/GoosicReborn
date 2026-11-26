@@ -84,9 +84,9 @@ without the field, from an older service, is cards, as before.
 ## Read these first
 
 `AGENTS.md`, then `docs/NATIVE_SHELL_MIGRATION.md` (step 5 is this work) and
-`docs/SHELL_CONTRACT.md` (what may and may not be reimplemented per shell). The branch is
-`platform/windows`. Work that only exists for Windows stays here; anything in `crates/`, the
-protocol, `PersonalCatalog.js` or the docs is cross-platform and lands on `development` first.
+`docs/SHELL_CONTRACT.md` (what may and may not be reimplemented per shell). Open work branches
+from `development`. Windows integrations live in this app, and shared rules belong in the
+shared crates.
 
 ## What the app is
 
@@ -247,12 +247,11 @@ Advertisements are reported, never bypassed. Ported GPL code keeps its notice.
 
 ## Prompt for the next agent
 
-> You are continuing the native Windows shell of GoosicReborn on branch `platform/windows`
+> You are continuing the native Windows shell of GoosicReborn on a work branch from `development`
 > (repo root `C:\DEV\GoosicReborn`). Read `AGENTS.md`, then `apps/goosic-windows/HANDOFF.md`
 > fully. The app is WinUI 3 / C# / .NET 9 in `apps/goosic-windows/Goosic.Windows`. Work through
 > "What is left, in priority order" in that file, top to bottom. Rules: keep every invariant in
-> the handoff; Windows-only changes stay on `platform/windows`, anything in `crates/`, the
-> protocol, `PersonalCatalog.js` or docs goes to a branch cut from `development` first; commit
+> the handoff and open the pull request against `development`; commit
 > in small pieces with imperative messages that explain why; `dotnet build` must succeed and
 > `make test` must pass before you hand back; never automate the user's mouse or keyboard —
 > ask them to test and read `%LOCALAPPDATA%\Goosic\logs\bridge.log`; update HANDOFF.md's audit

@@ -404,7 +404,7 @@ display, and only `shell` joins them to widgets and hosts.
 
 The shell lives on `platform/linux`, and each slice of it is a `feature/linux/<slug>`. Anything it
 needs from `goosic-shell-support` or the protocol is not Linux work: it lands on `development`
-first and reaches `platform/linux` through the cascade.
+first. Linux maintainers merge `development` into `platform/linux` when they need those changes.
 
 The shared Makefile provides `build-linux`, `test-linux` and `run-linux`; each builds the service
 first, and `run-linux` points the shell at that exact executable. CI keeps the native GTK build in

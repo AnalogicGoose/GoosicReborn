@@ -1,9 +1,10 @@
 name: CI
 
-# Every push and every pull request. The repository is public, so macOS and Windows
-# runners cost nothing; what keeps this cheap is the caching and the cancellation below.
+# Work branches are checked once per pull request update. Push checks cover the
+# deployed and integrated trees, including direct syncs into the Linux track.
 on:
     push:
+        branches: [main, development, platform/linux]
     pull_request:
     # Only the default branch writes the build caches, and the default branch is `main`,
     # which builds solely at a deployment. A cache nobody refreshes is a cache nobody has, so
@@ -78,17 +79,34 @@ jobs:
             # builds both. Anything unclassifiable builds everything.
             -   name: See which parts of the tree changed
                 id: paths
+                env:
+                    PUSH_BEFORE: ${{ github.event.before }}
+                    PR_BASE: ${{ github.event.pull_request.base.sha }}
                 run: |
+                    set -euo pipefail
                     RUST=false; SWIFT=false; LINUX=false; WINDOWS=false
-                    BEFORE="${{ github.event.before }}"
-                    if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                    BEFORE="$PUSH_BEFORE"
+                    if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+                        # CI checks GitHub's PR merge commit. Diff that tree against its
+                        # base so changes present only on the target are not rebuilt.
+                        BEFORE=""
+                        if [ "$(git rev-parse --verify HEAD^1 2>/dev/null)" = "$PR_BASE" ]; then
+                            BEFORE="$PR_BASE"
+                        fi
+                    fi
+                    if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
                         RUST=true; SWIFT=true; LINUX=true; WINDOWS=true
                     else
-                        CHANGED=$(git diff --name-only "$BEFORE" HEAD)
-                        echo "$CHANGED"
-                        CODE=$(echo "$CHANGED" | grep -vE '^(docs/|\.claude/|[^/]*\.md$)' || true)
-                        while IFS= read -r FILE; do
-                            [ -z "$FILE" ] && continue
+                        CHANGED=$(mktemp)
+                        trap 'rm -f "$CHANGED"' EXIT
+                        git diff --name-only --no-renames -z "$BEFORE" HEAD > "$CHANGED"
+                        while IFS= read -r -d '' FILE; do
+                            case "$FILE" in
+                                docs/*|.claude/*) continue ;;
+                            esac
+                            if [[ "$FILE" != */* && "$FILE" == *.md ]]; then
+                                continue
+                            fi
                             case "$FILE" in
                                 crates/goosic-shell-support*|crates/goosic-protocol/*)
                                                                 RUST=true; SWIFT=true; LINUX=true; WINDOWS=true ;;
@@ -100,7 +118,7 @@ jobs:
                                 apps/goosic-swift/*)            SWIFT=true ;;
                                 *)                              RUST=true; SWIFT=true; LINUX=true; WINDOWS=true ;;
                             esac
-                        done <<< "$CODE"
+                        done < "$CHANGED"
                     fi
                     # The GTK shell lives on platform/linux and its feature branches. Where it does
                     # not exist there is nothing to build, and a job failing on a missing directory
@@ -262,9 +280,10 @@ jobs:
     # because just documentation moved is never claimed to have been built.
     seal:
         name: Stamp this tree as passing
-        needs: [guard, rust, shell-gtk, shell-macos, shell-windows]
+        needs: [guard, rust, shell-gtk, shell-flatpak, shell-macos, shell-windows]
         if: >-
             always()
+            && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
             && needs.guard.outputs.known-good == 'false'
             && needs.guard.outputs.rust == 'true'
             && needs.guard.outputs.swift == 'true'
@@ -274,7 +293,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             # The repository's default GITHUB_TOKEN is read-only, and opening it up for every
-            # workflow to write one tag would be the wrong trade. Reuse the propagation token.
+            # workflow to write one tag would be the wrong trade. Use the repository's CI token.
             -   uses: actions/checkout@v4
                 with:
                     token: ${{ secrets.PROPAGATE_TOKEN }}
