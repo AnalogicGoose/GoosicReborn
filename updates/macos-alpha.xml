@@ -3,6 +3,16 @@
     <channel>
         <title>Goosic</title>
         <item>
+            <title>0.4.7 beta 2 macOS experimental</title>
+            <pubDate>Thu, 26 Nov 2026 15:52:56 +0000</pubDate>
+            <sparkle:version>40702</sparkle:version>
+            <sparkle:shortVersionString>0.4.7 beta 2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://github.com/AnalogicGoose/GoosicReborn/releases/tag/v0.4.7-beta.2</sparkle:releaseNotesLink>
+            <sparkle:channel>experimental</sparkle:channel>
+            <enclosure url="https://github.com/AnalogicGoose/GoosicReborn/releases/download/v0.4.7-beta.2/Goosic-0.4.7-beta.2-macos-universal.zip" sparkle:edSignature="88wGvU9y8t6g7R9bUrWLTun18afPqucFxcu89e0XT/B/Bm/s/S3qEpWB62FlDZemFS46uqP8ZufXsDfz6fPXAQ==" length="23055457" type="application/octet-stream" />
+        </item>
+        <item>
             <title>0.4.7 macOS experimental</title>
             <pubDate>Thu, 26 Nov 2026 12:46:33 +0000</pubDate>
             <sparkle:version>407</sparkle:version>
