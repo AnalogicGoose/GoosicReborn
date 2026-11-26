@@ -51,7 +51,7 @@ struct NativeMacLyricsView: View {
             ScrollViewReader { reader in
                 VStack(alignment: .leading, spacing: 12) {
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: immersive ? 26 : 22) {
+                        LazyVStack(alignment: .leading, spacing: immersive ? 40 : 22) {
                             if let intro = LyricsTiming.interlude(
                                 lines: lyrics.lines, synced: lyrics.synced, index: nil) {
                                 placed(
@@ -235,7 +235,8 @@ struct NativeMacLyricsView: View {
     private static let introID = -1
     /// Room beside the immersive text for what is drawn outside its bounds.
     private static let bleed: CGFloat = 16
-    private var fontSize: CGFloat { immersive ? 30 : 25 }
+    /// The full player's size matches Music's full-screen lyrics, about 1.6 times the panel's.
+    private var fontSize: CGFloat { immersive ? 48 : 25 }
 
     private static let rowSpace = "lyricRows"
     /// Where the row being followed sits in the viewport, as a fraction of its height.

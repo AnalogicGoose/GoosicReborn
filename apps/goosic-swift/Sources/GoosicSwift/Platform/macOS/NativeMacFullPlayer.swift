@@ -254,7 +254,7 @@ struct NativeMacFullPlayer: View {
                         paneButton(.queue, "list.bullet", "Up Next")
                     }
                     .padding(4)
-                    .modifier(NativeMacGlassCapsule())
+                    .modifier(NativeMacClearGlassCapsule())
                 }
                 .padding(18)
             }
@@ -781,7 +781,8 @@ struct NativeMacGlassGroup<Content: View>: View {
 struct NativeMacGlassCircle: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: .circle)
+            // Clear, as the title-bar capsules are: Music's Like and More are light glass too.
+            content.glassEffect(.clear.interactive(), in: .circle)
         } else {
             content.background(.ultraThinMaterial, in: Circle())
         }
