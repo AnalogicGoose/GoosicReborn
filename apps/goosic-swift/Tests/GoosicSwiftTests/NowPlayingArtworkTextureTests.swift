@@ -39,7 +39,7 @@ final class NowPlayingArtworkTextureTests: XCTestCase {
             let index = pixel * 4
             return max(rgba[index], rgba[index + 1], rgba[index + 2])
         }.max()
-        XCTAssertEqual(brightestChannel, 117)
+        XCTAssertEqual(brightestChannel, 204)
     }
 
     func testMissingArtworkLeavesNoTexture() {

@@ -82,13 +82,17 @@ enum NowPlayingArtworkTexture {
                        decode: nil, shouldInterpolate: true, intent: .defaultIntent)
     }
 
-    /// Keep midtones visible while bounding the brightest texture values behind white text.
+    /// Lifts midtones and bounds the brightest values behind white text. The ceiling is about
+    /// four fifths of full brightness, as bright as Music's full-screen field runs: a ceiling near
+    /// half (117) made every cover a dim, brownish wash.
     private static let toneCurve: [UInt8] = (0...255).map { value in
-        UInt8((pow(Double(value) / 255, 0.66) * 117).rounded())
+        UInt8((pow(Double(value) / 255, 0.85) * 204).rounded())
     }
 
     private static func graded(_ channel: Float, luma: Float) -> UInt8 {
-        let saturated = UInt8(clamping: Int((luma + (channel - luma) * 1.5).rounded()))
+        // Strong saturation, as Music's is: the blur and the blend of two turned copies both
+        // pull colours toward each other, and without it the field greys out.
+        let saturated = UInt8(clamping: Int((luma + (channel - luma) * 1.9).rounded()))
         return toneCurve[Int(saturated)]
     }
 
