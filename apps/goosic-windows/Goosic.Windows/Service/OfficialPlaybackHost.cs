@@ -769,12 +769,12 @@ internal sealed class OfficialPlaybackHost
     private async Task PreferSongVersionAsync(CoreWebView2 core)
     {
         var token = _token;
-        for (var attempt = 0; attempt < PlaybackOrder.SongVersionAttempts && token == _token; attempt++)
+        for (var attempt = 0; attempt < Presentation.PlaybackOrder.SongVersionAttempts && token == _token; attempt++)
         {
             string? outcome;
             try
             {
-                var raw = await core.ExecuteScriptAsync(PlaybackOrder.SongVersionScript);
+                var raw = await core.ExecuteScriptAsync(Presentation.PlaybackOrder.SongVersionScript);
                 outcome = JsonSerializer.Deserialize<string>(raw);
             }
             catch (Exception error)
@@ -783,7 +783,7 @@ internal sealed class OfficialPlaybackHost
                 return;
             }
 
-            if (PlaybackOrder.SongVersionSettled(outcome))
+            if (Presentation.PlaybackOrder.SongVersionSettled(outcome))
             {
                 BridgeLog.Write($"song version \"{outcome}\"");
                 return;
@@ -1282,7 +1282,7 @@ internal sealed class OfficialPlaybackHost
         // The listener's choice may be replaced by another version of it a bounded number of
         // times: the page can swap a song for its video and the video back for the song, but a
         // page that keeps swapping is going round in circles.
-        if (PlaybackOrder.MayAdopt(_adoptions)
+        if (Presentation.PlaybackOrder.MayAdopt(_adoptions)
             && IsSubstitute?.Invoke(_requestedVideoId, described, title) == true)
         {
             // The substitute is loaded afresh, under its own id and a new lease. Adopting it in
