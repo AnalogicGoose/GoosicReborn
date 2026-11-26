@@ -1938,7 +1938,6 @@ private struct NativeMacPageMenu: SwiftUI.View {
                     // The songs the page shows, so Hide Explicit holds here as it does for Play.
                     let shown = model.visible(page.listedTracks)
                     SwiftUI.Button("Shuffle", systemImage: "shuffle") {
-                        if !model.shuffle { model.toggleShuffle() }
                         model.launch(shown, shuffled: true, source: QueueSource(
                             title: page.title, key: .entity(entity)
                         ))

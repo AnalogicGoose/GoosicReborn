@@ -78,7 +78,8 @@ enum SharedRules {
     /// The sleep timer's menu label.
     static func sleepTimer(remaining: TimeInterval?, endOfSong: Bool) -> String {
         var arguments: [String: Any] = ["endOfSong": endOfSong]
-        if let remaining { arguments["remainingSeconds"] = remaining }
+        // JSONSerialization raises on a non-finite number rather than returning an error.
+        if let remaining, remaining.isFinite { arguments["remainingSeconds"] = remaining }
         return call("sleepTimer", arguments) ?? "Sleep timer"
     }
 
