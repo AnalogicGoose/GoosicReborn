@@ -1,8 +1,8 @@
 #!/bin/sh
 # Runs a release from the trunk to a draft, and the Mac update feed after it is published.
 #
-#   sh tools/release.sh <x.y.z>        freeze the version, promote the platform branches, open
-#                                      the deploy pull request and ask Codex to review it
+#   sh tools/release.sh <x.y.z>        freeze the version, open the deploy pull request and
+#                                      ask Codex to review it
 #   sh tools/release.sh ship <x.y.z>   merge the deploy pull request once CI is green; the
 #                                      release workflow then tags it and builds the draft
 #   sh tools/release.sh feed <x.y.z>   after the draft is published: sign the Mac ZIP and add it
@@ -27,7 +27,6 @@ case "${1:-}" in
 esac
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || usage
 tag="v$version"
-platforms="macos windows"
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
@@ -117,9 +116,8 @@ work_on() {
 
 prepare() {
     notes="docs/RELEASE_$version.md"
-    pending=""
 
-    # 1. Freeze the version on development, with its notes.
+    # Freeze the version on development, with its notes.
     if [ "$(workspace_version origin/development)" = "$version" ]; then
         echo "development is already at $version."
     else
@@ -144,25 +142,14 @@ deploy pull request opens, so the deployment carries the final number."
         )
         cleanup
         worktree=""
-        pending="$pending $(ensure_pr "$branch" development "Freeze the version at $version" \
-            "Moves every version default to $version and adds \`$notes\`. Opened by \`tools/release.sh\`.")"
+        number=$(ensure_pr "$branch" development "Freeze the version at $version" \
+            "Moves every version default to $version and adds \`$notes\`. Opened by \`tools/release.sh\`.")
+        merge_when_green "$number"
+        git fetch --quiet origin
     fi
 
-    # 2. Promote each platform branch that holds work development does not have.
-    for os in $platforms; do
-        if [ -n "$(git rev-list --max-count=1 "origin/development..origin/platform/$os")" ]; then
-            pending="$pending $(ensure_pr "platform/$os" development "Promote platform/$os for $version" \
-                "Brings platform/$os into development for $version. Opened by \`tools/release.sh\`.")"
-        else
-            echo "platform/$os has nothing development lacks."
-        fi
-    done
-
-    for number in $pending; do merge_when_green "$number"; done
-    git fetch --quiet origin
-
-    # 3. The deploy pull request, reviewed once by Codex: its diff is everything since the
-    #    last release.
+    # The deploy pull request is reviewed once by Codex. Its diff covers everything since
+    # the last release.
     [ "$(workspace_version origin/development)" = "$version" ] \
         || { echo "development is not at $version yet." >&2; exit 1; }
     deploy=$(ensure_pr development main "Deploy $version" \
