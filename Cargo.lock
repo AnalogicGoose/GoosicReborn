@@ -339,6 +339,7 @@ dependencies = [
 name = "goosic-shell-support-ffi"
 version = "0.4.5"
 dependencies = [
+ "goosic-protocol",
  "goosic-shell-support",
  "serde",
  "serde_json",

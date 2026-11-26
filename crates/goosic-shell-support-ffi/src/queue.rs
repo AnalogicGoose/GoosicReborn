@@ -132,6 +132,11 @@ struct Failure {
 }
 
 #[derive(Deserialize)]
+struct Metadata {
+    metadata: String,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Repeat {
     repeat: RepeatMode,
@@ -186,6 +191,12 @@ pub fn call_rule(name: &str, input: &str) -> Result<Value, String> {
             } = parse(input)?;
             let text = goosic_shell_support::catalog::failure_text(&code, &message, &subject);
             Ok(json!({ "title": text.title, "detail": text.detail }))
+        }
+        "loginSummary" => {
+            let Metadata { metadata } = parse(input)?;
+            Ok(json!(goosic_shell_support::login::sanitize_metadata(
+                metadata.as_bytes()
+            )))
         }
         other => Err(format!("no rule named {other}")),
     }
@@ -291,6 +302,13 @@ mod tests {
                 r#"{"code":"catalogEmpty","message":"","subject":"Search"}"#
             )["ok"]["title"],
             "No results"
+        );
+        assert_eq!(
+            call(
+                "loginSummary",
+                r#"{"metadata":"{\"displayName\":\" Ada \",\"email\":\"ada@example.com\"}"}"#
+            )["ok"]["displayName"],
+            "Ada"
         );
         assert!(call("nope", "{}")["error"].as_str().is_some());
     }
