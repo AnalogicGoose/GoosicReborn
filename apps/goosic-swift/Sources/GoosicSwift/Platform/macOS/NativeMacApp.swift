@@ -32,6 +32,7 @@ struct GoosicMacApp: SwiftUI.App {
                 .frame(minWidth: 920, minHeight: 680)
                 .onAppear {
                     NSApplication.shared.activate(ignoringOtherApps: true)
+                    store.model.onUpdateChannelChanged = { NativeMacUpdater.shared.setChannel($0) }
                     if !store.model.usesDebugSidebarFixture { store.model.connect() }
                     NativeMacScrollBenchmark.startIfRequested()
                 }
