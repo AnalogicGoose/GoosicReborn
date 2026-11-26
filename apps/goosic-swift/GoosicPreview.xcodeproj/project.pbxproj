@@ -374,7 +374,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cd \"$SRCROOT/../..\" && cargo build -p goosic-shell-support-ffi\n";
+			shellScript = "export PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:$PATH\"\ncd \"$SRCROOT/../..\" && cargo build -p goosic-shell-support-ffi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

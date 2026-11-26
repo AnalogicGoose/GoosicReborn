@@ -341,10 +341,11 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Skip decorative motion, on top of the system's own setting.
     @Combine.Published private(set) var reduceMotion = false
     /// Which releases the updater offers: `stable`, or `experimental` for pre-releases too.
-    @Combine.Published private(set) var updateChannel = "stable" {
-        didSet { if updateChannel != oldValue { onUpdateChannelChanged?(updateChannel) } }
-    }
-    /// Told when the update channel changes, so the platform updater can follow it.
+    @Combine.Published private(set) var updateChannel = "stable"
+    /// Told once stored preferences arrive (with the persisted channel), or with `nil` when reading
+    /// them fails so the platform updater can still start on its cached fallback.
+    var onUpdateChannelLoaded: ((String?) -> Void)?
+    /// Told when the listener changes the update channel, so the platform updater can follow it.
     var onUpdateChannelChanged: ((String) -> Void)?
     /// What this account has rated, by video id. The catalog does not say whether a song is
     /// liked, so this is learned from Liked Music and from what the listener rates here. It shows
@@ -401,12 +402,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published private(set) var hostStatus = "No official video loaded."
     @Combine.Published private(set) var hostDiagnostics = "No page loaded."
     @Combine.Published private(set) var accounts: [GoosicAccountSummary] = []
-    @Combine.Published private(set) var activeAccountId: String? {
-        didSet {
-            // A signed-in radio reads the account's own recommendations, inside its profile.
-            if activeAccountId != oldValue { dispatchQueue(.setRadioAccount(activeAccountId)) }
-        }
-    }
+    @Combine.Published private(set) var activeAccountId: String?
     @Combine.Published private(set) var accountSnapshotEpoch: UInt64 = 0
     /// Every catalog page this session has requested, keyed so a late response cannot land on
     /// the wrong screen.
@@ -585,6 +581,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             email: "ui-test@example.invalid"
         )]
         activeAccountId = accountID
+        dispatchQueue(.setRadioAccount(accountID))
         serviceConnected = true
         status = "UI test fixture"
         userPlaylists = (1...40).map { index in
@@ -757,10 +754,12 @@ final class GoosicAppModel: Combine.ObservableObject {
                 // a rejection the service answered, which leaves the client in place.
                 guard let self, epoch == self.connectionEpoch else { return }
                 self.isConnecting = false
+                self.onUpdateChannelLoaded?(nil)
             }
         } catch {
             isConnecting = false
             status = error.localizedDescription
+            onUpdateChannelLoaded?(nil)
         }
     }
 
@@ -780,12 +779,18 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// a late accounts.get response from resurrecting an account after a switch.
     private func applyAccounts(_ snapshot: GoosicAccountsSnapshot, initial: Bool = false) {
         guard AccountSnapshotSelection.accepts(epoch: snapshot.epoch, currentEpoch: accountSnapshotEpoch, initial: initial) else { return }
-        let accountChanged = activeAccountId != snapshot.activeAccountId || initial
+        let previousAccountId = activeAccountId
+        let accountChanged = previousAccountId != snapshot.activeAccountId || initial
         accounts = snapshot.accounts
         activeAccountId = snapshot.activeAccountId
         accountSnapshotEpoch = snapshot.epoch
         let personalProfile = activeAccount.flatMap { UUID(uuidString: $0.webkitProfileId) }
         personalCatalogHost.bind(profileIdentifier: personalProfile)
+        // Bind the account's WebKit profile before telling the queue engine, so any personal radio
+        // request for the new account reaches its own profile rather than the previous one.
+        if activeAccountId != previousAccountId {
+            dispatchQueue(.setRadioAccount(activeAccountId))
+        }
         if accountChanged {
             sessionExpired = false
             ratings.removeAll()
@@ -1333,12 +1338,15 @@ final class GoosicAppModel: Combine.ObservableObject {
             guard let self else { return }
             if let settings = response.payload?.settings {
                 self.apply(settings, restoringRoute: true)
+            } else {
+                self.onUpdateChannelLoaded?(nil)
             }
             // `self.route` deliberately, not the restored value: if the user navigated while this
             // was in flight, the screen to load is the one they are looking at.
             self.loadRoute(self.route)
         } failure: { [weak self] _ in
             guard let self else { return }
+            self.onUpdateChannelLoaded?(nil)
             self.loadRoute(self.route)
         }
     }
@@ -1357,6 +1365,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         startPage = settings.startPage ?? "last"
         reduceMotion = settings.reduceMotion ?? false
         updateChannel = settings.updateChannel ?? "stable"
+        onUpdateChannelLoaded?(updateChannel)
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
@@ -1397,6 +1406,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     func setUpdateChannel(_ channel: String) {
         guard channel != updateChannel else { return }
         updateChannel = channel
+        onUpdateChannelChanged?(channel)
         savePreferences(GoosicPreferencesPatch(updateChannel: channel))
     }
 
