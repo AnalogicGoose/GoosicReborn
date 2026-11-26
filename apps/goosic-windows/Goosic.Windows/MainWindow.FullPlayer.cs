@@ -26,10 +26,9 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void WireFullPlayer()
     {
-        FullPlayerBackdrop.Children.Add(_fullPlayerMesh);
+        FullPlayerBackdrop.Children.Add(_fullPlayerArtworkBackdrop);
         FullPlayerCoverFrame.SizeChanged += (_, _) => UpdateCoverScale(animate: false);
         UpdateCoverScale(animate: false);
-        WireFullPlayerBlur();
         FullPlayerProgress.AddHandler(UIElement.PointerPressedEvent,
             new PointerEventHandler((_, _) => { _fullPlayerSeeking = true; Model.IsScrubbing = true; }), handledEventsToo: true);
         PointerEventHandler done = async (_, _) =>
@@ -51,8 +50,14 @@ public sealed partial class MainWindow : Window
 
         Model.ArtworkChanged += async thumbnail => await ShowArtworkAsync(thumbnail);
         RootGrid.SizeChanged += (_, _) => ApplyFullPlayerLayout();
-        _uiSettings.AdvancedEffectsEnabledChanged += (_, _) =>
-            DispatcherQueue.TryEnqueue(UpdateFullPlayerBlur);
+        Activated += (_, _) => DispatcherQueue.TryEnqueue(UpdateFullPlayerBackdrop);
+        AppWindow.Changed += (_, args) =>
+        {
+            if (args.DidVisibilityChange || args.DidSizeChange || args.DidPresenterChange)
+            {
+                DispatcherQueue.TryEnqueue(UpdateFullPlayerBackdrop);
+            }
+        };
         Model.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(ShellViewModel.IsPlaying))
@@ -86,48 +91,14 @@ public sealed partial class MainWindow : Window
             LyricsMotion.CoverDamping, target));
     }
 
-    /// <summary>
-    /// Blurs everything drawn beneath <c>FullPlayerBlurHost</c>: the moving colours and the cover.
-    /// </summary>
-    /// <remarks>
-    /// The mesh is drawn as soft-edged blocks, and without a blur over it they read as blocks, not
-    /// as the wash of colour the macOS player shows. A backdrop blur keeps the mesh moving while it
-    /// is blurred, which a pre-rendered image could not.
-    /// </remarks>
-    private void WireFullPlayerBlur()
-    {
-        try
-        {
-            var compositor = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview
-                .GetElementVisual(FullPlayerBlurHost).Compositor;
-            var blur = new Microsoft.Graphics.Canvas.Effects.GaussianBlurEffect
-            {
-                Name = "Blur",
-                BlurAmount = 60f,
-                BorderMode = Microsoft.Graphics.Canvas.Effects.EffectBorderMode.Hard,
-                Optimization = Microsoft.Graphics.Canvas.Effects.EffectOptimization.Balanced,
-                Source = new Microsoft.UI.Composition.CompositionEffectSourceParameter("Backdrop"),
-            };
-            var brush = compositor.CreateEffectFactory(blur).CreateBrush();
-            brush.SetSourceParameter("Backdrop", compositor.CreateBackdropBrush());
-            var visual = compositor.CreateSpriteVisual();
-            visual.Brush = brush;
-            visual.RelativeSizeAdjustment = System.Numerics.Vector2.One;
-            Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.SetElementChildVisual(FullPlayerBlurHost, visual);
-        }
-        catch (Exception error)
-        {
-            // Without the blur the player still works; it only looks as it did before.
-            BridgeLog.Write($"full-screen blur unavailable: {error.GetType().Name}");
-        }
-    }
-
-    /// <summary>Loads the cover at full size and samples its colours for both backgrounds.</summary>
+    /// <summary>Loads the playing cover and supplies its cached file to the immersive backdrop.</summary>
     private async Task ShowArtworkAsync(string? thumbnail)
     {
-        _paletteFor = thumbnail;
+        var request = ++_artworkRequest;
+        _fullPlayerArtworkFile = null;
+        UpdateFullPlayerBackdrop();
         var file = await Model.LargeArtworkFileAsync(thumbnail);
-        if (_paletteFor != thumbnail)
+        if (_artworkRequest != request)
         {
             return;
         }
@@ -136,11 +107,8 @@ public sealed partial class MainWindow : Window
         {
             ApplyCoverAspect(1);
             FullPlayerCover.Source = null;
-            _fullPlayerMesh.SetPalette(null);
             ArtworkBackdropImage.Source = null;
-            FullPlayerBlur.Source = null;
             UpdateBackdrop();
-            UpdateFullPlayerBlur();
             return;
         }
 
@@ -150,23 +118,33 @@ public sealed partial class MainWindow : Window
             await image.SetSourceAsync(stream.AsRandomAccessStream());
         }
 
-        var paletteTask = Views.MeshBackground.PaletteAsync(file);
         var backdropTask = _backdropRenderer.RenderAsync(file);
-        var aspectTask = CoverAspectAsync(file);
-        await Task.WhenAll(paletteTask, backdropTask, aspectTask);
-        if (_paletteFor != thumbnail)
+        var aspect = await CoverAspectAsync(file);
+        if (_artworkRequest != request)
         {
             return;
         }
 
-        ApplyCoverAspect(aspectTask.Result);
+        ApplyCoverAspect(aspect);
         FullPlayerCover.Source = image;
         FadePlayerArtwork(FullPlayerCover);
-        _fullPlayerMesh.SetPalette(paletteTask.Result);
-        ArtworkBackdropImage.Source = backdropTask.Result;
-        FullPlayerBlur.Source = backdropTask.Result;
-        UpdateBackdrop();
-        UpdateFullPlayerBlur();
+        _fullPlayerArtworkFile = file;
+        UpdateFullPlayerBackdrop();
+
+        var browseBackdrop = await backdropTask;
+        if (_artworkRequest == request)
+        {
+            ArtworkBackdropImage.Source = browseBackdrop;
+            UpdateBackdrop();
+        }
+    }
+
+    private void UpdateFullPlayerBackdrop()
+    {
+        var visible = FullPlayer.Visibility == Visibility.Visible && AppWindow.IsVisible
+            && AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter
+                { State: Microsoft.UI.Windowing.OverlappedPresenterState.Minimized };
+        _fullPlayerArtworkBackdrop.Update(visible ? _fullPlayerArtworkFile : null, AnimationsEnabled);
     }
 
     private readonly global::Windows.UI.ViewManagement.UISettings _uiSettings = new();
@@ -207,11 +185,6 @@ public sealed partial class MainWindow : Window
         PillCoverButton.Width = Math.Round(PillCoverHeight * aspect);
         ApplyFullPlayerLayout();
     }
-
-    private void UpdateFullPlayerBlur() =>
-        FullPlayerBlur.Visibility = FullPlayerLayout.ShowsBlur(_uiSettings.AdvancedEffectsEnabled, FullPlayerBlur.Source is not null)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
 
     /// <summary>Arranges cover, controls and lyrics for the window's width and the lyrics toggle.</summary>
     private void ApplyFullPlayerLayout()
@@ -330,6 +303,7 @@ public sealed partial class MainWindow : Window
         }
 
         FullPlayer.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        UpdateFullPlayerBackdrop();
         _fullLyrics?.SetVisible(open && FullPlayerLyrics.Visibility == Visibility.Visible);
         _panelLyrics?.SetVisible(!open && _sidePanel.Content == SidePanelContent.Lyrics);
         SetTitleBar(open ? FullPlayerDragStrip : TitleBarStrip);

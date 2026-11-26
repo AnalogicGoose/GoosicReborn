@@ -98,7 +98,8 @@ Layout follows the macOS shell: content fills the window on Mica; the sidebar (D
 Library, the account's playlists, account row, settings) and the Lyrics / Playing Next panel
 float over it as rounded acrylic panels; the player is a floating acrylic pill at the bottom;
 rows of cards slide under the panels. The full-screen player fills the window (window full screen
-is a separate toggle / F11 inside it) over a moving mesh of the cover's colours.
+is a separate toggle / F11 inside it). See the full-player backdrop contract in
+[UI_DESIGN.md](../../docs/UI_DESIGN.md).
 
 ## Map of the code
 
@@ -117,7 +118,8 @@ is a separate toggle / F11 inside it) over a moving mesh of the cover's colours.
 | `Service/SharedQueue.cs` | The channel to `QueueEngine` in `goosic-shell-support`, which decides every queue rule for both shells |
 | `ViewModels/ShellViewModel.Account.cs` | Accounts, personal pages, likes, playlists edits |
 | `ViewModels/ShellViewModel.Settings.cs` | Preferences via `settings.*`, page flags, volume persistence |
-| `ViewModels/NowPlayingMesh.cs`, `Views/MeshBackground.cs` | Cover palette and animated background (GPL port) |
+| `ViewModels/NowPlayingMesh.cs` | Cover URL upscaling and legacy palette rules (GPL port) |
+| `Views/FullPlayerArtworkBackdrop.cs` | Cached artwork texture and compositor motion |
 | `Service/OfficialPlaybackHost.cs` | WebView2 player: lease claim, observer, validation, volume, page auto-advance |
 | `Service/PersonalCatalogHost.cs` | Signed-in reads/mutations via the Swift shell's `PersonalCatalog.js` |
 | `Service/AccountLoginWindow.cs`, `WebProfiles.cs` | Google sign-in in staged per-account WebView2 profiles |
@@ -177,6 +179,12 @@ Legend: ✅ works · 🟡 partial · ❌ missing.
   switch off after each load (bridge.log: `automix "turned off"`). It is behaviour every shell
   wants, so the script belongs in `goosic-shell-support` beside the observer once that crate's FFI
   question is settled.
+- **The renderer plays the song version.** A song with an audio version and a music video plays
+  whichever the page's Song/Video switch prefers, and the page swaps the requested id before it
+  starts. `OfficialPlaybackHost.PreferSongVersionAsync` presses the page's Song button after each
+  load (bridge.log: `song version "switched"`), and an early swap to another version of the same
+  song is adopted up to `PlaybackOrder.MaxAdoptions` times, so a song swapped to its video and
+  back plays instead of being refused.
 - **A track replaced before it played is not an end.** The host reads the page's title: the same
   song under another id is kept, anything else is reported as refused, dimmed, and skipped for the
   session. Unreleased tracks on pre-release albums arrive from the catalog with a video id and no

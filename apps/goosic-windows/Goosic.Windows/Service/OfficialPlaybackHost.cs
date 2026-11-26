@@ -62,6 +62,9 @@ internal sealed class OfficialPlaybackHost
     /// <summary>The id the listener asked for, which stays the same when the page swaps in another version.</summary>
     private string _requestedVideoId = "";
 
+    /// <summary>How many versions have been loaded in place of the listener's choice.</summary>
+    private int _adoptions;
+
     /// <summary>A load has been asked for and has not been heard playing, failed or given up on yet.</summary>
     private bool _awaitingStart;
     private bool _heardPlaying;
@@ -257,6 +260,7 @@ internal sealed class OfficialPlaybackHost
 
         var startPaused = natural && _pauseNextAdvance;
         _pauseNextAdvance = false;
+        _adoptions = 0;
         await StartAsync(videoId, videoId, startPaused).ConfigureAwait(true);
     }
 
@@ -539,7 +543,9 @@ internal sealed class OfficialPlaybackHost
             await InstallObserverAsync(core);
             // Runs beside the Automix check rather than after it; it ends itself.
             var watching = WatchStartAsync(token);
+            var song = PreferSongVersionAsync(core);
             await KeepAutomixOffAsync(core);
+            await song;
         };
 
         // Only the official host may run in here. A navigation anywhere else is cancelled rather
@@ -744,6 +750,42 @@ internal sealed class OfficialPlaybackHost
             if (outcome != "\"absent\"")
             {
                 BridgeLog.Write($"automix {outcome}");
+                return;
+            }
+
+            await Task.Delay(500);
+        }
+    }
+
+    /// <summary>
+    /// Sets the page's Song/Video switch to Song, so a song plays as the song rather than as its
+    /// music video.
+    /// </summary>
+    /// <remarks>
+    /// With the switch on Video the page swapped a chosen song for its video before it started,
+    /// and could swap that back again, which used to be taken for a refusal. The switch renders
+    /// with the player, so it is looked for for a while rather than once.
+    /// </remarks>
+    private async Task PreferSongVersionAsync(CoreWebView2 core)
+    {
+        var token = _token;
+        for (var attempt = 0; attempt < PlaybackOrder.SongVersionAttempts && token == _token; attempt++)
+        {
+            string? outcome;
+            try
+            {
+                var raw = await core.ExecuteScriptAsync(PlaybackOrder.SongVersionScript);
+                outcome = JsonSerializer.Deserialize<string>(raw);
+            }
+            catch (Exception error)
+            {
+                BridgeLog.Write($"song version check failed: {error.GetType().Name}");
+                return;
+            }
+
+            if (PlaybackOrder.SongVersionSettled(outcome))
+            {
+                BridgeLog.Write($"song version \"{outcome}\"");
                 return;
             }
 
@@ -1237,20 +1279,23 @@ internal sealed class OfficialPlaybackHost
             return;
         }
 
-        // Only the listener's own choice may be swapped, and only once: a substitute that is
-        // itself replaced is the page wandering, not another version of the song.
-        if (requested == _requestedVideoId && IsSubstitute?.Invoke(requested, described, title) == true)
+        // The listener's choice may be replaced by another version of it a bounded number of
+        // times: the page can swap a song for its video and the video back for the song, but a
+        // page that keeps swapping is going round in circles.
+        if (PlaybackOrder.MayAdopt(_adoptions)
+            && IsSubstitute?.Invoke(_requestedVideoId, described, title) == true)
         {
             // The substitute is loaded afresh, under its own id and a new lease. Adopting it in
             // place could never play: the observer in this document was built for the id first
             // asked for, and pauses anything else the moment it starts -- which is its job, and
             // is why an accepted substitute used to sit paused at 0:00 for as long as it was left.
-            BridgeLog.Write($"the page swapped the requested song for another version of it ({described}); loading that version");
+            _adoptions++;
+            BridgeLog.Write($"the page swapped {requested} for another version of the song ({described}, swap {_adoptions}); loading that version");
             _lastRejection = null;
             // The decision is made: a press from here belongs to the new load, as an ordinary one.
             var startPaused = _pauseAfterSwitch;
             _resolvingSwitch = false;
-            await StartAsync(described, requested, startPaused).ConfigureAwait(true);
+            await StartAsync(described, _requestedVideoId, startPaused).ConfigureAwait(true);
             return;
         }
 

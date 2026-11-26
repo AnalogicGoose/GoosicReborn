@@ -79,19 +79,56 @@ pub unsafe extern "C" fn goosic_is_same_song(
     }
 }
 
-/// What to do when the page switched to `page_video_id` before `requested_video_id` was heard:
-/// `0` ignore it (the load is no longer current), `1` treat the track as refused, `2` adopt the
-/// page's video, which is another version of the chosen song, in the requested one's place.
+/// [`goosic_early_switch_counted`] for a shell that still says only whether the load may be
+/// replaced: `may_adopt` false is a choice already replaced as often as it may be.
+///
+/// Kept so a shell built against the earlier signature keeps compiling while it moves to the
+/// counted one; it can go once both shells call that.
 ///
 /// # Safety
 ///
-/// Every pointer must be NUL-terminated or null; `loaded_video_id` null means nothing is loaded.
+/// As for [`goosic_early_switch_counted`].
 #[no_mangle]
 pub unsafe extern "C" fn goosic_early_switch(
     requested_video_id: *const c_char,
     page_video_id: *const c_char,
     page_title: *const c_char,
     may_adopt: bool,
+    loaded_video_id: *const c_char,
+    chosen_title: *const c_char,
+) -> i32 {
+    let adoptions = if may_adopt {
+        0
+    } else {
+        page_swap::MAX_ADOPTIONS
+    };
+    unsafe {
+        goosic_early_switch_counted(
+            requested_video_id,
+            page_video_id,
+            page_title,
+            adoptions,
+            loaded_video_id,
+            chosen_title,
+        )
+    }
+}
+
+/// What to do when the page switched to `page_video_id` before `requested_video_id` was heard:
+/// `0` ignore it (the load is no longer current), `1` treat the track as refused, `2` adopt the
+/// page's video, which is another version of the chosen song, in the requested one's place.
+/// `adoptions` is how many versions were already loaded in place of the listener's choice; a
+/// choice is replaced at most `MAX_ADOPTIONS` times.
+///
+/// # Safety
+///
+/// Every pointer must be NUL-terminated or null; `loaded_video_id` null means nothing is loaded.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_early_switch_counted(
+    requested_video_id: *const c_char,
+    page_video_id: *const c_char,
+    page_title: *const c_char,
+    adoptions: u32,
     loaded_video_id: *const c_char,
     chosen_title: *const c_char,
 ) -> i32 {
@@ -104,7 +141,7 @@ pub unsafe extern "C" fn goosic_early_switch(
         requested_video_id: requested,
         page_video_id: page,
         page_title: unsafe { borrow(page_title) }.unwrap_or(""),
-        may_adopt,
+        adoptions,
     };
     let loaded = unsafe { borrow(loaded_video_id) };
     let chosen = unsafe { borrow(chosen_title) }.unwrap_or("");
@@ -184,6 +221,21 @@ mod tests {
         assert_eq!(switch(&other, true, requested.as_ptr()), 1);
         assert_eq!(switch(&video, true, version.as_ptr()), 0);
         assert_eq!(switch(&video, true, std::ptr::null()), 0);
+
+        // A version swapped back once more is still adopted; a page going round is refused.
+        let counted = |adoptions: u32| unsafe {
+            goosic_early_switch_counted(
+                requested.as_ptr(),
+                version.as_ptr(),
+                video.as_ptr(),
+                adoptions,
+                requested.as_ptr(),
+                chosen.as_ptr(),
+            )
+        };
+        assert_eq!(counted(0), 2);
+        assert_eq!(counted(1), 2);
+        assert_eq!(counted(2), 1);
 
         let mut shown = 0.0;
         assert!(!unsafe { goosic_seek_settle(30.0, 120.0, 0.3, &mut shown) });
