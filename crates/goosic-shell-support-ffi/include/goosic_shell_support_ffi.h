@@ -82,6 +82,19 @@ typedef struct GoosicAdRecovery {
 bool goosic_ad_recovery_observe(GoosicAdRecovery *recovery, bool advertisement,
                                 const char *state, bool listener_paused);
 
+/* When a play's natural end moves the queue. Zero one, or call begin, for every load. */
+typedef struct GoosicEndGuard {
+    bool heard;
+    bool handled;
+    bool awaiting_content;
+    bool resume_requested;
+} GoosicEndGuard;
+void goosic_end_guard_begin(GoosicEndGuard *guard);
+bool goosic_end_guard_observe(GoosicEndGuard *guard, bool is_current, bool advertisement,
+                              const char *state, double position, double duration,
+                              bool listener_paused, bool *resume);
+bool goosic_end_guard_page_ended(GoosicEndGuard *guard, bool is_current);
+
 /* The system media controls, projected from confirmed state. */
 typedef struct GoosicMediaInput {
     bool has_track;

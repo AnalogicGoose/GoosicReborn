@@ -13,7 +13,7 @@ use goosic_shell_support::media::{
     CommandAvailability, MediaPlaybackState, MediaSnapshot, NowPlaying,
 };
 use goosic_shell_support::navigation::PlaybackTransition;
-use goosic_shell_support::playback::AdPlaybackRecovery;
+use goosic_shell_support::playback::{AdPlaybackRecovery, EndGuard};
 use goosic_shell_support::{artwork, bridge, hero, login};
 
 use crate::{borrow, hand_over};
@@ -206,6 +206,110 @@ pub unsafe extern "C" fn goosic_ad_recovery_observe(
     held.awaiting_content = rule.awaiting_content;
     held.resume_requested = rule.resume_requested;
     resume
+}
+
+// ---- Track ends ------------------------------------------------------------------------------
+
+/// What [`goosic_end_guard_observe`] remembers for the current play. A shell holds one and zeroes
+/// it (or calls [`goosic_end_guard_begin`]) for every load, a repeat of the same song included.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct GoosicEndGuard {
+    pub heard: bool,
+    pub handled: bool,
+    pub awaiting_content: bool,
+    pub resume_requested: bool,
+}
+
+impl GoosicEndGuard {
+    fn rule(&self) -> EndGuard {
+        EndGuard {
+            heard: self.heard,
+            handled: self.handled,
+            ads: AdPlaybackRecovery {
+                awaiting_content: self.awaiting_content,
+                resume_requested: self.resume_requested,
+            },
+        }
+    }
+
+    fn keep(&mut self, rule: EndGuard) {
+        self.heard = rule.heard;
+        self.handled = rule.handled;
+        self.awaiting_content = rule.ads.awaiting_content;
+        self.resume_requested = rule.ads.resume_requested;
+    }
+}
+
+/// Starts a new play.
+///
+/// # Safety
+///
+/// `guard` must point to a live [`GoosicEndGuard`] or be null.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_end_guard_begin(guard: *mut GoosicEndGuard) {
+    if !guard.is_null() {
+        unsafe { *guard = GoosicEndGuard::default() };
+    }
+}
+
+/// Feeds one accepted sample and answers whether the queue should move on. `resume` is set when
+/// the page should be asked to play because an advertisement left content paused.
+///
+/// # Safety
+///
+/// `guard` must point to a live [`GoosicEndGuard`]; `state` must be NUL-terminated or null;
+/// `resume` must be null or writable.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_end_guard_observe(
+    guard: *mut GoosicEndGuard,
+    is_current: bool,
+    advertisement: bool,
+    state: *const c_char,
+    position: f64,
+    duration: f64,
+    listener_paused: bool,
+    resume: *mut bool,
+) -> bool {
+    if guard.is_null() {
+        return false;
+    }
+    let held = unsafe { &mut *guard };
+    let mut rule = held.rule();
+    let state = unsafe { borrow(state) }.unwrap_or("");
+    let verdict = rule.observe(
+        is_current,
+        advertisement,
+        state,
+        position,
+        duration,
+        listener_paused,
+    );
+    held.keep(rule);
+    if !resume.is_null() {
+        unsafe { *resume = verdict.resume };
+    }
+    verdict.advance
+}
+
+/// The page moved past the requested play by itself; answers whether to advance, once.
+///
+/// # Safety
+///
+/// `guard` must point to a live [`GoosicEndGuard`] or be null.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_end_guard_page_ended(
+    guard: *mut GoosicEndGuard,
+    is_current: bool,
+) -> bool {
+    if guard.is_null() {
+        return false;
+    }
+    let held = unsafe { &mut *guard };
+    let mut rule = held.rule();
+    let advance = rule.page_ended(is_current);
+    held.keep(rule);
+    advance
 }
 
 // ---- System media controls -------------------------------------------------------------------
@@ -431,5 +535,49 @@ mod tests {
         };
         unsafe { goosic_media_project(&idle, &mut out) };
         assert!(!out.is_active && out.playback_state == 0 && !out.toggle_play_pause);
+    }
+
+    #[test]
+    fn the_end_guard_crosses_the_c_abi() {
+        let mut guard = GoosicEndGuard::default();
+        let playing = CString::new("playing").unwrap();
+        let ended = CString::new("ended").unwrap();
+        let mut resume = true;
+        unsafe {
+            goosic_end_guard_begin(&mut guard);
+            assert!(!goosic_end_guard_observe(
+                &mut guard,
+                true,
+                false,
+                ended.as_ptr(),
+                200.0,
+                200.0,
+                false,
+                &mut resume
+            ));
+            assert!(!resume);
+            goosic_end_guard_observe(
+                &mut guard,
+                true,
+                false,
+                playing.as_ptr(),
+                1.0,
+                200.0,
+                false,
+                &mut resume,
+            );
+            assert!(guard.heard);
+            assert!(goosic_end_guard_observe(
+                &mut guard,
+                true,
+                false,
+                ended.as_ptr(),
+                200.0,
+                200.0,
+                false,
+                &mut resume
+            ));
+            assert!(!goosic_end_guard_page_ended(&mut guard, true));
+        }
     }
 }

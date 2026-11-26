@@ -340,6 +340,12 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published private(set) var startPage = "last"
     /// Skip decorative motion, on top of the system's own setting.
     @Combine.Published private(set) var reduceMotion = false
+    /// Which releases the updater offers: `stable`, or `experimental` for pre-releases too.
+    @Combine.Published private(set) var updateChannel = "stable" {
+        didSet { if updateChannel != oldValue { onUpdateChannelChanged?(updateChannel) } }
+    }
+    /// Told when the update channel changes, so the platform updater can follow it.
+    var onUpdateChannelChanged: ((String) -> Void)?
     /// What this account has rated, by video id. The catalog does not say whether a song is
     /// liked, so this is learned from Liked Music and from what the listener rates here. It shows
     /// what YouTube Music accepted, never a click it has not confirmed.
@@ -437,9 +443,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
     /// snaps back to the live position between a drag and the next bridge event.
     private var pendingSeek: (position: Double, requestedAt: Date)?
-    /// The video whose end has already advanced the queue, so the player's repeated `ended`
-    /// polls cannot skip several tracks at once.
-    private var endedVideoID: String?
+    /// When this play's end moves the queue, and whether an advertisement left it paused. Begun
+    /// again for every load, so the player's repeated `ended` polls cannot skip several tracks.
+    private var endGuard = EndGuard()
     /// Songs the official player refused this session, by video id. They stay listed, dimmed,
     /// but are left out when a list starts playing and when radio adds recommendations, as on
     /// Windows. Kept for the session only: a refusal can be regional or temporary.
@@ -457,7 +463,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// `pauseNextLoad`, held for the song radio is still being fetched to continue with. A Play
     /// or Pause press, or a song the listener chooses, drops it: those are fresh choices.
     private var pauseAfterRadio = false
-    private var adRecovery = AdPlaybackRecovery()
     /// The preferred volume has not been pushed to this load's player yet. The page reports its
     /// own volume, so the preference is applied once per load rather than fought over.
     private var volumeAppliedForLoad = false
@@ -1351,6 +1356,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         hideExplicit = settings.hideExplicit ?? false
         startPage = settings.startPage ?? "last"
         reduceMotion = settings.reduceMotion ?? false
+        updateChannel = settings.updateChannel ?? "stable"
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
@@ -1386,6 +1392,12 @@ final class GoosicAppModel: Combine.ObservableObject {
         guard page != startPage else { return }
         startPage = page
         savePreferences(GoosicPreferencesPatch(startPage: page))
+    }
+
+    func setUpdateChannel(_ channel: String) {
+        guard channel != updateChannel else { return }
+        updateChannel = channel
+        savePreferences(GoosicPreferencesPatch(updateChannel: channel))
     }
 
     func setReduceMotion(_ enabled: Bool) {
@@ -1507,6 +1519,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         merged.hideExplicit = update.hideExplicit ?? merged.hideExplicit
         merged.startPage = update.startPage ?? merged.startPage
         merged.reduceMotion = update.reduceMotion ?? merged.reduceMotion
+        merged.updateChannel = update.updateChannel ?? merged.updateChannel
         return merged
     }
 
@@ -3212,7 +3225,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         // The bridge that would report the advertisement's end is gone, and Play refuses while
         // this flag is set, so leaving it would block playback until the app restarted.
         isAdvertisement = false
-        adRecovery = AdPlaybackRecovery()
+        endGuard.begin()
         hasConfirmedPlaybackSample = false
         updateSystemMediaControls()
         status = "\(error.localizedDescription) Playback stopped; reconnect to continue."
@@ -3249,9 +3262,8 @@ final class GoosicAppModel: Combine.ObservableObject {
         lyricsLengthWaitExpired = nil
         duration = 0
         pendingSeek = nil
-        endedVideoID = nil
+        endGuard.begin()
         listenerPaused = false
-        adRecovery = AdPlaybackRecovery()
         isAdvertisement = false
         hasConfirmedPlaybackSample = false
         volumeAppliedForLoad = false
@@ -3376,15 +3388,14 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         // A queued playing sample must not undo a listener's asynchronous pause request.
         // Explicit resume and a new load clear this intent.
-        if adRecovery.observe(advertisement: event.isAdvertisement, state: event.state, listenerPaused: listenerPaused) {
+        let verdict = endGuard.observe(
+            advertisement: event.isAdvertisement, state: event.state,
+            position: event.currentTime, duration: event.duration, listenerPaused: listenerPaused
+        )
+        if verdict.resume {
             officialPlaybackHost.play()
         }
-        if !adRecovery.awaitingContent && TrackEnd.shouldAdvance(
-            state: event.state, isAdvertisement: event.isAdvertisement, videoID: event.videoID,
-            position: event.currentTime, duration: event.duration,
-            lastEndedVideoID: endedVideoID, listenerPaused: listenerPaused
-        ) {
-            endedVideoID = event.videoID
+        if verdict.advance {
             advanceAfterEnd()
         }
         if presentationChanged { updateSystemMediaControls() }
@@ -3457,8 +3468,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     private func officialPlayerMovedOn(from finishedVideoID: String) {
         guard !accountOperationInProgress else { return }
         guard playbackState.owner == .officialWebView else { return }
-        guard endedVideoID != finishedVideoID else { return }
-        endedVideoID = finishedVideoID
+        guard endGuard.pageEnded() else { return }
         isPaused = true
         hasConfirmedPlaybackSample = false
         updateSystemMediaControls()
