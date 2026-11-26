@@ -14,7 +14,36 @@ struct AdPlaybackRecovery {
     }
 }
 
-/// When a finished track should move the queue on.
+/// When a play's natural end moves the queue: `EndGuard` in goosic-shell-support, which Windows
+/// asks too. An end counts only for the requested play, after it was heard playing, never during
+/// or straight after an advertisement, and once; content an advertisement left paused is resumed.
+struct EndGuard {
+    private var state = GoosicEndGuard(heard: false, handled: false, awaiting_content: false, resume_requested: false)
+
+    /// Starts a new play, a repeat of the same song included.
+    mutating func begin() {
+        goosic_end_guard_begin(&state)
+    }
+
+    /// Feeds one accepted sample of the requested play.
+    mutating func observe(
+        advertisement: Bool, state sampleState: String, position: Double, duration: Double,
+        listenerPaused: Bool
+    ) -> (advance: Bool, resume: Bool) {
+        var resume = false
+        let advance = goosic_end_guard_observe(
+            &state, true, advertisement, sampleState, position, duration, listenerPaused, &resume
+        )
+        return (advance, resume)
+    }
+
+    /// The page moved past the requested play by itself; true the first time only.
+    mutating func pageEnded() -> Bool {
+        goosic_end_guard_page_ended(&state, true)
+    }
+}
+
+/// Whether a report says a track has played through.
 ///
 /// Whether a track has played through is `has_finished` in `goosic-shell-support`, which Windows
 /// asks too. This keeps only the once-per-video check around it.
@@ -25,23 +54,6 @@ enum TrackEnd {
         goosic_track_has_finished(state, position, duration, listenerPaused)
     }
 
-    /// Whether a sample means the queue should move on.
-    ///
-    /// Advertisements end too and never advance the queue, and a player reports its end
-    /// repeatedly, so only the first report for a video counts.
-    static func shouldAdvance(
-        state: String,
-        isAdvertisement: Bool,
-        videoID: String,
-        position: Double,
-        duration: Double,
-        lastEndedVideoID: String?,
-        listenerPaused: Bool
-    ) -> Bool {
-        !isAdvertisement
-            && lastEndedVideoID != videoID
-            && hasFinished(state: state, position: position, duration: duration, listenerPaused: listenerPaused)
-    }
 }
 
 /// What to make of the official page replacing the requested track with another video.

@@ -47,21 +47,30 @@ final class TrackEndTests: XCTestCase {
         XCTAssertFalse(TrackEnd.hasFinished(state: "playing", position: 229, duration: 229, listenerPaused: false))
     }
 
-    func testOnlyTheFirstEndOfANonAdvertisementAdvances() {
-        func advance(_ state: String, ad: Bool = false, position: Double = 10, last: String? = nil,
-                     listenerPaused: Bool = false) -> Bool {
-            TrackEnd.shouldAdvance(
-                state: state, isAdvertisement: ad, videoID: "v", position: position, duration: 229,
-                lastEndedVideoID: last, listenerPaused: listenerPaused
-            )
-        }
-        XCTAssertTrue(advance("ended"))
-        XCTAssertTrue(advance("ended", last: "u"))
-        XCTAssertFalse(advance("ended", last: "v"), "reported twice")
-        XCTAssertFalse(advance("ended", ad: true), "an advertisement ended")
-        XCTAssertFalse(advance("paused"))
-        XCTAssertTrue(advance("paused", position: 228.8))
-        XCTAssertFalse(advance("paused", position: 228.8, listenerPaused: true))
+    func testOnlyTheFirstEndOfAHeardPlayAdvances() {
+        var guardian = EndGuard()
+        guardian.begin()
+        XCTAssertFalse(guardian.observe(advertisement: false, state: "ended", position: 229, duration: 229,
+                                        listenerPaused: false).advance, "never heard")
+        _ = guardian.observe(advertisement: false, state: "playing", position: 10, duration: 229, listenerPaused: false)
+        XCTAssertFalse(guardian.observe(advertisement: false, state: "paused", position: 228.8, duration: 229,
+                                        listenerPaused: true).advance, "the listener paused")
+        XCTAssertTrue(guardian.observe(advertisement: false, state: "paused", position: 228.8, duration: 229,
+                                       listenerPaused: false).advance)
+        XCTAssertFalse(guardian.observe(advertisement: false, state: "ended", position: 229, duration: 229,
+                                        listenerPaused: false).advance, "reported twice")
+        XCTAssertFalse(guardian.pageEnded())
+    }
+
+    func testContentAnAdvertisementLeftPausedIsResumedNotEnded() {
+        var guardian = EndGuard()
+        _ = guardian.observe(advertisement: false, state: "playing", position: 1, duration: 229, listenerPaused: false)
+        XCTAssertFalse(guardian.observe(advertisement: true, state: "ended", position: 30, duration: 30,
+                                        listenerPaused: false).advance)
+        let after = guardian.observe(advertisement: false, state: "paused", position: 229, duration: 229,
+                                     listenerPaused: false)
+        XCTAssertTrue(after.resume)
+        XCTAssertFalse(after.advance)
     }
 
     func testTheAutomixScriptOnlyTouchesTheAutomixSwitchAndSaysWhatItDid() {

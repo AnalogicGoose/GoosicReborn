@@ -81,6 +81,11 @@ enum SharedRules {
         if let remaining { arguments["remainingSeconds"] = remaining }
         return call("sleepTimer", arguments) ?? "Sleep timer"
     }
+
+    /// The Sparkle channels, beyond the default one, a copy on `channel` may install from.
+    static func updateChannels(_ channel: String) -> [String] {
+        call("updateChannels", ["channel": channel]) ?? []
+    }
 }
 
 private struct SharedEnvelope<Value: Decodable>: Decodable {
