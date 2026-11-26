@@ -775,7 +775,7 @@ fn an_account_change_restarts_a_personal_station_for_the_new_reader() {
 }
 
 #[test]
-fn an_account_change_mid_request_asks_the_new_account() {
+fn an_account_change_mid_request_cancels_the_old_fetch_for_the_next_move() {
     let mut engine = engine();
     engine.handle(Command::SetRadioAccount {
         account_id: Some("one".into()),
@@ -783,18 +783,72 @@ fn an_account_change_mid_request_asks_the_new_account() {
     let first = engine.handle(Command::StartRadio {
         track: track("seed"),
     });
+    let (old_request, ..) = radio_request(&first).unwrap();
     assert!(first.snapshot.radio_loading);
+
+    // Switching accounts cancels the old in-flight fetch without issuing a new one immediately,
+    // so an account transition cannot fetch against a stale profile or strand callers.
     let switched = engine.handle(Command::SetRadioAccount {
         account_id: Some("two".into()),
     });
-    let (request, _, _, account) = radio_request(&switched).expect("asked again");
+    assert!(radio_request(&switched).is_none());
+    assert!(!switched.snapshot.radio_loading);
+
+    // The old account's late reply is ignored and leaves the engine ready for the new account.
+    let stale = engine.handle(Command::RadioLoaded {
+        request: old_request,
+        tracks: tracks(&["from-one"]),
+        next_cursor: Some("old-cursor".into()),
+    });
+    assert_eq!(video_ids(&engine), ["seed"]);
+    assert!(!stale.snapshot.radio_loading);
+
+    // The next move asks the new account from the seed.
+    let next = engine.handle(Command::Next);
+    let (request, seed, continuation, account) = radio_request(&next).expect("asked new account");
+    assert_eq!(seed, "seed");
+    assert_eq!(continuation, None);
     assert_eq!(account.as_deref(), Some("two"));
-    engine.handle(Command::RadioLoaded {
+    let loaded = engine.handle(Command::RadioLoaded {
         request,
         tracks: tracks(&["r1"]),
         next_cursor: None,
     });
     assert_eq!(video_ids(&engine), ["seed", "r1"]);
+    assert_eq!(played_video(&engine, &loaded).as_deref(), Some("r1"));
+}
+
+#[test]
+fn account_switch_resumes_an_ended_track_waiting_for_radio() {
+    let mut q = engine();
+    q.handle(Command::SetRadioAccount {
+        account_id: Some("one".into()),
+    });
+    let first = q.handle(Command::StartRadio {
+        track: track("seed"),
+    });
+    let (old, ..) = radio_request(&first).unwrap();
+    q.handle(Command::Ended);
+    let switched = q.handle(Command::SetRadioAccount {
+        account_id: Some("two".into()),
+    });
+    let (new, _, cursor, account) = radio_request(&switched).unwrap();
+    assert_ne!(old, new);
+    assert_eq!(cursor, None);
+    assert_eq!(account.as_deref(), Some("two"));
+    let stale = q.handle(Command::RadioLoaded {
+        request: old,
+        tracks: tracks(&["stale"]),
+        next_cursor: None,
+    });
+    assert!(stale.snapshot.radio_loading);
+    assert_eq!(video_ids(&q), ["seed"]);
+    let loaded = q.handle(Command::RadioLoaded {
+        request: new,
+        tracks: tracks(&["fresh"]),
+        next_cursor: None,
+    });
+    assert_eq!(played_video(&q, &loaded).as_deref(), Some("fresh"));
 }
 
 #[test]
@@ -816,6 +870,41 @@ fn autoplay_does_not_refill_a_cleared_up_next() {
     ordered(&mut engine, &["d"], None);
     let ended = engine.handle(Command::Ended);
     assert!(radio_request(&ended).is_some());
+}
+
+#[test]
+fn enabling_autoplay_or_queueing_resumes_autoplay_after_clear() {
+    let mut q = engine();
+    ordered(&mut q, &["a", "b"], None);
+    q.handle(Command::ClearUpcoming { now: 0.0 });
+    q.handle(Command::SetAutoplay { enabled: true });
+    let ended = q.handle(Command::Ended);
+    assert!(
+        radio_request(&ended).is_some(),
+        "turning autoplay on after Clear resumes autoplay"
+    );
+
+    let mut q = engine();
+    ordered(&mut q, &["a", "b"], None);
+    q.handle(Command::ClearUpcoming { now: 0.0 });
+    q.handle(Command::PlayNext { track: track("c") });
+    q.handle(Command::Next);
+    let ended = q.handle(Command::Ended);
+    assert!(
+        radio_request(&ended).is_some(),
+        "queueing with PlayNext after Clear resumes autoplay"
+    );
+
+    let mut q = engine();
+    ordered(&mut q, &["a", "b"], None);
+    q.handle(Command::ClearUpcoming { now: 0.0 });
+    q.handle(Command::AddToQueue { track: track("d") });
+    q.handle(Command::Next);
+    let ended = q.handle(Command::Ended);
+    assert!(
+        radio_request(&ended).is_some(),
+        "queueing with AddToQueue after Clear resumes autoplay"
+    );
 }
 
 #[test]

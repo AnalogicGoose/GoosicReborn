@@ -367,7 +367,7 @@ pub struct QueueEngine {
     /// Bumped by every Play effect, so a radio page answers the play that asked for it.
     play_sequence: u64,
     /// Up Next was cleared on purpose: nothing, autoplay included, refills it until the
-    /// listener starts something new or undoes the clear.
+    /// listener starts or queues something new, turns autoplay on, or undoes the clear.
     cleared_on_purpose: bool,
     rng: u64,
 }
@@ -480,7 +480,12 @@ impl QueueEngine {
                 self.repeat = self.repeat.next();
                 out.effects.push(self.save_preferences());
             }
-            Command::SetAutoplay { enabled } => self.autoplay = enabled,
+            Command::SetAutoplay { enabled } => {
+                self.autoplay = enabled;
+                if enabled {
+                    self.cleared_on_purpose = false;
+                }
+            }
             Command::SetSleepAtEnd { enabled } => self.sleep_at_end = enabled,
             Command::Refused { video_id } => {
                 if !video_id.is_empty() {
@@ -735,7 +740,8 @@ impl QueueEngine {
 
     /// A station reads one account's recommendations. When the account changes, a personal
     /// station starts over from its seed for the new reader: its cursor means nothing to them,
-    /// and a top-up sent with the old account would fail on every skip.
+    /// and a top-up sent with the old account would fail on every skip. Any in-flight fetch is
+    /// cancelled. Restart immediately only when playback is waiting for the next track.
     fn set_radio_account(&mut self, out: &mut Output, account_id: Option<String>) {
         self.radio_account = account_id;
         let account = self.radio_account.clone();
@@ -747,12 +753,11 @@ impl QueueEngine {
         }
         self.station = Some(Station::new(station.seed.clone(), account));
         self.station_revision += 1;
-        let was_asking = self.pending_radio.take().is_some();
-        self.revision += 1;
-        if was_asking || self.awaiting_more == Some(self.play_sequence) {
-            // The old account's page will be ignored when it lands; ask the new one instead.
+        self.pending_radio = None;
+        if self.awaiting_more == Some(self.play_sequence) {
             self.request_radio(out);
         }
+        self.revision += 1;
     }
 
     /// Keeps a few recommendations ahead of the song playing, so Next never waits.
@@ -922,6 +927,7 @@ impl QueueEngine {
             input: 0,
             entry: id,
         });
+        self.cleared_on_purpose = false;
         self.revision += 1;
         out.notice(&if next {
             format!("\u{201C}{title}\u{201D} plays next.")

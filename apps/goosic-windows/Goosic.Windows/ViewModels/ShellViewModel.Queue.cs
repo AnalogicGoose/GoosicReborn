@@ -341,6 +341,11 @@ public sealed partial class ShellViewModel
             return default;
         }
 
+        return ApplyOutcome(outcome, carried);
+    }
+
+    private MoveResult ApplyOutcome(QueueOutcome outcome, IReadOnlyList<TrackViewModel>? carried = null)
+    {
         foreach (var added in outcome.Added)
         {
             if (carried is not null && added.Input >= 0 && added.Input < carried.Count)
@@ -409,10 +414,11 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        if (Send(Command("setRadioAccount", ("accountId", account))) is not null)
+        if (Send(Command("setRadioAccount", ("accountId", account))) is { } outcome)
         {
             _radioAccountSent = true;
             _radioAccount = account;
+            ApplyOutcome(outcome);
         }
     }
 
