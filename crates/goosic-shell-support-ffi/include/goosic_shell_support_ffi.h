@@ -1,7 +1,7 @@
 /*
  * The C ABI of goosic-shell-support-ffi, for shells that are not written in Rust.
  *
- * Kept by hand beside src/lib.rs and src/queue.rs; a test in that crate checks that every
+ * Kept by hand beside src/lib.rs, src/playback.rs and src/queue.rs; a test in that crate checks that every
  * exported function is declared here. Every function returning `char *` hands the caller a
  * NUL-terminated UTF-8 buffer that must be given back to goosic_string_free exactly once.
  */
@@ -38,6 +38,20 @@ bool goosic_login_is_allowed_url(const char *url);
 bool goosic_login_is_completion_origin(const char *url);
 char *goosic_login_make_result(const char *account_id, const char *profile_id,
                                const char *metadata, const char *page_url);
+
+/* Playback rules asked on every sample, drag and frame. A NaN reads as "not known". */
+double goosic_volume_gain(double position);
+double goosic_volume_position(double gain);
+char *goosic_time_text(double seconds);
+bool goosic_track_has_finished(const char *state, double position, double duration,
+                               bool listener_paused);
+bool goosic_track_heard_playing(const char *state, double duration, bool is_advertisement);
+bool goosic_is_same_song(const char *requested, const char *page);
+/* 0 ignore, 1 refused, 2 adopt the page's video as the chosen song. */
+int32_t goosic_early_switch(const char *requested_video_id, const char *page_video_id,
+                            const char *page_title, bool may_adopt,
+                            const char *loaded_video_id, const char *chosen_title);
+bool goosic_seek_settle(double confirmed, double target, double elapsed_seconds, double *shown);
 
 /* The shared listening queue: JSON commands in, {"ok": Outcome} or {"error": "..."} out. */
 typedef struct GoosicQueue GoosicQueue;
