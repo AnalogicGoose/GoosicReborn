@@ -3,7 +3,8 @@
   <!--
     Tests for the shell's presentation rules. The app itself is a WinUI executable and is not
     referenced; the UI-free files under Presentation/ are compiled in directly, which is what keeps
-    them free of controls: a file that reached for one would fail to build here.
+    them free of controls: a file that reached for one would fail to build here. Rules answered by
+    goosic-shell-support are reached through its DLL, built below.
   -->
   <PropertyGroup>
     <TargetFramework>net9.0-windows10.0.26100.0</TargetFramework>
@@ -17,6 +18,25 @@
   <ItemGroup>
     <Compile Include="..\Goosic.Windows\Presentation\*.cs" Link="Presentation\%(Filename)%(Extension)" />
   </ItemGroup>
+
+  <!--
+    Some presentation rules are answered by goosic-shell-support through its C ABI, the same
+    library the app loads, so the tests run against the code that ships rather than a copy. It is
+    built before compiling and copied beside the tests after, since a clean checkout has no
+    library to find when the project is first read.
+  -->
+  <PropertyGroup>
+    <GoosicRepoRoot>$(MSBuildProjectDirectory)\..\..\..\</GoosicRepoRoot>
+    <GoosicFfiLibrary>$(GoosicRepoRoot)target\debug\goosic_shell_support_ffi.dll</GoosicFfiLibrary>
+  </PropertyGroup>
+
+  <Target Name="BuildShellSupportFfi" BeforeTargets="PrepareForBuild">
+    <Exec Command="cargo build -p goosic-shell-support-ffi" WorkingDirectory="$(GoosicRepoRoot)" />
+  </Target>
+
+  <Target Name="CopyShellSupportFfi" AfterTargets="Build">
+    <Copy SourceFiles="$(GoosicFfiLibrary)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />

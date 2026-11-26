@@ -44,13 +44,14 @@ public sealed partial class MainWindow : Window
         QueueUndoButton.Focus(FocusState.Programmatic);
         _undoTimer ??= CreateUndoTimer();
         _undoTimer.Stop();
+        // The engine says how long Undo stays offered, so the bar leaves when Undo does.
+        _undoTimer.Interval = Model.UndoTimeLeft;
         _undoTimer.Start();
     }
 
     private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateUndoTimer()
     {
         var timer = DispatcherQueue.CreateTimer();
-        timer.Interval = ClearedQueue<TrackViewModel>.UndoWindow;
         timer.IsRepeating = false;
         timer.Tick += (_, _) => HideUndoBar();
         return timer;
