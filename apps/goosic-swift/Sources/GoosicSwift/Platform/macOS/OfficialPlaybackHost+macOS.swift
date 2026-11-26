@@ -29,6 +29,28 @@ final class OfficialPlaybackHost: NSObject {
     private var advertisementActive = false
     private var transport = MacMediaTransportRequest()
     private var transportInFlight = false
+    /// Whether the pending transport request is the listener's own press, which may answer the
+    /// page's "still listening?" prompt. A load's own play and the host's requests never do.
+    private var transportFromListener = false
+    /// Whether this load has reported playing at all, an advertisement included.
+    private var heardPlaying = false
+    /// Whether the listener pressed Play or Pause since this load, or it was loaded paused.
+    private var listenerTookOver = false
+    /// The token whose start is being watched; see `StartWatch`.
+    private var startWatchToken: String?
+    private var startWatchTask: Task<Void, Never>?
+    /// The last state a validated sample reported, to notice the page pausing by itself.
+    private var lastSampleState = ""
+    /// Whether the latest transport request, or the load itself, asked for a pause.
+    private var requestedPaused = false
+    /// Whether the start watch has stopped watching this load: the track was heard, the listener
+    /// took over, or it gave up. The loading indicator never outlives it.
+    private var startWatchEnded = false
+    /// Whether the latest validated sample said the media is buffering.
+    private var lastBuffering = false
+    private var loadingShown = false
+    /// Whether the player should show that it is loading; see `PlayerLoading`.
+    var onLoadingChanged: ((Bool) -> Void)?
     private var activeProfile = OfficialPlaybackProfile.guest
     private(set) var loadedVideoID: String?
     private(set) var isLoading = false
@@ -43,6 +65,8 @@ final class OfficialPlaybackHost: NSObject {
     /// The page replaced the requested track before any of it played. The shell decides whether
     /// the replacement is the same song under another id or the page refusing the track.
     var onPageSwappedBeforePlaying: ((OfficialPageSwap) -> Void)?
+    /// The requested track never started; the shell treats it as a track the page refused.
+    var onNeverStarted: ((String) -> Void)?
     /// Whether the requested track has been heard playing under this load.
     private var heardRequested = false
     /// Whether this load's switch to another video has been acted on already.
@@ -51,10 +75,9 @@ final class OfficialPlaybackHost: NSObject {
     /// page still showing what its player held before it reached the requested video; two in a
     /// row is the page having moved, which is the Windows shell's rule too.
     private var strayReports = 0
-    /// Whether this load is the listener's own choice, which the page may swap for another
-    /// version of the same song once. A version loaded in its place may not be swapped again:
-    /// that is the page wandering, not another version.
-    private var allowsSubstitute = true
+    /// How many versions of the listener's choice were loaded before this one. The page may swap
+    /// a load for another version of the same song only `PageSwap.maxAdoptions` times in all.
+    private var adoptions = 0
 
     func makeWebView(profile: OfficialPlaybackProfile = .guest) -> WKWebView {
         if let webView {
@@ -135,7 +158,7 @@ final class OfficialPlaybackHost: NSObject {
         generation: UInt64,
         volume: Double = 1,
         muted: Bool = false,
-        allowsSubstitute: Bool = true,
+        adoptions: Int = 0,
         startPaused: Bool = false
     ) {
         guard let webView else {
@@ -153,6 +176,14 @@ final class OfficialPlaybackHost: NSObject {
         // own location and drops unknown query items.
         transport.reset()
         transportInFlight = false
+        transportFromListener = false
+        stopStartWatch()
+        heardPlaying = false
+        listenerTookOver = startPaused
+        lastSampleState = ""
+        requestedPaused = startPaused
+        startWatchEnded = false
+        lastBuffering = false
         let token = UUID().uuidString
         expectedToken = token
         expectedGeneration = generation
@@ -164,7 +195,7 @@ final class OfficialPlaybackHost: NSObject {
         heardRequested = false
         pageSwapHandled = false
         strayReports = 0
-        self.allowsSubstitute = allowsSubstitute
+        self.adoptions = adoptions
         isLoading = true
 
         var components = URLComponents()
@@ -205,15 +236,18 @@ final class OfficialPlaybackHost: NSObject {
         // version loaded in place of a swapped song keeps a pause the listener asked for while
         // its title was being read, instead of starting anyway.
         transport.request(paused: startPaused)
+        refreshLoading()
         onStatus?("Official host loading \(videoID)…")
     }
 
-    func play() {
-        requestTransport(paused: false)
+    /// `fromListener` is false for a play the shell makes on its own, such as resuming content an
+    /// advertisement left paused; only a listener's press answers the page's prompt.
+    func play(fromListener: Bool = true) {
+        requestTransport(paused: false, fromListener: fromListener)
     }
 
     func pause() {
-        requestTransport(paused: true)
+        requestTransport(paused: true, fromListener: true)
     }
 
     /// Requests a position change. Like play and pause, this is a request: the position is not
@@ -303,6 +337,14 @@ final class OfficialPlaybackHost: NSObject {
     func invalidateExpectations() {
         transport.reset()
         transportInFlight = false
+        transportFromListener = false
+        stopStartWatch()
+        heardPlaying = false
+        listenerTookOver = false
+        lastSampleState = ""
+        requestedPaused = false
+        startWatchEnded = false
+        lastBuffering = false
         expectedToken = nil
         expectedGeneration = nil
         expectedVideoID = nil
@@ -314,6 +356,7 @@ final class OfficialPlaybackHost: NSObject {
         strayReports = 0
         loadedVideoID = nil
         isLoading = false
+        refreshLoading()
     }
 
     func detach(completion: (@MainActor () -> Void)? = nil) {
@@ -340,13 +383,29 @@ final class OfficialPlaybackHost: NSObject {
         isLoading = false
     }
 
-    private func requestTransport(paused: Bool) {
+    private func requestTransport(paused: Bool, fromListener: Bool) {
         guard expectedToken != nil, webView != nil else {
             onStatus?("Choose a track before controlling playback.")
             return
         }
+        if fromListener { listenerTookOver = true }
+        transportFromListener = fromListener
+        requestedPaused = paused
         transport.request(paused: paused)
+        refreshLoading()
         drainTransport()
+    }
+
+    /// Tells the shell when the loading indicator should appear or go. Only a change is sent.
+    private func refreshLoading() {
+        let shows = PlayerLoading.shows(
+            awaitingStart: expectedToken != nil && !heardPlaying && !startWatchEnded,
+            buffering: lastBuffering,
+            listenerPaused: requestedPaused
+        )
+        guard shows != loadingShown else { return }
+        loadingShown = shows
+        onLoadingChanged?(shows)
     }
 
     /// Keep an early click until a validated sample proves that the media element exists.
@@ -356,13 +415,15 @@ final class OfficialPlaybackHost: NSObject {
               let token = expectedToken, let webView else { return }
         let revision = transport.revision
         transportInFlight = true
-        webView.callAsyncJavaScript("""
-            const media = \(OfficialBridge.activeMediaElementScript);
-            if (!media) return 'no-media';
-            if (paused) media.pause();
-            else await media.play();
-            return 'requested';
-            """, arguments: ["paused": paused], in: nil, in: .page) { [weak self] result in
+        // The shared scripts pick the active element, retry a play the page interrupted, and
+        // name the error when it still refuses. A bare `play()` here dropped the request on its
+        // first rejection, without the reason, and the track sat silent.
+        let script = paused
+            ? OfficialBridge.pauseScript
+            : (transportFromListener ? OfficialBridge.listenerPlayScript : OfficialBridge.hostPlayScript)
+        webView.callAsyncJavaScript(
+            "return await \(script);", arguments: [:], in: nil, in: .page
+        ) { [weak self] result in
             guard let self, self.expectedToken == token else { return }
             self.transportInFlight = false
             guard self.transport.revision == revision else {
@@ -371,14 +432,100 @@ final class OfficialPlaybackHost: NSObject {
             }
             switch result {
             case .success(let value):
-                if value as? String == "no-media" {
+                switch PlayOutcome(value as? String ?? "") {
+                case .noMedia:
+                    // Kept: the next validated sample proves the element exists and drains again.
                     self.onStatus?("Waiting for the official player to become ready…")
-                } else {
+                case .failed(let name) where !paused:
+                    self.transport.complete(revision: revision)
+                    Diagnostics.note(.officialPlayback, "play-failed", ["error": name])
+                    self.onStatus?("The official player refused to start (\(name)). Try Play again.")
+                default:
                     self.transport.complete(revision: revision)
                 }
-            case .failure:
+            case .failure(let error):
                 self.transport.complete(revision: revision)
+                let failure = error as NSError
+                Diagnostics.note(.officialPlayback, "transport-script-failed", [
+                    "paused": "\(paused)", "domain": failure.domain, "code": "\(failure.code)",
+                ])
                 self.onStatus?("The official player could not start or pause playback. Try Play again.")
+            }
+        }
+    }
+
+    /// Watches this load until its track is heard, asks a silent page to play once, and gives up
+    /// on a track that never starts; `StartWatch` holds the rule, which Windows shares. Started
+    /// once per load, when its page is ready.
+    private func beginStartWatch() {
+        guard let token = expectedToken, startWatchToken != token else { return }
+        startWatchTask?.cancel()
+        startWatchToken = token
+        let began = Date()
+        startWatchTask = Task { @MainActor [weak self] in
+            var nudged = false
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, !Task.isCancelled, self.expectedToken == token else { return }
+                switch StartWatch.decide(
+                    sinceLoaded: Date().timeIntervalSince(began),
+                    heardPlaying: self.heardPlaying,
+                    listenerTookOver: self.listenerTookOver,
+                    nudged: nudged
+                ) {
+                case .wait:
+                    continue
+                case .done:
+                    self.startWatchEnded = true
+                    self.refreshLoading()
+                    return
+                case .nudge:
+                    nudged = true
+                    self.nudgePlay(token: token)
+                case .giveUp:
+                    Diagnostics.note(.officialPlayback, "never-started")
+                    self.startWatchEnded = true
+                    self.refreshLoading()
+                    self.probePage()
+                    let requested = self.expectedVideoID ?? ""
+                    self.onNeverStarted?(requested)
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopStartWatch() {
+        startWatchTask?.cancel()
+        startWatchTask = nil
+        startWatchToken = nil
+    }
+
+    /// Asks a page that loaded without starting to play, once; the outcome is only logged.
+    private func nudgePlay(token: String) {
+        guard let webView else { return }
+        webView.callAsyncJavaScript(
+            "return await \(OfficialBridge.hostPlayScript);", arguments: [:], in: nil, in: .page
+        ) { [weak self] result in
+            guard let self, self.expectedToken == token else { return }
+            let answer: String
+            switch result {
+            case .success(let value): answer = value as? String ?? "unknown"
+            case .failure(let error): answer = "script-failed:\((error as NSError).code)"
+            }
+            Diagnostics.note(.officialPlayback, "start-nudge", ["result": answer])
+        }
+    }
+
+    /// Explains a pause nobody in Goosic asked for when it is YouTube Music's "still listening?"
+    /// prompt. The prompt is answered only by the listener pressing Play.
+    private func noticeIdlePrompt(token: String) {
+        guard let webView else { return }
+        webView.evaluateJavaScript(OfficialBridge.idlePromptScript) { [weak self] value, _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.expectedToken == token, value as? Bool == true else { return }
+                Diagnostics.note(.officialPlayback, "idle-prompt")
+                self.onStatus?("YouTube Music paused to check you\u{2019}re still listening. Press Play to continue.")
             }
         }
     }
@@ -459,6 +606,25 @@ final class OfficialPlaybackHost: NSObject {
         }
     }
 
+    /// Runs `OfficialBridge.songVersionScript` until the page's Song/Video switch has answered,
+    /// for this load only, so a song plays as the song rather than as its music video.
+    func preferSongVersion(token: String?, attempt: Int = 0) {
+        guard let webView, let token, token == expectedToken,
+              attempt < OfficialBridge.songVersionAttempts else { return }
+        webView.evaluateJavaScript(OfficialBridge.songVersionScript) { [weak self] value, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let answer = value as? String ?? "absent"
+                guard !OfficialBridge.songVersionSettled(answer) else {
+                    Diagnostics.note(.officialPlayback, "song-version", ["result": answer])
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                self.preferSongVersion(token: token, attempt: attempt + 1)
+            }
+        }
+    }
+
     private func handleMessage(_ message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame else { return }
         let origin = message.frameInfo.securityOrigin
@@ -525,6 +691,15 @@ final class OfficialPlaybackHost: NSObject {
         }
         lastBridgeSequence = event.sequence
         strayReports = 0
+        if event.state == "playing" {
+            // An advertisement counts: the page is working, and the track follows it.
+            heardPlaying = true
+        } else if event.state == "paused", lastSampleState == "playing", let token = expectedToken {
+            noticeIdlePrompt(token: token)
+        }
+        lastSampleState = event.state
+        lastBuffering = event.buffering ?? false
+        refreshLoading()
         if PageSwap.heardPlaying(
             state: event.state, duration: event.duration, isAdvertisement: event.isAdvertisement
         ) {
@@ -555,15 +730,17 @@ final class OfficialPlaybackHost: NSObject {
     /// The observer in this document pauses any video other than the requested one, so nothing
     /// sounds while this runs. `getVideoData` is the player's own description of what it holds.
     private func resolveEarlySwitch(requested: String, actual: String, token: String) {
-        Diagnostics.note(.officialPlayback, "switched-before-playing")
-        let mayAdopt = allowsSubstitute
+        Diagnostics.note(.officialPlayback, "switched-before-playing", [
+            "requested": requested, "page": actual, "adoptions": "\(adoptions)",
+        ])
+        let adoptions = adoptions
         let report: @MainActor (String) -> Void = { [weak self] title in
             guard let self, self.expectedToken == token else { return }
             self.onPageSwappedBeforePlaying?(OfficialPageSwap(
                 requestedVideoID: requested,
                 pageVideoID: actual,
                 pageTitle: title,
-                mayAdopt: mayAdopt
+                adoptions: adoptions
             ))
         }
         readPageTitle(of: actual, requested: requested, token: token, attempt: 0, completion: report)
@@ -666,14 +843,44 @@ extension OfficialPlaybackHost: WKNavigationDelegate, WKUIDelegate {
             ])
             self?.probePage()
             self?.turnOffAutomix(token: self?.expectedToken)
+            self?.beginStartWatch()
+            self?.preferSongVersion(token: self?.expectedToken)
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let failure = error as NSError
         Task { @MainActor [weak self] in
-            self?.isLoading = false
-            self?.onStatus?("Official host navigation failed: \(error.localizedDescription)")
+            self?.navigationFailed(failure)
         }
+    }
+
+    /// A load that fails before the page commits -- no connection, a DNS failure, a timeout --
+    /// arrives here rather than at `didFail`. It was not handled at all, so the host stayed
+    /// "loading" with nothing in the log, and the track sat silent.
+    func webView(
+        _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error
+    ) {
+        let failure = error as NSError
+        Task { @MainActor [weak self] in
+            self?.navigationFailed(failure)
+        }
+    }
+
+    private func navigationFailed(_ failure: NSError) {
+        // A navigation replaced by the next load, or by the page's own rewrite of its location,
+        // is not a failure.
+        let superseded = (failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled)
+            || (failure.domain == "WebKitErrorDomain" && failure.code == 102)
+        guard !superseded else { return }
+        isLoading = false
+        Diagnostics.note(.officialPlayback, "navigation-failed", [
+            "domain": failure.domain, "code": "\(failure.code)",
+        ])
+        onStatus?("Official host navigation failed: \(failure.localizedDescription)")
+        // Watched from here too, so a page that never arrives is given up on rather than left
+        // silent, and the queue moves on.
+        beginStartWatch()
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {

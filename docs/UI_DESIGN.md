@@ -346,6 +346,11 @@ layout may wrap persistent controls or omit secondary transport from its first r
 keeping its actions available. Lyrics and Queue remain visible in normal narrow layouts.
 Do not silently drop them to make the bar fit. The idle state says Nothing playing and invites
 choosing a track; it does not invent progress or leave a permanent preparation spinner.
+While a requested track has not yet been heard, or the page reports it buffering, a progress
+indicator takes Play/Pause's place in both the main and the full player; the button keeps working,
+so a loading track can still be paused, and a pause the listener chose always shows as paused.
+The indicator ends with the start watch (`playback::shows_loading` and `playback::start_watch`
+in `goosic-shell-support`), so it can never become the permanent spinner forbidden above.
 
 The timeline is restrained during listening. Hover or scrubbing can reveal elapsed/remaining
 time and a thicker track without enlarging the whole bar. Drag sends a bounded seek operation;
@@ -418,7 +423,14 @@ motion the size changes without the spring. Large artwork and track metadata occ
 can occupy the trailing column. The timeline and full transport sit below the artwork. Close
 and mini-player actions are grouped at the top leading edge, volume at the top trailing edge,
 and Lyrics/Queue in a bottom trailing capsule. Top and bottom chrome share material and
-appearance. Native toolbar backing must not create an extra light plate behind dark capsules.
+appearance. The top capsules are clear glass, as Music's are: a light wash and rim over the
+background, never a dark plate, and the volume fill is white rather than the system accent.
+Like and More are clear glass circles to match. Windows, which has no Liquid Glass, draws
+the same capsule and circles as a translucent white fill and rim. Full-player lyrics are 48
+points on both platforms, the size of Music's full-screen lyrics; the side panel stays at 25.
+Beside the cover the lyrics take the window's full height, passing under the top controls and
+fading out gradually toward the bottom edge, with the followed line about a third of the way
+down, as Music's do. Native toolbar backing must not create an extra light plate behind dark capsules.
 Small individual Like and More actions are circular, side by side after the track metadata;
 More opens the playing song's menu. Switching presentation preserves the
 same session, track, queue, volume, position and mounted playback host. Choosing a page from

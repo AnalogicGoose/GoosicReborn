@@ -586,13 +586,13 @@ private struct NativeMacRootView: SwiftUI.View {
         }
         .buttonStyle(NativeMacPlayerButtonStyle())
         .padding(4)
-        .modifier(NativeMacGlassCapsule())
+        .modifier(NativeMacClearGlassCapsule())
         .environment(\.colorScheme, .dark)
     }
 
     private var fullPlayerVolume: some SwiftUI.View {
         NativeMacFullPlayerVolume(store: store)
-            .modifier(NativeMacGlassCapsule())
+            .modifier(NativeMacClearGlassCapsule())
             .environment(\.colorScheme, .dark)
     }
 
@@ -1325,6 +1325,9 @@ private struct NativeMacPlayerBar: SwiftUI.View {
 
     private var model: GoosicAppModel { store.model }
     private var busy: Bool { model.accountOperationInProgress || model.playbackTransition != .idle }
+    /// The spinner in Play's place: `busy`, or a track the player is still waiting to hear. Unlike
+    /// `busy` it disables nothing, so a listener can pause a track that is still loading.
+    private var loading: Bool { busy || model.isLoadingTrack }
     private var canControl: Bool { model.currentTrack != nil && model.serviceConnected && !busy }
     private var canAdjustVolume: Bool { !busy }
     /// Keep the player compact while listening. The timeline is the one interaction that needs
@@ -1419,15 +1422,16 @@ private struct NativeMacPlayerBar: SwiftUI.View {
             SwiftUI.ZStack {
                 NativeMacFixedSymbol(name: model.isPaused ? "play.fill" : "pause.fill",
                                      glyphSize: 19, width: 34, height: 30)
-                    .opacity(busy ? 0 : 1)
-                if busy { SwiftUI.ProgressView().controlSize(.small) }
+                    .opacity(loading ? 0 : 1)
+                if loading { SwiftUI.ProgressView().controlSize(.small) }
             }
             .frame(width: 34, height: 30)
             .contentShape(Rectangle())
         }
         .buttonStyle(NativeMacPlayerButtonStyle())
         .accessibilityLabel(model.isPaused ? "Play" : "Pause")
-        .help(busy ? "Preparing playback" : model.isPaused ? "Play" : "Pause")
+        .accessibilityValue(loading ? "Loading" : "")
+        .help(busy ? "Preparing playback" : model.isLoadingTrack ? "Loading" : model.isPaused ? "Play" : "Pause")
         .disabled(!canControl)
     }
 

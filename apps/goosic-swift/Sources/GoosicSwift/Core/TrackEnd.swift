@@ -73,6 +73,12 @@ enum PageSwap {
         return goosic_is_same_song(requested, page)
     }
 
+    /// How many times one choice may be replaced by another version of the same song: the page
+    /// can swap a song for its video and, once set to prefer the song, the video back. A third
+    /// swap is the page going round in circles. `page_swap::MAX_ADOPTIONS` in the crate decides;
+    /// this mirrors it for the host's own bookkeeping.
+    static let maxAdoptions = 2
+
     enum Decision: Equatable {
         /// Load the page's version in place of the requested one, still presented as the song
         /// the listener chose.
@@ -94,10 +100,10 @@ enum PageSwap {
                     (currentTitle ?? "").withCString { chosen in
                         if let loadedVideoID {
                             return loadedVideoID.withCString { loaded in
-                                goosic_early_switch(requested, page, title, swap.mayAdopt, loaded, chosen)
+                                goosic_early_switch_counted(requested, page, title, UInt32(max(0, swap.adoptions)), loaded, chosen)
                             }
                         }
-                        return goosic_early_switch(requested, page, title, swap.mayAdopt, nil, chosen)
+                        return goosic_early_switch_counted(requested, page, title, UInt32(max(0, swap.adoptions)), nil, chosen)
                     }
                 }
             }
