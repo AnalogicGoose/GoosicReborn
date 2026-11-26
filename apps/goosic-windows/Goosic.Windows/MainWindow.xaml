@@ -2372,8 +2372,12 @@
             <Border x:Name="FullPlayerDragStrip" Height="40" VerticalAlignment="Top" Background="Transparent"
                     Margin="0,0,260,0" />
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
-                        Margin="0,48,24,0" Spacing="6">
+            <!-- One clear-glass capsule, as Music draws its full-screen chrome: a light wash and rim
+                 over the background rather than an opaque plate. -->
+            <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,48,24,0"
+                    Padding="4" CornerRadius="26" Background="#26FFFFFF"
+                    BorderBrush="#4DFFFFFF" BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="6">
                 <Button Style="{StaticResource FullPlayerGlyphStyle}" Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
                         ToolTipService.ToolTip="Volume" AutomationProperties.Name="Volume">
                     <Button.Flyout>
@@ -2408,6 +2412,7 @@
                         ToolTipService.ToolTip="Exit full-screen player (Esc)"
                         AutomationProperties.Name="Exit full-screen player" Click="OnCloseFullPlayer" />
             </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Window>

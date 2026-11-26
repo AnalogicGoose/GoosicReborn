@@ -586,13 +586,13 @@ private struct NativeMacRootView: SwiftUI.View {
         }
         .buttonStyle(NativeMacPlayerButtonStyle())
         .padding(4)
-        .modifier(NativeMacGlassCapsule())
+        .modifier(NativeMacClearGlassCapsule())
         .environment(\.colorScheme, .dark)
     }
 
     private var fullPlayerVolume: some SwiftUI.View {
         NativeMacFullPlayerVolume(store: store)
-            .modifier(NativeMacGlassCapsule())
+            .modifier(NativeMacClearGlassCapsule())
             .environment(\.colorScheme, .dark)
     }
 

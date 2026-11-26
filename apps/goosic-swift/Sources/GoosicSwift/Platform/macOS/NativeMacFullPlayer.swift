@@ -652,7 +652,7 @@ struct NativeMacFullPlayerVolume: View {
     private var shownVolume: Double { model.isMuted ? 0 : model.volume }
 
     private var slider: some View {
-        NativeMacVolumeSlider(value: shownVolume, isEnabled: !busy) {
+        NativeMacVolumeSlider(value: shownVolume, isEnabled: !busy, fill: .white) {
             model.setVolume($0)
         }
     }
@@ -665,6 +665,9 @@ struct NativeMacFullPlayerVolume: View {
 struct NativeMacVolumeSlider: NSViewRepresentable {
     let value: Double
     let isEnabled: Bool
+    /// The filled part of the track; the system accent when nil. The full player passes white, as
+    /// Music's full-screen volume is, so the slider does not add a blue accent to the artwork.
+    var fill: NSColor? = nil
     let onChange: (Double) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
@@ -681,6 +684,7 @@ struct NativeMacVolumeSlider: NSViewRepresentable {
         slider.controlSize = .small
         slider.isEnabled = isEnabled
         slider.setAccessibilityLabel("Volume")
+        if let fill { slider.trackFillColor = fill }
         return slider
     }
 
@@ -780,6 +784,21 @@ struct NativeMacGlassCircle: ViewModifier {
             content.glassEffect(.regular.interactive(), in: .circle)
         } else {
             content.background(.ultraThinMaterial, in: Circle())
+        }
+    }
+}
+
+/// The full player's title-bar capsules (Close and Mini Player, Volume): clear Liquid Glass with
+/// a light rim, as Music draws them over its full-screen background, rather than the regular
+/// glass the player bar uses, which reads as a dark plate over a bright mesh.
+struct NativeMacClearGlassCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.clear.interactive(), in: .capsule)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
         }
     }
 }
