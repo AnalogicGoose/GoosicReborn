@@ -292,3 +292,18 @@ three shells.
 5. **Record the answer** in the pull request's Parity section, one line per shell: changed,
    with its pull request; already behaves this way; does not apply, and why; or deferred, with
    its issue; for Linux, "out of scope for now". Leaving it blank is not an answer.
+
+## 9. Work in your own checkout
+
+More than one assistant works on this repository on the same Mac, so none of them works in the
+main checkout or switches branches in a copy another one is using. Before you touch anything:
+
+```sh
+sh tools/agent-worktree.sh <agent> <branch>   # <agent>: claude, codex, gemini
+```
+
+and work from the directory it prints, `../GoosicReborn-<agent>`. It is yours from task to task,
+with its own `target/` and `.build/`. The script refuses a branch another worktree holds: one
+branch, one assistant. Two things stay shared and are taken one at a time: running the live app,
+which keeps settings and sign-ins in the user's Library wherever it was built from, and
+`tools/release.sh`. [docs/PARALLEL_AGENTS.md](docs/PARALLEL_AGENTS.md) explains why.
