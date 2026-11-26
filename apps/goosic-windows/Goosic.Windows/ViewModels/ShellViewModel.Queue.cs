@@ -519,8 +519,7 @@ public sealed partial class ShellViewModel
         OnPropertyChanged(nameof(HasPlayback));
         OnPropertyChanged(nameof(CanSkip));
         // A new play has to be heard playing before its end counts; see MarkNaturalEnd.
-        _endArmed = false;
-        _endHandled = false;
+        PlaybackRules.EndGuardBegin(ref _endGuard);
         _listenerPaused = false;
         _pendingAlias = null;
     }

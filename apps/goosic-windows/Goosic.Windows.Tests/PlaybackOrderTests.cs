@@ -6,15 +6,31 @@ using Xunit;
 
 namespace Goosic.Windows.Tests;
 
-public class PlaybackOrderTests
+public class EndGuardTests
 {
-    [Theory]
-    [InlineData("abc", "abc", true, true)]
-    [InlineData("abc", "abc", false, false)]
-    [InlineData("old", "new", true, false)]
-    [InlineData(null, "new", true, false)]
-    public void OnlyTheCurrentPlaysHeardEndCounts(string? ended, string current, bool armed, bool expected) =>
-        Assert.Equal(expected, PlaybackOrder.AcceptsEnd(ended, current, armed));
+    [Fact]
+    public void OnlyTheCurrentPlaysHeardEndCountsAndOnlyOnce()
+    {
+        var guard = new PlaybackRules.EndGuardState();
+        PlaybackRules.EndGuardBegin(ref guard);
+        Assert.False(PlaybackRules.EndGuardObserve(ref guard, true, false, "ended", 229, 229, false).Advance);
+        PlaybackRules.EndGuardObserve(ref guard, true, false, "playing", 10, 229, false);
+        Assert.False(PlaybackRules.EndGuardObserve(ref guard, false, false, "ended", 229, 229, false).Advance);
+        Assert.True(PlaybackRules.EndGuardObserve(ref guard, true, false, "ended", 229, 229, false).Advance);
+        Assert.False(PlaybackRules.EndGuardObserve(ref guard, true, false, "ended", 229, 229, false).Advance);
+        Assert.False(PlaybackRules.EndGuardPageEnded(ref guard, true));
+    }
+
+    [Fact]
+    public void ContentAnAdvertisementLeftPausedIsResumedNotEnded()
+    {
+        var guard = new PlaybackRules.EndGuardState();
+        PlaybackRules.EndGuardObserve(ref guard, true, false, "playing", 1, 229, false);
+        Assert.False(PlaybackRules.EndGuardObserve(ref guard, true, true, "ended", 30, 30, false).Advance);
+        var after = PlaybackRules.EndGuardObserve(ref guard, true, false, "paused", 229, 229, false);
+        Assert.True(after.Resume);
+        Assert.False(after.Advance);
+    }
 }
 
 public class TrackEndTests
@@ -50,4 +66,17 @@ public class SeekSettleTests
     [Fact]
     public void WithoutASeekThePlayerIsShown() =>
         Assert.Equal((42d, true), SeekSettle.Show(42, null, At));
+}
+
+public class TimeTextTests
+{
+    [Theory]
+    [InlineData(0, "0:00")]
+    [InlineData(9, "0:09")]
+    [InlineData(222, "3:42")]
+    [InlineData(3_723, "1:02:03")]
+    [InlineData(-1, "0:00")]
+    [InlineData(double.NaN, "0:00")]
+    public void TimesReadAsTheMacWritesThem(double seconds, string expected) =>
+        Assert.Equal(expected, PlaybackRules.TimeText(seconds));
 }

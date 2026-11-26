@@ -685,11 +685,14 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// <summary>Records a pause or resume the listener asked for.</summary>
     internal void NoteListenerToggle() => _listenerPaused = IsPlaying;
 
-    /// <summary>The current play has been heard playing, so an "ended" for it is real.</summary>
-    private bool _endArmed;
+    /// <summary>
+    /// When the current play's end moves the queue, and whether an advertisement left it paused:
+    /// the shared <c>EndGuard</c> in <c>goosic-shell-support</c>, the Mac's rule too.
+    /// </summary>
+    private PlaybackRules.EndGuardState _endGuard;
 
-    /// <summary>The current play's end has been acted on already.</summary>
-    private bool _endHandled;
+    /// <summary>An advertisement's handoff left content paused; the page should be asked to play.</summary>
+    internal event Action? ResumeAfterAdvertisement;
     private LyricsState _lyricsState = LyricsState.NothingPlaying;
     private int _lyricsRequestVersion;
     private PageState _pageState = PageState.Content;
@@ -991,13 +994,6 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         {
             var changed = !ReferenceEquals(_confirmedTrack, pending);
             _confirmedTrack = pending;
-            if (sample.State == "playing" && !_endHandled)
-            {
-                _endArmed = true;
-                // A sample queued before Pause cannot clear the listener's intent.
-                // NoteListenerToggle and Point handle explicit resume and new tracks.
-            }
-
             if (changed)
             {
                 // The lines are cleared, so nothing on show belongs to any track any more. Without
@@ -1081,13 +1077,11 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
 
     internal bool ConfirmEndedByPage(string videoId)
     {
-        if (!IsPendingVideo(videoId) || _endHandled)
+        if (!PlaybackRules.EndGuardPageEnded(ref _endGuard, IsPendingVideo(videoId)))
         {
             return false;
         }
 
-        _endHandled = true;
-        _endArmed = false;
         IsPlaying = false;
         return true;
     }
@@ -1096,22 +1090,22 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     /// Whether this sample is the current play's natural end, reported for the first time.
     /// </summary>
     /// <remarks>
-    /// Only an end for the track being played counts, and only once it has been heard playing:
-    /// the page keeps reporting "ended" for the previous song for a moment after the next is
-    /// chosen, and acting on that skipped the next song entirely.
+    /// The shared guard counts an end only for the track being played, only once it has been
+    /// heard playing, never during or straight after an advertisement, and once: the page keeps
+    /// reporting "ended" for the previous song for a moment after the next is chosen, and acting
+    /// on that skipped the next song entirely. An advertisement inside the requested play carries
+    /// its video id, so it counts as current.
     /// </remarks>
     private bool MarkNaturalEnd(BridgeEvent sample)
     {
-        if (sample.IsAdvertisement || _endHandled
-            || !PlaybackOrder.IsFinished(sample.State, sample.CurrentTime, sample.Duration, _listenerPaused)
-            || !PlaybackOrder.AcceptsEnd(sample.VideoId, IsPendingVideo(sample.VideoId) ? sample.VideoId : null, _endArmed))
+        var (advance, resume) = PlaybackRules.EndGuardObserve(ref _endGuard, IsPendingVideo(sample.VideoId),
+            sample.IsAdvertisement, sample.State, sample.CurrentTime, sample.Duration, _listenerPaused);
+        if (resume)
         {
-            return false;
+            ResumeAfterAdvertisement?.Invoke();
         }
 
-        _endHandled = true;
-        _endArmed = false;
-        return true;
+        return advance;
     }
 
     /// <summary>The track the lyrics on show, or being looked up, belong to.</summary>
@@ -1239,9 +1233,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>A position as minutes and seconds, counting minutes past the hour.</summary>
-    private static string Clock(TimeSpan value) =>
-        $"{(int)value.TotalMinutes:D2}:{value.Seconds:D2}";
+    /// <summary>A position as the Mac writes it: <c>m:ss</c>, or <c>h:mm:ss</c> past an hour.</summary>
+    private static string Clock(TimeSpan value) => PlaybackRules.TimeText(value.TotalSeconds);
 
     /// <summary>Says something on screen that did not come from the service.</summary>
     /// <summary>

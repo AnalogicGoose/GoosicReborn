@@ -79,6 +79,8 @@ pub struct Preferences {
     pub start_page: String,
     /// Skip decorative motion.
     pub reduce_motion: bool,
+    /// `stable`, or `experimental` to be offered pre-releases too.
+    pub update_channel: String,
 }
 
 impl Default for Preferences {
@@ -96,6 +98,7 @@ impl Default for Preferences {
             hide_explicit: false,
             start_page: "home".into(),
             reduce_motion: false,
+            update_channel: "stable".into(),
         }
     }
 }
@@ -125,6 +128,9 @@ impl Preferences {
             "home" | "library" | "liked" | "last"
         ) {
             self.start_page = "home".into();
+        }
+        if !matches!(self.update_channel.as_str(), "stable" | "experimental") {
+            self.update_channel = "stable".into();
         }
         self
     }
@@ -169,6 +175,9 @@ fn apply_patch(patch: PreferencesPatch, preferences: &mut Preferences) {
     }
     if let Some(reduced) = patch.reduce_motion {
         preferences.reduce_motion = reduced;
+    }
+    if let Some(channel) = patch.update_channel {
+        preferences.update_channel = channel;
     }
 }
 
@@ -283,6 +292,7 @@ impl SettingsStore {
             hide_explicit: preferences.hide_explicit,
             start_page: preferences.start_page.clone(),
             reduce_motion: preferences.reduce_motion,
+            update_channel: preferences.update_channel.clone(),
             imported_from_legacy: self.has_imported(),
             legacy_available,
         }
@@ -419,12 +429,14 @@ mod tests {
         let mut first = store(directory.path());
         let fresh = first.snapshot(false);
         assert!(!fresh.hide_explicit && !fresh.reduce_motion);
+        assert_eq!(fresh.update_channel, "stable");
         assert_eq!(fresh.start_page, "home");
         first
             .update(PreferencesPatch {
                 hide_explicit: Some(true),
                 start_page: Some("liked".into()),
                 reduce_motion: Some(true),
+                update_channel: Some("experimental".into()),
                 ..Default::default()
             })
             .unwrap();
@@ -433,6 +445,7 @@ mod tests {
         let snapshot = second.snapshot(false);
         assert!(snapshot.hide_explicit && snapshot.reduce_motion);
         assert_eq!(snapshot.start_page, "liked");
+        assert_eq!(snapshot.update_channel, "experimental");
 
         second
             .update(PreferencesPatch {
