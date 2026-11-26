@@ -51,6 +51,9 @@ bool goosic_is_same_song(const char *requested, const char *page);
 int32_t goosic_early_switch(const char *requested_video_id, const char *page_video_id,
                             const char *page_title, bool may_adopt,
                             const char *loaded_video_id, const char *chosen_title);
+int32_t goosic_early_switch_counted(const char *requested_video_id, const char *page_video_id,
+                                    const char *page_title, uint32_t adoptions,
+                                    const char *loaded_video_id, const char *chosen_title);
 bool goosic_seek_settle(double confirmed, double target, double elapsed_seconds, double *shown);
 
 /* Page scripts and limits a host injects or obeys. */
