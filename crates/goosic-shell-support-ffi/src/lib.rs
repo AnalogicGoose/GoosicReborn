@@ -5,11 +5,13 @@
 //! third copy of rules that [`SHELL_CONTRACT.md`] already explains cannot be kept in step —
 //! "a rule with three copies has three answers as soon as one of them is edited".
 //!
-//! What crosses the boundary is deliberately narrow. Only the rules a shell cannot reasonably
-//! restate are here: the injected page scripts, which are security-sensitive generated
-//! JavaScript, and the validators that decide whether a bridge event may be believed. Screens,
-//! focus and layout stay native, because moving them here would build the cross-language UI
-//! framework the plan rules out.
+//! What crosses the boundary is every decision a shell makes that has no machine in it: the
+//! injected page scripts, which are security-sensitive generated JavaScript, the validators that
+//! decide whether a bridge event may be believed, the listening queue ([`queue`]), the stateless
+//! rules beside it, and the playback rules asked on every sample ([`playback`]). The macOS shell links this library statically and the Windows
+//! shell loads it as a DLL, so both answer from the same code. Screens, focus and layout stay
+//! native, because moving them here would build the cross-language UI framework the plan rules
+//! out.
 //!
 //! # Memory
 //!
@@ -24,6 +26,10 @@
 use std::ffi::{c_char, c_ulonglong, CStr, CString};
 
 use goosic_shell_support::bridge;
+
+pub mod playback;
+pub mod queue;
+pub mod surface;
 
 /// Reads a caller's string, refusing anything that is not valid UTF-8.
 ///
@@ -319,5 +325,45 @@ mod login_tests {
             )
             .is_null());
         }
+    }
+}
+
+#[cfg(test)]
+mod header_tests {
+    /// The header is written by hand, so a function exported without being declared there would
+    /// be unreachable from Swift and silently missing from C#'s view of the API.
+    #[test]
+    fn every_exported_function_is_declared_in_the_header() {
+        let header = include_str!("../include/goosic_shell_support_ffi.h");
+        let sources = [
+            include_str!("lib.rs"),
+            include_str!("playback.rs"),
+            include_str!("queue.rs"),
+            include_str!("surface.rs"),
+        ];
+        let mut exported = 0;
+        for source in sources {
+            for line in source.lines() {
+                let Some(rest) = line.split("extern \"C\" fn ").nth(1) else {
+                    continue;
+                };
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.starts_with("goosic_") {
+                    continue;
+                }
+                exported += 1;
+                assert!(
+                    header.contains(&format!(" {name}(")) || header.contains(&format!("*{name}(")),
+                    "{name} is exported but not declared in the header"
+                );
+            }
+        }
+        assert!(
+            exported > 15,
+            "found only {exported} exports; the scan is broken"
+        );
     }
 }
