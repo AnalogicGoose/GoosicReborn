@@ -59,11 +59,20 @@ int32_t goosic_early_switch_counted(const char *requested_video_id, const char *
                                     const char *page_title, uint32_t adoptions,
                                     const char *loaded_video_id, const char *chosen_title);
 bool goosic_seek_settle(double confirmed, double target, double elapsed_seconds, double *shown);
+/* 0 wait, 1 ask the page to play once, 2 give the track up, 3 stop watching. */
+uint8_t goosic_start_watch(double since_loaded_seconds, bool heard_playing,
+                           bool listener_took_over, bool nudged);
+bool goosic_player_shows_loading(bool awaiting_start, bool buffering, bool listener_paused);
 
 /* Page scripts and limits a host injects or obeys. */
 char *goosic_bridge_active_media_element_script(void);
 char *goosic_bridge_automix_off_script(void);
 uint32_t goosic_bridge_automix_attempts(void);
+/* Resolves to played, no-media, superseded or failed:<ErrorName>. */
+char *goosic_bridge_play_script(bool answer_prompt);
+char *goosic_bridge_play_outcome_script(void);
+char *goosic_bridge_pause_script(void);
+char *goosic_bridge_idle_prompt_script(void);
 char *goosic_bridge_safari_user_agent_suffix(void);
 char *goosic_login_completion_script(void);
 double goosic_login_completion_timeout_seconds(void);
