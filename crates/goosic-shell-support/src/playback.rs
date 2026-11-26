@@ -395,6 +395,7 @@ pub fn merge_preferences(
         hide_explicit: update.hide_explicit.or(pending.hide_explicit),
         start_page: update.start_page.or(pending.start_page),
         reduce_motion: update.reduce_motion.or(pending.reduce_motion),
+        update_channel: update.update_channel.or(pending.update_channel),
     }
 }
 
@@ -413,8 +414,153 @@ pub fn now_playing_subtitle(track: Option<&Track>) -> String {
     }
 }
 
+/// What one sample means for the queue.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EndVerdict {
+    /// The track has played through, reported for the first time: move the queue on.
+    pub advance: bool,
+    /// An advertisement's handoff left content paused: ask the page to play, once.
+    pub resume: bool,
+}
+
+/// When a play's natural end moves the queue, decided identically by every shell.
+///
+/// The Mac and Windows once kept different guards, and each had a hole the other did not. The
+/// Mac counted any finish for a new video id, so a sample could end a play that had never been
+/// heard; Windows required the play to be heard but never resumed content an advertisement left
+/// paused. This holds all of it: an end counts only for the play being requested, only after it
+/// has been heard playing, never during or straight after an advertisement, and only once. A
+/// shell calls [`EndGuard::begin`] for every load, including a repeat of the same song.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EndGuard {
+    /// The current play has been heard playing, so an end for it is real.
+    pub heard: bool,
+    /// The current play's end has been acted on already.
+    pub handled: bool,
+    pub ads: AdPlaybackRecovery,
+}
+
+impl EndGuard {
+    /// Starts a new play.
+    pub fn begin(&mut self) {
+        *self = EndGuard::default();
+    }
+
+    /// Feeds one accepted sample. `is_current` says the sample describes the requested play; an
+    /// advertisement inside that play counts as current.
+    pub fn observe(
+        &mut self,
+        is_current: bool,
+        advertisement: bool,
+        state: &str,
+        position: f64,
+        duration: f64,
+        listener_paused: bool,
+    ) -> EndVerdict {
+        if !is_current {
+            return EndVerdict::default();
+        }
+        let resume = self.ads.observe(advertisement, state, listener_paused);
+        if !advertisement && state == "playing" && !self.handled {
+            self.heard = true;
+        }
+        let advance = !advertisement
+            && !self.handled
+            && self.heard
+            && !self.ads.awaiting_content
+            && has_finished(state, position, duration, listener_paused);
+        if advance {
+            self.handled = true;
+            self.heard = false;
+        }
+        EndVerdict { advance, resume }
+    }
+
+    /// The page moved past the requested play on its own after it was heard. Answers whether this
+    /// is the first end recorded for it, so the queue advances once.
+    pub fn page_ended(&mut self, is_current: bool) -> bool {
+        if !is_current || self.handled {
+            return false;
+        }
+        self.handled = true;
+        self.heard = false;
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn an_end_counts_once_and_only_after_the_play_was_heard() {
+        let mut guard = EndGuard::default();
+        guard.begin();
+        assert!(
+            !guard
+                .observe(true, false, "ended", 0.0, 200.0, false)
+                .advance,
+            "a play never heard cannot end"
+        );
+        guard.observe(true, false, "playing", 10.0, 200.0, false);
+        assert!(
+            !guard
+                .observe(false, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+        assert!(
+            guard
+                .observe(true, false, "paused", 199.5, 200.0, false)
+                .advance
+        );
+        assert!(
+            !guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+        assert!(!guard.page_ended(true), "already handled");
+        guard.begin();
+        guard.observe(true, false, "playing", 1.0, 200.0, false);
+        assert!(
+            guard.page_ended(true),
+            "a repeat of the same song is a new play"
+        );
+    }
+
+    #[test]
+    fn an_advertisement_neither_ends_the_play_nor_leaves_it_paused() {
+        let mut guard = EndGuard::default();
+        guard.observe(true, false, "playing", 1.0, 200.0, false);
+        let during = guard.observe(true, true, "ended", 30.0, 30.0, false);
+        assert_eq!(during, EndVerdict::default());
+        let after = guard.observe(true, false, "paused", 200.0, 200.0, false);
+        assert!(
+            after.resume && !after.advance,
+            "content left paused is resumed, not ended"
+        );
+        assert!(
+            !guard
+                .observe(true, false, "paused", 200.0, 200.0, true)
+                .resume
+        );
+        guard.observe(true, false, "playing", 199.0, 200.0, false);
+        assert!(
+            guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+    }
+
+    #[test]
+    fn a_listener_pause_near_the_end_is_not_the_end() {
+        let mut guard = EndGuard::default();
+        guard.observe(true, false, "playing", 198.0, 200.0, false);
+        assert!(
+            !guard
+                .observe(true, false, "paused", 199.5, 200.0, true)
+                .advance
+        );
+    }
+
     use super::*;
 
     fn next(

@@ -685,8 +685,14 @@ internal sealed class OfficialPlaybackHost
         }
     }
 
+    /// <summary>
+    /// Asks the page to play content an advertisement's handoff left paused. The shared end guard
+    /// decides when, once per advertisement, and never against a listener's own pause.
+    /// </summary>
+    internal Task ResumeAfterAdvertisementAsync() => NudgePlayAsync("an advertisement left content paused");
+
     /// <summary>Asks the page to play a track it loaded and left paused.</summary>
-    private async Task NudgePlayAsync()
+    private async Task NudgePlayAsync(string reason = "the page loaded without starting")
     {
         try
         {
@@ -700,7 +706,7 @@ internal sealed class OfficialPlaybackHost
                   return 'no media';
                 })();
                 """);
-            BridgeLog.Write($"the page loaded without starting; play nudge: {outcome}");
+            BridgeLog.Write($"{reason}; play nudge: {outcome}");
         }
         catch (Exception error)
         {

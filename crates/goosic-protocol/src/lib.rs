@@ -187,6 +187,9 @@ pub struct SettingsSnapshot {
     /// operating system's own setting; this is the in-app one.
     #[serde(default)]
     pub reduce_motion: bool,
+    /// Which releases the updater offers: `stable`, or `experimental` for pre-releases too.
+    #[serde(default = "update_channel_default")]
+    pub update_channel: String,
     /// Whether preferences from a previous Goosic install have been imported.
     pub imported_from_legacy: bool,
     /// Whether a legacy store is present to import from. Never a credential store.
@@ -200,6 +203,11 @@ fn artwork_background_default() -> bool {
 
 fn start_page_default() -> String {
     "home".into()
+}
+
+/// A service that predates update channels offers stable releases only.
+fn update_channel_default() -> String {
+    "stable".into()
 }
 
 /// A partial preference update. Absent fields are left as they are.
@@ -230,6 +238,8 @@ pub struct PreferencesPatch {
     pub start_page: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reduce_motion: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_channel: Option<String>,
 }
 
 /// What to look lyrics up by.

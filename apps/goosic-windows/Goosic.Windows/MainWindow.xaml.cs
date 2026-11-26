@@ -101,6 +101,7 @@ public sealed partial class MainWindow : Window
             _playback.Failed += message => Model.ReportStatus(message);
             _playback.IsSubstitute = Model.AcceptSubstitute;
             _playback.PageRefused += Model.ReportRefused;
+            Model.ResumeAfterAdvertisement += () => _ = _playback.ResumeAfterAdvertisementAsync();
             _playback.PageMovedOn += videoId =>
             {
                 // YouTube Music started a track of its own when the requested one finished; that is
