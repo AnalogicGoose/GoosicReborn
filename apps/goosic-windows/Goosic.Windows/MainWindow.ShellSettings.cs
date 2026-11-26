@@ -389,6 +389,7 @@ public sealed partial class MainWindow : Window
         }
 
         StartPageChoice.SelectedIndex = StartRoute.IndexOf(Model.StartPage);
+        UpdateChannelChoice.SelectedIndex = Model.UpdateChannel == "experimental" ? 1 : 0;
         ShortcutList.ItemsSource = ShortcutEntry.All;
         WireMaterialTransparency();
         Model.PropertyChanged += (_, e) =>
@@ -396,6 +397,10 @@ public sealed partial class MainWindow : Window
             if (e.PropertyName == nameof(ShellViewModel.StartPage))
             {
                 StartPageChoice.SelectedIndex = StartRoute.IndexOf(Model.StartPage);
+            }
+            else if (e.PropertyName == nameof(ShellViewModel.UpdateChannel))
+            {
+                UpdateChannelChoice.SelectedIndex = Model.UpdateChannel == "experimental" ? 1 : 0;
             }
         };
 
@@ -424,6 +429,25 @@ public sealed partial class MainWindow : Window
         if (index >= 0 && index < StartRoute.Choices.Count && StartRoute.Choices[index].Value != Model.StartPage)
         {
             await Model.SetStartPageAsync(StartRoute.Choices[index].Value);
+        }
+    }
+
+    private async void OnUpdateChannelChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (UpdateChannelChoice.SelectedItem is ComboBoxItem { Tag: string channel } && channel != Model.UpdateChannel)
+        {
+            await Model.SetUpdateChannelAsync(channel);
+            // Joining the experimental channel looks for its newest release straight away.
+            // Leaving it never downgrades: this copy keeps what it has until stable passes it.
+            if (channel == "experimental")
+            {
+                await CheckForUpdatesAsync(announce: false, delay: TimeSpan.Zero);
+            }
+            else
+            {
+                _update = null;
+                ShowUpdate();
+            }
         }
     }
 

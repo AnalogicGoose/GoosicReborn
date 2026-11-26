@@ -103,7 +103,9 @@ sees the pre-release flag and gives the Mac feed item `<sparkle:channel>experime
 Which release a copy is offered is one rule, `goosic_shell_support::updates`, asked by both shells.
 Windows reads the release list and lets `choose_release` pick the newest release its channel
 allows; macOS tells Sparkle which channels it may install from through `sparkle_channels`, and
-Sparkle skips any item whose channel is not allowed. Copies older than 0.4.6 allow no channel, read
+Sparkle skips any item whose channel is not allowed. (0.4.6's Mac app does not link the rules
+library yet, so it keeps a one-line Swift copy of `sparkle_channels` held to the same cases; the
+release after it asks Rust.) Copies older than 0.4.6 allow no channel, read
 `releases/latest`, and so stay on stable without any change. Leaving the experimental channel never
 downgrades: the copy keeps what it has until a stable release passes it.
 
