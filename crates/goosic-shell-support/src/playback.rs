@@ -86,7 +86,8 @@ pub fn index_before(index: usize, count: usize, repeat: RepeatMode) -> Option<us
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AdPlaybackRecovery {
     pub awaiting_content: bool,
-    resume_requested: bool,
+    /// Play has been asked for once since the advertisement ended; it is not asked again.
+    pub resume_requested: bool,
 }
 
 impl AdPlaybackRecovery {
@@ -198,8 +199,45 @@ impl PendingSeek {
     /// Whether a confirmed position means this seek is over — it landed, or it has had long
     /// enough that the player's own report is the truth again.
     pub fn is_settled_by(&self, confirmed_time: f64, now: Instant) -> bool {
-        (confirmed_time - self.position).abs() < SEEK_LANDED_TOLERANCE_SECONDS
-            || now.saturating_duration_since(self.requested_at) >= SEEK_SETTLE_WINDOW
+        let elapsed = now
+            .saturating_duration_since(self.requested_at)
+            .as_secs_f64();
+        settle_seek(confirmed_time, self.position, elapsed).settled
+    }
+}
+
+/// What the position line shows while a seek is on its way.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SeekShown {
+    /// The position to draw.
+    pub shown: f64,
+    /// Whether the pending seek is finished with and can be forgotten.
+    pub settled: bool,
+}
+
+/// Where the position line sits for a seek to `target` asked for `elapsed_seconds` ago, when the
+/// player now reports `confirmed`.
+///
+/// The player keeps reporting the old position for a moment after a seek, and drawing it made the
+/// thumb jump back before jumping forward. The target is shown until a report lands near it or
+/// the settle window has passed; a clock that cannot be read counts as the window having passed,
+/// so a broken timer never pins the thumb in place. This is the clock-free form both shells call,
+/// with the elapsed time measured on their own clocks.
+pub fn settle_seek(confirmed: f64, target: f64, elapsed_seconds: f64) -> SeekShown {
+    let landed = (confirmed - target).abs() < SEEK_LANDED_TOLERANCE_SECONDS;
+    let waited = !elapsed_seconds.is_finite()
+        || elapsed_seconds < 0.0
+        || elapsed_seconds >= SEEK_SETTLE_WINDOW.as_secs_f64();
+    if landed || waited || !target.is_finite() {
+        SeekShown {
+            shown: confirmed,
+            settled: true,
+        }
+    } else {
+        SeekShown {
+            shown: target,
+            settled: false,
+        }
     }
 }
 
@@ -532,6 +570,29 @@ mod tests {
         }
         assert_eq!(volume_gain(f64::NAN), 0.0);
         assert_eq!(volume_position(-0.5), 0.0);
+    }
+
+    #[test]
+    fn a_seek_is_shown_until_the_player_lands_near_it_or_a_second_passes() {
+        let held = settle_seek(30.0, 120.0, 0.3);
+        assert_eq!(
+            held,
+            SeekShown {
+                shown: 120.0,
+                settled: false
+            }
+        );
+        assert_eq!(
+            settle_seek(119.5, 120.0, 0.4),
+            SeekShown {
+                shown: 119.5,
+                settled: true
+            }
+        );
+        assert!(settle_seek(30.0, 120.0, 1.0).settled, "the window ran out");
+        assert!(settle_seek(30.0, 120.0, f64::NAN).settled);
+        assert!(settle_seek(30.0, 120.0, -1.0).settled);
+        assert!(settle_seek(30.0, f64::NAN, 0.1).settled);
     }
 
     #[test]

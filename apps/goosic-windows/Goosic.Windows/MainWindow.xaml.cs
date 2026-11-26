@@ -131,7 +131,7 @@ public sealed partial class MainWindow : Window
             };
             _playback.Sampled += sample =>
             {
-                _media?.ReportSample(sample);
+                _media?.ReportSample(sample, Model.HasQueue);
                 if (Model.ReportPlayback(sample))
                 {
                     _ = AdvanceAsync(forward: true, natural: true);

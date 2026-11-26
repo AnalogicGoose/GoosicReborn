@@ -321,11 +321,7 @@ public sealed partial class ShellViewModel
         }
     }
 
-    private static string Short(double seconds)
-    {
-        var value = TimeSpan.FromSeconds(Math.Max(0, seconds));
-        return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : $"{(int)value.TotalMinutes}:{value.Seconds:D2}";
-    }
+    private static string Short(double seconds) => PlaybackRules.TimeText(seconds);
 
     /// <summary>The cover on disk, larger when YouTube's servers have a larger one.</summary>
     internal async Task<string?> LargeArtworkFileAsync(string? thumbnail)
