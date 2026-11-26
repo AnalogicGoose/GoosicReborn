@@ -193,6 +193,18 @@ pub fn song_version_settled(answer: &str) -> bool {
 /// How many times, half a second apart, a host runs [`SONG_VERSION_SCRIPT`] after a load.
 pub const SONG_VERSION_ATTEMPTS: u32 = 20;
 
+/// Picks the media element that is actually playing, rather than whichever audio or video tag
+/// came first in the page: YouTube Music can keep a paused element while it swaps in the one
+/// carrying the next track or an advertisement. An expression; the observer below uses the same
+/// choice, and a host evaluates this one when it acts on the element directly.
+pub const ACTIVE_MEDIA_ELEMENT_SCRIPT: &str = r#"(() => {
+  const candidates = Array.from(document.querySelectorAll('audio, video'));
+  return candidates.find(candidate => !candidate.paused && !candidate.ended && candidate.readyState > 0)
+    ?? candidates.find(candidate => !candidate.ended && candidate.readyState > 0)
+    ?? candidates[0]
+    ?? null;
+})()"#;
+
 /// The per-load page observer.
 ///
 /// Identity is injected rather than read from the URL: the official app rewrites its own location
@@ -335,6 +347,14 @@ pub const MEDIA_SESSION_GUARD_SCRIPT: &str = r#"(() => {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_observer_chooses_media_as_the_standalone_picker_does() {
+        let script = observer_script("t", 1, "v");
+        for line in ACTIVE_MEDIA_ELEMENT_SCRIPT.lines().skip(1).take(5) {
+            assert!(script.contains(line.trim()), "observer lacks {line}");
+        }
+    }
 
     #[test]
     fn automix_script_only_touches_the_automix_switch_and_says_what_it_did() {
