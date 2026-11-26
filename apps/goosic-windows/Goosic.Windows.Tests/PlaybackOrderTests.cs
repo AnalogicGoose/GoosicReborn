@@ -51,3 +51,16 @@ public class SeekSettleTests
     public void WithoutASeekThePlayerIsShown() =>
         Assert.Equal((42d, true), SeekSettle.Show(42, null, At));
 }
+
+public class TimeTextTests
+{
+    [Theory]
+    [InlineData(0, "0:00")]
+    [InlineData(9, "0:09")]
+    [InlineData(222, "3:42")]
+    [InlineData(3_723, "1:02:03")]
+    [InlineData(-1, "0:00")]
+    [InlineData(double.NaN, "0:00")]
+    public void TimesReadAsTheMacWritesThem(double seconds, string expected) =>
+        Assert.Equal(expected, PlaybackRules.TimeText(seconds));
+}

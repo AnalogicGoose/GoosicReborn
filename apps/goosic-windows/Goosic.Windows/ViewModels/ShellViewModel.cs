@@ -1239,9 +1239,8 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
         }
     }
 
-    /// <summary>A position as minutes and seconds, counting minutes past the hour.</summary>
-    private static string Clock(TimeSpan value) =>
-        $"{(int)value.TotalMinutes:D2}:{value.Seconds:D2}";
+    /// <summary>A position as the Mac writes it: <c>m:ss</c>, or <c>h:mm:ss</c> past an hour.</summary>
+    private static string Clock(TimeSpan value) => PlaybackRules.TimeText(value.TotalSeconds);
 
     /// <summary>Says something on screen that did not come from the service.</summary>
     /// <summary>
