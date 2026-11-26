@@ -156,8 +156,17 @@ jobs:
               with:
                   path: downloads
             # The notes are named after the version, so no release has to edit this file.
+            # An experimental release is marked by its notes' first line, an HTML comment GitHub
+            # does not render, so the version and every build stay exactly as a stable one's.
             - name: Find the notes
-              run: echo "NOTES=docs/RELEASE_${RELEASE_TAG#v}.md" >> "$GITHUB_ENV"
+              run: |
+                  notes="docs/RELEASE_${RELEASE_TAG#v}.md"
+                  echo "NOTES=$notes" >> "$GITHUB_ENV"
+                  if head -n 1 "$notes" | grep -q '<!-- channel: experimental -->'; then
+                      echo "PRERELEASE=true" >> "$GITHUB_ENV"
+                  else
+                      echo "PRERELEASE=false" >> "$GITHUB_ENV"
+                  fi
             - name: Check the reused Windows run belongs to this source
               if: github.event_name == 'workflow_dispatch'
               env:
@@ -180,7 +189,8 @@ jobs:
             - uses: softprops/action-gh-release@v2
               with:
                   draft: true
-                  prerelease: false
+                  prerelease: ${{ env.PRERELEASE == 'true' }}
+                  make_latest: ${{ env.PRERELEASE == 'true' && 'false' || 'true' }}
                   name: Goosic ${{ env.RELEASE_TAG }}
                   tag_name: ${{ env.RELEASE_TAG }}
                   body_path: ${{ env.NOTES }}
