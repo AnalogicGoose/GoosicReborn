@@ -361,6 +361,12 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published private(set) var startPage = "last"
     /// Skip decorative motion, on top of the system's own setting.
     @Combine.Published private(set) var reduceMotion = false
+    /// Which releases the updater offers: `stable`, or `experimental` for pre-releases too.
+    @Combine.Published private(set) var updateChannel = "stable" {
+        didSet { if updateChannel != oldValue { onUpdateChannelChanged?(updateChannel) } }
+    }
+    /// Told when the update channel changes, so the platform updater can follow it.
+    var onUpdateChannelChanged: ((String) -> Void)?
     /// What this account has rated, by video id. The catalog does not say whether a song is
     /// liked, so this is learned from Liked Music and from what the listener rates here. It shows
     /// what YouTube Music accepted, never a click it has not confirmed.
@@ -1375,6 +1381,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         hideExplicit = settings.hideExplicit ?? false
         startPage = settings.startPage ?? "last"
         reduceMotion = settings.reduceMotion ?? false
+        updateChannel = settings.updateChannel ?? "stable"
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
@@ -1410,6 +1417,12 @@ final class GoosicAppModel: Combine.ObservableObject {
         guard page != startPage else { return }
         startPage = page
         savePreferences(GoosicPreferencesPatch(startPage: page))
+    }
+
+    func setUpdateChannel(_ channel: String) {
+        guard channel != updateChannel else { return }
+        updateChannel = channel
+        savePreferences(GoosicPreferencesPatch(updateChannel: channel))
     }
 
     func setReduceMotion(_ enabled: Bool) {
@@ -1554,6 +1567,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         merged.hideExplicit = update.hideExplicit ?? merged.hideExplicit
         merged.startPage = update.startPage ?? merged.startPage
         merged.reduceMotion = update.reduceMotion ?? merged.reduceMotion
+        merged.updateChannel = update.updateChannel ?? merged.updateChannel
         return merged
     }
 

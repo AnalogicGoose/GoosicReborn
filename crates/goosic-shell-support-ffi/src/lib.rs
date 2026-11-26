@@ -271,6 +271,66 @@ pub unsafe extern "C" fn goosic_login_make_result(
     }
 }
 
+/// The release to offer, as an index into `releases` (a JSON array of `{tag, draft, prerelease}`),
+/// or -1 when nothing on `channel` is newer than `current`. The rule is
+/// [`goosic_shell_support::updates::choose_release`].
+///
+/// # Safety
+///
+/// Every pointer must be NUL-terminated or null.
+#[no_mangle]
+pub unsafe extern "C" fn goosic_update_choose_release(
+    current: *const c_char,
+    channel: *const c_char,
+    releases: *const c_char,
+) -> i32 {
+    use goosic_shell_support::updates::{choose_release, ReleaseInfo, UpdateChannel};
+    let channel = UpdateChannel::parse(unsafe { borrow(channel) }.unwrap_or(""));
+    let current = unsafe { borrow(current) }.filter(|value| !value.is_empty());
+    let Some(Ok(releases)) =
+        unsafe { borrow(releases) }.map(serde_json::from_str::<Vec<ReleaseInfo>>)
+    else {
+        return -1;
+    };
+    choose_release(current, channel, &releases)
+        .and_then(|index| i32::try_from(index).ok())
+        .unwrap_or(-1)
+}
+
+#[cfg(test)]
+mod update_tests {
+    use std::ffi::CString;
+
+    use super::*;
+
+    #[test]
+    fn the_release_choice_crosses_the_c_abi() {
+        let current = CString::new("0.4.5").unwrap();
+        let releases =
+            CString::new(r#"[{"tag":"v0.4.7","prerelease":true},{"tag":"v0.4.6"}]"#).unwrap();
+        let stable = CString::new("stable").unwrap();
+        let experimental = CString::new("experimental").unwrap();
+        unsafe {
+            assert_eq!(
+                goosic_update_choose_release(current.as_ptr(), stable.as_ptr(), releases.as_ptr()),
+                1
+            );
+            assert_eq!(
+                goosic_update_choose_release(
+                    current.as_ptr(),
+                    experimental.as_ptr(),
+                    releases.as_ptr()
+                ),
+                0
+            );
+            assert_eq!(
+                goosic_update_choose_release(std::ptr::null(), stable.as_ptr(), releases.as_ptr()),
+                -1
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod login_tests {
     use super::*;

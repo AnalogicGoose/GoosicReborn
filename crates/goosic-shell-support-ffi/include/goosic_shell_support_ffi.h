@@ -39,6 +39,10 @@ bool goosic_login_is_completion_origin(const char *url);
 char *goosic_login_make_result(const char *account_id, const char *profile_id,
                                const char *metadata, const char *page_url);
 
+/* The release to offer from a JSON array of {tag, draft, prerelease}, or -1 for none. */
+int32_t goosic_update_choose_release(const char *current, const char *channel,
+                                     const char *releases);
+
 /* Playback rules asked on every sample, drag and frame. A NaN reads as "not known". */
 double goosic_volume_gain(double position);
 double goosic_volume_position(double gain);
