@@ -303,6 +303,16 @@ pub fn has_finished(state: &str, position: f64, duration: f64, listener_paused: 
             && position >= duration - END_TOLERANCE_SECONDS)
 }
 
+/// The song is playing somewhere short of its end, which only a replay produces once that end
+/// has been acted on.
+fn is_playing_before_the_end(state: &str, position: f64, duration: f64) -> bool {
+    state == "playing"
+        && duration.is_finite()
+        && duration > 0.0
+        && position.is_finite()
+        && position < duration - END_TOLERANCE_SECONDS
+}
+
 /// A sample as [`should_advance_after_end`] needs to see it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EndSample<'a> {
@@ -461,6 +471,11 @@ impl EndGuard {
             return EndVerdict::default();
         }
         let resume = self.ads.observe(advertisement, state, listener_paused);
+        if self.handled && !advertisement && is_playing_before_the_end(state, position, duration) {
+            // Heard again after its end was acted on: a replay from Previous, a seek back, or
+            // Play after the queue stopped. Its next end is a new one, and must not be swallowed.
+            self.handled = false;
+        }
         if !advertisement && state == "playing" && !self.handled {
             self.heard = true;
         }
@@ -490,6 +505,43 @@ impl EndGuard {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_replay_after_the_end_arms_a_new_end() {
+        let mut guard = EndGuard::default();
+        guard.begin();
+        guard.observe(true, false, "playing", 10.0, 200.0, false);
+        assert!(
+            guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+        assert!(
+            !guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance,
+            "the same end reported again"
+        );
+        assert!(
+            !guard
+                .observe(true, false, "playing", 199.5, 200.0, false)
+                .advance,
+            "a last sample at the end is not a replay"
+        );
+        assert!(
+            !guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance
+        );
+        guard.observe(true, false, "playing", 0.5, 200.0, false);
+        assert!(
+            guard
+                .observe(true, false, "ended", 200.0, 200.0, false)
+                .advance,
+            "heard again from the start, so it ends again"
+        );
+        assert!(!guard.page_ended(true), "and only once");
+    }
 
     #[test]
     fn an_end_counts_once_and_only_after_the_play_was_heard() {
