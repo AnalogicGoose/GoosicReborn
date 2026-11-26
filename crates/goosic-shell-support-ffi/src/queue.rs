@@ -123,6 +123,16 @@ struct UpNext {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct Failure {
+    code: String,
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    subject: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Repeat {
     repeat: RepeatMode,
 }
@@ -167,6 +177,15 @@ pub fn call_rule(name: &str, input: &str) -> Result<Value, String> {
         "nextRepeat" => {
             let Repeat { repeat } = parse(input)?;
             Ok(json!(repeat.next()))
+        }
+        "failureText" => {
+            let Failure {
+                code,
+                message,
+                subject,
+            } = parse(input)?;
+            let text = goosic_shell_support::catalog::failure_text(&code, &message, &subject);
+            Ok(json!({ "title": text.title, "detail": text.detail }))
         }
         other => Err(format!("no rule named {other}")),
     }
@@ -266,6 +285,13 @@ mod tests {
             "From Songs · Finding songs like this…"
         );
         assert_eq!(call("nextRepeat", r#"{"repeat":"one"}"#)["ok"], "off");
+        assert_eq!(
+            call(
+                "failureText",
+                r#"{"code":"catalogEmpty","message":"","subject":"Search"}"#
+            )["ok"]["title"],
+            "No results"
+        );
         assert!(call("nope", "{}")["error"].as_str().is_some());
     }
 }

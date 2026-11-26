@@ -29,6 +29,7 @@ use goosic_shell_support::bridge;
 
 pub mod playback;
 pub mod queue;
+pub mod surface;
 
 /// Reads a caller's string, refusing anything that is not valid UTF-8.
 ///
@@ -338,6 +339,7 @@ mod header_tests {
             include_str!("lib.rs"),
             include_str!("playback.rs"),
             include_str!("queue.rs"),
+            include_str!("surface.rs"),
         ];
         let mut exported = 0;
         for source in sources {
