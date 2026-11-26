@@ -722,20 +722,12 @@ internal sealed class OfficialPlaybackHost
     private async Task KeepAutomixOffAsync(CoreWebView2 core)
     {
         var token = _token;
-        for (var attempt = 0; attempt < 40 && token == _token; attempt++)
+        for (var attempt = 0; attempt < ShellSupport.AutomixAttempts && token == _token; attempt++)
         {
             string outcome;
             try
             {
-                outcome = await core.ExecuteScriptAsync("""
-                    (() => {
-                      const toggle = document.getElementById('automix');
-                      if (!toggle || typeof toggle.checked !== 'boolean') return 'absent';
-                      if (!toggle.checked) return 'off';
-                      toggle.click();
-                      return toggle.checked ? 'still on' : 'turned off';
-                    })()
-                    """);
+                outcome = await core.ExecuteScriptAsync(ShellSupport.AutomixOffScript);
             }
             catch (Exception error)
             {
