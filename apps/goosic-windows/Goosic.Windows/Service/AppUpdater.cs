@@ -39,7 +39,7 @@ internal static class AppUpdater
     /// <summary>
     /// The newest releases, pre-releases included. The list rather than <c>releases/latest</c>,
     /// because the experimental channel needs the pre-releases that endpoint leaves out; which one
-    /// is offered is <c>goosic_shell_support::updates::choose_release</c>.
+    /// is offered is <c>goosic_shell_support::updates::choose_release</c>, the Mac's rule too.
     /// </summary>
     private const string Releases = "https://api.github.com/repos/AnalogicGoose/GoosicReborn/releases?per_page=30";
 
@@ -82,9 +82,13 @@ internal static class AppUpdater
             });
         }
 
-        var index = ShellSupport.ChooseRelease(
-            CurrentVersion is { } current ? UpdateRules.Format(current) : null, channel, listed.ToJsonString());
-        if (index < 0 || index >= releases.Length)
+        var chosen = SharedQueue.Rule("chooseRelease", new JsonObject
+        {
+            ["current"] = CurrentVersion is { } current ? UpdateRules.Format(current) : null,
+            ["channel"] = channel,
+            ["releases"] = listed,
+        });
+        if (chosen is not JsonValue value || !value.TryGetValue<int>(out var index) || index < 0 || index >= releases.Length)
         {
             return null;
         }

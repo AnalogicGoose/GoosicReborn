@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Goosic.Windows.Presentation;
 using Microsoft.UI.Dispatching;
 using Windows.Media;
 using Windows.Media.Playback;
@@ -88,15 +89,30 @@ internal sealed class SystemMediaControls : IDisposable
     }
 
     /// <summary>Reflects an accepted sample: state, and at most once a second, position.</summary>
-    internal void ReportSample(BridgeEvent sample)
+    /// <remarks>
+    /// Which buttons work, and whether the position can be dragged, are
+    /// <c>CommandAvailability</c> in <c>goosic-shell-support</c>, the projection the Mac's Now
+    /// Playing uses: an advertisement cannot be skipped or scrubbed, and Next and Previous need a
+    /// queue. A button that is shown and then refused reads as a broken button.
+    /// </remarks>
+    internal void ReportSample(BridgeEvent sample, bool hasQueue)
     {
-        // Track changes are refused during an advertisement, so the overlay does not offer them;
-        // a button that is shown and then refused reads as a broken button.
-        var trackChangesAllowed = !sample.IsAdvertisement;
-        if (_controls.IsNextEnabled != trackChangesAllowed)
+        var allowed = PlaybackRules.ProjectMedia(new PlaybackRules.MediaInput
         {
-            _controls.IsNextEnabled = trackChangesAllowed;
-            _controls.IsPreviousEnabled = trackChangesAllowed;
+            HasTrack = true,
+            IsReady = true,
+            HasOwner = true,
+            CurrentTime = sample.CurrentTime,
+            Duration = sample.Duration,
+            IsPaused = sample.State != "playing",
+            IsAdvertisement = sample.IsAdvertisement,
+            HasQueue = hasQueue,
+            IsIdle = true,
+        });
+        if (_controls.IsNextEnabled != allowed.Next || _controls.IsPreviousEnabled != allowed.Previous)
+        {
+            _controls.IsNextEnabled = allowed.Next;
+            _controls.IsPreviousEnabled = allowed.Previous;
         }
 
         _controls.PlaybackStatus = sample.State switch
@@ -104,6 +120,7 @@ internal sealed class SystemMediaControls : IDisposable
             "playing" => MediaPlaybackStatus.Playing,
             "paused" => MediaPlaybackStatus.Paused,
             "ended" => MediaPlaybackStatus.Stopped,
+            // Windows has a state for a player that is changing; the other systems do not.
             "buffering" or "loading" => MediaPlaybackStatus.Changing,
             _ => _controls.PlaybackStatus,
         };
@@ -120,7 +137,7 @@ internal sealed class SystemMediaControls : IDisposable
             StartTime = TimeSpan.Zero,
             MinSeekTime = TimeSpan.Zero,
             EndTime = end,
-            MaxSeekTime = sample.IsAdvertisement ? TimeSpan.Zero : end,
+            MaxSeekTime = allowed.ChangePosition ? end : TimeSpan.Zero,
             Position = TimeSpan.FromSeconds(Math.Clamp(sample.CurrentTime, 0, sample.Duration)),
         });
     }
