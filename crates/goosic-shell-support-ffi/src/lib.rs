@@ -7,8 +7,8 @@
 //!
 //! What crosses the boundary is every decision a shell makes that has no machine in it: the
 //! injected page scripts, which are security-sensitive generated JavaScript, the validators that
-//! decide whether a bridge event may be believed, the listening queue ([`queue`]) and the
-//! stateless rules beside it. The macOS shell links this library statically and the Windows
+//! decide whether a bridge event may be believed, the listening queue ([`queue`]), the stateless
+//! rules beside it, and the playback rules asked on every sample ([`playback`]). The macOS shell links this library statically and the Windows
 //! shell loads it as a DLL, so both answer from the same code. Screens, focus and layout stay
 //! native, because moving them here would build the cross-language UI framework the plan rules
 //! out.
@@ -27,6 +27,7 @@ use std::ffi::{c_char, c_ulonglong, CStr, CString};
 
 use goosic_shell_support::bridge;
 
+pub mod playback;
 pub mod queue;
 
 /// Reads a caller's string, refusing anything that is not valid UTF-8.
@@ -333,7 +334,11 @@ mod header_tests {
     #[test]
     fn every_exported_function_is_declared_in_the_header() {
         let header = include_str!("../include/goosic_shell_support_ffi.h");
-        let sources = [include_str!("lib.rs"), include_str!("queue.rs")];
+        let sources = [
+            include_str!("lib.rs"),
+            include_str!("playback.rs"),
+            include_str!("queue.rs"),
+        ];
         let mut exported = 0;
         for source in sources {
             for line in source.lines() {

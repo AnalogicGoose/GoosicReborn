@@ -19,7 +19,7 @@
 //! | [`bridge`] | `OfficialBridge.swift` | whether a web player's report is trustworthy |
 //! | [`media`] | `SystemMediaPlayback.swift` | what the system media controls show and allow |
 //! | [`catalog`] | `Catalog.swift` | which rows are playable and how a page is shaped |
-//! | [`playback`] | `Models.swift`, `VolumeTaper.swift` | what plays next, clamps, the volume taper, seek settling, preference saves |
+//! | [`playback`] | `Models.swift`, `VolumeTaper.swift`, `TrackEnd.swift`, C# `VolumeTaper`, `SeekSettle` and `PlaybackOrder` | clamps, the volume taper, time text, seek settling, when a track has finished, preference saves |
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
 //! | [`queue_engine`] | `Models.swift`, C# `ShellViewModel.Queue` and `PlaybackOrder` | the whole listening queue: launch, Next/Previous, natural ends, shuffle, repeat, radio, editing, Clear and Undo |
 //! | [`player_text`] | `ListRules.swift`, C# `ListRules` | Up Next, song-count and sleep-timer copy |
@@ -28,7 +28,7 @@
 //! | [`artwork`] | `ArtworkCache.swift` | which hosts artwork may come from, its cache key, the playing cover's shape |
 //! | [`hero`] | `ArtistHero.swift` | an artist hero's height and the colour its page takes |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
-//! | [`page_swap`] | `TrackEnd.swift`, C# `PlaybackOrder` | a page that switches video before the requested track plays |
+//! | [`page_swap`] | `TrackEnd.swift`, C# `PlaybackOrder.IsSameSong` | a page that switches video before the requested track plays |
 
 use std::time::Duration;
 
