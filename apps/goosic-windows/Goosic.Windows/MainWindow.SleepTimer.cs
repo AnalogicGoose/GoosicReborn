@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Goosic.Windows.Presentation;
+using Goosic.Windows.Service;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -14,7 +15,6 @@ public sealed partial class MainWindow : Window
 
     private DispatcherTimer? _sleepTimer;
     private DateTimeOffset _sleepAt;
-    private bool _sleepAtEndOfSong;
 
     /// <summary>
     /// Stop after a while, or when this song ends, as Apple Music and Spotify offer. It pauses
@@ -38,12 +38,13 @@ public sealed partial class MainWindow : Window
         end.Click += (_, _) =>
         {
             CancelSleepTimer();
-            _sleepAtEndOfSong = true;
+            // The engine stops at the end exactly where that end would otherwise advance.
+            Model.SetSleepAtEndOfSong(true);
             Model.ReportStatus("Goosic will stop when this song ends.");
         };
         menu.Items.Add(end);
 
-        if (_sleepTimer is not null || _sleepAtEndOfSong)
+        if (_sleepTimer is not null || Model.SleepsAtEndOfSong)
         {
             menu.Items.Add(new MenuFlyoutSeparator());
             var off = new MenuFlyoutItem { Text = "Turn off sleep timer" };
@@ -59,7 +60,7 @@ public sealed partial class MainWindow : Window
     }
 
     private string SleepTimerLabel() =>
-        PlayerText.SleepTimer(_sleepTimer is null ? null : _sleepAt - DateTimeOffset.Now, _sleepAtEndOfSong);
+        SharedQueue.SleepTimerLabel(_sleepTimer is null ? null : _sleepAt - DateTimeOffset.Now, Model.SleepsAtEndOfSong);
 
     private void StartSleepTimer(TimeSpan after)
     {
@@ -79,19 +80,10 @@ public sealed partial class MainWindow : Window
     {
         _sleepTimer?.Stop();
         _sleepTimer = null;
-        _sleepAtEndOfSong = false;
-    }
-
-    /// <summary>Whether a song that just ended should be the last, and clears the request if so.</summary>
-    private bool TakeSleepAtEndOfSong()
-    {
-        if (!_sleepAtEndOfSong)
+        if (Model.SleepsAtEndOfSong)
         {
-            return false;
+            Model.SetSleepAtEndOfSong(false);
         }
-
-        _sleepAtEndOfSong = false;
-        return true;
     }
 
     private async Task PauseForSleepAsync()

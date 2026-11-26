@@ -14,7 +14,7 @@ set -eu
 
 test "$(uname -s)" = Darwin || { echo "macOS app bundles are built on macOS" >&2; exit 2; }
 
-version=${1:-0.4.6}
+version=${1:-0.4.7}
 version=${version#v}
 # Finder's bundle versions are numeric, even when the release tag is a prerelease.
 bundle_version=${version%%-*}
@@ -74,6 +74,16 @@ rust_target=${CARGO_TARGET_DIR:-target}
 lipo -create -output "$app/Contents/MacOS/goosic-service" \
     "$rust_target/aarch64-apple-darwin/release/goosic-service" \
     "$rust_target/x86_64-apple-darwin/release/goosic-service"
+
+# The shared shell rules, linked into the app statically: one universal archive, so the
+# executable carries both architectures' copies and the bundle ships no extra library.
+cargo build --release --target aarch64-apple-darwin --target x86_64-apple-darwin \
+    -p goosic-shell-support-ffi
+ffi_library="$stage/libgoosic_shell_support_ffi.a"
+lipo -create -output "$ffi_library" \
+    "$rust_target/aarch64-apple-darwin/release/libgoosic_shell_support_ffi.a" \
+    "$rust_target/x86_64-apple-darwin/release/libgoosic_shell_support_ffi.a"
+export GOOSIC_FFI_LIBRARY="$ffi_library"
 
 GOOSIC_MACOS_SDK="$(xcrun --sdk macosx --show-sdk-version)" swift build -c release \
     --package-path apps/goosic-swift --scratch-path "$scratch" \

@@ -8,13 +8,17 @@ import Sparkle
 ///
 /// The feed holds stable items and experimental ones, which carry a `sparkle:channel`. Which
 /// channels this copy may install from is `goosic-shell-support`'s `updates` rule, the one the
-/// Windows updater asks; Sparkle skips every item on a channel that is not allowed.
+/// Windows updater asks too; Sparkle skips every item on a channel that is not allowed.
 @MainActor
 final class NativeMacUpdater: NSObject {
     static let shared = NativeMacUpdater()
 
-    /// The listener's update channel, `stable` or `experimental`.
-    private(set) var channel = "stable"
+    /// The listener's update channel, `stable` or `experimental`. The setting lives in the
+    /// service, which answers after Sparkle has started and may already be checking; the last
+    /// choice is kept here too, so the launch check reads the right channel.
+    private(set) var channel = UserDefaults.standard.string(forKey: NativeMacUpdater.channelKey) ?? "stable"
+
+    private static let channelKey = "GoosicUpdateChannel"
 
     #if canImport(Sparkle)
     private var controller: SPUStandardUpdaterController?
@@ -60,6 +64,7 @@ final class NativeMacUpdater: NSObject {
     func setChannel(_ channel: String) {
         guard channel != self.channel else { return }
         self.channel = channel
+        UserDefaults.standard.set(channel, forKey: Self.channelKey)
         #if canImport(Sparkle)
         guard isAvailable, channel == "experimental", let updater = controller?.updater,
               updater.sessionInProgress == false else { return }
@@ -68,20 +73,10 @@ final class NativeMacUpdater: NSObject {
     }
 }
 
-extension NativeMacUpdater {
-    /// The Sparkle channels, beyond the default one, a copy on `channel` may install from.
-    ///
-    /// The Swift copy of `sparkle_channels` in `goosic-shell-support`'s `updates` module, held
-    /// to its test cases, until this app links the rules library and asks it directly.
-    nonisolated static func sparkleChannels(for channel: String) -> [String] {
-        channel == "experimental" ? ["experimental"] : []
-    }
-}
-
 #if canImport(Sparkle)
 extension NativeMacUpdater: @preconcurrency SPUUpdaterDelegate {
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
-        Set(Self.sparkleChannels(for: channel))
+        Set(SharedRules.updateChannels(channel))
     }
 }
 #endif

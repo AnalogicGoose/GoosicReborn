@@ -6,10 +6,10 @@
 //! things: the page passing through another video while it loads, another version of the same
 //! song (the audio track for the music video, or back), or the page refusing the track.
 //!
-//! The Windows shell's copy is `PlaybackOrder.IsSameSong` and the early-switch handling in its
-//! `OfficialPlaybackHost`; the macOS copy is `PageSwap` in `TrackEnd.swift`. Until those shells
-//! consume this crate, the three are held to the same cases, and a change to one is a change to
-//! all of them.
+//! Both shells ask these rules through `goosic-shell-support-ffi`: whether the requested track
+//! has been heard playing, and whether the page's title names the same song. What each does with
+//! the answer -- the stray-report count in Windows's `OfficialPlaybackHost` and the early-switch
+//! handling in the Mac's model -- still lives beside the player it watches.
 
 /// Reports in a row that describe another video before a shell acts on them.
 ///
