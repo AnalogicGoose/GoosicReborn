@@ -84,6 +84,29 @@ Each carries its own copy of the service because that is how the shells find it.
 looks beside its executable when `GOOSIC_SERVICE_PATH` is unset, which is the case for anything
 opened from the Finder; the Windows shell has always looked beside its own executable first.
 
+## Stable and experimental releases
+
+Every copy of Goosic follows one of two update channels, chosen in Settings and saved by the
+service with the other preferences: **stable**, the default, and **experimental**. An
+experimental release is an ordinary release marked as a GitHub pre-release. It keeps a plain
+`x.y.z` version, so the numbers simply rise across both channels and a stable listener never sees
+the ones spent on experiments. A suffixed name such as `0.5.0-beta.1` was the alternative and was
+refused on purpose: the macOS build number is derived from the version, the Windows Setup file is
+named after it, and every installed copy compares versions as plain triples, so a suffix would
+have needed a new rule in each of those places and in every copy already installed.
+
+To make one, start `docs/RELEASE_<x.y.z>.md` with the line `<!-- channel: experimental -->`. GitHub
+does not render the comment. The release workflow reads it, creates the draft as a pre-release,
+and leaves the last stable release marked as latest. After publication, `tools/release.sh feed`
+sees the pre-release flag and gives the Mac feed item `<sparkle:channel>experimental</sparkle:channel>`.
+
+Which release a copy is offered is one rule, `goosic_shell_support::updates`, asked by both shells.
+Windows reads the release list and lets `choose_release` pick the newest release its channel
+allows; macOS tells Sparkle which channels it may install from through `sparkle_channels`, and
+Sparkle skips any item whose channel is not allowed. Copies older than 0.4.6 allow no channel, read
+`releases/latest`, and so stay on stable without any change. Leaving the experimental channel never
+downgrades: the copy keeps what it has until a stable release passes it.
+
 ## The macOS build number
 
 Sparkle offers an update only when its `sparkle:version` is higher than the installed app's

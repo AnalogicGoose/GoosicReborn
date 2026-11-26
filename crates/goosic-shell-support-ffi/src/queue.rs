@@ -123,6 +123,34 @@ struct UpNext {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct Failure {
+    code: String,
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    subject: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChooseRelease {
+    current: Option<String>,
+    channel: String,
+    releases: Vec<goosic_shell_support::updates::ReleaseInfo>,
+}
+
+#[derive(Deserialize)]
+struct Channel {
+    channel: String,
+}
+
+#[derive(Deserialize)]
+struct Metadata {
+    metadata: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Repeat {
     repeat: RepeatMode,
 }
@@ -167,6 +195,39 @@ pub fn call_rule(name: &str, input: &str) -> Result<Value, String> {
         "nextRepeat" => {
             let Repeat { repeat } = parse(input)?;
             Ok(json!(repeat.next()))
+        }
+        "failureText" => {
+            let Failure {
+                code,
+                message,
+                subject,
+            } = parse(input)?;
+            let text = goosic_shell_support::catalog::failure_text(&code, &message, &subject);
+            Ok(json!({ "title": text.title, "detail": text.detail }))
+        }
+        "chooseRelease" => {
+            use goosic_shell_support::updates::{choose_release, UpdateChannel};
+            let ChooseRelease {
+                current,
+                channel,
+                releases,
+            } = parse(input)?;
+            Ok(json!(choose_release(
+                current.as_deref(),
+                UpdateChannel::parse(&channel),
+                &releases
+            )))
+        }
+        "updateChannels" => {
+            use goosic_shell_support::updates::{sparkle_channels, UpdateChannel};
+            let Channel { channel } = parse(input)?;
+            Ok(json!(sparkle_channels(UpdateChannel::parse(&channel))))
+        }
+        "loginSummary" => {
+            let Metadata { metadata } = parse(input)?;
+            Ok(json!(goosic_shell_support::login::sanitize_metadata(
+                metadata.as_bytes()
+            )))
         }
         other => Err(format!("no rule named {other}")),
     }
@@ -266,6 +327,36 @@ mod tests {
             "From Songs · Finding songs like this…"
         );
         assert_eq!(call("nextRepeat", r#"{"repeat":"one"}"#)["ok"], "off");
+        assert_eq!(
+            call(
+                "failureText",
+                r#"{"code":"catalogEmpty","message":"","subject":"Search"}"#
+            )["ok"]["title"],
+            "No results"
+        );
+        assert_eq!(
+            call(
+                "loginSummary",
+                r#"{"metadata":"{\"displayName\":\" Ada \",\"email\":\"ada@example.com\"}"}"#
+            )["ok"]["displayName"],
+            "Ada"
+        );
+        assert_eq!(
+            call(
+                "chooseRelease",
+                r#"{"current":"0.4.5","channel":"experimental","releases":[{"tag":"v0.4.6","prerelease":true},{"tag":"v0.4.5"}]}"#
+            )["ok"],
+            0
+        );
+        assert!(call(
+            "chooseRelease",
+            r#"{"current":"0.4.5","channel":"stable","releases":[{"tag":"v0.4.6","prerelease":true}]}"#
+        )["ok"]
+            .is_null());
+        assert_eq!(
+            call("updateChannels", r#"{"channel":"experimental"}"#)["ok"][0],
+            "experimental"
+        );
         assert!(call("nope", "{}")["error"].as_str().is_some());
     }
 }
