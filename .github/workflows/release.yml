@@ -29,7 +29,7 @@ jobs:
             tag: ${{ steps.decide.outputs.tag }}
             build: ${{ steps.decide.outputs.build }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                   fetch-depth: 0
             - id: decide
@@ -66,7 +66,7 @@ jobs:
         env:
             RELEASE_TAG: ${{ needs.tag.outputs.tag }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                   ref: ${{ env.RELEASE_TAG }}
             # Pinned, not latest-stable: actool from Xcode 26.4 through 26.6 throws on the
@@ -99,7 +99,7 @@ jobs:
                   test -f "$app/Contents/Resources/LICENSE-GPL-3.0"
                   cd dist
                   shasum -a 256 "Goosic-$version-macos-universal.zip" > SHA256SUMS-macos.txt
-            - uses: actions/upload-artifact@v4
+            - uses: actions/upload-artifact@v6
               with:
                   name: macos
                   path: |
@@ -114,13 +114,13 @@ jobs:
         env:
             RELEASE_TAG: ${{ needs.tag.outputs.tag }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                   ref: ${{ env.RELEASE_TAG }}
             - uses: dtolnay/rust-toolchain@stable
               with:
                   targets: x86_64-pc-windows-msvc
-            - uses: actions/setup-dotnet@v4
+            - uses: actions/setup-dotnet@v5
               with:
                   dotnet-version: '9.0.x'
             - run: cargo test --workspace
@@ -131,7 +131,7 @@ jobs:
               run: |
                   $version = $env:RELEASE_TAG.Substring(1)
                   ./apps/goosic-windows/build-installer.ps1 -Version $version
-            - uses: actions/upload-artifact@v4
+            - uses: actions/upload-artifact@v6
               with:
                   name: windows
                   path: |
@@ -149,10 +149,10 @@ jobs:
         env:
             RELEASE_TAG: ${{ needs.tag.outputs.tag }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                   ref: ${{ env.RELEASE_TAG }}
-            - uses: actions/download-artifact@v4
+            - uses: actions/download-artifact@v7
               with:
                   path: downloads
             # The notes are named after the version, so no release has to edit this file.
@@ -182,13 +182,13 @@ jobs:
                   test "$result" = success
             - name: Reuse verified Windows artifacts for a Mac retry
               if: github.event_name == 'workflow_dispatch'
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v7
               with:
                   name: windows
                   run-id: ${{ inputs.windows_run_id }}
                   github-token: ${{ github.token }}
                   path: downloads/windows
-            - uses: softprops/action-gh-release@v2
+            - uses: softprops/action-gh-release@v3
               with:
                   draft: true
                   prerelease: ${{ env.PRERELEASE == 'true' }}
