@@ -423,7 +423,14 @@ motion the size changes without the spring. Large artwork and track metadata occ
 can occupy the trailing column. The timeline and full transport sit below the artwork. Close
 and mini-player actions are grouped at the top leading edge, volume at the top trailing edge,
 and Lyrics/Queue in a bottom trailing capsule. Top and bottom chrome share material and
-appearance. Native toolbar backing must not create an extra light plate behind dark capsules.
+appearance. The top capsules are clear glass, as Music's are: a light wash and rim over the
+background, never a dark plate, and the volume fill is white rather than the system accent.
+Like and More are clear glass circles to match. Windows, which has no Liquid Glass, draws
+the same capsule and circles as a translucent white fill and rim. Full-player lyrics are 48
+points on both platforms, the size of Music's full-screen lyrics; the side panel stays at 25.
+Beside the cover the lyrics take the window's full height, passing under the top controls and
+fading out gradually toward the bottom edge, with the followed line about a third of the way
+down, as Music's do. Native toolbar backing must not create an extra light plate behind dark capsules.
 Small individual Like and More actions are circular, side by side after the track metadata;
 More opens the playing song's menu. Switching presentation preserves the
 same session, track, queue, volume, position and mounted playback host. Choosing a page from

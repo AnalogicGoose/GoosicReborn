@@ -348,8 +348,13 @@ struct NativeMacFullPlayer: View {
                 playerColumn(cover: cover, width: compact ? proxy.size.width - 44 : cover)
                     .frame(maxWidth: 608)
                 if !compact && visibleRightPane == .lyrics {
+                    // The full height of the window, as Music's lyrics are: lines pass under the
+                    // top controls and fade out toward the bottom edge instead of stopping in a
+                    // box above it. The negative padding undoes the row's own top and bottom.
                     lyricsColumn
-                        .frame(maxWidth: 768, maxHeight: min(proxy.size.height * 0.7, 832))
+                        .frame(maxWidth: 768, maxHeight: .infinity)
+                        .padding(.top, -32)
+                        .padding(.bottom, -80)
                         .transition(.opacity)
                 } else if !compact && visibleRightPane == .queue {
                     NativeMacQueuePanel(store: store)
@@ -376,7 +381,7 @@ struct NativeMacFullPlayer: View {
                         paneButton(.queue, "list.bullet", "Up Next")
                     }
                     .padding(4)
-                    .modifier(NativeMacGlassCapsule())
+                    .modifier(NativeMacClearGlassCapsule())
                 }
                 .padding(18)
             }
@@ -756,7 +761,7 @@ struct NativeMacFullPlayerVolume: View {
     private var shownVolume: Double { model.isMuted ? 0 : model.volume }
 
     private var slider: some View {
-        NativeMacVolumeSlider(value: shownVolume, isEnabled: !busy) {
+        NativeMacVolumeSlider(value: shownVolume, isEnabled: !busy, fill: .white) {
             model.setVolume($0)
         }
     }
@@ -769,6 +774,9 @@ struct NativeMacFullPlayerVolume: View {
 struct NativeMacVolumeSlider: NSViewRepresentable {
     let value: Double
     let isEnabled: Bool
+    /// The filled part of the track; the system accent when nil. The full player passes white, as
+    /// Music's full-screen volume is, so the slider does not add a blue accent to the artwork.
+    var fill: NSColor? = nil
     let onChange: (Double) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
@@ -785,6 +793,7 @@ struct NativeMacVolumeSlider: NSViewRepresentable {
         slider.controlSize = .small
         slider.isEnabled = isEnabled
         slider.setAccessibilityLabel("Volume")
+        if let fill { slider.trackFillColor = fill }
         return slider
     }
 
@@ -881,9 +890,25 @@ struct NativeMacGlassGroup<Content: View>: View {
 struct NativeMacGlassCircle: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: .circle)
+            // Clear, as the title-bar capsules are: Music's Like and More are light glass too.
+            content.glassEffect(.clear.interactive(), in: .circle)
         } else {
             content.background(.ultraThinMaterial, in: Circle())
+        }
+    }
+}
+
+/// The full player's title-bar capsules (Close and Mini Player, Volume): clear Liquid Glass with
+/// a light rim, as Music draws them over its full-screen background, rather than the regular
+/// glass the player bar uses, which reads as a dark plate over a bright mesh.
+struct NativeMacClearGlassCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.glassEffect(.clear.interactive(), in: .capsule)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
         }
     }
 }

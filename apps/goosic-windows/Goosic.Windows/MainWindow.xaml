@@ -2218,7 +2218,7 @@
                                        TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                         <ToggleButton Grid.Column="1" x:Name="FullPlayerLikeButton" VerticalAlignment="Center"
-                                      Style="{StaticResource FullPlayerToggleStyle}" Content="{x:Bind Model.LikeGlyph, Mode=OneWay}"
+                                      Style="{StaticResource FullPlayerToggleStyle}" Content="{x:Bind Model.LikeGlyph, Mode=OneWay}" Background="#26FFFFFF" BorderBrush="#4DFFFFFF" BorderThickness="1"
                                       IsEnabled="{x:Bind Model.CanRateNowPlaying, Mode=OneWay}"
                                       IsChecked="{x:Bind Model.IsNowPlayingLiked, Mode=OneWay}"
                                       ToolTipService.ToolTip="{x:Bind Model.LikeLabel, Mode=OneWay}"
@@ -2226,7 +2226,7 @@
                                       Click="OnLikeNowPlaying" />
                         <!-- The song's own menu beside Like, as Music's full player has it. -->
                         <Button Grid.Column="2" x:Name="FullPlayerMoreButton" VerticalAlignment="Center"
-                                Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xE712;"
+                                Style="{StaticResource FullPlayerGlyphStyle}" Content="&#xE712;" Background="#26FFFFFF" BorderBrush="#4DFFFFFF" BorderThickness="1"
                                 IsEnabled="{x:Bind Model.HasPlayback, Mode=OneWay}"
                                 ToolTipService.ToolTip="More"
                                 AutomationProperties.Name="More options for this song"
@@ -2307,10 +2307,10 @@
                     <Grid x:Name="FullPlayerLyricsMaskHost" Margin="-16,0">
                         <ScrollViewer x:Name="FullPlayerLyricsScroller" VerticalScrollBarVisibility="Hidden">
                             <StackPanel x:Name="FullPlayerLyricsContent">
-                                <StackPanel x:Name="FullPlayerLyricsIntroduction" Orientation="Horizontal" HorizontalAlignment="Left" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind Model.LyricsIntroductionVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw">
-                                    <Ellipse Width="9" Height="9" Fill="White"/>
-                                    <Ellipse Width="9" Height="9" Fill="White"/>
-                                    <Ellipse Width="9" Height="9" Fill="White"/>
+                                <StackPanel x:Name="FullPlayerLyricsIntroduction" Orientation="Horizontal" HorizontalAlignment="Left" Height="48" Spacing="8.6" Opacity="0" Visibility="{x:Bind Model.LyricsIntroductionVisibility, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw">
+                                    <Ellipse Width="14.4" Height="14.4" Fill="White"/>
+                                    <Ellipse Width="14.4" Height="14.4" Fill="White"/>
+                                    <Ellipse Width="14.4" Height="14.4" Fill="White"/>
                                 </StackPanel>
                                 <ItemsControl x:Name="FullPlayerLyricsItems" ItemsSource="{x:Bind Model.Lyrics, Mode=OneWay}">
                                     <ItemsControl.ItemTemplate>
@@ -2324,16 +2324,16 @@
                                                     </Grid.RowDefinitions>
                                                     <Border Tag="hover" Grid.RowSpan="2" Margin="-10,-6" CornerRadius="10" Opacity="0" IsHitTestVisible="False" Background="White"/>
                                                     <Border Tag="glow" IsHitTestVisible="False"/>
-                                                    <TextBlock Text="{x:Bind Shown}" FontSize="30" FontWeight="Bold" TextWrapping="Wrap" HorizontalAlignment="Left" Loaded="OnFullLyricLineLoaded" Unloaded="OnFullLyricLineUnloaded"/>
-                                                    <StackPanel Tag="empty" Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Left" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind EmptyDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
-                                                        <Ellipse Width="9" Height="9" Fill="White"/>
-                                                        <Ellipse Width="9" Height="9" Fill="White"/>
-                                                        <Ellipse Width="9" Height="9" Fill="White"/>
+                                                    <TextBlock Text="{x:Bind Shown}" FontSize="48" FontWeight="Bold" TextWrapping="Wrap" HorizontalAlignment="Left" Loaded="OnFullLyricLineLoaded" Unloaded="OnFullLyricLineUnloaded"/>
+                                                    <StackPanel Tag="empty" Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Left" Height="48" Spacing="8.6" Opacity="0" Visibility="{x:Bind EmptyDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
+                                                        <Ellipse Width="14.4" Height="14.4" Fill="White"/>
+                                                        <Ellipse Width="14.4" Height="14.4" Fill="White"/>
+                                                        <Ellipse Width="14.4" Height="14.4" Fill="White"/>
                                                     </StackPanel>
-                                                    <StackPanel Tag="after" Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Left" Height="30" Spacing="5.4" Opacity="0" Visibility="{x:Bind AfterDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
-                                                        <Ellipse Width="9" Height="9" Fill="White"/>
-                                                        <Ellipse Width="9" Height="9" Fill="White"/>
-                                                        <Ellipse Width="9" Height="9" Fill="White"/>
+                                                    <StackPanel Tag="after" Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Left" Height="48" Spacing="8.6" Opacity="0" Visibility="{x:Bind AfterDotsVisibility}" AutomationProperties.AccessibilityView="Raw">
+                                                        <Ellipse Width="14.4" Height="14.4" Fill="White"/>
+                                                        <Ellipse Width="14.4" Height="14.4" Fill="White"/>
+                                                        <Ellipse Width="14.4" Height="14.4" Fill="White"/>
                                                     </StackPanel>
                                                 </Grid>
                                             </Button>
@@ -2346,9 +2346,11 @@
                                    AutomationProperties.AccessibilityView="Raw">
                             <Rectangle.Fill>
                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <!-- Music's fade: short under the top buttons, long toward the bottom edge. -->
                                     <GradientStop Color="#00000000" Offset="0" />
-                                    <GradientStop Color="#FF000000" Offset="0.14" />
-                                    <GradientStop Color="#FF000000" Offset="0.84" />
+                                    <GradientStop Color="#FF000000" Offset="0.16" />
+                                    <GradientStop Color="#FF000000" Offset="0.58" />
+                                    <GradientStop Color="#59000000" Offset="0.82" />
                                     <GradientStop Color="#00000000" Offset="1" />
                                 </LinearGradientBrush>
                             </Rectangle.Fill>
@@ -2365,8 +2367,12 @@
             <Border x:Name="FullPlayerDragStrip" Height="40" VerticalAlignment="Top" Background="Transparent"
                     Margin="0,0,260,0" />
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
-                        Margin="0,48,24,0" Spacing="6">
+            <!-- One clear-glass capsule, as Music draws its full-screen chrome: a light wash and rim
+                 over the background rather than an opaque plate. -->
+            <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,48,24,0"
+                    Padding="4" CornerRadius="26" Background="#26FFFFFF"
+                    BorderBrush="#4DFFFFFF" BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="6">
                 <Button Style="{StaticResource FullPlayerGlyphStyle}" Content="{x:Bind Model.VolumeGlyph, Mode=OneWay}"
                         ToolTipService.ToolTip="Volume" AutomationProperties.Name="Volume">
                     <Button.Flyout>
@@ -2401,6 +2407,7 @@
                         ToolTipService.ToolTip="Exit full-screen player (Esc)"
                         AutomationProperties.Name="Exit full-screen player" Click="OnCloseFullPlayer" />
             </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Window>

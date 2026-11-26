@@ -63,14 +63,6 @@ public class FullPlayerLayoutTests
         Assert.True(lyrics >= player || lyrics == FullPlayerLayout.LyricsMaxWidth);
     }
 
-    [Fact]
-    public void LyricsBesideTheCoverStopShortOfTheWindowsEdges()
-    {
-        Assert.Equal(700, FullPlayerLayout.LyricsMaxHeight(1000, FullPlayerMode.Split));
-        Assert.Equal(832, FullPlayerLayout.LyricsMaxHeight(1600, FullPlayerMode.Split));
-        Assert.Equal(double.PositiveInfinity, FullPlayerLayout.LyricsMaxHeight(1000, FullPlayerMode.Lyrics));
-    }
-
     [Theory]
     [InlineData(SeekKey.Back, 60, 55)]
     [InlineData(SeekKey.Forward, 60, 65)]

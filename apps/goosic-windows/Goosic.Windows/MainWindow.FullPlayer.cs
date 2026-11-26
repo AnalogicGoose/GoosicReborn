@@ -234,10 +234,12 @@ public sealed partial class MainWindow : Window
         Grid.SetRow(FullPlayerControls, lyricsOnly ? 1 : 0);
         Grid.SetRowSpan(FullPlayerControls, lyricsOnly ? 1 : 2);
         FullPlayerControls.VerticalAlignment = lyricsOnly ? VerticalAlignment.Bottom : VerticalAlignment.Center;
-        // Beside the cover the lyrics stop short of the window's top and bottom, clear of the
-        // buttons floating in its corner; alone they take the row they are given.
-        FullPlayerLyrics.MaxHeight = FullPlayerLayout.LyricsMaxHeight(RootGrid.ActualHeight, mode);
-        FullPlayerLyrics.VerticalAlignment = split ? VerticalAlignment.Center : VerticalAlignment.Stretch;
+        // Beside the cover the lyrics take the window's full height, as Music's do: they pass
+        // under the top buttons and fade out toward the bottom edge rather than stopping in a box
+        // above it. The negative margin undoes the layout's own top and bottom padding. Alone they
+        // take the row they are given, above the controls.
+        FullPlayerLyrics.VerticalAlignment = VerticalAlignment.Stretch;
+        FullPlayerLyrics.Margin = split ? new Thickness(0, -top, 0, -bottom) : new Thickness(0);
     }
 
     private void UpdateBackdrop() =>
