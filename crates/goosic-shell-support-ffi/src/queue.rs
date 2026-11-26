@@ -132,6 +132,19 @@ struct Failure {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChooseRelease {
+    current: Option<String>,
+    channel: String,
+    releases: Vec<goosic_shell_support::updates::ReleaseInfo>,
+}
+
+#[derive(Deserialize)]
+struct Channel {
+    channel: String,
+}
+
+#[derive(Deserialize)]
 struct Metadata {
     metadata: String,
 }
@@ -191,6 +204,24 @@ pub fn call_rule(name: &str, input: &str) -> Result<Value, String> {
             } = parse(input)?;
             let text = goosic_shell_support::catalog::failure_text(&code, &message, &subject);
             Ok(json!({ "title": text.title, "detail": text.detail }))
+        }
+        "chooseRelease" => {
+            use goosic_shell_support::updates::{choose_release, UpdateChannel};
+            let ChooseRelease {
+                current,
+                channel,
+                releases,
+            } = parse(input)?;
+            Ok(json!(choose_release(
+                current.as_deref(),
+                UpdateChannel::parse(&channel),
+                &releases
+            )))
+        }
+        "updateChannels" => {
+            use goosic_shell_support::updates::{sparkle_channels, UpdateChannel};
+            let Channel { channel } = parse(input)?;
+            Ok(json!(sparkle_channels(UpdateChannel::parse(&channel))))
         }
         "loginSummary" => {
             let Metadata { metadata } = parse(input)?;
@@ -309,6 +340,22 @@ mod tests {
                 r#"{"metadata":"{\"displayName\":\" Ada \",\"email\":\"ada@example.com\"}"}"#
             )["ok"]["displayName"],
             "Ada"
+        );
+        assert_eq!(
+            call(
+                "chooseRelease",
+                r#"{"current":"0.4.5","channel":"experimental","releases":[{"tag":"v0.4.6","prerelease":true},{"tag":"v0.4.5"}]}"#
+            )["ok"],
+            0
+        );
+        assert!(call(
+            "chooseRelease",
+            r#"{"current":"0.4.5","channel":"stable","releases":[{"tag":"v0.4.6","prerelease":true}]}"#
+        )["ok"]
+            .is_null());
+        assert_eq!(
+            call("updateChannels", r#"{"channel":"experimental"}"#)["ok"][0],
+            "experimental"
         );
         assert!(call("nope", "{}")["error"].as_str().is_some());
     }
