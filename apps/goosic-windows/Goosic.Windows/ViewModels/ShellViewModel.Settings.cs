@@ -181,13 +181,10 @@ public sealed partial class ShellViewModel
             StartPage = settings["startPage"]?.GetValue<string>() ?? "home";
             UpdateChannel = settings["updateChannel"]?.GetValue<string>() ?? "stable";
             LastRoute = settings["lastRoute"]?.GetValue<string>() ?? "home";
-            IsShuffled = settings["shuffle"]?.GetValue<bool>() ?? false;
-            Repeat = (settings["repeatMode"]?.GetValue<string>()) switch
-            {
-                "all" => RepeatMode.All,
-                "one" => RepeatMode.One,
-                _ => RepeatMode.Off,
-            };
+            ConfigureQueue(
+                settings["shuffle"]?.GetValue<bool>() ?? false,
+                ParseRepeat(settings["repeatMode"]?.GetValue<string>() ?? "off"),
+                Autoplay);
             _settingsLoaded = true;
             if (settings["volume"]?.GetValue<double>() is { } volume)
             {
@@ -247,6 +244,7 @@ public sealed partial class ShellViewModel
     internal Task SetAutoplayAsync(bool value)
     {
         Autoplay = value;
+        Dispatch(Command("setAutoplay", ("enabled", value)));
         return SaveAsync("autoplay", value);
     }
 
@@ -294,7 +292,7 @@ public sealed partial class ShellViewModel
     private void SaveQueueModes()
     {
         _ = SaveAsync("shuffle", IsShuffled);
-        _ = SaveAsync("repeatMode", Repeat switch { RepeatMode.All => "all", RepeatMode.One => "one", _ => "off" });
+        _ = SaveAsync("repeatMode", RepeatName(Repeat));
     }
 
     internal void ShowSettingsPage()
@@ -334,11 +332,7 @@ public sealed partial class ShellViewModel
         }
     }
 
-    private static string Short(double seconds)
-    {
-        var value = TimeSpan.FromSeconds(Math.Max(0, seconds));
-        return value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : $"{(int)value.TotalMinutes}:{value.Seconds:D2}";
-    }
+    private static string Short(double seconds) => PlaybackRules.TimeText(seconds);
 
     /// <summary>The cover on disk, larger when YouTube's servers have a larger one.</summary>
     internal async Task<string?> LargeArtworkFileAsync(string? thumbnail)
