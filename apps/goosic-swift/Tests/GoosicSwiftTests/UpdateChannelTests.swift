@@ -12,6 +12,30 @@ final class UpdateChannelTests: XCTestCase {
         XCTAssertEqual(SharedRules.updateChannels("nonsense"), [])
     }
 
+    func testEarlyManualChecksWaitForChannelOrFallback() async {
+        await MainActor.run {
+            let suite = "com.goosic.tests.update-channel." + UUID().uuidString
+            let defaults = UserDefaults(suiteName: suite)!
+            defer { defaults.removePersistentDomain(forName: suite) }
+            for useFallback in [false, true] {
+                defaults.set("experimental", forKey: "GoosicUpdateChannel")
+                let updater = NativeMacUpdater(defaults: defaults, createController: false)
+                updater.check()
+                updater.check()
+                XCTAssertTrue(updater.manualCheckPending)
+                if useFallback {
+                    updater.start()
+                } else {
+                    updater.syncPersistedChannel("stable")
+                }
+                XCTAssertEqual(updater.channel, useFallback ? "experimental" : "stable")
+                XCTAssertFalse(updater.manualCheckPending)
+                updater.check()
+                XCTAssertFalse(updater.manualCheckPending)
+            }
+        }
+    }
+
     func testPersistedChannelReconcilesStaleCachedExperimentalBackToStable() async {
         let suiteName = "com.goosic.tests.update-channel.\(UUID().uuidString)"
         let (initialChannel, reconciledChannel, storedChannel) = await MainActor.run { () -> (String, String, String?) in

@@ -21,6 +21,7 @@ final class NativeMacUpdater: NSObject {
     private static let channelKey = "GoosicUpdateChannel"
     private let defaults: UserDefaults
     private var hasStarted = false
+    private(set) var manualCheckPending = false
 
     #if canImport(Sparkle)
     private var controller: SPUStandardUpdaterController?
@@ -53,17 +54,23 @@ final class NativeMacUpdater: NSObject {
 
     func start() {
         guard !hasStarted else { return }
-        #if canImport(Sparkle)
-        guard isAvailable else { return }
         hasStarted = true
-        controller?.startUpdater()
+        #if canImport(Sparkle)
+        if isAvailable { controller?.startUpdater() }
         #endif
+        if manualCheckPending {
+            manualCheckPending = false
+            check()
+        }
     }
 
     func check() {
+        guard hasStarted else {
+            manualCheckPending = true
+            return
+        }
         #if canImport(Sparkle)
         guard isAvailable else { return }
-        if !hasStarted { start() }
         controller?.updater.checkForUpdates()
         #endif
     }
