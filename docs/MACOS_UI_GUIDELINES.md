@@ -21,6 +21,14 @@ When controls supply their own glass, hide the additional shared toolbar backing
 supports it. Preserve native titlebar dragging; a slider placed in that region must own its
 interaction rather than moving the window. SF Symbols use aligned visual and hit canvases.
 
+Full screen looks the same as a window. There AppKit moves the title bar and toolbar into a
+separate toolbar window and fills each column's title-bar background with an opaque window
+colour, ignoring `titlebarAppearsTransparent` and the hidden toolbar background, which drew a
+solid band across the top of the catalog and the full player. The shell fades those background
+views out after the window enters full screen, so the page and the full player's background run
+under the floating controls exactly as they do in a window; the controls themselves stay where
+they are, always visible, rather than hiding with the menu bar.
+
 ## Layout and interaction
 
 The native NavigationSplitView owns navigation and the detail toolbar. The existing inspector
@@ -74,8 +82,8 @@ re-export the PNGs from it, so the two never describe different icons.
 
 ## Verification
 
-Use the shared acceptance matrix in UI_DESIGN.md. Also inspect native titlebar/toolbar behavior,
-light browser versus dark full-player chrome, Liquid Glass and older-material paths, and an open
+Use the shared acceptance matrix in UI_DESIGN.md. Also inspect native titlebar/toolbar behavior
+in a window and in full screen (the green button), light browser versus dark full-player chrome, Liquid Glass and older-material paths, and an open
 inspector at the smallest supported window. Check the packaged app's icon in the Dock and Finder
 under each icon style in System Settings → Appearance (Default, Dark, Clear, Tinted), since only
 a bundle shows it; `swift run` does not. Do not treat a Swift build as a visual check. When

@@ -739,7 +739,8 @@ private struct NativeMacRootView: SwiftUI.View {
 
 /// The toolbar draws no background of its own, so the catalog scrolls under it and the sidebar
 /// column reads as one continuous surface from the traffic lights down. A visible toolbar bar
-/// is what split the sidebar into a titlebar band and a list band.
+/// is what split the sidebar into a titlebar band and a list band. In macOS full screen this
+/// setting does not reach the separate toolbar window; `NativeMacFullScreenTitlebar` covers that.
 private struct NativeMacTransparentToolbar: SwiftUI.ViewModifier {
     @SwiftUI.ViewBuilder
     func body(content: Content) -> some SwiftUI.View {
@@ -794,17 +795,24 @@ private struct NativeMacArtworkBackdrop: SwiftUI.View {
 }
 
 private struct NativeMacWindowChrome: NSViewRepresentable {
+    func makeCoordinator() -> NativeMacFullScreenTitlebar { NativeMacFullScreenTitlebar() }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { configure(view.window) }
+        let titlebar = context.coordinator
+        DispatchQueue.main.async { configure(view.window, titlebar) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        configure(nsView.window)
+        configure(nsView.window, context.coordinator)
     }
 
-    private func configure(_ window: NSWindow?) {
+    static func dismantleNSView(_ nsView: NSView, coordinator: NativeMacFullScreenTitlebar) {
+        coordinator.stop()
+    }
+
+    private func configure(_ window: NSWindow?, _ titlebar: NativeMacFullScreenTitlebar) {
         guard let window else { return }
         // Only what differs is written. This runs on every SwiftUI update, and setting a
         // window property to the value it already has still asks AppKit for another layout
@@ -812,6 +820,75 @@ private struct NativeMacWindowChrome: NSViewRepresentable {
         if !window.titlebarAppearsTransparent { window.titlebarAppearsTransparent = true }
         if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
         if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+        titlebar.watch(window)
+    }
+}
+
+/// Keeps the title bar transparent in macOS full screen, as it is in a window.
+///
+/// In full screen AppKit moves the title bar and toolbar out of the window into a separate
+/// toolbar window, and there it fills each split-view column's title-bar background with an
+/// opaque window colour, ignoring `titlebarAppearsTransparent` and SwiftUI's
+/// `toolbarBackgroundVisibility(.hidden)`. That fill was a solid band about 52 points tall
+/// across the top of the catalog and the full player, under controls that are meant to float
+/// on the page. In a window AppKit hides those same background views; full screen should look
+/// the same, so this fades them out once the window has entered full screen.
+///
+/// It fades rather than hides them because AppKit sets `isHidden` back on every titlebar
+/// relayout (opening the full player is one), without going through anything observable, while
+/// it leaves the alpha alone. The views are found from the close button, whose title bar moves
+/// into the toolbar window with them. Matching the background view by class name is the one
+/// assumption on AppKit's private layout: if a later macOS renames it, nothing matches and the
+/// band comes back, but nothing else changes.
+@MainActor
+final class NativeMacFullScreenTitlebar {
+    private static let backgroundClassName = "NSTitlebarBackgroundView"
+
+    private weak var window: NSWindow?
+    private var observers: [NSObjectProtocol] = []
+
+    func watch(_ window: NSWindow) {
+        if window !== self.window {
+            stop()
+            self.window = window
+            let center = NotificationCenter.default
+            observers = [
+                center.addObserver(
+                    forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.setBackgroundAlpha(0) }
+                },
+                // After the exit, not before it: restoring during the exit animation would show
+                // the band for its duration. Back in the window, AppKit hides the views again.
+                center.addObserver(
+                    forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.setBackgroundAlpha(1) }
+                },
+            ]
+        }
+        // Applied again on every update while in full screen, in case AppKit rebuilt the title
+        // bar since the enter notification. Views already faded are left untouched.
+        if window.styleMask.contains(.fullScreen) { setBackgroundAlpha(0) }
+    }
+
+    func stop() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        window = nil
+    }
+
+    private func setBackgroundAlpha(_ alpha: CGFloat) {
+        guard let window,
+              let container = window.standardWindowButton(.closeButton)?.superview?.superview
+        else { return }
+        // Only ever cleared in the full-screen toolbar window, never in the window itself.
+        if alpha < 1 && container.window === window { return }
+        for view in container.subviews
+        where NSStringFromClass(type(of: view)) == Self.backgroundClassName
+            && view.alphaValue != alpha {
+            view.alphaValue = alpha
+        }
     }
 }
 

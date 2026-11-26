@@ -164,6 +164,35 @@ pub const AUTOMIX_OFF_SCRIPT: &str = r#"(() => {
 /// How many times, half a second apart, a host looks for the Automix switch after a load.
 pub const AUTOMIX_ATTEMPTS: u32 = 40;
 
+/// Sets the official page's Song/Video switch to Song, reporting what it found.
+///
+/// A song that has both an audio version and a music video plays whichever the page's switch
+/// prefers, and the page swaps the requested id for the other version before it starts. With the
+/// switch on Video, a song chosen from a search was swapped for its music video, and the video
+/// could be swapped back again, which the shells took for a refusal. Goosic plays the song, as
+/// the web app does when Song is chosen, so a host runs this after each load until it answers
+/// `song`, `switched` or `no song version`, for a few seconds. The switch is disabled when a
+/// track has only one version, and a video with no song version keeps playing as a video.
+///
+/// It answers `absent`, `song`, `switched`, `pending` or `no song version`.
+pub const SONG_VERSION_SCRIPT: &str = r#"(() => {
+  const toggle = document.querySelector('ytmusic-av-toggle');
+  const song = toggle?.querySelector('.song-button');
+  if (!song) return 'absent';
+  if (song.getAttribute('aria-pressed') === 'true') return 'song';
+  if (toggle.hasAttribute('toggle-disabled')) return 'no song version';
+  song.click();
+  return song.getAttribute('aria-pressed') === 'true' ? 'switched' : 'pending';
+})()"#;
+
+/// Whether a host stops running [`SONG_VERSION_SCRIPT`] after this answer.
+pub fn song_version_settled(answer: &str) -> bool {
+    matches!(answer, "song" | "switched" | "no song version")
+}
+
+/// How many times, half a second apart, a host runs [`SONG_VERSION_SCRIPT`] after a load.
+pub const SONG_VERSION_ATTEMPTS: u32 = 20;
+
 /// Picks the media element that is actually playing, rather than whichever audio or video tag
 /// came first in the page: YouTube Music can keep a paused element while it swaps in the one
 /// carrying the next track or an advertisement. An expression; the observer below uses the same
@@ -482,6 +511,39 @@ mod tests {
             !AUTOMIX_OFF_SCRIPT.contains("location"),
             "it never navigates"
         );
+    }
+
+    #[test]
+    fn song_version_script_only_presses_song_and_says_what_it_did() {
+        assert!(SONG_VERSION_SCRIPT.contains("ytmusic-av-toggle"));
+        assert!(SONG_VERSION_SCRIPT.contains(".song-button"));
+        assert!(
+            !SONG_VERSION_SCRIPT.contains("video-button"),
+            "it never picks the video"
+        );
+        assert!(
+            !SONG_VERSION_SCRIPT.contains("location"),
+            "it never navigates"
+        );
+        for answer in [
+            "'absent'",
+            "'song'",
+            "'switched'",
+            "'pending'",
+            "'no song version'",
+        ] {
+            assert!(SONG_VERSION_SCRIPT.contains(answer), "{answer}");
+        }
+    }
+
+    #[test]
+    fn a_host_keeps_trying_only_until_the_switch_has_answered() {
+        for answer in ["song", "switched", "no song version"] {
+            assert!(song_version_settled(answer), "{answer}");
+        }
+        for answer in ["absent", "pending", ""] {
+            assert!(!song_version_settled(answer), "{answer}");
+        }
     }
 
     /// Exactly the shape `observer_script` posts.

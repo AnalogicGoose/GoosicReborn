@@ -97,22 +97,45 @@ struct References {
     album: Option<(String, String)>,
 }
 
+/// Reads the artist and album a byline links to.
+///
+/// A song with several artists names them all in one segment of the byline, as
+/// "Drake & Majid Jordan" or "A, B & C", and links each artist that has a page; one without a
+/// page is plain text inside the same segment. Keeping only the first link turned every
+/// collaboration into a solo song, so the artist is the whole segment that holds the first
+/// artist link, while its id stays the first artist's, which is where its button leads.
 fn references(nodes: &[&Value]) -> References {
     let mut refs = References::default();
     for node in nodes {
+        // The byline's segments are separated by "•", usually a run of its own but sometimes
+        // inside a longer plain run such as " • Album • 2026".
+        let mut segment = String::new();
+        let mut segment_artist: Option<String> = None;
+        fn close(segment: &mut String, artist: &mut Option<String>, refs: &mut References) {
+            if let (Some(id), None) = (artist.take(), &refs.artist) {
+                let name = segment.trim();
+                if !name.is_empty() {
+                    refs.artist = Some((name.to_owned(), id));
+                }
+            }
+            segment.clear();
+        }
         for run in json::runs(node) {
             let Some(text) = run.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let Some(endpoint) = run.get("navigationEndpoint") else {
-                continue;
-            };
-            let Some(destination) = destination(endpoint) else {
+            let mut pieces = text.split('•');
+            segment.push_str(pieces.next().unwrap_or_default());
+            for piece in pieces {
+                close(&mut segment, &mut segment_artist, &mut refs);
+                segment.push_str(piece);
+            }
+            let Some(destination) = run.get("navigationEndpoint").and_then(destination) else {
                 continue;
             };
             match destination.kind {
-                Some(CatalogItemKind::Artist) if refs.artist.is_none() => {
-                    refs.artist = Some((text.to_owned(), destination.browse_id));
+                Some(CatalogItemKind::Artist) if segment_artist.is_none() => {
+                    segment_artist = Some(destination.browse_id);
                 }
                 Some(CatalogItemKind::Album) if refs.album.is_none() => {
                     refs.album = Some((text.to_owned(), destination.browse_id));
@@ -120,6 +143,7 @@ fn references(nodes: &[&Value]) -> References {
                 _ => {}
             }
         }
+        close(&mut segment, &mut segment_artist, &mut refs);
     }
     refs
 }
@@ -1164,6 +1188,64 @@ mod tests {
             Some("https://example.test/art.jpg")
         );
         assert!(item.explicit);
+    }
+
+    fn artist_run(name: &str, id: &str) -> Value {
+        json!({
+            "text": name,
+            "navigationEndpoint": {"browseEndpoint": {
+                "browseId": id,
+                "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}
+                }
+            }}
+        })
+    }
+
+    fn row_with_byline(runs: Vec<Value>) -> Value {
+        let mut row = song_row();
+        row["flexColumns"][1] = flex(json!({ "runs": runs }));
+        row
+    }
+
+    #[test]
+    fn a_collaboration_keeps_every_artist_and_leads_to_the_first() {
+        let item = responsive_item(&row_with_byline(vec![
+            json!({"text": "Song"}),
+            json!({"text": " • "}),
+            artist_run("Drake", "UCdrake"),
+            json!({"text": " & "}),
+            artist_run("Majid Jordan", "UCmajid"),
+            json!({"text": " • "}),
+            json!({"text": "3:48"}),
+        ]))
+        .expect("row parses");
+        assert_eq!(item.artist.as_deref(), Some("Drake & Majid Jordan"));
+        assert_eq!(item.artist_id.as_deref(), Some("UCdrake"));
+    }
+
+    #[test]
+    fn an_artist_without_a_page_stays_in_the_byline() {
+        let item = responsive_item(&row_with_byline(vec![
+            artist_run("Drake", "UCdrake"),
+            json!({"text": ", Future & Some Producer"}),
+            json!({"text": " • 2016"}),
+        ]))
+        .expect("row parses");
+        assert_eq!(
+            item.artist.as_deref(),
+            Some("Drake, Future & Some Producer")
+        );
+    }
+
+    #[test]
+    fn a_separator_inside_a_plain_run_still_ends_the_artist() {
+        let item = responsive_item(&row_with_byline(vec![
+            artist_run("Signal Fires", "UCartist"),
+            json!({"text": " • Album • 2026"}),
+        ]))
+        .expect("row parses");
+        assert_eq!(item.artist.as_deref(), Some("Signal Fires"));
     }
 
     #[test]
