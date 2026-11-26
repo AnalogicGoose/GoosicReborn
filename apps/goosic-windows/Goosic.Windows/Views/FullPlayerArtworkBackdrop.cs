@@ -218,18 +218,19 @@ internal sealed class FullPlayerArtworkBackdrop : Grid
             SourceRectangle = new global::Windows.Foundation.Rect(0, 0, Side, Side),
         };
         using var blur = new GaussianBlurEffect { Source = clipped, BlurAmount = 8, BorderMode = EffectBorderMode.Hard };
-        using var colour = new SaturationEffect { Source = blur, Saturation = 1.5f };
+        using var colour = new SaturationEffect { Source = blur, Saturation = 1.9f };
         using var bounded = new ColorMatrixEffect { Source = colour, ClampOutput = true };
-        // Lift midtones without letting the highlights compete with the player text.
+        // Lift midtones and cap highlights near four fifths of full brightness, as bright as
+        // Music runs its field; a ceiling near half (117) made every cover a brown wash.
         using var grade = new GammaTransferEffect
         {
             Source = bounded,
-            RedAmplitude = 117f / 255,
-            GreenAmplitude = 117f / 255,
-            BlueAmplitude = 117f / 255,
-            RedExponent = 0.66f,
-            GreenExponent = 0.66f,
-            BlueExponent = 0.66f,
+            RedAmplitude = 204f / 255,
+            GreenAmplitude = 204f / 255,
+            BlueAmplitude = 204f / 255,
+            RedExponent = 0.85f,
+            GreenExponent = 0.85f,
+            BlueExponent = 0.85f,
             AlphaDisable = true,
         };
         using (var session = target.CreateDrawingSession())
