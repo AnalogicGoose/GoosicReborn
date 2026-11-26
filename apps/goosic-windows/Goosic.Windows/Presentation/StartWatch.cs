@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 
 namespace Goosic.Windows.Presentation;
 
@@ -27,32 +28,32 @@ internal enum StartWatchAction
 /// page reports "paused" for all of those, exactly as it does for a track the listener paused,
 /// so without a deadline the player sat on an empty track and the click looked like it did
 /// nothing. A page that is merely slow reports "playing" while it buffers, which ends the watch.
+/// The rule lives in goosic-shell-support, so the Mac, which had no deadline at all, follows the
+/// same one.
 /// </remarks>
 internal static class StartWatch
 {
-    /// <summary>How long a loaded page may sit paused before it is asked, once, to play.</summary>
-    internal static readonly TimeSpan NudgeAfter = TimeSpan.FromSeconds(4);
+    [DllImport("goosic_shell_support_ffi", EntryPoint = "goosic_start_watch")]
+    private static extern byte DecideRaw(
+        double sinceLoadedSeconds,
+        [MarshalAs(UnmanagedType.I1)] bool heardPlaying,
+        [MarshalAs(UnmanagedType.I1)] bool listenerTookOver,
+        [MarshalAs(UnmanagedType.I1)] bool nudged);
 
-    /// <summary>How long a loaded page may go without playing before the track is given up on.</summary>
-    internal static readonly TimeSpan GiveUpAfter = TimeSpan.FromSeconds(20);
-
+    /// <summary>
+    /// <c>start_watch</c> in goosic-shell-support, which the Mac asks too: wait, ask the page to
+    /// play once after a few seconds, give up after twenty.
+    /// </summary>
     /// <param name="sinceLoaded">Time since the page finished loading for this request.</param>
     /// <param name="heardPlaying">Whether the page has reported playing, content or advertisement.</param>
     /// <param name="listenerTookOver">Whether the listener pressed Play or Pause since the load.</param>
     /// <param name="nudged">Whether the page has already been asked to play.</param>
-    internal static StartWatchAction Decide(TimeSpan sinceLoaded, bool heardPlaying, bool listenerTookOver, bool nudged)
-    {
-        // A pause the listener chose is theirs to end, and a track that has played has started.
-        if (heardPlaying || listenerTookOver)
+    internal static StartWatchAction Decide(TimeSpan sinceLoaded, bool heardPlaying, bool listenerTookOver, bool nudged) =>
+        DecideRaw(sinceLoaded.TotalSeconds, heardPlaying, listenerTookOver, nudged) switch
         {
-            return StartWatchAction.Done;
-        }
-
-        if (sinceLoaded >= GiveUpAfter)
-        {
-            return StartWatchAction.GiveUp;
-        }
-
-        return !nudged && sinceLoaded >= NudgeAfter ? StartWatchAction.Nudge : StartWatchAction.Wait;
-    }
+            1 => StartWatchAction.Nudge,
+            2 => StartWatchAction.GiveUp,
+            3 => StartWatchAction.Done,
+            _ => StartWatchAction.Wait,
+        };
 }

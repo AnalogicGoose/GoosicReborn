@@ -346,6 +346,11 @@ layout may wrap persistent controls or omit secondary transport from its first r
 keeping its actions available. Lyrics and Queue remain visible in normal narrow layouts.
 Do not silently drop them to make the bar fit. The idle state says Nothing playing and invites
 choosing a track; it does not invent progress or leave a permanent preparation spinner.
+While a requested track has not yet been heard, or the page reports it buffering, a progress
+indicator takes Play/Pause's place in both the main and the full player; the button keeps working,
+so a loading track can still be paused, and a pause the listener chose always shows as paused.
+The indicator ends with the start watch (`playback::shows_loading` and `playback::start_watch`
+in `goosic-shell-support`), so it can never become the permanent spinner forbidden above.
 
 The timeline is restrained during listening. Hover or scrubbing can reveal elapsed/remaining
 time and a thicker track without enlarging the whole bar. Drag sends a bounded seek operation;

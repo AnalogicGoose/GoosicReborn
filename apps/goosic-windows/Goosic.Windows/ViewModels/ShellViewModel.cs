@@ -959,10 +959,40 @@ public sealed partial class ShellViewModel : INotifyPropertyChanged
     public string PlayPauseGlyph => IsPlaying ? "\uE769" : "\uE768";
 
     public Microsoft.UI.Xaml.Visibility PlayIconVisibility =>
-        IsPlaying ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+        !IsLoading && !IsPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public Microsoft.UI.Xaml.Visibility PauseIconVisibility =>
-        IsPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+        !IsLoading && IsPlaying ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    private bool _isLoading;
+
+    /// <summary>
+    /// Whether the player is waiting to hear a requested track, or the page reports it buffering.
+    /// </summary>
+    /// <remarks>
+    /// Shown as a ring in Play's place, as on the Mac; the button still works, so a track that is
+    /// still loading can be paused. The host decides it with the shared rule and ends it with the
+    /// start watch, so it can never become a permanent preparation spinner.
+    /// </remarks>
+    public bool IsLoading
+    {
+        get => _isLoading;
+        private set
+        {
+            if (Set(ref _isLoading, value))
+            {
+                OnPropertyChanged(nameof(PlayIconVisibility));
+                OnPropertyChanged(nameof(PauseIconVisibility));
+                OnPropertyChanged(nameof(LoadingVisibility));
+            }
+        }
+    }
+
+    public Microsoft.UI.Xaml.Visibility LoadingVisibility =>
+        IsLoading ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    /// <summary>The playback host's loading indicator changed.</summary>
+    internal void ReportLoading(bool loading) => IsLoading = loading;
 
     public string PlayPauseLabel => IsPlaying ? "Pause" : "Play";
 
