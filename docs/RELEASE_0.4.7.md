@@ -11,8 +11,8 @@ whose update channel, in Settings since 0.4.6, is set to Experimental. Copies on
 
 Search starts a station.
 
-Playing a song from search, a shelf or an artist page now starts a station from it on both
-platforms, and an album or playlist plays in order. Up Next, shuffle, repeat, radio, Clear and
+Playing a song from search or a shelf now starts a station from it on both platforms, and an
+album, a playlist or an artist's songs play in order. Up Next, shuffle, repeat, radio, Clear and
 Undo are decided by one shared engine instead of two copies that had drifted apart, which is
 why a search result on the Mac used to queue only the songs beside it.
 
@@ -32,7 +32,8 @@ The song picks up where it was.
 
 When an advertisement ends and leaves the song paused, Goosic now asks it to play again on
 Windows too, once, and never against your own pause. A song also has to be heard playing before
-its end can move the queue on, on both platforms.
+its end can move the queue on, on both platforms, and a song played again after it finished moves
+the queue on again when it ends.
 
 ## What still needs a live check
 

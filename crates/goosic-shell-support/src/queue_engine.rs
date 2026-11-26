@@ -364,9 +364,8 @@ pub struct QueueEngine {
     revision: u64,
     next_entry: u64,
     next_request: u64,
-    /// Bumped by every Play effect, so one end is acted on once.
+    /// Bumped by every Play effect, so a radio page answers the play that asked for it.
     play_sequence: u64,
-    end_handled: Option<u64>,
     rng: u64,
 }
 
@@ -405,7 +404,6 @@ impl QueueEngine {
             next_entry: 1,
             next_request: 1,
             play_sequence: 0,
-            end_handled: None,
             // Zero would stick xorshift at zero forever.
             rng: seed | 1,
         }
@@ -424,7 +422,7 @@ impl QueueEngine {
                 self.repeat = repeat;
                 self.autoplay = autoplay;
             }
-            Command::SetRadioAccount { account_id } => self.radio_account = account_id,
+            Command::SetRadioAccount { account_id } => self.set_radio_account(&mut out, account_id),
             Command::Launch {
                 tracks,
                 start,
@@ -658,11 +656,12 @@ impl QueueEngine {
     }
 
     fn ended(&mut self, out: &mut Output) {
-        if self.current.is_none() || self.end_handled == Some(self.play_sequence) {
-            // The player reports the end more than once; only the first counts.
+        // Whether an end is real, and the first for this hearing, is the shell's `EndGuard`:
+        // only the shell sees the samples that show a song heard again after it ended, so a
+        // once-per-play latch here would swallow the end of a replay.
+        if self.current.is_none() {
             return;
         }
-        self.end_handled = Some(self.play_sequence);
         if self.sleep_at_end {
             // "End of this song" is honoured exactly where a natural end would otherwise advance.
             self.sleep_at_end = false;
@@ -725,6 +724,28 @@ impl QueueEngine {
 
     // ---- Radio -------------------------------------------------------------------------------
 
+    /// A station reads one account's recommendations. When the account changes, a personal
+    /// station starts over from its seed for the new reader: its cursor means nothing to them,
+    /// and a top-up sent with the old account would fail on every skip.
+    fn set_radio_account(&mut self, out: &mut Output, account_id: Option<String>) {
+        self.radio_account = account_id;
+        let account = self.radio_account.clone();
+        let Some(station) = self.station.as_ref() else {
+            return;
+        };
+        if station.usable_with(account.as_deref()) {
+            return;
+        }
+        self.station = Some(Station::new(station.seed.clone(), account));
+        self.station_revision += 1;
+        let was_asking = self.pending_radio.take().is_some();
+        self.revision += 1;
+        if was_asking || self.awaiting_more == Some(self.play_sequence) {
+            // The old account's page will be ignored when it lands; ask the new one instead.
+            self.request_radio(out);
+        }
+    }
+
     /// Keeps a few recommendations ahead of the song playing, so Next never waits.
     fn top_up(&mut self, out: &mut Output) {
         if self.station.as_ref().is_some_and(Station::can_load_more)
@@ -739,10 +760,11 @@ impl QueueEngine {
         if self.pending_radio.is_some() {
             return;
         }
+        let account = self.radio_account.clone();
         let Some(station) = self
             .station
             .as_ref()
-            .filter(|station| station.can_load_more())
+            .filter(|station| station.can_load_more() && station.usable_with(account.as_deref()))
         else {
             return;
         };
