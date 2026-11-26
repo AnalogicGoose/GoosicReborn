@@ -115,7 +115,7 @@ enum QueueCommand {
     case configure(shuffle: Bool, repeatMode: RepeatMode, autoplay: Bool)
     case setRadioAccount(String?)
     case launch(tracks: [GoosicTrack], start: Int?, kind: LaunchKind, sourceTitle: String?,
-                sourceKey: String?, shuffle: Bool)
+                sourceKey: String?, shuffle: Bool?)
     case startRadio(GoosicTrack)
     case next
     case previous(position: Double)
@@ -160,7 +160,7 @@ enum QueueCommand {
             object = ["type": "launch", "tracks": tracks.map { QueueTrackRef($0).json },
                       "start": start ?? NSNull(), "kind": kind.rawValue,
                       "sourceTitle": title ?? NSNull(), "sourceKey": key ?? NSNull(),
-                      "shuffle": shuffle]
+                      "shuffle": shuffle ?? NSNull()]
         case .startRadio(let track):
             object = ["type": "startRadio", "track": QueueTrackRef(track).json]
         case .next: object = ["type": "next"]

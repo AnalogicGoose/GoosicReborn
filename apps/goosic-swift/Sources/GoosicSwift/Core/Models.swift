@@ -541,7 +541,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Fills the queue for a fixture without loading anything: the engine's effects are dropped.
     func adoptFixtureQueue(_ tracks: [GoosicTrack], current: Int) {
         let command = QueueCommand.launch(tracks: tracks, start: current, kind: .ordered,
-                                          sourceTitle: nil, sourceKey: nil, shuffle: false)
+                                          sourceTitle: nil, sourceKey: nil, shuffle: nil)
         applyQueue(sharedQueue.handle(command), carrying: tracks)
     }
 
@@ -2841,7 +2841,7 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     private func launchList(
         _ tracks: [GoosicTrack], start: Int?, kind: LaunchKind, source: QueueSource?,
-        shuffle: Bool = false
+        shuffle: Bool? = nil
     ) {
         let keyID = source?.key.map { "\($0)" }
         if let keyID, let key = source?.key { queueSourceKeys[keyID] = key }

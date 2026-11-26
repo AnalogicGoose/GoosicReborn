@@ -73,7 +73,7 @@ final class SharedQueueTests: XCTestCase {
         let tracks = ["dumbai", "dubai", "other"].map(Self.track)
         let outcome = queue.handle(.launch(
             tracks: tracks, start: 0, kind: SharedRules.launchKind(for: .search),
-            sourceTitle: "Songs", sourceKey: nil, shuffle: false))
+            sourceTitle: "Songs", sourceKey: nil, shuffle: nil))
         XCTAssertEqual(outcome.snapshot.entries.count, 1)
         XCTAssertEqual(outcome.added.map(\.input), [0])
         XCTAssertEqual(outcome.snapshot.sourceTitle, "Song dumbai radio")
@@ -91,7 +91,7 @@ final class SharedQueueTests: XCTestCase {
         let outcome = queue.handle(.launch(
             tracks: ["a", "b", "c"].map(Self.track), start: 1,
             kind: SharedRules.launchKind(for: .album), sourceTitle: "Album", sourceKey: "k",
-            shuffle: false))
+            shuffle: nil))
         XCTAssertEqual(outcome.snapshot.current, 1)
         XCTAssertEqual(outcome.snapshot.upNextText, "From Album · 1 song")
         let toggled = queue.handle(.toggleShuffle)
