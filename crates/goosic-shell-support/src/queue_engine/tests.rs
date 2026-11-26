@@ -19,7 +19,7 @@ fn ordered(engine: &mut QueueEngine, ids: &[&str], start: Option<usize>) -> Outc
         kind: LaunchKind::Ordered,
         source_title: Some("Album".into()),
         source_key: Some("album:1".into()),
-        shuffle: false,
+        shuffle: None,
     })
 }
 
@@ -117,7 +117,7 @@ fn a_search_result_starts_a_station_from_that_song_alone() {
         kind: launch_kind_for(LaunchSurface::Search),
         source_title: Some("Songs".into()),
         source_key: Some("search:dumbai".into()),
-        shuffle: false,
+        shuffle: None,
     });
     assert_eq!(video_ids(&engine), ["dumbai"]);
     assert_eq!(
@@ -507,11 +507,52 @@ fn a_shuffle_play_button_turns_shuffle_on_and_starts_anywhere() {
         kind: LaunchKind::Ordered,
         source_title: None,
         source_key: None,
-        shuffle: true,
+        shuffle: Some(true),
     });
     assert!(outcome.snapshot.shuffle);
     assert_eq!(outcome.snapshot.current, Some(0));
     assert!(played_video(&engine, &outcome).is_some());
+    assert!(
+        outcome.effects.contains(&Effect::SavePreferences {
+            shuffle: true,
+            repeat: RepeatMode::Off
+        }),
+        "the button changed the preference, so it is stored"
+    );
+}
+
+#[test]
+fn a_play_button_plays_in_order_and_a_row_keeps_the_preference() {
+    let mut engine = engine();
+    engine.handle(Command::Configure {
+        shuffle: true,
+        repeat: RepeatMode::Off,
+        autoplay: true,
+    });
+    let launch = |shuffle| Command::Launch {
+        tracks: tracks(&["a", "b", "c", "d"]),
+        start: None,
+        kind: LaunchKind::Ordered,
+        source_title: None,
+        source_key: None,
+        shuffle,
+    };
+    let played = engine.handle(launch(Some(false)));
+    assert!(!played.snapshot.shuffle);
+    assert_eq!(video_ids(&engine), ["a", "b", "c", "d"]);
+    assert_eq!(playing(&engine).as_deref(), Some("a"));
+    assert!(played
+        .effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::SavePreferences { shuffle: false, .. })));
+
+    engine.handle(Command::ToggleShuffle);
+    let row = engine.handle(launch(None));
+    assert!(row.snapshot.shuffle, "a row leaves the preference alone");
+    assert!(!row
+        .effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::SavePreferences { .. })));
 }
 
 #[test]

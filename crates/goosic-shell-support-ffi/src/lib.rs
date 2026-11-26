@@ -354,6 +354,9 @@ mod header_tests {
                 );
             }
         }
-        assert!(exported > 15, "found only {exported} exports; the scan is broken");
+        assert!(
+            exported > 15,
+            "found only {exported} exports; the scan is broken"
+        );
     }
 }
