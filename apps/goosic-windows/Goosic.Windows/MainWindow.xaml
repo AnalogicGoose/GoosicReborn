@@ -624,6 +624,16 @@
                             <TextBlock Style="{StaticResource SettingsGroupHeaderStyle}" Text="Updates" />
                             <Border Style="{StaticResource SettingsGroupStyle}">
                                 <StackPanel>
+                                    <views:SettingsRow Glyph="&#xE7C1;" Tile="#FFFF9F0A" Title="Update channel"
+                                                       Description="Stable gets tested releases. Experimental gets pre-releases with new features first.">
+                                        <ComboBox x:Name="UpdateChannelChoice" MinWidth="160"
+                                                  AutomationProperties.Name="Update channel"
+                                                  SelectionChanged="OnUpdateChannelChanged">
+                                            <ComboBoxItem Content="Stable" Tag="stable" />
+                                            <ComboBoxItem Content="Experimental" Tag="experimental" />
+                                        </ComboBox>
+                                    </views:SettingsRow>
+                                    <Rectangle Style="{StaticResource SettingsSeparatorStyle}" />
                                     <views:SettingsRow Glyph="&#xE895;" Tile="#FF8E8E93" Title="Software update"
                                                        Description="New versions come from GitHub Releases">
                                         <StackPanel Orientation="Horizontal" Spacing="8">
