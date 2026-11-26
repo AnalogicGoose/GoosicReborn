@@ -14,7 +14,7 @@ set -eu
 
 test "$(uname -s)" = Darwin || { echo "macOS app bundles are built on macOS" >&2; exit 2; }
 
-version=${1:-0.4.7}
+version=${1:-0.4.7-beta.2}
 version=${version#v}
 # Versions follow Apple's scheme: x.y.z is a release and x.y.z-beta.N its Nth beta. Finder's
 # bundle version is the numeric x.y.z either way; the beta lives in the build number.
