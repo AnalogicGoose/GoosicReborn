@@ -2837,7 +2837,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     func launch(_ tracks: [GoosicTrack], shuffled: Bool, source: QueueSource?) {
         guard canChangeTrack(), !tracks.isEmpty else { return }
         pauseAfterRadio = false
-        launchList(tracks, start: shuffled ? nil : 0, kind: .ordered, source: source, shuffle: shuffled)
+        // No start: the engine begins at the top, past any song the player refused this session,
+        // as a page's Play does on Windows. Naming 0 would choose the first song even if refused.
+        launchList(tracks, start: nil, kind: .ordered, source: source, shuffle: shuffled)
     }
 
     private func launchList(
@@ -2893,6 +2895,9 @@ final class GoosicAppModel: Combine.ObservableObject {
         if shuffle != snapshot.shuffle { shuffle = snapshot.shuffle }
         if repeatMode != snapshot.repeatMode { repeatMode = snapshot.repeatMode }
         if autoplay != snapshot.autoplay { autoplay = snapshot.autoplay }
+        // "End of this song" lives in the engine, which forgets it on a reset such as an account
+        // switch; the menu follows it rather than keeping its own copy.
+        if sleepAtEndOfSong != snapshot.sleepAtEnd { sleepAtEndOfSong = snapshot.sleepAtEnd }
         let source = snapshot.sourceTitle.map {
             QueueSource(title: $0, key: snapshot.sourceKey.flatMap { queueSourceKeys[$0] })
         }

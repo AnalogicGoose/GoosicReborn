@@ -13,8 +13,12 @@ import Sparkle
 final class NativeMacUpdater: NSObject {
     static let shared = NativeMacUpdater()
 
-    /// The listener's update channel, `stable` or `experimental`.
-    private(set) var channel = "stable"
+    /// The listener's update channel, `stable` or `experimental`. The setting lives in the
+    /// service, which answers after Sparkle has started and may already be checking; the last
+    /// choice is kept here too, so the launch check reads the right channel.
+    private(set) var channel = UserDefaults.standard.string(forKey: NativeMacUpdater.channelKey) ?? "stable"
+
+    private static let channelKey = "GoosicUpdateChannel"
 
     #if canImport(Sparkle)
     private var controller: SPUStandardUpdaterController?
@@ -60,6 +64,7 @@ final class NativeMacUpdater: NSObject {
     func setChannel(_ channel: String) {
         guard channel != self.channel else { return }
         self.channel = channel
+        UserDefaults.standard.set(channel, forKey: Self.channelKey)
         #if canImport(Sparkle)
         guard isAvailable, channel == "experimental", let updater = controller?.updater,
               updater.sessionInProgress == false else { return }

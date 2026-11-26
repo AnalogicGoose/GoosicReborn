@@ -480,7 +480,7 @@ private struct NativeMacCollectionHeader: SwiftUI.View {
     @SwiftUI.ViewBuilder
     private var collectionActionItems: some SwiftUI.View {
         circleButton("Shuffle", "shuffle", active: model.shuffle) {
-            if !model.shuffle { model.toggleShuffle() }
+            // The launch turns shuffle on itself, and only if it is allowed to start.
             model.launch(shownTracks, shuffled: true, source: source)
         }
         .disabled(shownTracks.isEmpty)
@@ -739,7 +739,9 @@ private struct NativeMacTrackColumns: SwiftUI.View {
     private func cell(_ track: GoosicTrack) -> some SwiftUI.View {
         let playing = model.currentTrack?.videoID == track.videoID
         return SwiftUI.Button {
-            model.launch(track, in: tracks, from: .shelf, source: source)
+            // The page decides, as its rows and this cell's own Play menu do: an artist's songs
+            // play in order, a shelf elsewhere starts a station.
+            model.launch(track, in: tracks, from: LaunchSurface(page: source.key), source: source)
         } label: {
             SwiftUI.HStack(spacing: 10) {
                 NativeMacArtwork(url: track.thumbnail, width: 48, height: 48)
