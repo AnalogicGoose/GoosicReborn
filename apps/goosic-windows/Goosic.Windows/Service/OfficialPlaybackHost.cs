@@ -175,12 +175,7 @@ internal sealed class OfficialPlaybackHost
     {
         try
         {
-            var shown = await _view.CoreWebView2.ExecuteScriptAsync("""
-                (() => {
-                  const prompt = document.querySelector('ytmusic-you-there-renderer');
-                  return !!prompt && prompt.offsetParent !== null;
-                })()
-                """);
+            var shown = await _view.CoreWebView2.ExecuteScriptAsync(ShellSupport.IdlePromptScript);
             if (shown == "true")
             {
                 BridgeLog.Write("the page paused to ask whether anyone is still listening");
@@ -814,25 +809,64 @@ internal sealed class OfficialPlaybackHost
 
         try
         {
-            await _view.CoreWebView2.ExecuteScriptAsync("""
-                (() => {
-                  const media = document.querySelector('audio,video');
-                  if (!media) return 'no-media';
-                  if (media.paused) {
-                    // A resume the listener asked for also answers YouTube Music's
-                    // "still listening?" prompt, which otherwise pauses the track again.
-                    const prompt = document.querySelector('ytmusic-you-there-renderer');
-                    prompt?.querySelector('button, yt-button-renderer, tp-yt-paper-button')?.click();
-                    void media.play();
-                    return 'play-requested';
-                  }
-                  media.pause(); return 'pause-requested';
-                })();
-                """);
+            // The element is the one the observer reports on, not merely the first in the page,
+            // which YouTube Music can leave paused while another carries the track.
+            var state = await _view.CoreWebView2.ExecuteScriptAsync(
+                "(() => { const media = " + ShellSupport.ActiveMediaElementScript
+                + "; return !media ? 'no-media' : (media.paused ? 'paused' : 'playing'); })()");
+            switch (state)
+            {
+                case "\"no-media\"":
+                    Status?.Invoke("The official player is still loading. Try again shortly.");
+                    return;
+                case "\"paused\"":
+                    // The shared script retries a play the page interrupted and answers the
+                    // "still listening?" prompt. A bare play() was fired and forgotten: when the
+                    // page interrupted it, nothing asked again and nothing said why.
+                    await _view.CoreWebView2.ExecuteScriptAsync(ShellSupport.ListenerPlayScript);
+                    _ = ReportPlayOutcomeAsync(_token);
+                    return;
+                default:
+                    await _view.CoreWebView2.ExecuteScriptAsync(ShellSupport.PauseScript);
+                    return;
+            }
         }
         catch (Exception error)
         {
             Status?.Invoke($"Could not control the official player: {error.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Reads what the listener's play request concluded, once its retries have had time to run.
+    /// </summary>
+    /// <remarks>
+    /// WebView2 answers a script that returns a promise with an empty object, so the play script
+    /// leaves its answer in the page and this collects it. Only a refusal is worth saying; the
+    /// next observer sample is still what shows the track playing.
+    /// </remarks>
+    private async Task ReportPlayOutcomeAsync(string token)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(2.5));
+        if (token != _token || _view.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var raw = await _view.CoreWebView2.ExecuteScriptAsync(ShellSupport.PlayOutcomeScript);
+            var outcome = JsonSerializer.Deserialize<string>(raw) ?? "";
+            BridgeLog.Write($"listener play: {outcome}");
+            if (outcome.StartsWith("failed:", StringComparison.Ordinal))
+            {
+                var name = outcome["failed:".Length..];
+                Status?.Invoke($"The official player refused to start ({name}). Press Play again.");
+            }
+        }
+        catch (Exception error)
+        {
+            BridgeLog.Write($"play outcome check failed: {error.GetType().Name}");
         }
     }
 

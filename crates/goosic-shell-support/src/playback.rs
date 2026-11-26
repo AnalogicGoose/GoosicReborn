@@ -503,6 +503,92 @@ impl EndGuard {
     }
 }
 
+/// What to do about a requested track that has not been heard playing yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum StartWatchAction {
+    /// Keep waiting; the page may still be loading.
+    Wait = 0,
+    /// Ask the page to play, once, as the listener's click already did.
+    Nudge = 1,
+    /// The page will not play it: say so and let the queue move on.
+    GiveUp = 2,
+    /// Nothing more to watch for.
+    Done = 3,
+}
+
+/// How long a loaded page may sit silent before it is asked, once, to play.
+pub const START_NUDGE_AFTER_SECONDS: f64 = 4.0;
+
+/// How long a loaded page may go without playing before the track is given up on.
+pub const START_GIVE_UP_AFTER_SECONDS: f64 = 20.0;
+
+/// Decides how long a requested track may sit silent before the shell says it cannot be played.
+///
+/// The official page sometimes loads a track and never starts it: it swaps in another version
+/// that stays at an empty media element, its `play()` is interrupted and nobody asks again, or it
+/// stops behind something only the page can show. The page reports "paused" for all of those,
+/// exactly as it does for a track the listener paused, so without a deadline the player sat on
+/// a silent track and the click looked like it did nothing. A page that is merely slow reports
+/// "playing" while it buffers, which ends the watch.
+///
+/// `heard_playing` counts an advertisement: the page is working and the track follows it. A
+/// listener who pressed Play or Pause since the load has taken over, and their choice is theirs
+/// to end. A NaN or negative `since_loaded_seconds` waits.
+pub fn start_watch(
+    since_loaded_seconds: f64,
+    heard_playing: bool,
+    listener_took_over: bool,
+    nudged: bool,
+) -> StartWatchAction {
+    if heard_playing || listener_took_over {
+        return StartWatchAction::Done;
+    }
+    if since_loaded_seconds >= START_GIVE_UP_AFTER_SECONDS {
+        return StartWatchAction::GiveUp;
+    }
+    if !nudged && since_loaded_seconds >= START_NUDGE_AFTER_SECONDS {
+        return StartWatchAction::Nudge;
+    }
+    StartWatchAction::Wait
+}
+
+#[cfg(test)]
+mod start_watch_tests {
+    use super::{start_watch, StartWatchAction::*};
+
+    // The same cases the Windows shell's copy was held to before it moved here.
+
+    #[test]
+    fn a_page_that_just_loaded_is_given_time() {
+        assert_eq!(start_watch(1.0, false, false, false), Wait);
+        assert_eq!(start_watch(f64::NAN, false, false, false), Wait);
+    }
+
+    #[test]
+    fn a_page_still_silent_after_a_few_seconds_is_asked_to_play_once() {
+        assert_eq!(start_watch(4.0, false, false, false), Nudge);
+        assert_eq!(start_watch(6.0, false, false, true), Wait);
+    }
+
+    #[test]
+    fn a_track_that_never_plays_is_given_up_on() {
+        assert_eq!(start_watch(20.0, false, false, true), GiveUp);
+        assert_eq!(start_watch(45.0, false, false, false), GiveUp);
+    }
+
+    #[test]
+    fn a_track_that_has_played_is_never_given_up_on() {
+        assert_eq!(start_watch(60.0, true, false, false), Done);
+    }
+
+    #[test]
+    fn a_pause_the_listener_chose_is_left_alone() {
+        assert_eq!(start_watch(5.0, false, true, false), Done);
+        assert_eq!(start_watch(60.0, false, true, false), Done);
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
