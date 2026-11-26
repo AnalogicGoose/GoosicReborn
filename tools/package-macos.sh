@@ -14,19 +14,30 @@ set -eu
 
 test "$(uname -s)" = Darwin || { echo "macOS app bundles are built on macOS" >&2; exit 2; }
 
-version=${1:-0.4.7}
+version=${1:-0.4.7-beta.2}
 version=${version#v}
-# Finder's bundle versions are numeric, even when the release tag is a prerelease.
-bundle_version=${version%%-*}
-bundle_version=${bundle_version%%+*}
+# Versions follow Apple's scheme: x.y.z is a release and x.y.z-beta.N its Nth beta. Finder's
+# bundle version is the numeric x.y.z either way; the beta lives in the build number.
+bundle_version=${version%%+*}
+beta=""
+case $bundle_version in
+    *-beta.*) beta=${bundle_version##*-beta.}; bundle_version=${bundle_version%%-*} ;;
+    *-*) echo "Only a -beta.N suffix is a release version, as in 0.4.7-beta.2" >&2; exit 2 ;;
+esac
 if ! printf '%s\n' "$bundle_version" | /usr/bin/grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-    echo "Expected a semantic version such as v0.2.3-alpha.1" >&2
+    echo "Expected a version such as 0.4.7 or 0.4.7-beta.2" >&2
+    exit 2
+fi
+if [ -n "$beta" ] && ! { printf '%s\n' "$beta" | /usr/bin/grep -Eq '^[1-9][0-9]?$' && [ "$beta" -lt 99 ]; }; then
+    echo "A beta is numbered 1 to 98" >&2
     exit 2
 fi
 # Sparkle offers an update only when CFBundleVersion is higher than the installed one, so it is
-# derived from the version rather than typed: MAJOR*10000 + MINOR*100 + PATCH, which makes 0.3.1
-# build 301. Every release that raises the version raises the build, and it already beats the
-# hand-numbered builds 1 to 8 that came before it. docs/RELEASING.md explains the scheme.
+# derived from the version rather than typed: (MAJOR*10000 + MINOR*100 + PATCH) * 100, plus the
+# beta number, or 99 for the release itself. 0.4.7 beta 2 is build 40702 and 0.4.7 is 40799, so
+# a release always follows its betas, and every number beats the 1 to 407 the feed carried
+# before betas existed. `updates::ReleaseVersion::build_number` in goosic-shell-support is the
+# same rule; docs/RELEASING.md explains the scheme.
 major=${bundle_version%%.*}
 patch=${bundle_version##*.}
 minor=${bundle_version#*.}
@@ -35,7 +46,7 @@ if [ "$minor" -ge 100 ] || [ "$patch" -ge 100 ]; then
     echo "Minor and patch must stay below 100 for the derived build number" >&2
     exit 2
 fi
-derived_build=$((major * 10000 + minor * 100 + patch))
+derived_build=$(( (major * 10000 + minor * 100 + patch) * 100 + ${beta:-99} ))
 build_version=${GOOSIC_MACOS_BUILD_VERSION:-$derived_build}
 if ! printf '%s\n' "$build_version" | /usr/bin/grep -Eq '^[0-9]+(\.[0-9]+){0,2}$'; then
     echo "Expected a numeric macOS build version" >&2

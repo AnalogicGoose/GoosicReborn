@@ -97,6 +97,7 @@ public sealed partial class MainWindow
     {
         var enabled = AnimationsEnabled;
         UpdateCoverScale(animate: false);
+        UpdateFullPlayerBackdrop();
         _fullLyrics?.Refresh();
         _panelLyrics?.Refresh();
         if (_motionConfigured && enabled == _motionAttached)
@@ -127,7 +128,7 @@ public sealed partial class MainWindow
         AttachShowHide(BackButton, new Vector3(-8, 0, 0));
         AttachShowHide(ToastHost, new Vector3(0, 10, 0));
         AttachShowHide(ArtworkBackdrop, Vector3.Zero, ShowDuration * 2);
-        foreach (var icon in new UIElement[] { PillPlayIcon, PillPauseIcon, FullPlayIcon, FullPauseIcon })
+        foreach (var icon in new UIElement[] { PillPlayIcon, PillPauseIcon, PillLoadingRing, FullPlayIcon, FullPauseIcon, FullLoadingRing })
         {
             AttachSymbolReplace(icon);
         }

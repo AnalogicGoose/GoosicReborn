@@ -19,7 +19,7 @@
 //! | [`bridge`] | `OfficialBridge.swift`, `OfficialPlaybackHost+macOS.swift` | whether a web player's report is trustworthy |
 //! | [`media`] | `SystemMediaPlayback.swift`, C# media controls | what the system media controls show and allow |
 //! | [`catalog`] | `Catalog.swift` | which rows are playable and how a page is shaped |
-//! | [`playback`] | `Models.swift`, `VolumeTaper.swift`, `TrackEnd.swift` (with `AdPlaybackRecovery`), C# `VolumeTaper`, `SeekSettle` and `PlaybackOrder` | clamps, the volume taper, time text, seek settling, when a track has finished, preference saves |
+//! | [`playback`] | `Models.swift`, `VolumeTaper.swift`, `TrackEnd.swift` (with `AdPlaybackRecovery`), C# `VolumeTaper`, `SeekSettle` and `PlaybackOrder` | clamps, the volume taper, time text, seek settling, when a track has finished, preference saves, a page that stops delivering |
 //! | [`queue`] | `QueueEditing.swift` | clear boundaries and revision-bound undo |
 //! | [`queue_engine`] | `Models.swift`, C# `ShellViewModel.Queue` and `PlaybackOrder` | the whole listening queue: launch, Next/Previous, natural ends, shuffle, repeat, radio, editing, Clear and Undo |
 //! | [`player_text`] | `ListRules.swift`, C# `ListRules` | Up Next, song-count and sleep-timer copy |

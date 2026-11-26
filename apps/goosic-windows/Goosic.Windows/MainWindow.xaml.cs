@@ -22,9 +22,10 @@ public sealed partial class MainWindow : Window
     private OfficialPlaybackHost? _playback;
     private SystemMediaControls? _media;
     private PersonalCatalogHost? _personal;
-    private readonly Views.MeshBackground _fullPlayerMesh = new();
+    private readonly Views.FullPlayerArtworkBackdrop _fullPlayerArtworkBackdrop = new();
     private readonly Views.ArtworkBackdropRenderer _backdropRenderer = new();
-    private string? _paletteFor;
+    private string? _fullPlayerArtworkFile;
+    private int _artworkRequest;
     private bool _fullPlayerSeeking;
     private bool _seeking;
     private WindowWidthClass _widthClass = WindowWidthClass.Wide;
@@ -101,6 +102,7 @@ public sealed partial class MainWindow : Window
             _playback.Failed += message => Model.ReportStatus(message);
             _playback.IsSubstitute = Model.AcceptSubstitute;
             _playback.PageRefused += Model.ReportRefused;
+            _playback.LoadingChanged += Model.ReportLoading;
             Model.ResumeAfterAdvertisement += () => _ = _playback.ResumeAfterAdvertisementAsync();
             _playback.PageMovedOn += videoId =>
             {

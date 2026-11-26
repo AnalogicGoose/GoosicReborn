@@ -98,20 +98,6 @@ public static class FullPlayerLayout
         return (inset, gutter, player, Math.Min(room - player, LyricsMaxWidth));
     }
 
-    /// <summary>
-    /// How tall the lyrics may be beside the cover: most of the window, so that they fade out
-    /// short of its top and bottom edges instead of running into the buttons in its corners.
-    /// </summary>
-    public static double LyricsMaxHeight(double height, FullPlayerMode mode) =>
-        mode == FullPlayerMode.Split ? Math.Min(height * 0.7, 832) : double.PositiveInfinity;
-
-    /// <summary>
-    /// Whether the blurred cover sits behind the player. With transparency effects turned off in
-    /// Windows, the player keeps its moving colours on black and skips the blur.
-    /// </summary>
-    public static bool ShowsBlur(bool transparencyEffectsEnabled, bool hasArtwork) =>
-        transparencyEffectsEnabled && hasArtwork;
-
     /// <summary>Where a key on the position slider seeks to, or null when the key is not a seek key.</summary>
     /// <remarks>
     /// Arrow keys move five seconds, Page keys a tenth of the track, Home and End to either end —
