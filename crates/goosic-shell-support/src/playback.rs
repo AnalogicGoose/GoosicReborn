@@ -86,7 +86,8 @@ pub fn index_before(index: usize, count: usize, repeat: RepeatMode) -> Option<us
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AdPlaybackRecovery {
     pub awaiting_content: bool,
-    resume_requested: bool,
+    /// Play has been asked for once since the advertisement ended; it is not asked again.
+    pub resume_requested: bool,
 }
 
 impl AdPlaybackRecovery {
