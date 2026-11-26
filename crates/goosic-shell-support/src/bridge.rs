@@ -176,6 +176,106 @@ pub const ACTIVE_MEDIA_ELEMENT_SCRIPT: &str = r#"(() => {
     ?? null;
 })()"#;
 
+/// The `play()` rejections worth asking again, a moment later.
+///
+/// `AbortError` is the page interrupting the request: YouTube Music swaps the element's source,
+/// or pauses it while it attaches the next stream, and WebKit cancels the pending play. The
+/// element is fine and the next request usually succeeds. `NotSupportedError` is the same race
+/// seen from the other side -- the element has no source attached yet. `NotAllowedError` is the
+/// engine's autoplay policy and is not retried: asking again cannot change the answer.
+pub const PLAY_RETRYABLE_ERRORS: [&str; 2] = ["AbortError", "NotSupportedError"];
+
+/// How many times the play script asks the media element to play before it reports a failure.
+pub const PLAY_ATTEMPTS: u32 = 4;
+
+/// Milliseconds the play script waits between attempts.
+pub const PLAY_RETRY_DELAY_MS: u32 = 400;
+
+/// Whether a `play()` rejection named `name` is worth asking again; see [`PLAY_RETRYABLE_ERRORS`].
+pub fn play_error_is_retryable(name: &str) -> bool {
+    PLAY_RETRYABLE_ERRORS.contains(&name)
+}
+
+/// Asks the page's active media element to play, and says how that went.
+///
+/// An expression that evaluates to a promise of `played`, `no-media`, `superseded` or
+/// `failed:<ErrorName>`; it also leaves that answer in `window.goosicPlayOutcome`, for a host
+/// whose engine cannot wait for a promise (see [`PLAY_OUTCOME_SCRIPT`]). A rejection named in
+/// [`PLAY_RETRYABLE_ERRORS`] is asked again up to [`PLAY_ATTEMPTS`] times. Each request takes a
+/// number, and a retry stops as soon as a newer play or a pause ([`PAUSE_SCRIPT`]) has been made,
+/// so a pause pressed during the retries is never overridden by one of them.
+///
+/// Before this, a host fired `play()` once. When the page interrupted it, the rejection was
+/// either ignored or reported without its name, the request was dropped, and the track sat
+/// silent with nothing in the log to say why.
+///
+/// `answer_prompt` is for a play the listener pressed: it also answers YouTube Music's "still
+/// listening?" prompt, which otherwise pauses the track again. A play the host makes on its own
+/// never answers it.
+pub fn play_script(answer_prompt: bool) -> String {
+    let retryable = serde_json::to_string(&PLAY_RETRYABLE_ERRORS).unwrap_or_else(|_| "[]".into());
+    format!(
+        r#"(async () => {{
+  const answerPrompt = {answer_prompt};
+  const retryable = {retryable};
+  const request = (window.goosicPlayRequest || 0) + 1;
+  window.goosicPlayRequest = request;
+  if (answerPrompt) {{
+    const prompt = document.querySelector('ytmusic-you-there-renderer');
+    prompt?.querySelector('button, yt-button-renderer, tp-yt-paper-button')?.click();
+  }}
+  let outcome = 'no-media';
+  for (let attempt = 0; attempt < {PLAY_ATTEMPTS}; attempt++) {{
+    if (window.goosicPlayRequest !== request) {{ outcome = 'superseded'; break; }}
+    const media = {ACTIVE_MEDIA_ELEMENT_SCRIPT};
+    if (!media) {{ outcome = 'no-media'; break; }}
+    try {{
+      await media.play();
+      outcome = 'played';
+      break;
+    }} catch (error) {{
+      const name = String((error && error.name) || '').replace(/[^A-Za-z]/g, '').slice(0, 40) || 'Error';
+      outcome = 'failed:' + name;
+      if (!retryable.includes(name)) break;
+      await new Promise(resolve => setTimeout(resolve, {PLAY_RETRY_DELAY_MS}));
+    }}
+  }}
+  window.goosicPlayOutcome = outcome;
+  return outcome;
+}})()"#
+    )
+}
+
+/// Reads and clears what the last [`play_script`] concluded, or `pending` while it is still
+/// trying. For a host whose script call returns before a promise settles.
+pub const PLAY_OUTCOME_SCRIPT: &str = r#"(() => {
+  const outcome = window.goosicPlayOutcome;
+  window.goosicPlayOutcome = undefined;
+  return typeof outcome === 'string' ? outcome : 'pending';
+})()"#;
+
+/// Pauses the page's active media element, answering `paused` or `no-media`. It also ends the
+/// retries of any play request still in flight, so they cannot undo the pause.
+pub const PAUSE_SCRIPT: &str = concat!(
+    "(() => {\n  window.goosicPlayRequest = (window.goosicPlayRequest || 0) + 1;\n  const media = ",
+    r#"(() => {
+  const candidates = Array.from(document.querySelectorAll('audio, video'));
+  return candidates.find(candidate => !candidate.paused && !candidate.ended && candidate.readyState > 0)
+    ?? candidates.find(candidate => !candidate.ended && candidate.readyState > 0)
+    ?? candidates[0]
+    ?? null;
+})()"#,
+    ";\n  if (!media) return 'no-media';\n  media.pause();\n  return 'paused';\n})()"
+);
+
+/// Whether the page is showing YouTube Music's "still listening?" prompt, which pauses the track
+/// until someone answers it. Answers `true` or `false`; a host checks when playing turns to
+/// paused without the listener asking, so the pause is explained rather than mysterious.
+pub const IDLE_PROMPT_SCRIPT: &str = r#"(() => {
+  const prompt = document.querySelector('ytmusic-you-there-renderer');
+  return !!prompt && prompt.offsetParent !== null;
+})()"#;
+
 /// The per-load page observer.
 ///
 /// Identity is injected rather than read from the URL: the official app rewrites its own location
@@ -324,6 +424,51 @@ mod tests {
         let script = observer_script("t", 1, "v");
         for line in ACTIVE_MEDIA_ELEMENT_SCRIPT.lines().skip(1).take(5) {
             assert!(script.contains(line.trim()), "observer lacks {line}");
+        }
+    }
+
+    #[test]
+    fn play_and_pause_choose_media_as_the_standalone_picker_does() {
+        let play = play_script(false);
+        assert!(play.contains(ACTIVE_MEDIA_ELEMENT_SCRIPT));
+        assert!(PAUSE_SCRIPT.contains(ACTIVE_MEDIA_ELEMENT_SCRIPT));
+    }
+
+    #[test]
+    fn the_play_script_retries_exactly_the_retryable_rejections() {
+        let play = play_script(false);
+        assert!(play.contains(r#"const retryable = ["AbortError","NotSupportedError"];"#));
+        assert!(play.contains(&format!("attempt < {PLAY_ATTEMPTS}")));
+        assert!(play_error_is_retryable("AbortError"));
+        assert!(play_error_is_retryable("NotSupportedError"));
+        assert!(!play_error_is_retryable("NotAllowedError"));
+        assert!(!play_error_is_retryable(""));
+        for answer in ["'played'", "'no-media'", "'superseded'", "'failed:'"] {
+            assert!(play.contains(answer), "{answer}");
+        }
+        assert!(play.contains("window.goosicPlayOutcome = outcome"));
+        assert!(PLAY_OUTCOME_SCRIPT.contains("window.goosicPlayOutcome = undefined"));
+    }
+
+    #[test]
+    fn only_a_listener_play_answers_the_still_listening_prompt() {
+        assert!(play_script(true).contains("const answerPrompt = true;"));
+        assert!(play_script(false).contains("const answerPrompt = false;"));
+        assert!(IDLE_PROMPT_SCRIPT.contains("ytmusic-you-there-renderer"));
+        assert!(
+            !IDLE_PROMPT_SCRIPT.contains("click"),
+            "noticing never answers it"
+        );
+    }
+
+    #[test]
+    fn a_pause_ends_the_retries_of_a_play_in_flight() {
+        assert!(
+            PAUSE_SCRIPT.contains("window.goosicPlayRequest = (window.goosicPlayRequest || 0) + 1")
+        );
+        assert!(play_script(false).contains("if (window.goosicPlayRequest !== request)"));
+        for script in [play_script(true), PAUSE_SCRIPT.to_owned()] {
+            assert!(!script.contains("location"), "it never navigates");
         }
     }
 

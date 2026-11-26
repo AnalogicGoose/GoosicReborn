@@ -39,6 +39,32 @@ pub extern "C" fn goosic_bridge_automix_attempts() -> u32 {
     bridge::AUTOMIX_ATTEMPTS
 }
 
+/// The expression that asks the active media element to play, retrying an interrupted request,
+/// and resolves to `played`, `no-media`, `superseded` or `failed:<ErrorName>`. `answer_prompt`
+/// is true only for a play the listener pressed.
+#[no_mangle]
+pub extern "C" fn goosic_bridge_play_script(answer_prompt: bool) -> *mut c_char {
+    hand_over(bridge::play_script(answer_prompt))
+}
+
+/// The script that reads and clears the last play script's answer, or `pending`.
+#[no_mangle]
+pub extern "C" fn goosic_bridge_play_outcome_script() -> *mut c_char {
+    hand_over(bridge::PLAY_OUTCOME_SCRIPT.to_owned())
+}
+
+/// The script that pauses the active media element and ends any play retries in flight.
+#[no_mangle]
+pub extern "C" fn goosic_bridge_pause_script() -> *mut c_char {
+    hand_over(bridge::PAUSE_SCRIPT.to_owned())
+}
+
+/// The script that answers whether YouTube Music's "still listening?" prompt is showing.
+#[no_mangle]
+pub extern "C" fn goosic_bridge_idle_prompt_script() -> *mut c_char {
+    hand_over(bridge::IDLE_PROMPT_SCRIPT.to_owned())
+}
+
 /// What a host appends to its engine's user agent so YouTube Music runs its player.
 #[no_mangle]
 pub extern "C" fn goosic_bridge_safari_user_agent_suffix() -> *mut c_char {
@@ -449,6 +475,23 @@ mod tests {
         assert_eq!(
             text(goosic_bridge_active_media_element_script()),
             bridge::ACTIVE_MEDIA_ELEMENT_SCRIPT
+        );
+        assert_eq!(
+            text(goosic_bridge_play_script(true)),
+            bridge::play_script(true)
+        );
+        assert_eq!(
+            text(goosic_bridge_play_script(false)),
+            bridge::play_script(false)
+        );
+        assert_eq!(
+            text(goosic_bridge_play_outcome_script()),
+            bridge::PLAY_OUTCOME_SCRIPT
+        );
+        assert_eq!(text(goosic_bridge_pause_script()), bridge::PAUSE_SCRIPT);
+        assert_eq!(
+            text(goosic_bridge_idle_prompt_script()),
+            bridge::IDLE_PROMPT_SCRIPT
         );
         assert_eq!(
             text(goosic_login_completion_script()),

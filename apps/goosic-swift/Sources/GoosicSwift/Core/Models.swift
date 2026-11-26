@@ -528,6 +528,9 @@ final class GoosicAppModel: Combine.ObservableObject {
         officialPlaybackHost.onPageSwappedBeforePlaying = { [weak self] swap in
             self?.officialPageSwappedBeforePlaying(swap)
         }
+        officialPlaybackHost.onNeverStarted = { [weak self] requestedVideoID in
+            self?.officialTrackNeverStarted(requestedVideoID)
+        }
         officialPlaybackHost.onStatus = { [weak self] message in
             self?.hostStatus = message
         }
@@ -3398,7 +3401,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             position: event.currentTime, duration: event.duration, listenerPaused: listenerPaused
         )
         if verdict.resume {
-            officialPlaybackHost.play()
+            officialPlaybackHost.play(fromListener: false)
         }
         if verdict.advance {
             advanceAfterEnd()
@@ -3449,25 +3452,39 @@ final class GoosicAppModel: Combine.ObservableObject {
             )
         case .refused:
             Diagnostics.note(.officialPlayback, "refused-before-playing")
-            let title = currentTrack?.title ?? "This song"
-            // The listener's song is what was refused, even when the page refused a version
-            // loaded in its place.
-            let refused = currentTrack?.videoID ?? swap.requestedVideoID
-            refusedVideoIDs.insert(refused)
-            dispatchQueue(.refused(videoID: refused))
-            // A pause pressed while the switch was being decided carries to the song the queue
-            // moves on to. Starting a new track clears the intent, so it is restored, and the
-            // pause request supersedes the load's play request before the media exists.
-            // The intent rides into that load itself: a pause sent now would reach the outgoing
-            // document, not the next song's, which does not exist yet.
-            pauseNextLoad = listenerPaused
-            officialPlaybackHost.pause()
-            officialPlayerMovedOn(from: swap.requestedVideoID)
-            // A queue that ended starts nothing, and a song chosen later is a fresh choice to
-            // play. Radio still loading keeps its own copy for the song it continues with.
-            pauseNextLoad = false
-            status = "\u{201C}\(title)\u{201D} isn\u{2019}t available to play here, so it was skipped."
+            skipRefusedTrack(requestedVideoID: swap.requestedVideoID)
         }
+    }
+
+    /// The page loaded the requested track and never played it; `StartWatch` gave up on it. It
+    /// takes the refused path, as Windows does: the listener is told and the queue moves on.
+    private func officialTrackNeverStarted(_ requestedVideoID: String) {
+        guard !accountOperationInProgress else { return }
+        guard playbackState.owner == .officialWebView else { return }
+        guard officialPlaybackHost.loadedVideoID != nil else { return }
+        skipRefusedTrack(requestedVideoID: requestedVideoID)
+    }
+
+    /// Marks the listener's song as refused and moves the queue past it.
+    private func skipRefusedTrack(requestedVideoID: String) {
+        let title = currentTrack?.title ?? "This song"
+        // The listener's song is what was refused, even when the page refused a version
+        // loaded in its place.
+        let refused = currentTrack?.videoID ?? requestedVideoID
+        refusedVideoIDs.insert(refused)
+        dispatchQueue(.refused(videoID: refused))
+        // A pause pressed while the switch was being decided carries to the song the queue
+        // moves on to. Starting a new track clears the intent, so it is restored, and the
+        // pause request supersedes the load's play request before the media exists.
+        // The intent rides into that load itself: a pause sent now would reach the outgoing
+        // document, not the next song's, which does not exist yet.
+        pauseNextLoad = listenerPaused
+        officialPlaybackHost.pause()
+        officialPlayerMovedOn(from: requestedVideoID)
+        // A queue that ended starts nothing, and a song chosen later is a fresh choice to
+        // play. Radio still loading keeps its own copy for the song it continues with.
+        pauseNextLoad = false
+        status = "\u{201C}\(title)\u{201D} isn\u{2019}t available to play here, so it was skipped."
     }
 
     private func officialPlayerMovedOn(from finishedVideoID: String) {
