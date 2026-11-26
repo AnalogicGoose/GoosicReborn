@@ -67,6 +67,57 @@ uncorked, raising it brought it back, and the suspend inhibition appeared in the
 list while music played. Everything still missing before this shell replaces the Swift Linux build
 is listed under [What is left](#what-is-left).
 
+## Linux alpha diagnostics: icons, lyrics and seeking
+
+The November 24, 2026 desktop report compares the 0.4.3 Linux alpha under WSL with a
+Plasma installation. The screenshots show missing-symbol placeholders for Explore, Liked
+Music and Lyrics on Plasma. A GTK probe there selected Breeze Dark and could not resolve
+`web-browser-symbolic`, `emote-love-symbolic` or `chat-message-new-symbolic`. Adwaita
+resolved all three, and the Flatpak runtime already contains those assets. This is a lookup
+failure rather than evidence that the user must install an icon package. The GTK
+correction checks these essential symbols before constructing the shell and selects the
+runtime's complete Adwaita icon theme for this application if any are absent. The desktop's
+widget theme and appearance preferences remain responsible for the native controls.
+
+The missing Lyrics symbol also hides the way to open that pane; `Ctrl+L` opens it directly.
+There is a separate, reproduced lookup failure: the installed service returned
+`lyricsNotFound` for the reported song's title with its trailing `(feat. …)` credit, while
+the same title without that credit returned 29 synced LRCLIB lines. The shared
+correction keeps the full title for the exact lookup and removes only a trailing, bracketed
+feature credit for its existing search fallback. Artist, album and recording duration keep
+their existing treatment, including the duration checks that withhold timing for another
+recording. Live, remix and other version qualifiers must survive. Reusing the existing
+search request also preserves the shell's request deadline rather than adding another pair
+of network requests. This belongs in `goosic-lyrics` on development and serves every shell.
+
+The seek failure is specific to WebKitGTK's JavaScript worlds. The alpha calls the page's
+`seekTo` function from the isolated observer world, where page-defined functions are not
+visible. A local WebKitGTK fixture reproduced `seek-unsupported` in that world and
+`seek-requested` in the page world with the same command. The correction executes
+only the seek command in the page world. The observer and its message handler stay isolated;
+the shell's advertisement, transition and bounded-position checks still gate requests, and
+validated samples still confirm the resulting playback position. macOS already evaluates
+its seek command in the page context, and Windows uses WebView2's page execution context;
+the GTK world selection does not apply to those APIs.
+
+The shared source and documentation changes are on `fix/lyrics-feature-credits`, cut from
+development. The GTK source changes are on `fix/linux/icons-and-seeking`, cut from
+platform/linux and fast-forwarded to the existing Linux alpha source. A local packaging
+tree combines those changes without moving either long-lived branch. Both the changed
+development workspace and that combined alpha workspace passed `make test`; the Rust
+regression covers feature credits, Unicode and retained version qualifiers. A live request
+to the rebuilt alpha service using the full reported title returned 28 synced LRCLIB lines.
+The combined source built successfully in the GNOME 50 Flatpak SDK. Its 66 Linux unit tests
+and two service integration tests passed; two opt-in tests remained ignored. The exported
+local bundle, `Goosic-0.4.3-linux-alpha.1.local.1-linux-x86_64.flatpak`, was installed for the
+user, and the same full-title request to its installed service returned 28 synced lines.
+The local bundle is a patched alpha build, not a published release.
+
+These checks do not establish visual or live playback acceptance. Quit and relaunch the app
+to use the new binaries, then check missing icons on Plasma and WSL, open Lyrics in both
+normal and full-player views, and seek by click, drag, keyboard and synced lyric line.
+Advertisement restrictions and the isolated observer must still hold.
+
 ## Why GTK 4, and why not the alternatives
 
 The deciding constraint is not the look of the application. It is the web engine. Official
