@@ -40,48 +40,18 @@ internal sealed record AccountLoginSummary
 internal sealed class AccountLoginWindow
 {
     /// <summary>How long one page may sit before the sign-in is abandoned; reset by each navigation.</summary>
-    private static readonly TimeSpan CompletionTimeout = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan CompletionTimeout = ShellSupport.LoginCompletionTimeout;
 
     /// <summary>
     /// The page-side marker, as an async expression.
     /// </summary>
     /// <remarks>
-    /// This is the macOS script, which reads the page's own <c>LOGGED_IN</c> flag and opens the
-    /// account menu to find a second identity field. The copy in <c>goosic-shell-support</c> is the
-    /// older one that says it moves when the macOS branch lands; until then this mirrors the one
-    /// that is known to finish a sign-in, and its output is still judged by the Rust rules.
+    /// The body is <c>goosic-shell-support</c>'s, the one the Mac runs too: it reads the page's own
+    /// <c>LOGGED_IN</c> flag and opens the account menu to find a second identity field. WebView2
+    /// evaluates expressions rather than function bodies, so it is wrapped in an async function.
     /// </remarks>
-    private const string CompletionScript = """
-        (async () => {
-        if (location.origin !== 'https://music.youtube.com') return '';
-        const cfg = window.ytcfg;
-        const loggedIn = !!(cfg && typeof cfg.get === 'function' && cfg.get('LOGGED_IN'));
-        if (!loggedIn) return '';
-        const clip = (value, limit) => (value || '').trim().slice(0, limit);
-        const text = (selector, limit) => clip(document.querySelector(selector)?.textContent, limit);
-        const isAvatar = (src) => /^https:\/\/(?:[a-z0-9-]+\.)*(?:googleusercontent\.com|ggpht\.com)\//i.test(src || '');
-        const avatarOf = (root) => Array.from((root || document).querySelectorAll('img')).map((img) => img.src).find(isAvatar) || '';
-        const marker = document.querySelector('ytmusic-settings-button, #avatar-btn, [aria-label*="ccount menu" i]');
-        const read = () => ({
-          name: text('#account-name', 128),
-          email: text('#email, #account-email', 320),
-          channel: text('#channel-handle, #channel-title', 128),
-        });
-        let identity = read();
-        let avatarUrl = avatarOf(marker) || avatarOf(document.querySelector('ytmusic-nav-bar'));
-        if (!identity.email && !identity.name && marker) {
-          try { (marker.querySelector('button, tp-yt-paper-icon-button, yt-icon-button, [role="button"]') || marker).click(); } catch (_) {}
-          await new Promise((resolve) => setTimeout(resolve, 400));
-          identity = read();
-          avatarUrl = avatarUrl || avatarOf(document.querySelector('ytmusic-popup-container, tp-yt-iron-dropdown'));
-        }
-        if (!identity.email && !identity.channel && !avatarUrl) return '';
-        return JSON.stringify({
-          displayName: identity.name || identity.email || 'YouTube Music account',
-          email: identity.email || null, channel: identity.channel || null, avatarUrl: avatarUrl || null
-        });
-        })()
-        """;
+    private static readonly string CompletionScript =
+        "(async () => {\n" + ShellSupport.LoginCompletionScript + "\n})()";
 
     private readonly Window _window = new();
     private readonly WebView2 _view = new();
