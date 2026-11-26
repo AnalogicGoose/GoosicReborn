@@ -117,7 +117,11 @@ pub enum Command {
         account_id: Option<String>,
     },
     /// A song chosen on a page. `start` is its position in `tracks`; `None` starts at the top,
-    /// or anywhere when `shuffle` is set.
+    /// or anywhere when shuffled.
+    ///
+    /// `shuffle` is set by a page's Play and Shuffle buttons, which say how the list should play:
+    /// Play in order, Shuffle shuffled, and the listener's preference follows. A row chosen from
+    /// the list leaves it out and plays under the preference as it stands.
     Launch {
         tracks: Vec<QueueTrack>,
         start: Option<usize>,
@@ -127,7 +131,7 @@ pub enum Command {
         #[serde(default)]
         source_key: Option<String>,
         #[serde(default)]
-        shuffle: bool,
+        shuffle: Option<bool>,
     },
     /// Start Radio: the song, then its recommendations.
     StartRadio {
@@ -444,7 +448,7 @@ impl QueueEngine {
                 LaunchKind::Station,
                 None,
                 None,
-                false,
+                None,
             ),
             Command::Next => self.advance(&mut out, true, false),
             Command::Previous { position } => {
@@ -548,7 +552,7 @@ impl QueueEngine {
         kind: LaunchKind,
         source_title: Option<String>,
         source_key: Option<String>,
-        shuffle: bool,
+        shuffle: Option<bool>,
     ) {
         let start = start.filter(|index| *index < tracks.len());
         let tracks: Vec<QueueTrack> = match (kind, start) {
@@ -596,11 +600,12 @@ impl QueueEngine {
             self.entries.push(Entry { id, track });
         }
 
-        if shuffle {
-            self.shuffle = true;
-            if first.is_none() {
-                first = Some(self.random_below(self.entries.len()));
-            }
+        let preference_changed = shuffle.is_some_and(|shuffle| shuffle != self.shuffle);
+        if let Some(shuffle) = shuffle {
+            self.shuffle = shuffle;
+        }
+        if self.shuffle && first.is_none() {
+            first = Some(self.random_below(self.entries.len()));
         }
         let mut first = first.unwrap_or(0);
         if self.shuffle && self.entries.len() > 1 {
@@ -613,6 +618,9 @@ impl QueueEngine {
             first = 0;
         }
         self.revision += 1;
+        if preference_changed {
+            out.effects.push(self.save_preferences());
+        }
 
         match kind {
             LaunchKind::Station => {
@@ -858,7 +866,7 @@ impl QueueEngine {
                 LaunchKind::Ordered,
                 None,
                 None,
-                false,
+                None,
             );
             return;
         };

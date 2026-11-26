@@ -198,7 +198,9 @@ The rules it holds, which every shell now shares:
   the top.
 - Shuffle reorders only what follows the playing song and remembers the order it replaced, so
   turning it off puts the rest back; a shuffled launch leads with the chosen song, so Previous
-  never reaches a song that was never heard.
+  never reaches a song that was never heard. A page's Play button plays its list in order and
+  its Shuffle button shuffles it, and either sets the stored preference to match; a row chosen
+  from the list plays under the preference as it stands.
 - One end is acted on once per play, however often the player reports it. The sleep timer's
   "end of this song" is honoured exactly where that end would otherwise advance.
 - Entries have engine-assigned ids, so a queue may hold a song twice and the one asked for is
