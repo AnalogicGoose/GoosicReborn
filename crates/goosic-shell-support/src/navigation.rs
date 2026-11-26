@@ -150,8 +150,10 @@ impl CatalogKey {
     }
 }
 
-/// What happens when the queue reaches its end.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// What happens when the queue reaches its end. On the wire it is `off`, `all` or `one`, the
+/// spelling the settings file already stores.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RepeatMode {
     Off,
     All,
