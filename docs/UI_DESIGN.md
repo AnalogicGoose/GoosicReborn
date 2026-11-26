@@ -260,7 +260,8 @@ neutral fill, which is the nearest native equivalent.
 
 Album and playlist pages lead with cover art, title, relevant metadata and primary Play/Pause
 and Shuffle actions. The primary action reflects whether that collection is playing. Ordered
-collections launch ordered queues; discovery selections may resolve a station. Sort and Find
+collections launch ordered queues; discovery selections — a search result, a shelf card, a quick
+pick — start a station from the chosen song (`launch_kind_for` in `goosic-shell-support`). Sort and Find
 belong to collection browsing and must not silently change the playback queue. Song counts
 remain honest about partial data, including a '+' where completeness is unknown. Continuation
 pages append with their real cursor rather than presenting the first page as the whole list.
