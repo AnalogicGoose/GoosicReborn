@@ -1,6 +1,9 @@
 #!/bin/sh
 # Runs a release from the trunk to a draft, and the Mac update feed after it is published.
 #
+# A version is x.y.z, or x.y.z-beta.N for the Nth beta of it (Apple's scheme); a beta is always
+# published as an experimental release.
+#
 #   sh tools/release.sh <x.y.z>        freeze the version, open the deploy pull request and
 #                                      ask Codex to review it
 #   sh tools/release.sh ship <x.y.z>   merge the deploy pull request once CI is green; the
@@ -17,7 +20,7 @@
 set -eu
 
 usage() {
-    echo "Usage: sh tools/release.sh [ship|feed] <x.y.z>" >&2
+    echo "Usage: sh tools/release.sh [ship|feed] <x.y.z | x.y.z-beta.N>" >&2
     exit 2
 }
 
@@ -25,8 +28,10 @@ case "${1:-}" in
     ship | feed) step=$1; version=${2:-} ;;
     *) step=prepare; version=${1:-} ;;
 esac
-printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || usage
+printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]?)?$' || usage
 tag="v$version"
+# What a person reads: 0.4.7-beta.2 is "0.4.7 beta 2".
+label=$(printf '%s' "$version" | sed 's/-beta\./ beta /')
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
@@ -125,6 +130,14 @@ prepare() {
             echo "Write $notes first; the release publishes it as the notes." >&2
             exit 1
         fi
+        case $version in
+            *-beta.*)
+                if [ -f "$notes" ]; then first=$(head -n 1 "$notes")
+                else first=$(git show "origin/development:$notes" 2>/dev/null | head -n 1); fi
+                printf '%s\n' "$first" | grep -q '<!-- channel: experimental -->' \
+                    || { echo "A beta is experimental: start $notes with <!-- channel: experimental -->." >&2; exit 1; }
+                ;;
+        esac
         branch="release/$version"
         work_on "$branch"
         [ -f "$worktree/$notes" ] || cp "$notes" "$worktree/$notes"
@@ -178,8 +191,8 @@ feed() {
     # A repeat after the feed item merged has nothing left to do; the merged pull request is no
     # longer open, so looking for one would try to open another.
     if git show origin/development:updates/macos-alpha.xml \
-        | grep -q "<sparkle:shortVersionString>$version</sparkle:shortVersionString>"; then
-        say "development's feed already offers $version to installed Macs."
+        | grep -q "<sparkle:shortVersionString>$label</sparkle:shortVersionString>"; then
+        say "development's feed already offers $label to installed Macs."
         return 0
     fi
     [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" = false ] \
@@ -194,10 +207,10 @@ feed() {
     # An experimental release reaches only Macs that chose the experimental channel: Sparkle
     # skips an item whose channel the copy has not allowed, and older copies allow none.
     channel_line=""
-    label="macOS alpha"
+    kind="macOS alpha"
     if [ "$(gh release view "$tag" --json isPrerelease --jq .isPrerelease)" = true ]; then
         channel_line="            <sparkle:channel>experimental</sparkle:channel>"
-        label="macOS experimental"
+        kind="macOS experimental"
     fi
 
     zip="Goosic-$version-macos-universal.zip"
@@ -212,8 +225,8 @@ feed() {
     branch="release/sparkle-$version"
     work_on "$branch"
     feedfile="$worktree/updates/macos-alpha.xml"
-    if grep -q "<sparkle:shortVersionString>$version</sparkle:shortVersionString>" "$feedfile"; then
-        echo "The feed already offers $version."
+    if grep -q "<sparkle:shortVersionString>$label</sparkle:shortVersionString>" "$feedfile"; then
+        echo "The feed already offers $label."
     else
         newest=$(sed -n 's:.*<sparkle\:version>\([0-9]*\)</sparkle\:version>.*:\1:p' "$feedfile" | sort -n | tail -1)
         [ "$build" -gt "${newest:-0}" ] \
@@ -222,10 +235,10 @@ feed() {
         item=$(mktemp)
         cat > "$item" <<EOF
         <item>
-            <title>$version $label</title>
+            <title>$label $kind</title>
             <pubDate>$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
             <sparkle:version>$build</sparkle:version>
-            <sparkle:shortVersionString>$version</sparkle:shortVersionString>
+            <sparkle:shortVersionString>$label</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>$url/tag/$tag</sparkle:releaseNotesLink>
 $channel_line

@@ -7,21 +7,26 @@ namespace Goosic.Windows.Tests;
 public sealed class UpdateRulesTests
 {
     [Theory]
-    [InlineData("v0.2.0", "0.2.0")]
-    [InlineData("0.10.3", "0.10.3")]
-    [InlineData("V1.0.0", "1.0.0")]
-    [InlineData("0.1.0+8c4cb97", "0.1.0")]
+    [InlineData("v0.2.0", "0.2.0.99")]
+    [InlineData("0.10.3", "0.10.3.99")]
+    [InlineData("V1.0.0", "1.0.0.99")]
+    [InlineData("0.1.0+8c4cb97", "0.1.0.99")]
+    [InlineData("v0.4.7-beta.2", "0.4.7.2")]
     public void ReleaseTagsAndBuildVersionsParse(string text, string expected) =>
         Assert.Equal(Version.Parse(expected), UpdateRules.ParseVersion(text));
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("v0.2.0-beta.1")]
+    [InlineData("v0.2.0-beta.0")]
+    [InlineData("v0.2.0-beta.99")]
+    [InlineData("v0.2.0-beta.")]
+    [InlineData("v0.2.0-rc.1")]
+    [InlineData("v0.4.3-linux-alpha.1")]
     [InlineData("0.2")]
     [InlineData("latest")]
     [InlineData("1.2.3.4")]
-    public void PreReleasesAndNonsenseAreNotVersions(string? text) =>
+    public void OtherSuffixesAndNonsenseAreNotVersions(string? text) =>
         Assert.Null(UpdateRules.ParseVersion(text));
 
     [Fact]
@@ -34,6 +39,18 @@ public sealed class UpdateRulesTests
         Assert.False(UpdateRules.IsNewer(current, new Version(0, 0, 9)));
         Assert.False(UpdateRules.IsNewer(null, new Version(9, 0, 0)));
         Assert.False(UpdateRules.IsNewer(current, null));
+    }
+
+    [Fact]
+    public void ABetaComesBeforeItsReleaseAndReadsAsOne()
+    {
+        var beta2 = UpdateRules.ParseVersion("v0.4.7-beta.2")!;
+        Assert.True(UpdateRules.IsNewer(UpdateRules.ParseVersion("0.4.6"), beta2));
+        Assert.True(UpdateRules.IsNewer(beta2, UpdateRules.ParseVersion("v0.4.7")));
+        Assert.False(UpdateRules.IsNewer(beta2, UpdateRules.ParseVersion("v0.4.7-beta.1")));
+        Assert.Equal("0.4.7 beta 2", UpdateRules.Format(beta2));
+        Assert.Equal("0.4.7", UpdateRules.Format(UpdateRules.ParseVersion("0.4.7")!));
+        Assert.Equal("Goosic-0.4.7-beta.2-windows-x64-setup.exe", UpdateRules.SetupAssetName(beta2, "x64"));
     }
 
     [Fact]
