@@ -147,6 +147,21 @@ enum OfficialBridge {
 
     static let automixAttempts = Int(goosic_bridge_automix_attempts())
 
+    /// Asks the active media element to play for a listener's press, retrying a request the page
+    /// interrupted, and answers YouTube Music's "still listening?" prompt. An expression that
+    /// resolves to `played`, `no-media`, `superseded` or `failed:<ErrorName>`; see `PlayOutcome`.
+    static let listenerPlayScript = sharedText(goosic_bridge_play_script(true))
+
+    /// The same request made by the host on its own (a start nudge, an advertisement's handoff),
+    /// which never answers the page's prompt.
+    static let hostPlayScript = sharedText(goosic_bridge_play_script(false))
+
+    /// Pauses the active media element and ends any play retries still in flight.
+    static let pauseScript = sharedText(goosic_bridge_pause_script())
+
+    /// Answers whether YouTube Music's "still listening?" prompt is showing.
+    static let idlePromptScript = sharedText(goosic_bridge_idle_prompt_script())
+
     /// The per-load page observer.
     ///
     /// Identity is injected rather than read from the URL: the official app rewrites its own

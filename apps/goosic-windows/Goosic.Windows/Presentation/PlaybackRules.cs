@@ -43,6 +43,13 @@ public static class PlaybackRules
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool SeekSettleRaw(double confirmed, double target, double elapsedSeconds, out double shown);
 
+    [DllImport(Library, EntryPoint = "goosic_player_shows_loading")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool ShowsLoadingRaw(
+        [MarshalAs(UnmanagedType.I1)] bool awaitingStart,
+        [MarshalAs(UnmanagedType.I1)] bool buffering,
+        [MarshalAs(UnmanagedType.I1)] bool listenerPaused);
+
     [DllImport(Library, EntryPoint = "goosic_string_free")]
     private static extern void StringFree(IntPtr value);
 
@@ -262,4 +269,11 @@ public static class PlaybackRules
         var settled = SeekSettleRaw(confirmed, target, elapsed.TotalSeconds, out var shown);
         return (shown, settled);
     }
+
+    /// <summary>
+    /// Whether the player shows that it is loading instead of Play or Pause: a requested track
+    /// not yet heard, or one the page reports buffering, unless the listener paused.
+    /// </summary>
+    public static bool ShowsLoading(bool awaitingStart, bool buffering, bool listenerPaused) =>
+        ShowsLoadingRaw(awaitingStart, buffering, listenerPaused);
 }

@@ -57,8 +57,18 @@ enum Diagnostics {
     /// A log that has grown past this starts over, so it can never fill a disk.
     private static let maxLogBytes: UInt64 = 2_000_000
 
+    /// Whether this process is a test run. Tests drive the real model against fake services, and
+    /// their lines -- stalled fake requests, deliberately invalid lyrics -- landed in the user's
+    /// own log beside the app's, where they read as failures of the installed app.
+    private static let isTestRun: Bool = {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }()
+
     private static func appendToLog(_ text: String) {
-        guard let directory = logDirectory else { return }
+        guard !isTestRun, let directory = logDirectory else { return }
         logQueue.async {
             let file = directory.appendingPathComponent("goosic.log")
             let manager = FileManager.default
