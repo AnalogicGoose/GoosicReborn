@@ -1,4 +1,5 @@
 import Foundation
+import GoosicShellSupportFFI
 import Combine
 // swift-corelibs-foundation splits URLSession out of Foundation; on Darwin this module does not
 // exist and the type is already in scope.
@@ -16,22 +17,12 @@ import FoundationNetworking
 @MainActor
 final class ArtworkCache: ObservableObject {
     @Published private(set) var revision: UInt64 = 0
-    /// Hosts YouTube Music serves artwork from. Anything else is refused rather than fetched,
-    /// so a catalog response cannot point the shell at an arbitrary server.
-    nonisolated private static let allowedHostSuffixes = [
-        "googleusercontent.com",
-        "ggpht.com",
-        "ytimg.com",
-        "youtube.com",
-        // YouTube Music's own playlists (Liked Music) keep their art on Google's static host.
-        "gstatic.com",
-    ]
-
-    /// Artwork is small. Anything larger is not a thumbnail and is discarded.
-    private static let maxBytes = 4 * 1024 * 1024
+    /// Artwork is small. Anything larger is not a thumbnail and is discarded. The limits and the
+    /// host rule below are `goosic-shell-support`'s `artwork` module, which Windows asks too.
+    private static let maxBytes = Int(goosic_artwork_max_bytes())
     /// A bound on how many downloads are in flight, so opening a dense screen cannot start
     /// hundreds of connections at once.
-    private static let maxConcurrentFetches = 6
+    private static let maxConcurrentFetches = Int(goosic_artwork_max_concurrent_fetches())
 
     private let directory: URL
     private let session: URLSession
@@ -79,31 +70,16 @@ final class ArtworkCache: ObservableObject {
     ///
     /// Pure, so it is callable off the main actor and directly testable.
     nonisolated static func isAllowed(_ url: URL) -> Bool {
-        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else {
-            return false
-        }
-        return allowedHostSuffixes.contains { suffix in
-            host == suffix || host.hasSuffix("." + suffix)
-        }
+        // Only HTTPS from the hosts YouTube Music serves artwork from, so a catalog response
+        // cannot point the shell at an arbitrary server.
+        goosic_artwork_is_allowed(url.absoluteString)
     }
 
     /// A stable, collision-resistant file name for a remote URL.
-    ///
-    /// Two independent FNV-1a passes give 128 bits, which is far more than enough to keep two
-    /// thumbnails from sharing a cache file, without pulling in a hashing dependency.
     nonisolated static func cacheKey(for remote: String) -> String {
-        func fnv1a(_ bytes: [UInt8], seed: UInt64) -> UInt64 {
-            var hash = seed
-            for byte in bytes {
-                hash ^= UInt64(byte)
-                hash = hash &* 0x100_0000_01b3
-            }
-            return hash
-        }
-        let bytes = Array(remote.utf8)
-        let low = fnv1a(bytes, seed: 0xcbf2_9ce4_8422_2325)
-        let high = fnv1a(bytes.reversed(), seed: 0x9dc5_bb15_8f2c_1e37)
-        return String(format: "%016lx%016lx", low, high)
+        guard let raw = goosic_artwork_cache_key(remote) else { return "" }
+        defer { goosic_string_free(raw) }
+        return String(cString: raw)
     }
 
     /// The local file for `remote`, if it has already been fetched.

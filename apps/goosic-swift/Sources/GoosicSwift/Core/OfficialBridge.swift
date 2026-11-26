@@ -1,4 +1,5 @@
 import Foundation
+import GoosicShellSupportFFI
 
 /// A validated event emitted by the one official YouTube Music renderer.
 struct OfficialPlaybackEvent {
@@ -36,21 +37,21 @@ struct OfficialPlaybackProfile: Equatable {
 
 /// The half of the official playback bridge that is not tied to a WebKit implementation.
 ///
-/// macOS drives a `WKWebView` and Linux a WebKitGTK `WebKitWebView`, but what counts as a
-/// trustworthy event must not depend on which one is running. The wire shape, the page observer,
-/// and the rules that reject an event live here so both hosts decide identically; a second copy
-/// of `rejectionReason` would be a second answer to "may this play".
+/// Every script, limit and check here is answered by `goosic-shell-support`'s `bridge` module,
+/// which the Linux and Windows hosts ask too, so what counts as a trustworthy event cannot depend
+/// on which engine is running. A Swift copy of `rejection_reason` would be a second answer to
+/// "may this play".
 enum OfficialBridge {
     /// The only origin this bridge speaks to.
-    static let allowedHost = "music.youtube.com"
-    /// The script message handler's name, on both platforms.
-    static let name = "goosicBridge"
+    static let allowedHost = sharedText(goosic_bridge_allowed_host())
+    /// The script message handler's name, on every platform.
+    static let name = sharedText(goosic_bridge_handler_name())
     /// A bridge message larger than this is refused before it is parsed.
-    static let maxBodyBytes = 16 * 1024
+    static let maxBodyBytes = Int(goosic_bridge_max_body_bytes())
     /// YouTube Music refuses to run its player under a bare engine user agent and shows
     /// "not optimized for your browser" instead. Naming a Safari version makes the agent a
     /// complete Safari string, which is what these engines actually are.
-    static let safariUserAgentSuffix = "Version/18.5 Safari/605.1.15"
+    static let safariUserAgentSuffix = sharedText(goosic_bridge_safari_user_agent_suffix())
 
     /// The wire shape a page observer posts across the bridge.
     struct Event: Codable {
@@ -79,7 +80,35 @@ enum OfficialBridge {
         }
     }
 
-    /// Why an event is not trustworthy, or `nil` when it is.
+    /// Why a message from the page is not trustworthy, or `nil` when it is.
+    ///
+    /// A `nil` expectation means nothing is loaded, which every check treats as a mismatch.
+    static func rejectionReason(
+        body: Data,
+        expectedToken: String?,
+        expectedGeneration: UInt64?,
+        expectedVideoID: String?,
+        lastSequence: UInt64
+    ) -> String? {
+        guard let text = String(data: body, encoding: .utf8) else {
+            return "the message body was not valid UTF-8"
+        }
+        // Rust takes the generation as a plain number. With none expected nothing is loaded, so
+        // the token is withheld too and the event is refused as coming from another document.
+        let token = expectedGeneration == nil ? "" : (expectedToken ?? "")
+        let raw = goosic_bridge_validate_event(
+            text, token, expectedGeneration ?? 0, expectedVideoID ?? "", lastSequence
+        )
+        let verdict = sharedText(raw)
+        guard let data = verdict.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "the shared bridge rule gave no verdict"
+        }
+        if object["accepted"] as? Bool == true { return nil }
+        return object["reason"] as? String ?? "the shared bridge rule refused it"
+    }
+
+    /// The same check for an event already decoded.
     static func rejectionReason(
         for event: Event,
         expectedToken: String?,
@@ -87,51 +116,23 @@ enum OfficialBridge {
         expectedVideoID: String?,
         lastSequence: UInt64
     ) -> String? {
-        guard event.version == 2 else {
-            return "unsupported bridge version \(event.version)"
-        }
-        guard event.token == expectedToken else {
-            return "it came from a superseded document"
-        }
-        guard event.generation == expectedGeneration else {
-            return "generation \(event.generation) is not the active lease"
-        }
-        guard event.videoID == expectedVideoID else {
-            return "it describes \(event.videoID.isEmpty ? "no video" : event.videoID), not the requested video"
-        }
-        guard event.sequence > lastSequence else {
-            return "sequence \(event.sequence) did not advance past \(lastSequence)"
-        }
-        guard event.currentTime.isFinite, event.currentTime >= 0,
-              event.duration.isFinite, event.duration >= 0 else {
+        guard let body = try? JSONEncoder().encode(event) else {
             return "it reported an impossible position or duration"
         }
-        if let sampledAt = event.sampledAt, !sampledAt.isFinite || sampledAt < 0 {
-            return "it reported an impossible sample time"
-        }
-        guard event.volume.isFinite, (0...1).contains(event.volume) else {
-            return "it reported an impossible volume"
-        }
-        return nil
+        return rejectionReason(
+            body: body, expectedToken: expectedToken, expectedGeneration: expectedGeneration,
+            expectedVideoID: expectedVideoID, lastSequence: lastSequence
+        )
     }
 
     static func isValidVideoID(_ videoID: String) -> Bool {
-        guard videoID.count == 11 else { return false }
-        return videoID.allSatisfy { $0.isNumber || $0.isLetter || $0 == "-" || $0 == "_" }
+        goosic_bridge_is_valid_video_id(videoID)
     }
 
     /// Chooses the media element that is actually playing, rather than whichever audio or video
     /// tag happened to be first in the page. YouTube Music can retain a paused element while it
     /// swaps in the one carrying the next track or an advertisement.
-    static let activeMediaElementScript = """
-    (() => {
-      const candidates = Array.from(document.querySelectorAll('audio, video'));
-      return candidates.find(candidate => !candidate.paused && !candidate.ended && candidate.readyState > 0)
-        ?? candidates.find(candidate => !candidate.ended && candidate.readyState > 0)
-        ?? candidates[0]
-        ?? null;
-    })()
-    """
+    static let activeMediaElementScript = sharedText(goosic_bridge_active_media_element_script())
 
     /// Turns the official page's Automix off, answering `absent`, `off`, `turned off` or
     /// `still on`.
@@ -141,19 +142,10 @@ enum OfficialBridge {
     /// moves on -- having cut the song's last seconds. With it off, the page plays the track
     /// through and reports its end (see `TrackEnd`). The switch sits in the page's Up Next tab,
     /// which renders after the player, so a host runs this until it answers something other than
-    /// `absent`, up to `automixAttempts` times half a second apart. The Swift copy of
-    /// `bridge::AUTOMIX_OFF_SCRIPT` in `goosic-shell-support`.
-    static let automixOffScript = """
-    (() => {
-      const toggle = document.getElementById('automix');
-      if (!toggle || typeof toggle.checked !== 'boolean') return 'absent';
-      if (!toggle.checked) return 'off';
-      toggle.click();
-      return toggle.checked ? 'still on' : 'turned off';
-    })()
-    """
+    /// `absent`, up to `automixAttempts` times half a second apart.
+    static let automixOffScript = sharedText(goosic_bridge_automix_off_script())
 
-    static let automixAttempts = 40
+    static let automixAttempts = Int(goosic_bridge_automix_attempts())
 
     /// The per-load page observer.
     ///
@@ -161,140 +153,10 @@ enum OfficialBridge {
     /// location and drops query items it does not recognize. The video id is still read live so
     /// that a client-side navigation to a different track is reported honestly and rejected.
     static func observerScript(token: String, generation: UInt64, videoID: String) -> String {
-        let encodedToken = jsonStringLiteral(token)
-        let encodedVideoID = jsonStringLiteral(videoID)
-        return """
-        (() => {
-          const token = \(encodedToken);
-          const generation = \(generation);
-          const requestedVideoId = \(encodedVideoID);
-          let sequence = 0;
-          let media;
-          const activeMedia = () => \(activeMediaElementScript);
-          const currentVideoId = () =>
-            new URLSearchParams(window.location.search).get('v') || requestedVideoId;
-          const isAd = () => Boolean(document.querySelector(
-            '.ad-showing, .ad-interrupting'
-          ));
-          // Every element that becomes the active one gets the listeners once. The interval
-          // below can switch to an element already in the page, and install() then saw no
-          // change and never listened to it, so its waiting and seeking went unreported.
-          const listened = new WeakSet();
-          const listen = (element) => {
-            if (!element || listened.has(element)) return;
-            listened.add(element);
-            ['play','pause','ended','timeupdate','durationchange','loadedmetadata','volumechange','seeked',
-             'waiting','playing','seeking','stalled','canplay']
-              .forEach(name => element.addEventListener(name, send, { passive: true }));
-          };
-          const send = () => {
-            media = activeMedia();
-            listen(media);
-            if (!media || !window.webkit?.messageHandlers?.goosicBridge) return;
-            const actualVideoId = currentVideoId();
-            const advertisement = isAd();
-            if (actualVideoId !== requestedVideoId && !advertisement && !media.paused) {
-              // Stop the app's own "up next" immediately rather than letting an unrequested
-              // content track play while the native side is still being told about it. A
-              // pre-roll advertisement is allowed to finish before queue takeover.
-              try { media.pause(); } catch (error) { /* the native side is told regardless */ }
-            }
-            // Read the clock beside the position so the pair describes one instant.
-            const sampledAt = Date.now();
-            const currentTime =
-              Number.isFinite(media.currentTime) && media.currentTime >= 0 ? media.currentTime : 0;
-            const duration =
-              Number.isFinite(media.duration) && media.duration >= 0 ? media.duration : 0;
-            const state = media.ended ? 'ended' : media.paused ? 'paused' : 'playing';
-            const volume = Number.isFinite(media.volume) ? Math.min(Math.max(media.volume, 0), 1) : 1;
-            // Not paused and not ended, yet unable to advance: a seek in flight or too little data.
-            const buffering = !media.paused && !media.ended && (media.seeking || media.readyState < 3);
-            window.webkit.messageHandlers.goosicBridge.postMessage({
-              version: 2, token, generation,
-              // Ads belong to the active official load even if the page has already changed its
-              // content route. Defer exposing a mismatched id until non-ad content appears.
-              videoId: advertisement ? requestedVideoId : actualVideoId,
-              sequence: ++sequence, state, currentTime, duration,
-              isAdvertisement: advertisement, volume, muted: Boolean(media.muted),
-              buffering, sampledAt
-            });
-          };
-          const install = () => {
-            const next = activeMedia();
-            listen(next);
-            if (next === media) return;
-            media = next;
-            if (!media) return;
-            send();
-          };
-          install();
-          new MutationObserver(install).observe(document.documentElement, {
-            childList: true, subtree: true
-          });
-          window.setInterval(send, 500);
-        })();
-        """
+        sharedText(goosic_bridge_observer_script(token, generation, videoID))
     }
 
     /// Clears the page's Media Session metadata and action handlers so macOS has one owner:
     /// `SystemMediaControls`. The script contains no Goosic state, URLs, or credentials.
-    static let mediaSessionGuardScript = """
-    (() => {
-      const descriptor = (object, name) => {
-        for (let current = object; current; current = Object.getPrototypeOf(current)) {
-          const found = Object.getOwnPropertyDescriptor(current, name);
-          if (found) return found;
-        }
-        return null;
-      };
-      const clear = () => {
-        try {
-          const session = navigator.mediaSession;
-          if (!session) return;
-          // Prefer a write-time guard. Some WebKit builds expose these members only on the
-          // prototype, so every operation remains best-effort and the periodic clear below is
-          // retained as a fallback.
-          if (!session.__goosicMediaSessionGuard) {
-            const metadata = descriptor(session, 'metadata');
-            if (metadata?.set) {
-              try { Object.defineProperty(session, 'metadata', {
-                configurable: false, enumerable: metadata.enumerable,
-                get: () => null, set: () => { try { metadata.set.call(session, null); } catch (_) {} }
-              }); } catch (_) {}
-            }
-            const playbackState = descriptor(session, 'playbackState');
-            if (playbackState?.set) {
-              try { Object.defineProperty(session, 'playbackState', {
-                configurable: false, enumerable: playbackState.enumerable,
-                get: () => 'none', set: () => { try { playbackState.set.call(session, 'none'); } catch (_) {} }
-              }); } catch (_) {}
-            }
-            const originalActionHandler = session.setActionHandler;
-            if (typeof originalActionHandler === 'function') {
-              try { Object.defineProperty(session, 'setActionHandler', {
-                configurable: false, writable: false,
-                value: (action, handler) => originalActionHandler.call(session, action, null)
-              }); } catch (_) {}
-            }
-            try { Object.defineProperty(session, '__goosicMediaSessionGuard', { value: true }); } catch (_) {}
-          }
-          session.metadata = null;
-          try { session.playbackState = 'none'; } catch (_) {}
-          ['play', 'pause', 'seekbackward', 'seekforward', 'previoustrack', 'nexttrack', 'stop']
-            .forEach(action => { try { session.setActionHandler(action, null); } catch (_) {} });
-        } catch (_) {}
-      };
-      clear();
-      window.setInterval(clear, 750);
-    })();
-    """
-
-    /// Encodes a Swift string as a JavaScript string literal, so an injected value can never
-    /// terminate the literal or inject code.
-    private static func jsonStringLiteral(_ value: String) -> String {
-        guard let data = try? JSONEncoder().encode(value), let literal = String(data: data, encoding: .utf8) else {
-            return "\"\""
-        }
-        return literal
-    }
+    static let mediaSessionGuardScript = sharedText(goosic_bridge_media_session_guard_script())
 }

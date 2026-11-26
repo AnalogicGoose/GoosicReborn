@@ -82,8 +82,8 @@ struct NativeMacArtistHero: SwiftUI.View {
             SwiftUI.Button {
                 if playingHere {
                     model.togglePause()
-                } else if let first = tracks.first {
-                    model.launch(.ordered(first, tracks), source: source)
+                } else {
+                    model.launch(tracks, shuffled: false, source: source)
                 }
             } label: {
                 SwiftUI.Image(systemName: showsPause ? "pause.fill" : "play.fill")
