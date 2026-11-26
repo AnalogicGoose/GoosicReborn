@@ -28,6 +28,7 @@
 //! | [`artwork`] | `ArtworkCache.swift`, `CoverShape.swift`, C# `CoverShape` | which hosts artwork may come from, its cache key, the playing cover's shape |
 //! | [`hero`] | `ArtistHero.swift`, C# `ArtistHero` | an artist hero's height and the colour its page takes |
 //! | [`navigation`] | `Models.swift`, `Catalog.swift`, `ThemeHost.swift` | route, filter and mode identity |
+//! | [`updates`] | C# `UpdateRules`, `AppUpdater` | which release the updater offers on each channel |
 //! | [`page_swap`] | `TrackEnd.swift`, C# `PlaybackOrder.IsSameSong` | a page that switches video before the requested track plays |
 
 use std::time::Duration;
@@ -50,6 +51,7 @@ pub mod queue;
 pub mod queue_engine;
 pub mod response;
 mod text;
+pub mod updates;
 
 pub use client::{ServiceClient, ServiceClientBuilder};
 pub use framing::FrameReader;
