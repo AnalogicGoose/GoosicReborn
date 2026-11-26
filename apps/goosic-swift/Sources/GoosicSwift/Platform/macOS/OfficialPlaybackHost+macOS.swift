@@ -607,10 +607,16 @@ final class OfficialPlaybackHost: NSObject {
     }
 
     /// Runs `OfficialBridge.songVersionScript` until the page's Song/Video switch has answered,
-    /// for this load only, so a song plays as the song rather than as its music video.
+    /// for this load only, so a song plays as the song rather than as its music video. It stops
+    /// once the requested track has been heard playing: switching versions then would change the
+    /// video under a confirmed load, which reads as the page moving on and skips the song.
     func preferSongVersion(token: String?, attempt: Int = 0) {
         guard let webView, let token, token == expectedToken,
               attempt < OfficialBridge.songVersionAttempts else { return }
+        guard !heardRequested else {
+            Diagnostics.note(.officialPlayback, "song-version", ["result": "already playing"])
+            return
+        }
         webView.evaluateJavaScript(OfficialBridge.songVersionScript) { [weak self] value, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }

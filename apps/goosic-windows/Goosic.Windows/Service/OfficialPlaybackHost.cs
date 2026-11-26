@@ -811,6 +811,14 @@ internal sealed class OfficialPlaybackHost
         var token = _token;
         for (var attempt = 0; attempt < Presentation.PlaybackOrder.SongVersionAttempts && token == _token; attempt++)
         {
+            // Once the requested track is playing, switching versions would change the video
+            // under a confirmed load, which reads as the page moving on and skips the song.
+            if (_heardPlaying)
+            {
+                BridgeLog.Write("song version left alone: the requested track is already playing");
+                return;
+            }
+
             string? outcome;
             try
             {
