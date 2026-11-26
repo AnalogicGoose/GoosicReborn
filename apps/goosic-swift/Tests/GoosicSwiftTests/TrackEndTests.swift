@@ -81,4 +81,21 @@ final class TrackEndTests: XCTestCase {
         }
         XCTAssertFalse(script.contains("location"), "it never navigates")
     }
+
+    func testTheSongVersionScriptOnlyPressesSongAndSaysWhatItDid() {
+        let script = OfficialBridge.songVersionScript
+        XCTAssertTrue(script.contains("ytmusic-av-toggle"))
+        XCTAssertTrue(script.contains(".song-button"))
+        XCTAssertFalse(script.contains("video-button"), "it never picks the video")
+        XCTAssertFalse(script.contains("location"), "it never navigates")
+        for answer in ["'absent'", "'song'", "'switched'", "'pending'", "'no song version'"] {
+            XCTAssertTrue(script.contains(answer), answer)
+        }
+        for answer in ["song", "switched", "no song version"] {
+            XCTAssertTrue(OfficialBridge.songVersionSettled(answer), answer)
+        }
+        for answer in ["absent", "pending", ""] {
+            XCTAssertFalse(OfficialBridge.songVersionSettled(answer), answer)
+        }
+    }
 }

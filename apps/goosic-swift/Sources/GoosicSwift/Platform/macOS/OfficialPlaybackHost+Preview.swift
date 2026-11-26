@@ -14,7 +14,7 @@ final class OfficialPlaybackHost {
         generation: UInt64,
         volume: Double = 1,
         muted: Bool = false,
-        allowsSubstitute: Bool = true,
+        adoptions: Int = 0,
         startPaused: Bool = false
     ) {
         loadedVideoID = nil
