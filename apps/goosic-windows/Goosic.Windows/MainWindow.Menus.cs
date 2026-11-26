@@ -131,8 +131,8 @@ public sealed partial class MainWindow : Window
 
             case TrackViewModel track when !string.IsNullOrEmpty(track.VideoId):
                 Add(menu, "Play", MenuGlyphs.Play, async () => await PlayEntryAsync(Model.PlayFromPage(track)));
-                Add(menu, "Play Next", MenuGlyphs.PlayNext, () => Model.Enqueue(track, next: true));
-                Add(menu, "Add to Queue", MenuGlyphs.AddToQueue, () => Model.Enqueue(track, next: false));
+                Add(menu, "Play Next", MenuGlyphs.PlayNext, async () => await PlayEntryAsync(Model.Enqueue(track, next: true)));
+                Add(menu, "Add to Queue", MenuGlyphs.AddToQueue, async () => await PlayEntryAsync(Model.Enqueue(track, next: false)));
                 Add(menu, "Start Radio", MenuGlyphs.Radio, async () => await PlayEntryAsync(Model.StartStation(track)));
                 AddAccountTrackItems(menu, track.VideoId, track.Title);
                 AddNavigation(menu, track.ArtistId, track.AlbumId, track.Artist, track.Album);
@@ -148,8 +148,8 @@ public sealed partial class MainWindow : Window
 
             case CardViewModel card when !string.IsNullOrEmpty(card.VideoId):
                 Add(menu, "Play", MenuGlyphs.Play, async () => await PlayEntryAsync(Model.PlayFromShelf(card)));
-                Add(menu, "Play Next", MenuGlyphs.PlayNext, () => Model.Enqueue(card, next: true));
-                Add(menu, "Add to Queue", MenuGlyphs.AddToQueue, () => Model.Enqueue(card, next: false));
+                Add(menu, "Play Next", MenuGlyphs.PlayNext, async () => await PlayEntryAsync(Model.Enqueue(card, next: true)));
+                Add(menu, "Add to Queue", MenuGlyphs.AddToQueue, async () => await PlayEntryAsync(Model.Enqueue(card, next: false)));
                 Add(menu, "Start Radio", MenuGlyphs.Radio, async () => await PlayEntryAsync(Model.StartStation(card)));
                 AddAccountTrackItems(menu, card.VideoId, card.Title);
                 AddNavigation(menu, card.ArtistId, card.AlbumId, card.Artist, card.Album);
