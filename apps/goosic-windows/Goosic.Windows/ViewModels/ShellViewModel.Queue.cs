@@ -409,10 +409,22 @@ public sealed partial class ShellViewModel
             return;
         }
 
-        if (Send(Command("setRadioAccount", ("accountId", account))) is not null)
+        if (Send(Command("setRadioAccount", ("accountId", account))) is not { } outcome)
         {
-            _radioAccountSent = true;
-            _radioAccount = account;
+            return;
+        }
+
+        _radioAccountSent = true;
+        _radioAccount = account;
+        // A personal station restarts for the new account, and a page that was on its way is
+        // asked for again. The engine counts that request as pending, so it has to be sent:
+        // dropping it would leave the station waiting on a load that never started.
+        foreach (var effect in outcome.Effects)
+        {
+            if (effect is FetchRadioEffect fetch)
+            {
+                _radioLoad = LoadRadioAsync(fetch);
+            }
         }
     }
 
