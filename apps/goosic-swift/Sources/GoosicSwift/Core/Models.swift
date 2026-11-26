@@ -131,15 +131,6 @@ enum RepeatMode: String, CaseIterable, Equatable {
     case all
     case one
 
-    /// The next mode in the cycle a single button steps through.
-    var next: RepeatMode {
-        switch self {
-        case .off: return .all
-        case .all: return .one
-        case .one: return .off
-        }
-    }
-
     var label: String {
         switch self {
         case .off: return "Repeat off"
@@ -279,15 +270,6 @@ struct GoosicQueue: Hashable {
     }
 }
 
-/// A radio station is an ordered upstream queue, not a sequence of unrelated searches. Its
-/// continuation remains tied to the song that started the station, so recommendations stay in
-/// the listener's chosen context as the queue grows.
-private struct GoosicRadioStation: Hashable {
-    let seedVideoID: String
-    var continuation: String?
-    let accountID: String?
-}
-
 @MainActor
 final class GoosicAppModel: Combine.ObservableObject {
     /// Test-only fixture state is selected at launch and never travels over the service wire.
@@ -304,23 +286,20 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published var status = "Service not connected"
     @Combine.Published var serviceConnected = false
     @Combine.Published var playbackState = GoosicPlaybackState(accountId: nil, owner: .none, generation: 0, sampleSequence: 0)
-    @Combine.Published var queue = GoosicQueue(tracks: [], currentIndex: 0) {
-        didSet {
-            if queue != oldValue {
-                queueRevision &+= 1
-                clearedQueue = nil
-            }
-        }
-    }
-    private var queueRevision: UInt64 = 0
-    private struct ClearedQueue {
-        let queue: GoosicQueue
-        let station: GoosicRadioStation?
-        let revision: UInt64
-        let radioRevision: UInt64
-        let deadline: TimeInterval
-    }
-    @Combine.Published private var clearedQueue: ClearedQueue?
+    /// The listening queue, as `QueueEngine` in `goosic-shell-support` last described it. Every
+    /// rule about it — what plays next, shuffle, repeat, radio, Clear and Undo — is the engine's;
+    /// this is only what to draw, and it changes only in `applyQueue(_:carrying:)`.
+    @Combine.Published private(set) var queue = GoosicQueue(tracks: [], currentIndex: 0)
+    /// The engine's last snapshot, for Up Next's sentence, Clear and Undo.
+    @Combine.Published private(set) var queueSnapshot: QueueSnapshot = .empty
+    /// The engine's id for each entry of `queue.tracks`, position for position. A queue may hold
+    /// a song twice, and the one asked for is the one with that id.
+    private(set) var queueEntryIDs: [UInt64] = []
+    /// The full track behind each entry; the engine knows only video ids and titles.
+    private var queueTracks: [UInt64: GoosicTrack] = [:]
+    /// Pages a queue was started from, by the string the engine carries for each.
+    private var queueSourceKeys: [String: CatalogKey] = [:]
+    private let sharedQueue = SharedQueue()
     @Combine.Published var currentTrack: GoosicTrack?
     @Combine.Published var isPaused = true
     @Combine.Published var queueVisible = false
@@ -361,6 +340,12 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published private(set) var startPage = "last"
     /// Skip decorative motion, on top of the system's own setting.
     @Combine.Published private(set) var reduceMotion = false
+    /// Which releases the updater offers: `stable`, or `experimental` for pre-releases too.
+    @Combine.Published private(set) var updateChannel = "stable" {
+        didSet { if updateChannel != oldValue { onUpdateChannelChanged?(updateChannel) } }
+    }
+    /// Told when the update channel changes, so the platform updater can follow it.
+    var onUpdateChannelChanged: ((String) -> Void)?
     /// What this account has rated, by video id. The catalog does not say whether a song is
     /// liked, so this is learned from Liked Music and from what the listener rates here. It shows
     /// what YouTube Music accepted, never a click it has not confirmed.
@@ -416,7 +401,12 @@ final class GoosicAppModel: Combine.ObservableObject {
     @Combine.Published private(set) var hostStatus = "No official video loaded."
     @Combine.Published private(set) var hostDiagnostics = "No page loaded."
     @Combine.Published private(set) var accounts: [GoosicAccountSummary] = []
-    @Combine.Published private(set) var activeAccountId: String?
+    @Combine.Published private(set) var activeAccountId: String? {
+        didSet {
+            // A signed-in radio reads the account's own recommendations, inside its profile.
+            if activeAccountId != oldValue { dispatchQueue(.setRadioAccount(activeAccountId)) }
+        }
+    }
     @Combine.Published private(set) var accountSnapshotEpoch: UInt64 = 0
     /// Every catalog page this session has requested, keyed so a late response cannot land on
     /// the wrong screen.
@@ -453,9 +443,9 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// A seek the user asked for but the player has not confirmed yet. Without this the slider
     /// snaps back to the live position between a drag and the next bridge event.
     private var pendingSeek: (position: Double, requestedAt: Date)?
-    /// The video whose end has already advanced the queue, so the player's repeated `ended`
-    /// polls cannot skip several tracks at once.
-    private var endedVideoID: String?
+    /// When this play's end moves the queue, and whether an advertisement left it paused. Begun
+    /// again for every load, so the player's repeated `ended` polls cannot skip several tracks.
+    private var endGuard = EndGuard()
     /// Songs the official player refused this session, by video id. They stay listed, dimmed,
     /// but are left out when a list starts playing and when radio adds recommendations, as on
     /// Windows. Kept for the session only: a refusal can be regional or temporary.
@@ -473,7 +463,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// `pauseNextLoad`, held for the song radio is still being fetched to continue with. A Play
     /// or Pause press, or a song the listener chooses, drops it: those are fresh choices.
     private var pauseAfterRadio = false
-    private var adRecovery = AdPlaybackRecovery()
     /// The preferred volume has not been pushed to this load's player yet. The page reports its
     /// own volume, so the preference is applied once per load rather than fought over.
     private var volumeAppliedForLoad = false
@@ -491,15 +480,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     private var accountLoginHost: AccountLoginHost?
     private var accountTransitionToken: UInt64 = 0
     let artwork = ArtworkCache()
-    /// A radio request is outstanding. Guards against a burst of `ended` events each starting
-    /// their own continuation.
-    private var radioExtensionInFlight = false
-    /// The station that owns autoplay recommendations. Clearing this is a deliberate new queue
-    /// context; preserving it lets `catalog.radio` page the same station instead of drifting.
-    private var radioStation: GoosicRadioStation?
-    /// Bumped whenever a new listening context supersedes an in-flight radio request. A late
-    /// response must never append its recommendations to the user's replacement queue.
-    private var radioRequestRevision: UInt64 = 0
     /// The track the loaded lyrics belong to, so a stale answer cannot land on a new song.
     private var lyricsVideoID: String?
     private var lyricsRequestInFlight = false
@@ -563,6 +543,13 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// cache fetches it anonymously like any cover; the page itself is local. The banner can be
     /// replaced through `GOOSIC_UI_FIXTURE_BANNER`, or removed with an empty value to see the
     /// portrait, and the portrait through `GOOSIC_UI_FIXTURE_PORTRAIT`.
+    /// Fills the queue for a fixture without loading anything: the engine's effects are dropped.
+    func adoptFixtureQueue(_ tracks: [GoosicTrack], current: Int) {
+        let command = QueueCommand.launch(tracks: tracks, start: current, kind: .ordered,
+                                          sourceTitle: nil, sourceKey: nil, shuffle: nil)
+        applyQueue(sharedQueue.handle(command), carrying: tracks)
+    }
+
     private func installArtistFixture() {
         let environment = ProcessInfo.processInfo.environment
         let banner = environment["GOOSIC_UI_FIXTURE_BANNER"] ?? "https://lh3.googleusercontent.com/Pv9rzAkKxKnCVe0AMsldl2m5vTXw1dJCABk8tuCUZqfDO2JDUVLW5D4mlx6Pb6j0_UYt_PiGgr8juC4=w2880-h1200-p-l90-rj"
@@ -622,7 +609,7 @@ final class GoosicAppModel: Combine.ObservableObject {
                 subtitle: "Playlist • Fixture owner • 2026", shelves: [], tracks: tracks,
                 nextCursor: nil, allTracksID: nil, truncated: false))
             detail = .playlist("ui-quality")
-            queue = GoosicQueue(tracks: Array(tracks.prefix(4)), currentIndex: 1)
+            adoptFixtureQueue(Array(tracks.prefix(4)), current: 1)
             currentTrack = tracks[1]
             lyrics = GoosicLyrics(source: "fixture", synced: true,
                 lines: (0..<20).map { GoosicLyricsLine(atMs: Int64($0 * 5000), text: "Fixture lyric line \($0 + 1)") })
@@ -678,7 +665,7 @@ final class GoosicAppModel: Combine.ObservableObject {
             detail = .playlist("perf-playlist")
         }
         let queued = (0..<500).map { track($0, prefix: "queue") }
-        queue = GoosicQueue(tracks: queued, currentIndex: 3)
+        adoptFixtureQueue(queued, current: 3)
         currentTrack = queued[3]
         isPaused = false
         duration = 240
@@ -793,11 +780,6 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// a late accounts.get response from resurrecting an account after a switch.
     private func applyAccounts(_ snapshot: GoosicAccountsSnapshot, initial: Bool = false) {
         guard AccountSnapshotSelection.accepts(epoch: snapshot.epoch, currentEpoch: accountSnapshotEpoch, initial: initial) else { return }
-        if activeAccountId != snapshot.activeAccountId {
-            radioRequestRevision &+= 1
-            radioExtensionInFlight = false
-            radioStation = nil
-        }
         let accountChanged = activeAccountId != snapshot.activeAccountId || initial
         accounts = snapshot.accounts
         activeAccountId = snapshot.activeAccountId
@@ -1138,10 +1120,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     }
 
     private func clearAccountScopedUI() {
-        radioRequestRevision &+= 1
-        radioExtensionInFlight = false
-        radioStation = nil
-        queue = GoosicQueue(tracks: [], currentIndex: 0)
+        dispatchQueue(.reset)
         currentTrack = nil
         detail = nil
         submittedQuery = ""
@@ -1367,14 +1346,17 @@ final class GoosicAppModel: Combine.ObservableObject {
     private func apply(_ settings: GoosicSettings, restoringRoute: Bool) {
         volume = min(max(settings.volume, 0), 1)
         isMuted = settings.muted
-        autoplay = settings.autoplay
-        shuffle = settings.shuffle
-        repeatMode = RepeatMode(rawValue: settings.repeatMode) ?? .off
+        dispatchQueue(.configure(
+            shuffle: settings.shuffle,
+            repeatMode: RepeatMode(rawValue: settings.repeatMode) ?? .off,
+            autoplay: settings.autoplay
+        ))
         setTheme(GoosicTheme.named(settings.theme), persist: false)
         artworkBackground = settings.artworkBackground ?? true
         hideExplicit = settings.hideExplicit ?? false
         startPage = settings.startPage ?? "last"
         reduceMotion = settings.reduceMotion ?? false
+        updateChannel = settings.updateChannel ?? "stable"
         queueVisible = settings.queueVisible
         legacyImported = settings.importedFromLegacy
         legacyImportAvailable = settings.legacyAvailable
@@ -1412,6 +1394,12 @@ final class GoosicAppModel: Combine.ObservableObject {
         savePreferences(GoosicPreferencesPatch(startPage: page))
     }
 
+    func setUpdateChannel(_ channel: String) {
+        guard channel != updateChannel else { return }
+        updateChannel = channel
+        savePreferences(GoosicPreferencesPatch(updateChannel: channel))
+    }
+
     func setReduceMotion(_ enabled: Bool) {
         guard enabled != reduceMotion else { return }
         reduceMotion = enabled
@@ -1435,7 +1423,7 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     func setAutoplay(_ enabled: Bool) {
         guard allowPlaybackInteraction() else { return }
-        autoplay = enabled
+        dispatchQueue(.setAutoplay(enabled))
         savePreferences(GoosicPreferencesPatch(autoplay: enabled))
     }
 
@@ -1460,35 +1448,12 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     func toggleShuffle() {
         guard allowPlaybackInteraction() else { return }
-        shuffle.toggle()
-        savePreferences(GoosicPreferencesPatch(shuffle: shuffle))
+        dispatchQueue(.toggleShuffle)
     }
 
     func cycleRepeatMode() {
         guard allowPlaybackInteraction() else { return }
-        repeatMode = repeatMode.next
-        savePreferences(GoosicPreferencesPatch(repeatMode: repeatMode.rawValue))
-    }
-
-    /// The queue position to play after `index`, honouring shuffle and repeat.
-    ///
-    /// Returns `nil` when the queue is finished, which is what lets radio take over.
-    /// `wrapping` is false at the natural end of a track and true for a deliberate Next, so
-    /// pressing Next at the end of a list moves rather than stopping.
-    func indexAfter(_ index: Int, wrapping: Bool) -> Int? {
-        let count = queue.tracks.count
-        guard count > 0, queue.tracks.indices.contains(index) else { return nil }
-        if repeatMode == .one && !wrapping { return index }
-        if shuffle {
-            guard count > 1 else { return (repeatMode == .all || wrapping) ? index : nil }
-            // Any position but the current one, so shuffle never repeats a track back to back.
-            var candidate = index
-            while candidate == index { candidate = Int.random(in: 0..<count) }
-            return candidate
-        }
-        let next = index + 1
-        if next < count { return next }
-        return (repeatMode == .all || wrapping) ? 0 : nil
+        dispatchQueue(.cycleRepeat)
     }
 
     /// Imports preferences from a previous Goosic install.
@@ -1554,6 +1519,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         merged.hideExplicit = update.hideExplicit ?? merged.hideExplicit
         merged.startPage = update.startPage ?? merged.startPage
         merged.reduceMotion = update.reduceMotion ?? merged.reduceMotion
+        merged.updateChannel = update.updateChannel ?? merged.updateChannel
         return merged
     }
 
@@ -2201,90 +2167,53 @@ final class GoosicAppModel: Combine.ObservableObject {
 
     // MARK: - Queue editing
 
-    /// Plays `track` straight after the current one.
+    /// Plays `track` straight after the current one, or now when nothing is playing.
     func playNext(_ track: GoosicTrack) {
-        guard !queue.tracks.isEmpty, currentTrack != nil else {
-            launch(.ordered(track, [track]))
-            return
-        }
-        queue.tracks.insert(track, at: min(queue.currentIndex + 1, queue.tracks.count))
-        announce("\(track.title) plays next")
+        guard currentTrack != nil || canChangeTrack() else { return }
+        dispatchQueue(.playNext(track))
     }
 
-    /// Adds `track` to the end of the queue.
+    /// Adds `track` to the end of the queue, or plays it when nothing is playing.
     func addToQueue(_ track: GoosicTrack) {
-        guard !queue.tracks.isEmpty, currentTrack != nil else {
-            launch(.ordered(track, [track]))
-            return
-        }
-        queue.tracks.append(track)
-        announce("Added \(track.title) to the queue")
+        guard currentTrack != nil || canChangeTrack() else { return }
+        dispatchQueue(.addToQueue(track))
     }
 
-    /// Takes a row out of the queue. The playing song stays where it is; removing it would stop
-    /// the music, which is what Pause is for.
+    /// Takes a row out of the queue. The playing song stays; the engine says so.
     func removeFromQueue(at index: Int) {
-        guard queue.tracks.indices.contains(index), index != queue.currentIndex else { return }
-        queue.tracks.remove(at: index)
-        if index < queue.currentIndex { queue.currentIndex -= 1 }
+        guard queueEntryIDs.indices.contains(index) else { return }
+        dispatchQueue(.remove(entry: queueEntryIDs[index]))
     }
 
     /// Moves queued rows, keeping the playing song current wherever it lands.
     func moveQueueItems(from source: IndexSet, to destination: Int) {
-        guard let rows = Self.moving(Array(queue.tracks.indices), from: source, to: destination) else { return }
-        let playing = queue.currentIndex
-        queue = GoosicQueue(
-            tracks: rows.map { queue.tracks[$0] },
-            currentIndex: rows.firstIndex(of: playing) ?? 0
-        )
+        guard let order = Self.moving(queueEntryIDs, from: source, to: destination) else { return }
+        dispatchQueue(.reorder(order))
     }
 
     var canClearUpcoming: Bool {
-        guard let retained = QueueEditing.retainedCount(count: queue.tracks.count,
-                                                       currentIndex: queue.currentIndex) else { return false }
-        return retained < queue.tracks.count && currentTrack != nil
+        queueSnapshot.canClear && currentTrack != nil
             && serviceConnected && playbackTransition == .idle && !accountOperationInProgress
     }
 
     var canUndoClear: Bool {
-        guard let clearedQueue else { return false }
-        return serviceConnected && playbackTransition == .idle && !accountOperationInProgress
-            && clearedQueue.radioRevision == radioRequestRevision
-            && QueueEditing.canUndo(expectedRevision: clearedQueue.revision, revision: queueRevision,
-                                    deadline: clearedQueue.deadline, now: ProcessInfo.processInfo.systemUptime)
+        guard let deadline = queueSnapshot.undoDeadline else { return false }
+        return ProcessInfo.processInfo.systemUptime < deadline
+            && serviceConnected && playbackTransition == .idle && !accountOperationInProgress
     }
 
     func clearUpcoming() {
-        guard canClearUpcoming,
-              let retained = QueueEditing.retainedCount(count: queue.tracks.count,
-                                                       currentIndex: queue.currentIndex) else { return }
-        let original = queue
-        let station = radioStation
-        radioRequestRevision &+= 1
-        radioExtensionInFlight = false
-        // Mark the radio exhausted so a late fetch or autoplay cannot refill a deliberate clear.
-        if let current = queue.current {
-            radioStation = GoosicRadioStation(seedVideoID: current.videoID, continuation: nil,
-                                             accountID: activeAccountId)
-        }
-        queue.tracks = Array(queue.tracks.prefix(retained))
-        let revision = queueRevision
-        clearedQueue = ClearedQueue(queue: original, station: station, revision: revision,
-                                    radioRevision: radioRequestRevision, deadline: ProcessInfo.processInfo.systemUptime + QueueEditing.undoWindow)
-        announce("Cleared Up Next")
-        DispatchQueue.main.asyncAfter(deadline: .now() + QueueEditing.undoWindow) { [weak self] in
-            guard let self, self.clearedQueue?.revision == revision else { return }
-            self.clearedQueue = nil
+        guard canClearUpcoming else { return }
+        dispatchQueue(.clearUpcoming(now: ProcessInfo.processInfo.systemUptime))
+        // The Undo button is drawn from the snapshot; redraw it once the window has passed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.1) { [weak self] in
+            self?.objectWillChange.send()
         }
     }
 
     func undoClearUpcoming() {
-        guard canUndoClear, let snapshot = clearedQueue else { return }
-        radioRequestRevision &+= 1
-        radioExtensionInFlight = false
-        queue = snapshot.queue
-        radioStation = snapshot.station
-        announce("Restored Up Next")
+        guard canUndoClear else { return }
+        dispatchQueue(.undoClear(now: ProcessInfo.processInfo.systemUptime))
     }
 
     /// `items` with the ones at `source` moved to sit before `destination`, as a list's move
@@ -2300,12 +2229,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     }
 
     /// What Up next says: where the queue came from, then how much is left.
-    var upNextText: String {
-        let remaining = max(queue.tracks.count - queue.currentIndex - 1, 0)
-        return PlayerText.upNext(
-            source: queueSource?.title, remaining: remaining, findingMore: radioExtensionInFlight
-        )
-    }
+    var upNextText: String { queueSnapshot.upNextText }
 
     /// Whether the music playing now was queued by the page under `key`, so that page's Play
     /// button pauses and resumes it rather than starting it over.
@@ -2321,6 +2245,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         sleepTimerToken &+= 1
         sleepTimerDeadline = nil
         sleepAtEndOfSong = false
+        dispatchQueue(.setSleepAtEnd(choice == .endOfSong))
         switch choice {
         case .none:
             announce("Sleep timer off")
@@ -2341,7 +2266,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     }
 
     var sleepTimerLabel: String {
-        PlayerText.sleepTimer(
+        SharedRules.sleepTimer(
             remaining: sleepTimerDeadline.map { $0.timeIntervalSinceNow }, endOfSong: sleepAtEndOfSong
         )
     }
@@ -2800,19 +2725,19 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Where the scrubber should sit: the pending seek while it is still settling, otherwise
     /// the position the player last confirmed.
     var displayedPosition: Double {
-        if let pending = pendingSeek, Date().timeIntervalSince(pending.requestedAt) < Self.seekSettleWindow {
-            return pending.position
-        }
-        return currentTime
+        guard let pending = pendingSeek else { return currentTime }
+        return PlaybackRules.settleSeek(
+            confirmed: currentTime, target: pending.position,
+            elapsed: Date().timeIntervalSince(pending.requestedAt)).shown
     }
 
     /// Where the lyrics follow from: the pending seek while it is still settling, as for
     /// `displayedPosition`, otherwise the last confirmed position, unthrottled.
     var lyricsPosition: Double {
-        if let pending = pendingSeek, Date().timeIntervalSince(pending.requestedAt) < Self.seekSettleWindow {
-            return pending.position
-        }
-        return lyricsClock.position
+        guard let pending = pendingSeek else { return lyricsClock.position }
+        return PlaybackRules.settleSeek(
+            confirmed: lyricsClock.position, target: pending.position,
+            elapsed: Date().timeIntervalSince(pending.requestedAt)).shown
     }
 
     /// The scrubber's upper bound. Zero-length media would make an empty range, so it is only
@@ -2824,19 +2749,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     var elapsedText: String { Self.timeText(displayedPosition) }
     var durationText: String { duration > 0 ? Self.timeText(duration) : "--:--" }
 
-    private static let seekSettleWindow: TimeInterval = 1.0
-
-    static func timeText(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds.rounded(.down))
-        let hours = total / 3_600
-        let minutes = (total % 3_600) / 60
-        let secs = total % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        }
-        return String(format: "%d:%02d", minutes, secs)
-    }
+    static func timeText(_ seconds: Double) -> String { PlaybackRules.timeText(seconds) }
 
     // MARK: - Playback
 
@@ -2885,45 +2798,148 @@ final class GoosicAppModel: Combine.ObservableObject {
         savePreferences(GoosicPreferencesPatch(muted: isMuted))
     }
 
-    func play(
-        _ track: GoosicTrack,
-        in tracks: [GoosicTrack] = [],
-        queueIndex: Int? = nil,
-        source: QueueSource? = nil
-    ) {
-        guard allowPlaybackInteraction() else { return }
-        pauseAfterRadio = false
+    // MARK: - Queue
+
+    /// Whether the listener may choose another track now, saying why not when they may not.
+    private func canChangeTrack() -> Bool {
+        guard allowPlaybackInteraction() else { return false }
         guard playbackTransition == .idle else {
             status = "Playback command pending; wait for Rust to finish before choosing another action."
-            return
+            return false
         }
         guard !isAdvertisement else {
             status = "Track changes are unavailable while the official player is showing an advertisement."
-            return
+            return false
         }
+        guard client != nil else {
+            status = "Connect to the Rust service before playing."
+            return false
+        }
+        return true
+    }
+
+    /// Plays `track` from `tracks`, chosen on `surface`. Where it was chosen decides whether the
+    /// list plays in order or a station starts from the song; that decision is the engine's.
+    func launch(
+        _ track: GoosicTrack,
+        in tracks: [GoosicTrack],
+        from surface: LaunchSurface,
+        source: QueueSource? = nil
+    ) {
+        guard canChangeTrack() else { return }
+        pauseAfterRadio = false
+        let list = tracks.isEmpty ? [track] : tracks
+        let start = list.firstIndex(of: track) ?? list.firstIndex { $0.videoID == track.videoID }
+        launchList(list, start: start ?? 0, kind: SharedRules.launchKind(for: surface), source: source)
+    }
+
+    /// Plays a whole list from the top, or shuffled from anywhere.
+    func launch(_ tracks: [GoosicTrack], shuffled: Bool, source: QueueSource?) {
+        guard canChangeTrack(), !tracks.isEmpty else { return }
+        pauseAfterRadio = false
+        launchList(tracks, start: shuffled ? nil : 0, kind: .ordered, source: source, shuffle: shuffled)
+    }
+
+    private func launchList(
+        _ tracks: [GoosicTrack], start: Int?, kind: LaunchKind, source: QueueSource?,
+        shuffle: Bool? = nil
+    ) {
+        let keyID = source?.key.map { "\($0)" }
+        if let keyID, let key = source?.key { queueSourceKeys[keyID] = key }
+        dispatchQueue(.launch(tracks: tracks, start: start, kind: kind,
+                              sourceTitle: source?.title, sourceKey: keyID, shuffle: shuffle))
+    }
+
+    /// Starts the seed song, then appends its recommendations.
+    func startRadio(from track: GoosicTrack) {
+        guard canChangeTrack() else { return }
+        pauseAfterRadio = false
+        dispatchQueue(.startRadio(track))
+    }
+
+    /// Plays the queue entry at `index`, which is already in the queue.
+    func play(queueIndex index: Int) {
+        guard canChangeTrack(), queueEntryIDs.indices.contains(index) else { return }
+        pauseAfterRadio = false
+        dispatchQueue(.jump(entry: queueEntryIDs[index]))
+    }
+
+    /// Sends one command to the shared queue and carries out what it answers.
+    private func dispatchQueue(_ command: QueueCommand) {
+        let outcome = sharedQueue.handle(command)
+        applyQueue(outcome, carrying: command.carriedTracks)
+        for effect in outcome.effects { perform(effect) }
+    }
+
+    /// Redraws the queue from the engine's snapshot, keeping the full track behind each entry.
+    private func applyQueue(_ outcome: QueueOutcome, carrying tracks: [GoosicTrack]) {
+        for added in outcome.added where tracks.indices.contains(added.input) {
+            queueTracks[added.entry] = tracks[added.input]
+        }
+        let snapshot = outcome.snapshot
+        let ids = snapshot.entries.filter { queueTracks[$0] != nil }
+        // Entries a Clear removed can come back with Undo, so they are kept until it expires.
+        if snapshot.undoDeadline == nil {
+            let live = Set(ids)
+            queueTracks = queueTracks.filter { live.contains($0.key) }
+        }
+        let rebuilt = GoosicQueue(
+            tracks: ids.compactMap { queueTracks[$0] },
+            currentIndex: snapshot.current ?? 0
+        )
+        if queueEntryIDs != ids { queueEntryIDs = ids }
+        if queue != rebuilt { queue = rebuilt }
+        if queueSnapshot != snapshot { queueSnapshot = snapshot }
+        if shuffle != snapshot.shuffle { shuffle = snapshot.shuffle }
+        if repeatMode != snapshot.repeatMode { repeatMode = snapshot.repeatMode }
+        if autoplay != snapshot.autoplay { autoplay = snapshot.autoplay }
+        let source = snapshot.sourceTitle.map {
+            QueueSource(title: $0, key: snapshot.sourceKey.flatMap { queueSourceKeys[$0] })
+        }
+        if queueSource != source { queueSource = source }
+        if let keyID = snapshot.sourceKey, let key = queueSourceKeys[keyID] {
+            queueSourceKeys = [keyID: key]
+        } else {
+            queueSourceKeys = [:]
+        }
+    }
+
+    private func perform(_ effect: QueueEffect) {
+        switch effect {
+        case .play(let entry):
+            guard let track = queueTracks[entry] else { return }
+            load(track)
+        case .seekToStart:
+            seek(to: 0)
+        case .fetchRadio(let request, let seed, let continuation, let account):
+            fetchRadio(request: request, seedVideoID: seed, continuation: continuation, accountID: account)
+        case .stopForSleep:
+            sleepAtEndOfSong = false
+            sleepTimerToken &+= 1
+            pauseForSleep(evenIfPaused: true)
+        case .savePreferences(let shuffle, let repeatMode):
+            savePreferences(GoosicPreferencesPatch(shuffle: shuffle, repeatMode: repeatMode.rawValue))
+        case .notice(let text):
+            status = text
+            if Self.isQueueEditNotice(text) { announce(text) }
+        case .unknown:
+            break
+        }
+    }
+
+    /// Edits the listener made by hand are confirmed where they are looking; the rest is status.
+    private static func isQueueEditNotice(_ text: String) -> Bool {
+        text.hasSuffix("plays next.") || text.hasSuffix("was added to the queue.")
+            || text == "Cleared Up Next" || text == "Restored Up Next"
+            || text == "The track that is playing stays in the queue."
+    }
+
+    /// Asks Rust for the lease if needed, then loads `track` in the official player.
+    private func load(_ track: GoosicTrack) {
         guard client != nil else {
             status = "Connect to the Rust service before playing."
             return
         }
-
-        if !tracks.isEmpty {
-            let tracks = Self.startableTracks(tracks, chosen: track, refused: refusedVideoIDs)
-            queue = GoosicQueue(tracks: tracks, currentIndex: tracks.firstIndex(of: track) ?? 0)
-            queueSource = source
-            // A deliberately chosen list is a fresh listening context, so its later autoplay
-            // must not inherit recommendations from the previous station.
-            radioExtensionInFlight = false
-            radioStation = nil
-            radioRequestRevision &+= 1
-        } else if let queueIndex, queue.tracks.indices.contains(queueIndex),
-                  queue.tracks[queueIndex] == track {
-            // By position rather than by value: a queue may hold the same song twice, and the
-            // one asked for is the one at this position.
-            queue.currentIndex = queueIndex
-        } else {
-            select(track)
-        }
-
         if playbackState.owner == .officialWebView {
             currentTrack = track
             beginTrack()
@@ -2984,11 +3000,11 @@ final class GoosicAppModel: Combine.ObservableObject {
             }
             return
         }
-        guard let track = queue.current ?? queue.tracks.first else {
+        guard !queueEntryIDs.isEmpty else {
             status = "Choose a track to begin."
             return
         }
-        play(track)
+        play(queueIndex: queueEntryIDs.indices.contains(queue.currentIndex) ? queue.currentIndex : 0)
     }
 
     func previous() {
@@ -3002,8 +3018,8 @@ final class GoosicAppModel: Combine.ObservableObject {
             status = "Track changes are unavailable while the official player is showing an advertisement."
             return
         }
-        guard let index = QueueNavigation.indexBefore(queue.currentIndex, count: queue.tracks.count, repeatMode: repeatMode) else { return }
-        play(queue.tracks[index], queueIndex: index)
+        pauseAfterRadio = false
+        dispatchQueue(.previous(position: isSeekable ? displayedPosition : 0))
     }
 
     func next() {
@@ -3017,9 +3033,8 @@ final class GoosicAppModel: Combine.ObservableObject {
             status = "Track changes are unavailable while the official player is showing an advertisement."
             return
         }
-        // A deliberate Next wraps even with repeat off; only the end of a track stops.
-        guard let index = indexAfter(queue.currentIndex, wrapping: true) else { return }
-        play(queue.tracks[index], queueIndex: index)
+        pauseAfterRadio = false
+        dispatchQueue(.next)
     }
 
     func toggleQueue() {
@@ -3210,7 +3225,7 @@ final class GoosicAppModel: Combine.ObservableObject {
         // The bridge that would report the advertisement's end is gone, and Play refuses while
         // this flag is set, so leaving it would block playback until the app restarted.
         isAdvertisement = false
-        adRecovery = AdPlaybackRecovery()
+        endGuard.begin()
         hasConfirmedPlaybackSample = false
         updateSystemMediaControls()
         status = "\(error.localizedDescription) Playback stopped; reconnect to continue."
@@ -3247,24 +3262,14 @@ final class GoosicAppModel: Combine.ObservableObject {
         lyricsLengthWaitExpired = nil
         duration = 0
         pendingSeek = nil
-        endedVideoID = nil
+        endGuard.begin()
         listenerPaused = false
-        adRecovery = AdPlaybackRecovery()
         isAdvertisement = false
         hasConfirmedPlaybackSample = false
         volumeAppliedForLoad = false
         requestedVolume = nil
         requestedMuted = nil
         updateSystemMediaControls()
-    }
-
-    private func select(_ track: GoosicTrack) {
-        if let index = queue.tracks.firstIndex(of: track) {
-            queue.currentIndex = index
-        } else {
-            queue.tracks.insert(track, at: 0)
-            queue.currentIndex = 0
-        }
     }
 
     private func apply(_ response: GoosicResponse) {
@@ -3373,8 +3378,9 @@ final class GoosicAppModel: Combine.ObservableObject {
             }
         }
         if let pending = pendingSeek,
-           abs(event.currentTime - pending.position) < 1.5
-            || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
+           PlaybackRules.settleSeek(
+            confirmed: event.currentTime, target: pending.position,
+            elapsed: Date().timeIntervalSince(pending.requestedAt)).settled {
             pendingSeek = nil
             // A seek the page refused while paused leaves the reported position unchanged, so
             // nothing else would move the lyrics off the target they were holding.
@@ -3382,15 +3388,14 @@ final class GoosicAppModel: Combine.ObservableObject {
         }
         // A queued playing sample must not undo a listener's asynchronous pause request.
         // Explicit resume and a new load clear this intent.
-        if adRecovery.observe(advertisement: event.isAdvertisement, state: event.state, listenerPaused: listenerPaused) {
+        let verdict = endGuard.observe(
+            advertisement: event.isAdvertisement, state: event.state,
+            position: event.currentTime, duration: event.duration, listenerPaused: listenerPaused
+        )
+        if verdict.resume {
             officialPlaybackHost.play()
         }
-        if !adRecovery.awaitingContent && TrackEnd.shouldAdvance(
-            state: event.state, isAdvertisement: event.isAdvertisement, videoID: event.videoID,
-            position: event.currentTime, duration: event.duration,
-            lastEndedVideoID: endedVideoID, listenerPaused: listenerPaused
-        ) {
-            endedVideoID = event.videoID
+        if verdict.advance {
             advanceAfterEnd()
         }
         if presentationChanged { updateSystemMediaControls() }
@@ -3442,7 +3447,9 @@ final class GoosicAppModel: Combine.ObservableObject {
             let title = currentTrack?.title ?? "This song"
             // The listener's song is what was refused, even when the page refused a version
             // loaded in its place.
-            refusedVideoIDs.insert(currentTrack?.videoID ?? swap.requestedVideoID)
+            let refused = currentTrack?.videoID ?? swap.requestedVideoID
+            refusedVideoIDs.insert(refused)
+            dispatchQueue(.refused(videoID: refused))
             // A pause pressed while the switch was being decided carries to the song the queue
             // moves on to. Starting a new track clears the intent, so it is restored, and the
             // pause request supersedes the load's play request before the media exists.
@@ -3461,176 +3468,45 @@ final class GoosicAppModel: Combine.ObservableObject {
     private func officialPlayerMovedOn(from finishedVideoID: String) {
         guard !accountOperationInProgress else { return }
         guard playbackState.owner == .officialWebView else { return }
-        guard endedVideoID != finishedVideoID else { return }
-        endedVideoID = finishedVideoID
+        guard endGuard.pageEnded() else { return }
         isPaused = true
         hasConfirmedPlaybackSample = false
         updateSystemMediaControls()
         advanceAfterEnd()
     }
 
-    /// Moves to the next queued track when one finishes.
-    ///
-    /// Unlike `next()` this does not wrap: reaching the end of the queue stops, so a
-    /// single-track queue cannot loop forever on its own `ended` event.
+    /// Tells the queue the playing track finished. The engine decides what follows: the next
+    /// entry, the song again under repeat-one, a radio, the sleep timer's stop, or nothing.
     private func advanceAfterEnd() {
-        // "End of this song" is honoured exactly where a natural end would otherwise advance.
-        if sleepAtEndOfSong {
-            sleepAtEndOfSong = false
-            sleepTimerToken &+= 1
-            pauseForSleep(evenIfPaused: true)
-            status = "Sleep timer stopped the music at the end of the song."
-            return
-        }
-        guard autoplay else {
-            status = "Track finished. Autoplay is off."
-            return
-        }
-        guard let nextIndex = indexAfter(queue.currentIndex, wrapping: false) else {
-            extendWithRadio()
-            return
-        }
-        play(queue.tracks[nextIndex], queueIndex: nextIndex)
+        let pauseCarried = pauseNextLoad
+        dispatchQueue(.ended)
+        // Recommendations still on their way: a pause carried from a refused song applies to the
+        // song they continue with, not to whatever the listener chooses next.
+        pauseAfterRadio = queueSnapshot.radioLoading && pauseCarried
     }
 
-    /// Continues past the end of the queue with the radio that follows the last track.
-    ///
-    /// This is what the previous Goosic called "auto radio", and the imported preference maps
-    /// onto `autoplay`, so a user who had it off does not suddenly get endless playback.
-    private func extendWithRadio() {
-        guard let seed = queue.current ?? currentTrack else {
-            status = "Queue finished."
-            return
-        }
-        // Radio is only meaningful for the official player: a local file has no upstream queue,
-        // and asking for one would claim the wrong owner.
-        guard playbackState.owner == .officialWebView else {
-            status = "Queue finished."
-            return
-        }
-        guard !radioExtensionInFlight else {
-            status = "Queue finished."
-            return
-        }
-        // A station with no next cursor is genuinely exhausted. Re-seeding from the last
-        // recommendation is what made long queues wander into unrelated music.
-        if let station = radioStation, station.continuation == nil {
-            status = "Queue finished."
-            return
-        }
-        radioExtensionInFlight = true
-        pauseAfterRadio = pauseNextLoad
-        let station = radioStation ?? GoosicRadioStation(seedVideoID: seed.videoID, continuation: nil, accountID: activeAccountId)
-        let revision = radioRequestRevision
-        status = station.continuation == nil
-            ? "Queue finished. Starting radio from \(seed.title)…"
-            : "Queue finished. Loading more from this radio…"
-        requestRadio(seedVideoID: station.seedVideoID, continuation: station.continuation, accountID: station.accountID) { [weak self] page in
+    /// Fetches a page of recommendations for the engine: the account's own inside its profile,
+    /// where its cookies live, or the anonymous catalog's through the service.
+    private func fetchRadio(request: UInt64, seedVideoID: String, continuation: String?, accountID: String?) {
+        let answer: (CatalogPageView?) -> Void = { [weak self] page in
             guard let self else { return }
-            guard revision == self.radioRequestRevision else { return }
-            self.radioExtensionInFlight = false
             guard let page else {
-                self.status = "Queue finished. Radio had nothing to continue with."
+                self.dispatchQueue(.radioFailed(request: request))
                 return
             }
-            let tracks = Self.freshRadioTracks(
-                page.playableTracks, excluding: self.queue.tracks, refused: self.refusedVideoIDs)
-            self.radioStation = GoosicRadioStation(
-                seedVideoID: station.seedVideoID,
-                continuation: page.nextCursor == station.continuation ? nil : page.nextCursor,
-                accountID: station.accountID
-            )
-            guard let first = tracks.first else {
-                self.status = "Queue finished. Radio had nothing new to continue with."
-                return
-            }
-            let firstIndex = self.queue.tracks.count
-            self.queue.tracks.append(contentsOf: tracks)
-            self.pauseNextLoad = self.pauseAfterRadio
-            self.play(first, queueIndex: firstIndex)
+            let carried = self.pauseAfterRadio
+            self.pauseNextLoad = carried
+            self.dispatchQueue(.radioLoaded(
+                request: request, tracks: page.playableTracks, nextCursor: page.nextCursor))
             self.pauseNextLoad = false
+            if !self.queueSnapshot.radioLoading { self.pauseAfterRadio = false }
         }
-    }
-
-    /// Starts the seed song, then appends its personalized recommendations.
-    func startRadio(from track: GoosicTrack) {
-        launch(.station(track))
-    }
-
-    func launch(_ intent: PlaybackLaunchIntent, source: QueueSource? = nil) {
-        switch intent {
-        case .ordered(let track, let tracks):
-            play(track, in: tracks, source: source)
-        case .station(let track):
-            launchStation(track)
-        }
-    }
-
-    private func launchStation(_ track: GoosicTrack) {
-        guard allowPlaybackInteraction(), playbackTransition == .idle,
-              !isAdvertisement, client != nil else { return }
-        // Start the selected song immediately, while recommendations load independently.
-        play(track, in: [track], source: .radio(track))
-        radioExtensionInFlight = true
-        let revision = radioRequestRevision
-        let accountID = activeAccountId
-        requestRadio(seedVideoID: track.videoID, continuation: nil, accountID: accountID) { [weak self] page in
-            guard let self else { return }
-            guard revision == self.radioRequestRevision, accountID == self.activeAccountId else { return }
-            self.radioExtensionInFlight = false
-            guard let page else {
-                self.status = "Radio had nothing to play after \(track.title)."
-                return
-            }
-            let tracks = Self.freshRadioTracks(
-                page.playableTracks, excluding: [track], refused: self.refusedVideoIDs)
-            self.radioStation = GoosicRadioStation(
-                seedVideoID: track.videoID, continuation: page.nextCursor, accountID: accountID
-            )
-            self.queue.tracks.append(contentsOf: tracks)
-        }
-    }
-
-    /// Keeps only recommendations that do not already occur in this queue, while also removing
-    /// repeats inside one upstream page. Explicit user queues may contain duplicates; radio
-    /// recommendations may not, because a duplicate reads as a broken "up next" sequence.
-    /// Songs the official player refused this session are left out too.
-    static func freshRadioTracks(
-        _ candidates: [GoosicTrack],
-        excluding queue: [GoosicTrack],
-        refused: Set<String> = []
-    ) -> [GoosicTrack] {
-        var seen = Set(queue.map(\.videoID)).union(refused)
-        return candidates.filter { seen.insert($0.videoID).inserted }
-    }
-
-    /// The list a chosen row starts, without the songs the official player refused this session.
-    ///
-    /// The chosen row itself always stays: the listener asked for it by name, and the page may
-    /// play it this time. This is the Mac copy of the filter in the Windows shell's `StartQueue`.
-    static func startableTracks(
-        _ tracks: [GoosicTrack],
-        chosen: GoosicTrack,
-        refused: Set<String>
-    ) -> [GoosicTrack] {
-        guard !refused.isEmpty else { return tracks }
-        return tracks.filter { $0 == chosen || !refused.contains($0.videoID) }
-    }
-
-    private func requestRadio(
-        seedVideoID: String,
-        continuation: String?,
-        accountID: String?,
-        completion: @escaping (CatalogPageView?) -> Void
-    ) {
-        let identity = RadioRequestIdentity(revision: radioRequestRevision, accountID: accountID)
         if let accountID {
-            guard accountID == activeAccountId else { completion(nil); return }
-            personalCatalogHost.loadRadio(seedVideoID: seedVideoID, continuation: continuation) { [weak self] result in
-                guard let self, identity.accepts(revision: self.radioRequestRevision, accountID: self.activeAccountId) else { return }
+            guard accountID == activeAccountId else { answer(nil); return }
+            personalCatalogHost.loadRadio(seedVideoID: seedVideoID, continuation: continuation) { result in
                 switch result {
-                case .success(let page): completion(CatalogPageView(wire: page))
-                case .failure: completion(nil)
+                case .success(let page): answer(CatalogPageView(wire: page))
+                case .failure: answer(nil)
                 }
             }
             return
@@ -3638,12 +3514,10 @@ final class GoosicAppModel: Combine.ObservableObject {
         send(
             command: "catalog.radio",
             payload: GoosicRequestPayload(catalogId: seedVideoID, continuation: continuation)
-        ) { [weak self] response in
-            guard let self, identity.accepts(revision: self.radioRequestRevision, accountID: self.activeAccountId) else { return }
-            completion(response.payload?.catalog.map(CatalogPageView.init(wire:)))
-        } failure: { [weak self] error in
-            guard let self, identity.accepts(revision: self.radioRequestRevision, accountID: self.activeAccountId) else { return }
-            completion(nil)
+        ) { response in
+            answer(response.payload?.catalog.map(CatalogPageView.init(wire:)))
+        } failure: { _ in
+            answer(nil)
         }
     }
 

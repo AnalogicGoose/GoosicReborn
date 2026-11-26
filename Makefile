@@ -1,7 +1,12 @@
-.PHONY: build-service test-rust test-rust-live build-swift test-swift build-linux test-linux run-linux test-ui-macos debug-bundle-macos package-macos run-service run-swift test
+.PHONY: build-service build-ffi test-rust test-rust-live build-swift test-swift build-linux test-linux run-linux test-ui-macos debug-bundle-macos package-macos run-service run-swift test
 
 build-service:
 	cargo build -p goosic-service
+
+# The shared shell rules as a C library. The macOS shell links its static archive, so every Swift
+# build and test run needs it built first; Windows builds the DLL from its own project.
+build-ffi:
+	cargo build -p goosic-shell-support-ffi
 
 test-rust:
 	cargo test --workspace
@@ -19,10 +24,10 @@ SWIFT_ENV := GOOSIC_MACOS_SDK=$(GOOSIC_MACOS_SDK)
 
 SWIFT_FLAGS := --package-path apps/goosic-swift --scratch-path $(SWIFT_SCRATCH)
 
-build-swift:
+build-swift: build-ffi
 	$(SWIFT_ENV) swift build $(SWIFT_FLAGS)
 
-test-swift:
+test-swift: build-ffi
 	$(SWIFT_ENV) swift test $(SWIFT_FLAGS)
 
 build-linux: build-service
@@ -36,7 +41,7 @@ run-linux: build-linux
 
 # Runs the real macOS shell against local fixture data, including scroll and account-control UI
 # checks. XcodeGen is used only to materialize the disposable Xcode UI-test host.
-test-ui-macos:
+test-ui-macos: build-ffi
 	@test "$(UNAME_S)" = Darwin || (echo "macOS UI tests require macOS" >&2; exit 2)
 	cd tools/macos-ui-tests && xcodegen generate
 	xcodebuild test -project tools/macos-ui-tests/GoosicMacUITests.xcodeproj -scheme GoosicDebugHost -destination 'platform=macOS'
@@ -60,5 +65,5 @@ run-service:
 	@test -n "$(GOOSIC_SERVICE_PATH)" || (echo "set GOOSIC_SERVICE_PATH to the service executable" >&2; exit 2)
 	"$(GOOSIC_SERVICE_PATH)"
 
-run-swift: build-service
+run-swift: build-service build-ffi
 	GOOSIC_SERVICE_PATH="$(CURDIR)/target/debug/goosic-service" $(SWIFT_ENV) swift run $(SWIFT_FLAGS) goosic-swift

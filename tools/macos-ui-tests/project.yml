@@ -27,6 +27,10 @@ targets:
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_IDENTITY: "-"
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: GOOSIC_UI_TEST_HOST
+        # The shared shell rules: the module map SwiftPM uses, and the static archive that
+        # `make build-ffi` writes. `make test-ui-macos` builds it first.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/../../apps/goosic-swift/Sources/GoosicShellSupportFFI
+        OTHER_LDFLAGS: $(SRCROOT)/../../target/debug/libgoosic_shell_support_ffi.a
   GoosicDebugHostUITests:
     type: bundle.ui-testing
     platform: macOS
