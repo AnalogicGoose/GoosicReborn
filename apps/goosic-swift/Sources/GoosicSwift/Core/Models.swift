@@ -2712,19 +2712,19 @@ final class GoosicAppModel: Combine.ObservableObject {
     /// Where the scrubber should sit: the pending seek while it is still settling, otherwise
     /// the position the player last confirmed.
     var displayedPosition: Double {
-        if let pending = pendingSeek, Date().timeIntervalSince(pending.requestedAt) < Self.seekSettleWindow {
-            return pending.position
-        }
-        return currentTime
+        guard let pending = pendingSeek else { return currentTime }
+        return PlaybackRules.settleSeek(
+            confirmed: currentTime, target: pending.position,
+            elapsed: Date().timeIntervalSince(pending.requestedAt)).shown
     }
 
     /// Where the lyrics follow from: the pending seek while it is still settling, as for
     /// `displayedPosition`, otherwise the last confirmed position, unthrottled.
     var lyricsPosition: Double {
-        if let pending = pendingSeek, Date().timeIntervalSince(pending.requestedAt) < Self.seekSettleWindow {
-            return pending.position
-        }
-        return lyricsClock.position
+        guard let pending = pendingSeek else { return lyricsClock.position }
+        return PlaybackRules.settleSeek(
+            confirmed: lyricsClock.position, target: pending.position,
+            elapsed: Date().timeIntervalSince(pending.requestedAt)).shown
     }
 
     /// The scrubber's upper bound. Zero-length media would make an empty range, so it is only
@@ -2736,19 +2736,7 @@ final class GoosicAppModel: Combine.ObservableObject {
     var elapsedText: String { Self.timeText(displayedPosition) }
     var durationText: String { duration > 0 ? Self.timeText(duration) : "--:--" }
 
-    private static let seekSettleWindow: TimeInterval = 1.0
-
-    static func timeText(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "0:00" }
-        let total = Int(seconds.rounded(.down))
-        let hours = total / 3_600
-        let minutes = (total % 3_600) / 60
-        let secs = total % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        }
-        return String(format: "%d:%02d", minutes, secs)
-    }
+    static func timeText(_ seconds: Double) -> String { PlaybackRules.timeText(seconds) }
 
     // MARK: - Playback
 
@@ -3378,8 +3366,9 @@ final class GoosicAppModel: Combine.ObservableObject {
             }
         }
         if let pending = pendingSeek,
-           abs(event.currentTime - pending.position) < 1.5
-            || Date().timeIntervalSince(pending.requestedAt) >= Self.seekSettleWindow {
+           PlaybackRules.settleSeek(
+            confirmed: event.currentTime, target: pending.position,
+            elapsed: Date().timeIntervalSince(pending.requestedAt)).settled {
             pendingSeek = nil
             // A seek the page refused while paused leaves the reported position unchanged, so
             // nothing else would move the lyrics off the target they were holding.

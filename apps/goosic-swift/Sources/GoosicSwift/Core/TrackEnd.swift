@@ -1,4 +1,5 @@
 import Foundation
+import GoosicShellSupportFFI
 
 /// Swift copy of `AdPlaybackRecovery` in goosic-shell-support. An ad's stopped media can be
 /// reported after its DOM marker disappears; wait for content before accepting another end.
@@ -27,26 +28,13 @@ struct AdPlaybackRecovery {
 
 /// When a finished track should move the queue on.
 ///
-/// The Swift copy of `has_finished` and `should_advance_after_end` in `goosic-shell-support`'s
-/// `playback` module. Until the Swift shell links that crate, the two are held to the same cases
-/// (`TrackEndTests` and the crate's tests), and a change to one is a change to both.
+/// Whether a track has played through is `has_finished` in `goosic-shell-support`, which Windows
+/// asks too. This keeps only the once-per-video check around it.
 enum TrackEnd {
-    /// How close to its length a stopped track has to be for the stop to count as its end.
-    static let tolerance: Double = 1.5
-
-    /// Whether a report says the track has played through.
-    ///
-    /// A player normally says `ended`. With YouTube Music's Automix off -- see
-    /// `OfficialBridge.automixOffScript` -- the official page instead stops a fraction of a second
-    /// short of the length and says `paused`; a shell waiting for `ended` sat silent after every
-    /// song. A pause that close to the end is the end, unless the listener paused it.
+    /// Whether a report says the track has played through, including the page's pause a moment
+    /// short of the end when Automix is off -- unless the listener paused it.
     static func hasFinished(state: String, position: Double, duration: Double, listenerPaused: Bool) -> Bool {
-        if state == "ended" { return true }
-        guard state == "paused", !listenerPaused,
-              duration.isFinite, duration > 0, position.isFinite else {
-            return false
-        }
-        return position >= duration - tolerance
+        goosic_track_has_finished(state, position, duration, listenerPaused)
     }
 
     /// Whether a sample means the queue should move on.
@@ -70,32 +58,19 @@ enum TrackEnd {
 
 /// What to make of the official page replacing the requested track with another video.
 ///
-/// The Swift copy of `page_swap` in `goosic-shell-support`, and of the Windows shell's
-/// `PlaybackOrder.IsSameSong` and the early-switch rule in its `OfficialPlaybackHost`. The three
-/// are held to the same cases (`PageSwapTests`, the crate's tests and `SameSongTests`), and a
-/// change to one is a change to all of them.
+/// The rules are `page_swap` in `goosic-shell-support`, the ones Windows asks too.
 enum PageSwap {
-    /// Whether a sample shows the requested track itself playing.
-    ///
-    /// Until one does, a different video under the same load cannot be the track's end: either
-    /// YouTube Music swapped in another version of the same song before starting it, or it gave
-    /// up on a track it would not play. Treating either as the end skipped the song without a
-    /// word and started the next row of the list instead.
+    /// Whether a sample shows the requested track itself playing. Until one does, a different
+    /// video under the same load cannot be the track's end.
     static func heardPlaying(state: String, duration: Double, isAdvertisement: Bool) -> Bool {
-        state == "playing" && !isAdvertisement && duration.isFinite && duration > 0
+        goosic_track_heard_playing(state, duration, isAdvertisement)
     }
 
-    /// Whether the page's title names the song that was asked for.
-    ///
-    /// YouTube Music swaps a song for its other version -- the audio track for the music video,
-    /// or back -- before it starts. That is the same song under another id. The titles differ
-    /// only by decoration such as "(Official Video)" or "(feat. …)", so both are reduced to their
-    /// words, and one must contain the other as whole words, so "Down" is not "Downtown".
+    /// Whether the page's title names the song that was asked for, ignoring decoration such as
+    /// "(Official Video)", and matching whole words only.
     static func isSameSong(requested: String?, page: String?) -> Bool {
-        let requested = songWords(requested)
-        let page = songWords(page)
-        guard !requested.isEmpty, !page.isEmpty else { return false }
-        return " \(page) ".contains(" \(requested) ") || " \(requested) ".contains(" \(page) ")
+        guard let requested, let page else { return false }
+        return goosic_is_same_song(requested, page)
     }
 
     enum Decision: Equatable {
@@ -113,28 +88,24 @@ enum PageSwap {
     /// `loadedVideoID` is what the host has loaded now, which may be a version adopted earlier;
     /// `currentTitle` is the title of the song the listener chose.
     static func decide(_ swap: OfficialPageSwap, loadedVideoID: String?, currentTitle: String?) -> Decision {
-        guard swap.requestedVideoID == loadedVideoID else { return .ignore }
-        if swap.mayAdopt,
-           swap.pageVideoID != swap.requestedVideoID,
-           isSameSong(requested: currentTitle, page: swap.pageTitle) {
-            return .adopt(videoID: swap.pageVideoID)
+        let answer = swap.requestedVideoID.withCString { requested in
+            swap.pageVideoID.withCString { page in
+                swap.pageTitle.withCString { title in
+                    (currentTitle ?? "").withCString { chosen in
+                        if let loadedVideoID {
+                            return loadedVideoID.withCString { loaded in
+                                goosic_early_switch(requested, page, title, swap.mayAdopt, loaded, chosen)
+                            }
+                        }
+                        return goosic_early_switch(requested, page, title, swap.mayAdopt, nil, chosen)
+                    }
+                }
+            }
         }
-        return .refused
-    }
-
-    private static func songWords(_ title: String?) -> String {
-        guard let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return ""
+        switch answer {
+        case 2: return .adopt(videoID: swap.pageVideoID)
+        case 1: return .refused
+        default: return .ignore
         }
-        // Drop bracketed decoration: (Official Video), [Lyrics], (feat. …) and the like.
-        let text = title.replacingOccurrences(
-            of: #"[\(\[][^\)\]]*[\)\]]"#, with: " ", options: .regularExpression)
-        var words = ""
-        for character in text.lowercased() {
-            // An apostrophe joins a word rather than splitting it: "don't" and "dont" are one word.
-            if character == "'" || character == "\u{2019}" { continue }
-            words.append(character.isLetter || character.isNumber ? character : " ")
-        }
-        return words.split(separator: " ").joined(separator: " ")
     }
 }
