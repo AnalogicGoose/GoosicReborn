@@ -209,6 +209,11 @@ at its trailing edge. A route and an opened album, playlist or artist remain dis
 Returning to a route must not unexpectedly reset its search query or create a new queue.
 Playlist entries and Liked Music highlight the destination actually being shown.
 
+The GTK catalog has no Guest badge or "without an account" banner above its public pages.
+Account identity belongs in the account control; reading a public catalog does not mean the
+active account is signed out. This removes the Linux-specific banner; macOS and Windows do
+not have that badge. The anonymous catalog and account-scoped request paths are unchanged.
+
 Account UI distinguishes guest, signing in, signed in, session expired and service offline.
 Saved account metadata or a cached personalized feed is not proof of an authenticated session.
 Expired account content must not masquerade as a live personal feed. Show an actionable Sign In
@@ -255,7 +260,8 @@ neutral fill, which is the nearest native equivalent.
 
 Album and playlist pages lead with cover art, title, relevant metadata and primary Play/Pause
 and Shuffle actions. The primary action reflects whether that collection is playing. Ordered
-collections launch ordered queues; discovery selections may resolve a station. Sort and Find
+collections launch ordered queues; discovery selections — a search result, a shelf card, a quick
+pick — start a station from the chosen song (`launch_kind_for` in `goosic-shell-support`). Sort and Find
 belong to collection browsing and must not silently change the playback queue. Song counts
 remain honest about partial data, including a '+' where completeness is unknown. Continuation
 pages append with their real cursor rather than presenting the first page as the whole list.
@@ -527,6 +533,13 @@ is not a justification to destroy an authenticated profile or a playing renderer
 | Icon vocabulary | SF Symbols | Native Windows icons | Native symbolic icon theme |
 | Motion | Symbol/content transitions | Native/compositor state transitions | Native widget transitions where supported |
 | Accessible behavior | Native accessibility semantics | UI Automation semantics | GTK accessibility semantics |
+
+GTK must resolve the symbols for essential actions before building the shell. If the active
+desktop icon theme lacks those symbols, use the Flatpak runtime's complete Adwaita symbolic
+set for this application so Lyrics, Like and Explore remain recognizable. The native widget
+theme, text scaling and appearance preferences still govern controls. A missing-image symbol
+is not an acceptable fallback for an available action. The Linux alpha's diagnosed lookup
+failures and correction are recorded in [LINUX_SHELL.md](LINUX_SHELL.md#linux-alpha-diagnostics-icons-lyrics-and-seeking).
 
 These are implementation seams, not permission to change product composition or action meaning.
 A platform without blur still has a floating capsule; a platform without SF Symbols still has

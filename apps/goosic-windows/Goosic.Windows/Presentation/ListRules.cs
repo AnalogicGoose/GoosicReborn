@@ -101,38 +101,6 @@ public static class RecentSearches
     }
 }
 
-/// <summary>Words the player shows about the queue and the sleep timer.</summary>
-public static class PlayerText
-{
-    /// <summary>"From Liked Music · 99 songs": where the queue came from, then what is left.</summary>
-    public static string UpNext(string source, int remaining, bool findingMore) =>
-        (source.Length > 0 ? $"From {source} · " : "")
-        + remaining switch
-        {
-            0 when findingMore => "Finding songs like this…",
-            0 => "Nothing after this",
-            1 => "1 song",
-            _ => $"{remaining} songs",
-        };
-
-    /// <summary>The sleep timer's menu label: off, at the end of the song, or the minutes left.</summary>
-    public static string SleepTimer(TimeSpan? left, bool endOfSong)
-    {
-        if (endOfSong)
-        {
-            return "Sleep timer: end of song";
-        }
-
-        if (left is not { } remaining)
-        {
-            return "Sleep timer";
-        }
-
-        // Rounded up, so the last half-minute reads "1 min left" rather than "0".
-        return $"Sleep timer: {Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes))} min left";
-    }
-}
-
 /// <summary>Rules about which page an id opens and what colour a mood is.</summary>
 public static class CatalogRules
 {

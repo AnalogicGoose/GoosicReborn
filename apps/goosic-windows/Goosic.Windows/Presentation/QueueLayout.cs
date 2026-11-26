@@ -58,36 +58,3 @@ public static class QueueLayout
         return -1;
     }
 }
-
-/// <summary>
-/// What Clear removed, kept so Undo can put it back. Undo is only honoured while the track that
-/// was playing when the queue was cleared is still the one playing: after that, "back where they
-/// were" no longer has a meaning.
-/// </summary>
-public sealed class ClearedQueue<T> where T : class
-{
-    public ClearedQueue(T? current, IReadOnlyList<T> removed, DateTimeOffset clearedAt)
-    {
-        Current = current;
-        Removed = removed;
-        ClearedAt = clearedAt;
-    }
-
-    public static readonly TimeSpan UndoWindow = TimeSpan.FromSeconds(8);
-
-    public T? Current { get; }
-
-    public IReadOnlyList<T> Removed { get; }
-
-    public DateTimeOffset ClearedAt { get; }
-
-    public bool CanUndo(T? current, DateTimeOffset now) =>
-        Removed.Count > 0 && ReferenceEquals(current, Current) && now - ClearedAt <= UndoWindow;
-
-    /// <summary>
-    /// The entries to put back after the current one: what was removed, minus anything queued
-    /// again since, so Undo never duplicates a track.
-    /// </summary>
-    public List<T> ToRestore(IReadOnlyList<T> queue) =>
-        Removed.Where(entry => !queue.Any(existing => ReferenceEquals(existing, entry))).ToList();
-}

@@ -61,7 +61,7 @@ pub fn valid_timing(document: &goosic_protocol::LyricsDocument) -> bool {
             .words
             .last()
             .and_then(|word| word.end_ms)
-            .map_or(true, |end| end <= pair[1].at_ms)
+            .is_none_or(|end| end <= pair[1].at_ms)
     })
 }
 

@@ -49,33 +49,3 @@ public class QueueLayoutTests
     public void KeyboardMovesStayInsideUpNext(int index, int count, int delta, int? expected) =>
         Assert.Equal(expected, QueueLayout.MoveTarget(index, count, delta));
 }
-
-public class ClearedQueueTests
-{
-    private sealed class Entry;
-
-    private static readonly DateTimeOffset Cleared = new(2026, 9, 16, 12, 0, 0, TimeSpan.Zero);
-
-    [Fact]
-    public void UndoIsOfferedWhileTheSameTrackPlaysInsideTheWindow()
-    {
-        var current = new Entry();
-        var cleared = new ClearedQueue<Entry>(current, [new Entry()], Cleared);
-        Assert.True(cleared.CanUndo(current, Cleared.AddSeconds(3)));
-        Assert.False(cleared.CanUndo(current, Cleared + ClearedQueue<Entry>.UndoWindow + TimeSpan.FromSeconds(1)));
-        Assert.False(cleared.CanUndo(new Entry(), Cleared.AddSeconds(1)));
-    }
-
-    [Fact]
-    public void NothingRemovedMeansNothingToUndo() =>
-        Assert.False(new ClearedQueue<Entry>(null, [], Cleared).CanUndo(null, Cleared));
-
-    [Fact]
-    public void UndoSkipsEntriesQueuedAgainSince()
-    {
-        var kept = new Entry();
-        var requeued = new Entry();
-        var cleared = new ClearedQueue<Entry>(null, [kept, requeued], Cleared);
-        Assert.Equal([kept], cleared.ToRestore(new List<Entry> { requeued }));
-    }
-}

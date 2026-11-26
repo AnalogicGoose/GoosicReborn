@@ -68,7 +68,7 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "GOOSIC_SERVICE_PATH"
-            value = "[&quot;value&quot;: &quot;../../target/debug/goosic-service&quot;, &quot;isEnabled&quot;: true]"
+            value = "[&quot;isEnabled&quot;: true, &quot;value&quot;: &quot;../../target/debug/goosic-service&quot;]"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

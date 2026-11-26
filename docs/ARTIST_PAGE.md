@@ -114,8 +114,7 @@ More gains Shuffle, which turns shuffle on and plays the top songs from a random
 
 ## Windows
 
-The work is in `apps/goosic-windows` on a `feature/windows/<slug>` branch cut from
-`platform/windows`, after `development` with this change has been synced into it.
+The work is in `apps/goosic-windows` on a feature branch cut from `development`.
 
 Start with the data. Add an `ArtistHeader` record beside `CatalogPage` in
 `Service/CatalogModels.cs`, with nullable `Banner`, `Portrait`, `Audience`, `Description` and
