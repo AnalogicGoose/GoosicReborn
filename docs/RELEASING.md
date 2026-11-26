@@ -15,22 +15,22 @@ A release is three commands and one click, run from any clean checkout on the re
 command can be repeated: it finds what an earlier run already did and carries on, so a run cut
 short by a failed check or a closed laptop is resumed by running it again.
 
-1. **Write `docs/RELEASE_<x.y.z>.md`**, in the style described in AGENTS.md. It can sit
+1. **Write `docs/RELEASE_<version>.md`**, in the style described in AGENTS.md. It can sit
    uncommitted in the checkout; the next step commits it.
-2. **`sh tools/release.sh <x.y.z>`** cuts `release/<x.y.z>` from development, runs
-   `tools/bump-version.sh` there, adds the notes, and merges the freeze pull request when CI
+2. **`sh tools/release.sh <version>`**, where the version is `x.y.z` or `x.y.z-beta.N`, cuts
+   `release/<version>` from development, runs `tools/bump-version.sh` there, adds the notes, and merges the freeze pull request when CI
    passes. It then opens the deploy pull request from development into main and comments
    `@codex review` on it. macOS and Windows changes arrive directly on development through
    their regular pull requests.
-3. **`sh tools/release.sh ship <x.y.z>`**, once Codex's findings are dealt with, merges the deploy
+3. **`sh tools/release.sh ship <version>`**, once Codex's findings are dealt with, merges the deploy
    pull request when its CI is green. The release workflow sees a version on main that has no tag,
-   tags the merge `v<x.y.z>` itself, tests the tagged tree on Windows and macOS, builds the
+   tags the merge `v<version>` itself, tests the tagged tree on Windows and macOS, builds the
    Windows installer and portable ZIP and the universal macOS app, verifies the Mac bundle's
    signature and architectures, and attaches both checksum files to a draft release.
 4. **Inspect the draft and publish it.** This stays a person's click on purpose: publication makes
    the Windows updater offer the version, and nothing undoes that quietly. The macOS download
    remains an alpha until native acceptance is complete.
-5. **`sh tools/release.sh feed <x.y.z>`** puts the release in front of installed Macs. Publishing
+5. **`sh tools/release.sh feed <version>`** puts the release in front of installed Macs. Publishing
    does not reach a Mac: every installed copy reads `updates/macos-alpha.xml` from `development`.
    The command downloads the published ZIP, reads the app's `CFBundleVersion`, signs the ZIP with
    Sparkle's `sign_update` and the private key in this Mac's keychain, adds an item to the top of
@@ -55,7 +55,7 @@ move the version — finds its version already tagged and builds nothing. A tag 
 still builds, for the rare release made another way.
 
 The feed item's `sparkle:version` must equal the built app's `CFBundleVersion`, and
-`sparkle:shortVersionString` the release version. Sparkle decides by the build number alone: an
+`sparkle:shortVersionString` the version as a person reads it ("0.4.7 beta 2"). Sparkle decides by the build number alone: an
 item whose `sparkle:version` is higher than the app inside it makes every Mac download the update,
 install it, and be offered it again. Skipping the feed looks like nothing at all: it stayed at
 0.2.4 through later releases, and every Mac went on reporting 0.2.4 as the newest version, even
@@ -87,15 +87,29 @@ opened from the Finder; the Windows shell has always looked beside its own execu
 
 Every copy of Goosic follows one of two update channels, chosen in Settings and saved by the
 service with the other preferences: **stable**, the default, and **experimental**. An
-experimental release is an ordinary release marked as a GitHub pre-release. It keeps a plain
-`x.y.z` version, so the numbers simply rise across both channels and a stable listener never sees
-the ones spent on experiments. A suffixed name such as `0.5.0-beta.1` was the alternative and was
-refused on purpose: the macOS build number is derived from the version, the Windows Setup file is
-named after it, and every installed copy compares versions as plain triples, so a suffix would
-have needed a new rule in each of those places and in every copy already installed.
+experimental release is an ordinary release marked as a GitHub pre-release.
 
-To make one, start `docs/RELEASE_<x.y.z>.md` with the line `<!-- channel: experimental -->`. GitHub
-does not render the comment. The release workflow reads it, creates the draft as a pre-release,
+Versions follow Apple's scheme. A plain `x.y.z` is a release, and `x.y.z-beta.N` is the Nth beta
+of it, which a person reads as "0.4.7 beta 2": the tag is `v0.4.7-beta.2`, the notes are
+`docs/RELEASE_0.4.7-beta.2.md`, and the GitHub release is titled "Goosic 0.4.7 beta 2". A beta
+comes before the release it leads to, so 0.4.7 beta 2 is newer than 0.4.6 and older than 0.4.7,
+and a beta is always experimental. This replaced an earlier rule that every experiment spent a
+new plain number. That rule existed because the macOS build number was derived from the
+version, the Windows Setup file was named after it, and every installed copy compared plain
+triples; each of those now reads the beta too (the build number below, the Setup file
+`Goosic-0.4.7-beta.2-windows-x64-setup.exe`, and `updates::parse_release_version`). Any other
+suffix, such as `-linux-alpha.1`, still names a platform test build no updater installs.
+
+0.4.7 itself shipped as an experimental release under the plain tag `v0.4.7`, before betas had
+numbers. The shared rule reads a plain tag marked as a pre-release as beta 1 of its version, so
+a copy on 0.4.7 beta 2 is never offered it as the finished 0.4.7. The finished 0.4.7 needs that
+tag, so before releasing it, move the beta's release to `v0.4.7-beta.1`. Windows copies installed
+before betas existed compare plain triples only, so a copy on 0.4.7 is not offered 0.4.7 beta 2
+and is updated once by hand; Macs compare build numbers and are offered it normally.
+
+To make one, start `docs/RELEASE_<version>.md` with the line `<!-- channel: experimental -->`. GitHub
+does not render the comment, and `tools/release.sh` refuses a beta whose notes lack it. The release
+workflow reads it (a beta tag counts as experimental on its own), creates the draft as a pre-release,
 and leaves the last stable release marked as latest. After publication, `tools/release.sh feed`
 sees the pre-release flag and gives the Mac feed item `<sparkle:channel>experimental</sparkle:channel>`.
 
@@ -116,14 +130,20 @@ release workflow, and nobody raised it after 0.2.9: 0.2.10 and 0.3.0 both came o
 build 7, the same as 0.2.9, so the feed could not offer 0.3.0 until its Mac ZIP was rebuilt by
 hand from the tag as build 8 and replaced on the release.
 
-`tools/package-macos.sh` now derives it from the version as MAJOR × 10000 + MINOR × 100 + PATCH,
-so 0.3.1 is build 301 and 1.0.0 is build 10000. A higher version always gives a higher build, the
-same tag always gives the same build, so a retried workflow run produces an identical app, and
-every derived number is above the hand-numbered builds 1 to 8 already in the feed. The scheme
-holds while minor and patch stay below 100, and the script refuses a version that breaks that
-rather than producing a number that could go backwards. A commit count was the alternative, but
-it depends on how much history a checkout has and says nothing a person can read back to a
-release.
+`tools/package-macos.sh` derives it from the version, Apple-style: a version's builds rise
+through its betas and end with the release. The number is (MAJOR × 10000 + MINOR × 100 + PATCH) ×
+100, plus the beta number, or 99 for the release itself, so 0.4.7 beta 2 is build 40702, 0.4.7 is
+40799 and 0.4.8 beta 1 is 40801. The bundle's `CFBundleShortVersionString` stays the plain
+`0.4.7`, so the About window reads "Version 0.4.7 (40702)", and the feed's
+`sparkle:shortVersionString` carries "0.4.7 beta 2", which is what Sparkle shows. A higher version
+always gives a higher build, the same tag always gives the same build, so a retried workflow run
+produces an identical app, and every number is above the 1 to 407 the feed carried before betas
+existed (the earlier rule had no trailing two digits, so 0.4.7 was build 407). The scheme holds
+while minor and patch stay below 100 and a beta is numbered 1 to 98, and the script refuses
+anything else rather than producing a number that could go backwards. The same rule is
+`updates::ReleaseVersion::build_number` in `goosic-shell-support`, and the Windows updater orders
+versions by the same four fields. A commit count was the alternative, but it depends on how much
+history a checkout has and says nothing a person can read back to a release.
 
 The release workflow then compares the packaged app's `CFBundleVersion` with the highest
 `sparkle:version` in `updates/macos-alpha.xml` and fails if it is not above it, so a collision

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Moves every version default a release touches to a new version, in one step.
 #
-# Usage: sh tools/bump-version.sh <x.y.z>
+# Usage: sh tools/bump-version.sh <x.y.z | x.y.z-beta.N>
 #
 # It rewrites the workspace version in Cargo.toml and refreshes Cargo.lock, and the Windows and
 # macOS packaging defaults. The release workflow reads the version and the notes file from the
@@ -11,8 +11,8 @@
 set -eu
 
 new=${1:-}
-if ! printf '%s\n' "$new" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-    echo "Usage: sh tools/bump-version.sh <x.y.z>" >&2
+if ! printf '%s\n' "$new" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]?)?$'; then
+    echo "Usage: sh tools/bump-version.sh <x.y.z | x.y.z-beta.N>" >&2
     exit 2
 fi
 root=$(cd "$(dirname "$0")/.." && pwd)
