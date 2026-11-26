@@ -10,37 +10,19 @@ and [docs/LINUX_SHELL.md](docs/LINUX_SHELL.md).
 
 ## 1. Check what branch you are on first
 
-This repository uses a five-branch model, documented in full in
-[docs/BRANCHING.md](docs/BRANCHING.md). The part you must not get wrong:
+See [docs/BRANCHING.md](docs/BRANCHING.md) for the branch model.
 
-- `main` is **deployment only**. Never commit to it, never branch from it (except a
-  `hotfix/<slug>`), never merge into it outside a deployment. The single exception is
-  `.github/workflows/ci.yml`: `main` is the default branch, only the default branch writes
-  the build cache, and only its own copy of a workflow is what a scheduled run executes, so
-  the file has to be current there. Nothing else earns that exception.
-- `development` is the trunk. Cross-platform work is cut from it and merges back to it.
-- `platform/macos`, `platform/linux`, `platform/windows` hold work that exists only to
-  satisfy one operating system's API.
+- `development` is the trunk for shared code, documentation, macOS and Windows. Cut a
+  short-lived `feature/<slug>` or `fix/<slug>` from it and open a pull request back into it.
+  A single pull request may contain both native shells and the shared code they use.
+- `main` is deployment only. Deploy through a pull request from `development`. An urgent
+  production fix uses a `hotfix/<slug>` from `main` and is merged back into `development`
+  afterwards. The default-branch copy of `.github/workflows/ci.yml` may be kept current
+  between deployments so scheduled cache builds use it.
+- `platform/linux` is the Linux alpha integration branch. Linux-only work branches target
+  it. Shared contracts land on `development` and Linux maintainers merge them in when needed.
 
-Before you write anything, answer: **would this change be wrong to leave out on another
-platform?**
-
-- **Yes** → it is cross-platform. Work on `feature/<slug>` or `fix/<slug>` cut from
-  `development`. This covers everything in `crates/`, `goosic-protocol`, shared shell rules,
-  the Makefile, and every document.
-- **No**, it exists only because of one OS's API → work on `feature/<os>/<slug>` cut from
-  `platform/<os>`, where `<os>` is `macos`, `linux`, or `windows`.
-
-If you are unsure, choose `development`. A shared change made on a platform branch is
-invisible to the other two until that branch lands, which is how this repository would get a
-three-way conflict in the same file.
-
-**A platform branch should not be the first place a shared file changes.** If Linux work
-seems to need a new field in `goosic-protocol`, that need is not Linux-specific: land it on
-`development` first, sync it down, then build the platform-specific part on top.
-
-Never merge one `platform/*` into another. Never rebase a long-lived branch — they are
-shared, and rewriting their history breaks every other copy.
+Keep long-lived history intact. Update a work branch when its pull request needs it.
 
 ## 2. Commands
 
@@ -55,12 +37,11 @@ make package-macos   # the download a tester installs; see docs/RELEASING.md
 sh tools/release.sh <x.y.z>  # a release, end to end; see docs/RELEASING.md
 ```
 
-`make test` must pass before you hand work back. CI repeats it on Linux, macOS, and
-Windows for every push, and on Windows it also runs the WinUI shell's presentation tests and
-builds that app — see [docs/BRANCHING.md](docs/BRANCHING.md) — so a change that only
-compiles on the platform you are working on will be caught, but it is cheaper to notice it
-yourself: platform-specific code inside a `#if` is invisible to the compiler you are running. On Linux, `cargo fmt` and `cargo clippy`
-need separate packages on a distribution-packaged Rust — see the README's Prerequisites.
+`make test` must pass before you hand work back. CI runs the affected suites for pull
+requests and integration pushes. When selected, the Rust suite runs on all three operating
+systems and the Windows suite tests the presentation rules and builds WinUI. Source behind a
+platform-specific `#if` needs a build on that platform. See [docs/BRANCHING.md](docs/BRANCHING.md)
+for CI and the README's Prerequisites for the Linux formatting and lint packages.
 
 ## 3. Invariants that are not yours to change
 
@@ -180,9 +161,8 @@ lands on `development` first.
 
 ## 5. Keep the working copy tidy
 
-Merges down the branch tree are automatic and finished branches are pruned from the remote
-weekly, so a local clone accumulates branches whose upstream no longer exists. Clear them at
-the start of a session, or any time the branch list stops being readable:
+Finished branches are pruned from the remote weekly, so a local clone accumulates branches
+whose upstream no longer exists. Clear them when the branch list stops being readable:
 
 ```sh
 git fetch --prune
@@ -198,7 +178,7 @@ instead of parsing `git branch -vv` because the latter marks the current branch 
 asterisk, which ends up in the branch name and produces a confusing failure.
 
 This only touches your own clone. Deleting anything on the remote is the pruning workflow's
-job, and it only removes branches whose commits already live in their parent.
+job, and it only removes branches whose commits already live in an integration branch.
 
 ## 6. Conventions
 
@@ -207,8 +187,8 @@ job, and it only removes branches whose commits already live in their parent.
   same change.
 - **Prose over bullets in `docs/`.** Existing documents explain *why* a contract exists, not
   just what it is. Match that.
-- **Codex reviews releases, not pull requests.** Do not ask for `@codex review` on a feature,
-  fix or promotion pull request unless the user asks; it is requested once, on the deploy pull
+- **Codex reviews releases, not pull requests.** Do not ask for `@codex review` on a feature
+  or fix pull request unless the user asks. It is requested once, on the deploy pull
   request into `main`, whose diff is everything since the last release. See
   [docs/RELEASING.md](docs/RELEASING.md#codex-reviews-the-release).
 - **Commit messages** state what changed and why it had to change, in the imperative. No
@@ -281,9 +261,8 @@ three shells.
    Say which, and why. "Does not apply" is the only exemption, and only for that reason.
 3. **Make the change on both macOS and Windows, in the same piece of work.** A rule (a
    curve, an order, a limit, a validation, a timing) lands in `goosic-shell-support` on
-   `development` first. Each shell's part is then made on that platform's own branch, as
-   section 1 says, never on the other platform's, and each gets its own pull request. The work
-   is handed back only when both are open, with each one linking the other.
+   `development`. Include both native implementations and any shared rule changes in the
+   same pull request into `development` when they can be reviewed and tested together.
 4. **When macOS or Windows cannot be changed now** -- it cannot be built or checked on the machine at
    hand, or the user explicitly says to stop at one -- say so before handing back, and open an
    issue labelled `parity` for it that names the files to change and what done looks like, and

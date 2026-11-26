@@ -95,10 +95,8 @@ and compilation do not establish a screenshot match or live singing alignment.
 This section is the September 30, 2026 handoff for Windows and Linux. Read
 [UI_DESIGN.md](UI_DESIGN.md) before changing presentation; that document remains the shared
 product design authority. Lyricsfile parsing and source selection are shared Rust service
-work, not a new HTTP client to implement separately in each shell. Synchronize development
-into the platform branches before native work. Changes to wire fields, shell-support rules,
-FFI bindings or this documentation land on development first; native rendering, dialogs and
-accessibility integrations follow `platform/windows` or `platform/linux`.
+work. Windows native work and shared rules target `development`. Linux-only changes target
+`platform/linux`, which takes shared changes from `development` as needed.
 
 The user explicitly kept the Music-like lyric treatment after the first audit removed too
 much of it. Preserve contextual blur, fading, active-line emphasis and smooth following.
