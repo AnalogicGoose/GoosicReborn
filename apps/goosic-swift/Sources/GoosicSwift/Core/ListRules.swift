@@ -101,41 +101,6 @@ struct QueueSource: Equatable {
     let title: String
     /// The page that queued it, or `nil` for a queue no page owns, such as a radio.
     let key: CatalogKey?
-
-    static func radio(_ track: GoosicTrack) -> QueueSource {
-        QueueSource(title: "\(track.title) radio", key: nil)
-    }
-}
-
-/// Words the player shows about the queue, a list's length, and the sleep timer.
-enum PlayerText {
-    /// "From Liked Music · 99 songs": where the queue came from, then what is left.
-    static func upNext(source: String?, remaining: Int, findingMore: Bool) -> String {
-        let prefix = (source?.isEmpty == false) ? "From \(source!) · " : ""
-        let count: String
-        switch remaining {
-        case 0 where findingMore: count = "Finding songs like this…"
-        case 0: count = "Nothing after this"
-        case 1: count = "1 song"
-        default: count = "\(remaining) songs"
-        }
-        return prefix + count
-    }
-
-    /// "100 songs", or "100+ songs" while a continuation is still pending: a partial list must
-    /// not present itself as complete.
-    static func songCount(_ count: Int, hasMore: Bool) -> String {
-        let number = hasMore ? "\(count)+" : "\(count)"
-        return count == 1 && !hasMore ? "1 song" : "\(number) songs"
-    }
-
-    /// The sleep timer's menu label: off, at the end of the song, or the minutes left.
-    static func sleepTimer(remaining: TimeInterval?, endOfSong: Bool) -> String {
-        if endOfSong { return "Sleep timer: end of song" }
-        guard let remaining else { return "Sleep timer" }
-        // Rounded up, so the last half-minute reads "1 min left" rather than "0".
-        return "Sleep timer: \(max(1, Int((remaining / 60).rounded(.up)))) min left"
-    }
 }
 
 /// When the sleep timer stops the music.

@@ -75,6 +75,16 @@ lipo -create -output "$app/Contents/MacOS/goosic-service" \
     "$rust_target/aarch64-apple-darwin/release/goosic-service" \
     "$rust_target/x86_64-apple-darwin/release/goosic-service"
 
+# The shared shell rules, linked into the app statically: one universal archive, so the
+# executable carries both architectures' copies and the bundle ships no extra library.
+cargo build --release --target aarch64-apple-darwin --target x86_64-apple-darwin \
+    -p goosic-shell-support-ffi
+ffi_library="$stage/libgoosic_shell_support_ffi.a"
+lipo -create -output "$ffi_library" \
+    "$rust_target/aarch64-apple-darwin/release/libgoosic_shell_support_ffi.a" \
+    "$rust_target/x86_64-apple-darwin/release/libgoosic_shell_support_ffi.a"
+export GOOSIC_FFI_LIBRARY="$ffi_library"
+
 GOOSIC_MACOS_SDK="$(xcrun --sdk macosx --show-sdk-version)" swift build -c release \
     --package-path apps/goosic-swift --scratch-path "$scratch" \
     --arch arm64 --arch x86_64
