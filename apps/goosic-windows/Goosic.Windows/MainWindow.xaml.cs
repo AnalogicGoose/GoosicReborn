@@ -22,9 +22,10 @@ public sealed partial class MainWindow : Window
     private OfficialPlaybackHost? _playback;
     private SystemMediaControls? _media;
     private PersonalCatalogHost? _personal;
-    private readonly Views.MeshBackground _fullPlayerMesh = new();
+    private readonly Views.FullPlayerArtworkBackdrop _fullPlayerArtworkBackdrop = new();
     private readonly Views.ArtworkBackdropRenderer _backdropRenderer = new();
-    private string? _paletteFor;
+    private string? _fullPlayerArtworkFile;
+    private int _artworkRequest;
     private bool _fullPlayerSeeking;
     private bool _seeking;
     private WindowWidthClass _widthClass = WindowWidthClass.Wide;
