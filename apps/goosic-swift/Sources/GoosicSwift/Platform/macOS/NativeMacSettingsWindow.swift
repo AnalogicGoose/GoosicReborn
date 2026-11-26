@@ -127,10 +127,26 @@ private struct NativeMacGeneralSettings: SwiftUI.View {
             .padding(.top, 8)
 
             if NativeMacUpdater.shared.isAvailable {
-                SwiftUI.LabeledContent("Updates:") {
-                    SwiftUI.Button("Check for Updates…") { NativeMacUpdater.shared.check() }
+                SwiftUI.Picker("Updates:", selection: SwiftUI.Binding(
+                    get: { model.updateChannel }, set: { model.setUpdateChannel($0) }
+                )) {
+                    SwiftUI.Text("Stable").tag("stable")
+                    SwiftUI.Text("Experimental").tag("experimental")
                 }
+                .fixedSize()
                 .padding(.top, 8)
+                .accessibilityIdentifier("settings.updateChannel")
+                SwiftUI.LabeledContent("") {
+                    SwiftUI.VStack(alignment: .leading, spacing: 8) {
+                        SwiftUI.Text(model.updateChannel == "experimental"
+                            ? "Get pre-release builds with new features first. They may have rough edges."
+                            : "Get tested releases only.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        SwiftUI.Button("Check for Updates…") { NativeMacUpdater.shared.check() }
+                    }
+                }
             }
         }
     }

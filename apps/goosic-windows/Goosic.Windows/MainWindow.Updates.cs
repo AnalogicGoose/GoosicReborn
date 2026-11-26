@@ -53,7 +53,7 @@ public sealed partial class MainWindow : Window
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            _update = await AppUpdater.CheckAsync(timeout.Token);
+            _update = await AppUpdater.CheckAsync(Model.UpdateChannel, timeout.Token);
             ShowUpdate();
             if (announce && _update is { } found)
             {
