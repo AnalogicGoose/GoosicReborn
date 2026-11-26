@@ -426,7 +426,7 @@ impl QueueEngine {
                 self.repeat = repeat;
                 self.autoplay = autoplay;
             }
-            Command::SetRadioAccount { account_id } => self.set_radio_account(account_id),
+            Command::SetRadioAccount { account_id } => self.set_radio_account(&mut out, account_id),
             Command::Launch {
                 tracks,
                 start,
@@ -741,9 +741,8 @@ impl QueueEngine {
     /// A station reads one account's recommendations. When the account changes, a personal
     /// station starts over from its seed for the new reader: its cursor means nothing to them,
     /// and a top-up sent with the old account would fail on every skip. Any in-flight fetch is
-    /// cancelled without starting a new one here, because account transitions are often followed
-    /// by a queue reset or profile rebind; the next move or top-up fetches from the new account.
-    fn set_radio_account(&mut self, account_id: Option<String>) {
+    /// cancelled. Restart immediately only when playback is waiting for the next track.
+    fn set_radio_account(&mut self, out: &mut Output, account_id: Option<String>) {
         self.radio_account = account_id;
         let account = self.radio_account.clone();
         let Some(station) = self.station.as_ref() else {
@@ -755,7 +754,9 @@ impl QueueEngine {
         self.station = Some(Station::new(station.seed.clone(), account));
         self.station_revision += 1;
         self.pending_radio = None;
-        self.awaiting_more = None;
+        if self.awaiting_more == Some(self.play_sequence) {
+            self.request_radio(out);
+        }
         self.revision += 1;
     }
 

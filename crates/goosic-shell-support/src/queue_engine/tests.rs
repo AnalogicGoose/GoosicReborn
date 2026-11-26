@@ -819,6 +819,39 @@ fn an_account_change_mid_request_cancels_the_old_fetch_for_the_next_move() {
 }
 
 #[test]
+fn account_switch_resumes_an_ended_track_waiting_for_radio() {
+    let mut q = engine();
+    q.handle(Command::SetRadioAccount {
+        account_id: Some("one".into()),
+    });
+    let first = q.handle(Command::StartRadio {
+        track: track("seed"),
+    });
+    let (old, ..) = radio_request(&first).unwrap();
+    q.handle(Command::Ended);
+    let switched = q.handle(Command::SetRadioAccount {
+        account_id: Some("two".into()),
+    });
+    let (new, _, cursor, account) = radio_request(&switched).unwrap();
+    assert_ne!(old, new);
+    assert_eq!(cursor, None);
+    assert_eq!(account.as_deref(), Some("two"));
+    let stale = q.handle(Command::RadioLoaded {
+        request: old,
+        tracks: tracks(&["stale"]),
+        next_cursor: None,
+    });
+    assert!(stale.snapshot.radio_loading);
+    assert_eq!(video_ids(&q), ["seed"]);
+    let loaded = q.handle(Command::RadioLoaded {
+        request: new,
+        tracks: tracks(&["fresh"]),
+        next_cursor: None,
+    });
+    assert_eq!(played_video(&q, &loaded).as_deref(), Some("fresh"));
+}
+
+#[test]
 fn autoplay_does_not_refill_a_cleared_up_next() {
     let mut engine = engine();
     ordered(&mut engine, &["a", "b", "c"], None);
